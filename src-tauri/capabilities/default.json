@@ -11,6 +11,7 @@
     "dialog:allow-ask",
     "dialog:allow-message",
     "shell:default",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    "deep-link:default"
   ]
 }

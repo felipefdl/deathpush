@@ -46,6 +46,7 @@ impl PtySession {
       .map(|n| n.to_string_lossy().to_string())
       .unwrap_or_else(|| shell.clone());
     let mut cmd = CommandBuilder::new(&shell);
+    cmd.arg("-l");
     cmd.env("TERM", "xterm-256color");
     cmd.cwd(cwd);
 

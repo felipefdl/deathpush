@@ -11,8 +11,8 @@ use crate::git::status::get_repository_status;
 use crate::git::watcher::{self, WatcherState};
 use crate::types::{ProjectInfo, RepositoryStatus};
 
-pub struct CliArgs {
-  pub path: Mutex<Option<String>>,
+pub struct CliPaths {
+  pub paths: Mutex<HashMap<String, String>>,
 }
 
 #[derive(Default)]
@@ -72,8 +72,8 @@ pub fn open_repository(
 }
 
 #[tauri::command]
-pub fn get_initial_path(state: State<'_, CliArgs>) -> Option<String> {
-  state.path.lock().ok().and_then(|mut p| p.take())
+pub fn get_initial_path(state: State<'_, CliPaths>, window: WebviewWindow) -> Option<String> {
+  state.paths.lock().ok().and_then(|mut map| map.remove(window.label()))
 }
 
 #[tauri::command]

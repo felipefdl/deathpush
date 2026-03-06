@@ -8,15 +8,25 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-use commands::repository::{AppRepoState, CliArgs};
+use commands::repository::{AppRepoState, CliPaths};
 use commands::{blame, branch, cli, commit, config, file_ops, lifecycle, log, remote, repository, staging, stash, status, tag, terminal};
 use git::watcher::WatcherState;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::webview::{WebviewWindowBuilder};
 use tauri::window::Color;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WindowEvent};
+use tauri_plugin_deep_link::DeepLinkExt;
 
 static WINDOW_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+fn extract_path_from_url(url: &url::Url) -> Option<String> {
+  let path = url.path().to_string();
+  if !path.is_empty() && std::path::Path::new(&path).is_dir() {
+    Some(path)
+  } else {
+    None
+  }
+}
 
 fn create_window(app_handle: &AppHandle) -> Result<tauri::WebviewWindow, tauri::Error> {
   let id = WINDOW_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -46,11 +56,49 @@ pub fn run() {
     .manage(pty::TerminalState::new(HashMap::new()))
     .manage(WatcherState::new(HashMap::new()))
     .setup(|app| {
-      let cli_path = std::env::args().nth(1).and_then(|p| {
-        let path = std::path::Path::new(&p);
-        if path.is_dir() { Some(p) } else { None }
+      let mut initial_paths = HashMap::new();
+
+      // Direct binary invocation: ./deathpush /path
+      if let Some(p) = std::env::args().nth(1) {
+        if std::path::Path::new(&p).is_dir() {
+          initial_paths.insert("main".to_string(), p);
+        }
+      }
+
+      // Deep link launch: open deathpush:///path (macOS delivers URL that launched the app)
+      #[cfg(target_os = "macos")]
+      if let Ok(Some(urls)) = app.deep_link().get_current() {
+        if let Some(path) = urls.first().and_then(extract_path_from_url) {
+          initial_paths.insert("main".to_string(), path);
+        }
+      }
+
+      app.manage(CliPaths { paths: Mutex::new(initial_paths) });
+
+      // Handle deep links while app is already running.
+      // The callback runs on the main thread (macOS Apple Event handler), so we must
+      // spawn the window creation asynchronously to avoid deadlocking the event loop.
+      let handle = app.handle().clone();
+      app.deep_link().on_open_url(move |event| {
+        let urls = event.urls();
+        if let Some(url) = urls.first() {
+          if let Some(path) = extract_path_from_url(url) {
+            let h = handle.clone();
+            std::thread::spawn(move || {
+              match create_window(&h) {
+                Ok(window) => {
+                  if let Some(state) = h.try_state::<CliPaths>() {
+                    if let Ok(mut map) = state.paths.lock() {
+                      map.insert(window.label().to_string(), path);
+                    }
+                  }
+                }
+                Err(e) => tracing::error!("failed to create window for deep link: {:?}", e),
+              }
+            });
+          }
+        }
       });
-      app.manage(CliArgs { path: Mutex::new(cli_path) });
 
       git::cli::set_app_handle(app.handle().clone());
 
@@ -262,6 +310,7 @@ pub fn run() {
         }
       }
     })
+    .plugin(tauri_plugin_deep_link::init())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_shell::init())
     .invoke_handler(tauri::generate_handler![

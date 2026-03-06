@@ -1,6 +1,6 @@
 #!/bin/bash
 # DeathPush CLI launcher (macOS / Linux)
-# Resolves the app bundle from the symlink and opens the app with a directory argument.
+# macOS: opens via deep link URL (deathpush://). Linux: launches the binary directly.
 
 set -euo pipefail
 
@@ -18,15 +18,8 @@ fi
 
 case "$(uname)" in
   Darwin)
-    # macOS: Contents/Resources/resources/bin/dp -- up 5 to the .app bundle
-    CONTENTS_DIR="$(dirname "$(dirname "$(dirname "$(dirname "$SCRIPT_PATH")")")")"
-    APP_BUNDLE="$(dirname "$CONTENTS_DIR")"
-    if [ ! -d "$APP_BUNDLE" ]; then
-      echo "Error: DeathPush.app not found at $APP_BUNDLE" >&2
-      echo "Please reinstall the CLI tool from DeathPush > Install Command Line Tool..." >&2
-      exit 1
-    fi
-    open -a "$APP_BUNDLE" --args "$TARGET"
+    # macOS: use deep link URL -- works whether app is running or not
+    open "deathpush://$TARGET"
     ;;
   *)
     # Linux: resources/bin/dp sits alongside the binary
