@@ -195,19 +195,19 @@ export const App = () => {
           if (status.installed) {
             const shouldUninstall = await confirm(
               "Command line tools 'dp' and 'deathpush' are already installed. Would you like to uninstall them?",
-              { title: "Command Line Tool", kind: "info" },
+              { title: "Command Line Tool", kind: "warning", okLabel: "Uninstall", cancelLabel: "Cancel" },
             );
             if (!shouldUninstall) return;
             await commands.uninstallCli();
             await message("Command line tools have been uninstalled.", { title: "Command Line Tool" });
           } else {
             const shouldInstall = await confirm(
-              "Install 'dp' and 'deathpush' commands to /usr/local/bin?\n\nYou can then use 'dp .' or 'deathpush /path/to/repo' from any terminal.",
-              { title: "Install Command Line Tool", kind: "info" },
+              "Install dp and deathpush commands to /usr/local/bin so you can open repositories from any terminal.\n\nExamples:\n  dp .\n  deathpush ~/projects/my-repo",
+              { title: "Install Command Line Tool", kind: "warning", okLabel: "Install", cancelLabel: "Cancel" },
             );
             if (!shouldInstall) return;
             await commands.installCli();
-            await message("Command line tools installed successfully.\n\nUse 'dp .' or 'deathpush /path/to/repo' to open a repository.", { title: "Command Line Tool" });
+            await message("Commands dp and deathpush installed successfully. Restart your terminal to start using them.", { title: "Command Line Tool" });
           }
         } catch (err) {
           if (String(err).includes("Authorization cancelled")) return;

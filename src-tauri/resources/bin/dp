@@ -6,33 +6,6 @@ set -euo pipefail
 
 SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$0")"
 
-case "$(uname)" in
-  Darwin)
-    # macOS: resources/bin/dp -> Contents/Resources/resources/bin/dp
-    # binary at Contents/MacOS/deathpush
-    APP_DIR="$(dirname "$(dirname "$(dirname "$SCRIPT_PATH")")")"
-    BINARY="$APP_DIR/MacOS/deathpush"
-    ;;
-  *)
-    # Linux: resources/bin/dp sits alongside the binary
-    # Installed structure: /usr/bin/deathpush + /usr/lib/deathpush/resources/bin/dp
-    # Or AppImage-like: same dir structure
-    APP_DIR="$(dirname "$(dirname "$(dirname "$SCRIPT_PATH")")")"
-    BINARY="$APP_DIR/deathpush"
-    if [ ! -x "$BINARY" ]; then
-      # Fallback: binary might be a sibling of the resources dir
-      BINARY="$(dirname "$(dirname "$SCRIPT_PATH")")/../deathpush"
-      BINARY="$(cd "$(dirname "$BINARY")" && pwd)/$(basename "$BINARY")"
-    fi
-    ;;
-esac
-
-if [ ! -x "$BINARY" ]; then
-  echo "Error: DeathPush binary not found at $BINARY" >&2
-  echo "Please reinstall the CLI tool from DeathPush > Install Command Line Tool..." >&2
-  exit 1
-fi
-
 TARGET="${1:-.}"
 
 # Convert relative paths to absolute
@@ -43,4 +16,32 @@ if [[ "$TARGET" != /* ]]; then
   }
 fi
 
-exec "$BINARY" "$TARGET"
+case "$(uname)" in
+  Darwin)
+    # macOS: Contents/Resources/resources/bin/dp -- up 5 to the .app bundle
+    CONTENTS_DIR="$(dirname "$(dirname "$(dirname "$(dirname "$SCRIPT_PATH")")")")"
+    APP_BUNDLE="$(dirname "$CONTENTS_DIR")"
+    if [ ! -d "$APP_BUNDLE" ]; then
+      echo "Error: DeathPush.app not found at $APP_BUNDLE" >&2
+      echo "Please reinstall the CLI tool from DeathPush > Install Command Line Tool..." >&2
+      exit 1
+    fi
+    open -a "$APP_BUNDLE" --args "$TARGET"
+    ;;
+  *)
+    # Linux: resources/bin/dp sits alongside the binary
+    APP_DIR="$(dirname "$(dirname "$(dirname "$SCRIPT_PATH")")")"
+    BINARY="$APP_DIR/deathpush"
+    if [ ! -x "$BINARY" ]; then
+      BINARY="$(dirname "$(dirname "$SCRIPT_PATH")")/../deathpush"
+      BINARY="$(cd "$(dirname "$BINARY")" && pwd)/$(basename "$BINARY")"
+    fi
+    if [ ! -x "$BINARY" ]; then
+      echo "Error: DeathPush binary not found at $BINARY" >&2
+      echo "Please reinstall the CLI tool from DeathPush > Install Command Line Tool..." >&2
+      exit 1
+    fi
+    nohup "$BINARY" "$TARGET" >/dev/null 2>&1 &
+    disown
+    ;;
+esac
