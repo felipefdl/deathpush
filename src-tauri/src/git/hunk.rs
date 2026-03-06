@@ -209,4 +209,124 @@ index abc..def 100644
     assert!(patch.contains("-line2\n"));
     assert!(patch.contains("+line2_modified\n"));
   }
+
+  #[test]
+  fn test_multi_hunk_diff() {
+    let diff = "\
+diff --git a/file.rs b/file.rs
+index abc..def 100644
+--- a/file.rs
++++ b/file.rs
+@@ -1,3 +1,4 @@
+ line1
++inserted
+ line2
+ line3
+@@ -10,3 +11,4 @@
+ line10
++another
+ line11
+ line12
+";
+
+    let hunks = parse_unified_diff(diff);
+    assert_eq!(hunks.len(), 2);
+    assert_eq!(hunks[0].old_start, 1);
+    assert_eq!(hunks[0].old_lines, 3);
+    assert_eq!(hunks[0].new_start, 1);
+    assert_eq!(hunks[0].new_lines, 4);
+    assert_eq!(hunks[1].old_start, 10);
+    assert_eq!(hunks[1].old_lines, 3);
+    assert_eq!(hunks[1].new_start, 11);
+    assert_eq!(hunks[1].new_lines, 4);
+  }
+
+  #[test]
+  fn test_single_number_range() {
+    let diff = "\
+@@ -10 +10 @@
+-old
++new
+";
+
+    let hunks = parse_unified_diff(diff);
+    assert_eq!(hunks.len(), 1);
+    assert_eq!(hunks[0].old_start, 10);
+    assert_eq!(hunks[0].old_lines, 1);
+    assert_eq!(hunks[0].new_start, 10);
+    assert_eq!(hunks[0].new_lines, 1);
+  }
+
+  #[test]
+  fn test_header_with_function_context() {
+    let diff = "\
+@@ -1,4 +1,5 @@ fn main()
+ line1
++added
+ line2
+";
+
+    let hunks = parse_unified_diff(diff);
+    assert_eq!(hunks.len(), 1);
+    assert!(hunks[0].header.contains("fn main()"));
+  }
+
+  #[test]
+  fn test_generate_hunk_patch_second_hunk() {
+    let diff = "\
+diff --git a/file.rs b/file.rs
+index abc..def 100644
+--- a/file.rs
++++ b/file.rs
+@@ -1,3 +1,3 @@
+ line1
+-old1
++new1
+ line3
+@@ -10,3 +10,3 @@
+ line10
+-old2
++new2
+ line12
+";
+
+    let patch = generate_hunk_patch("file.rs", diff, 1).unwrap();
+    assert!(patch.contains("@@ -10,3 +10,3 @@"));
+    assert!(patch.contains("-old2\n"));
+    assert!(patch.contains("+new2\n"));
+    assert!(!patch.contains("-old1"));
+  }
+
+  #[test]
+  fn test_generate_hunk_patch_synthesizes_header() {
+    let diff = "\
+@@ -1,3 +1,3 @@
+ line1
+-old
++new
+ line3
+";
+
+    let patch = generate_hunk_patch("test.rs", diff, 0).unwrap();
+    assert!(patch.contains("diff --git a/test.rs b/test.rs"));
+    assert!(patch.contains("--- a/test.rs"));
+    assert!(patch.contains("+++ b/test.rs"));
+  }
+
+  #[test]
+  fn test_generate_hunk_patch_out_of_range() {
+    let diff = "\
+diff --git a/file.rs b/file.rs
+--- a/file.rs
++++ b/file.rs
+@@ -1,3 +1,3 @@
+ line1
+-old
++new
+ line3
+";
+
+    let result = generate_hunk_patch("file.rs", diff, 5);
+    assert!(result.is_err());
+  }
 }

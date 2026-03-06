@@ -190,6 +190,134 @@ pub async fn get_file_log(
   Ok(entries)
 }
 
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_single_commit_adjacent_lines_merged() {
+    let output = "\
+abc1234567890 1 1 3
+author John Doe
+author-mail <john@example.com>
+author-time 1700000000
+author-tz +0000
+committer John Doe
+committer-mail <john@example.com>
+committer-time 1700000000
+committer-tz +0000
+summary Initial commit
+filename test.txt
+\tline one
+abc1234567890 2 2
+\tline two
+abc1234567890 3 3
+\tline three
+";
+
+    let groups = parse_porcelain_blame(output);
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].commit_id, "abc1234567890");
+    assert_eq!(groups[0].short_id, "abc1234");
+    assert_eq!(groups[0].author_name, "John Doe");
+    assert_eq!(groups[0].author_email, "john@example.com");
+    assert_eq!(groups[0].summary, "Initial commit");
+    assert_eq!(groups[0].start_line, 1);
+    assert_eq!(groups[0].end_line, 3);
+  }
+
+  #[test]
+  fn test_multiple_commits_separate_groups() {
+    let output = "\
+aaa1234567890 1 1 1
+author Alice
+author-mail <alice@example.com>
+author-time 1700000000
+author-tz +0000
+committer Alice
+committer-mail <alice@example.com>
+committer-time 1700000000
+committer-tz +0000
+summary First
+filename test.txt
+\tline one
+bbb1234567890 2 2 1
+author Bob
+author-mail <bob@example.com>
+author-time 1700001000
+author-tz +0000
+committer Bob
+committer-mail <bob@example.com>
+committer-time 1700001000
+committer-tz +0000
+summary Second
+filename test.txt
+\tline two
+";
+
+    let groups = parse_porcelain_blame(output);
+    assert_eq!(groups.len(), 2);
+    assert_eq!(groups[0].author_name, "Alice");
+    assert_eq!(groups[0].summary, "First");
+    assert_eq!(groups[0].start_line, 1);
+    assert_eq!(groups[0].end_line, 1);
+    assert_eq!(groups[1].author_name, "Bob");
+    assert_eq!(groups[1].summary, "Second");
+    assert_eq!(groups[1].start_line, 2);
+    assert_eq!(groups[1].end_line, 2);
+  }
+
+  #[test]
+  fn test_empty_output() {
+    let groups = parse_porcelain_blame("");
+    assert!(groups.is_empty());
+  }
+
+  #[test]
+  fn test_same_commit_non_adjacent_no_false_merge() {
+    let output = "\
+aaa1234567890 1 1 1
+author Alice
+author-mail <alice@example.com>
+author-time 1700000000
+author-tz +0000
+committer Alice
+committer-mail <alice@example.com>
+committer-time 1700000000
+committer-tz +0000
+summary First
+filename test.txt
+\tline one
+bbb1234567890 2 2 1
+author Bob
+author-mail <bob@example.com>
+author-time 1700001000
+author-tz +0000
+committer Bob
+committer-mail <bob@example.com>
+committer-time 1700001000
+committer-tz +0000
+summary Second
+filename test.txt
+\tline two
+aaa1234567890 3 3
+\tline three
+";
+
+    let groups = parse_porcelain_blame(output);
+    assert_eq!(groups.len(), 3);
+    assert_eq!(groups[0].commit_id, "aaa1234567890");
+    assert_eq!(groups[0].start_line, 1);
+    assert_eq!(groups[0].end_line, 1);
+    assert_eq!(groups[1].commit_id, "bbb1234567890");
+    assert_eq!(groups[1].start_line, 2);
+    assert_eq!(groups[1].end_line, 2);
+    assert_eq!(groups[2].commit_id, "aaa1234567890");
+    assert_eq!(groups[2].start_line, 3);
+    assert_eq!(groups[2].end_line, 3);
+  }
+}
+
 pub async fn get_last_commit_info(repo_root: &Path) -> Result<LastCommitInfo> {
   let output = Command::new("git")
     .args(["log", "-1", "--format=%h|%s|%aI"])

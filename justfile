@@ -19,6 +19,7 @@ check:
 
 test:
   npx vitest run
+  cd src-tauri && cargo test
 
 test-watch:
   npx vitest

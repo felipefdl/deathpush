@@ -155,3 +155,107 @@ pub fn detect_language(path: &str) -> Option<String> {
   };
   Some(lang.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn detect_language_rs() {
+    assert_eq!(detect_language("main.rs"), Some("rust".to_string()));
+  }
+
+  #[test]
+  fn detect_language_ts() {
+    assert_eq!(detect_language("app.ts"), Some("typescript".to_string()));
+  }
+
+  #[test]
+  fn detect_language_tsx() {
+    assert_eq!(detect_language("component.tsx"), Some("typescript".to_string()));
+  }
+
+  #[test]
+  fn detect_language_js() {
+    assert_eq!(detect_language("index.js"), Some("javascript".to_string()));
+  }
+
+  #[test]
+  fn detect_language_json() {
+    assert_eq!(detect_language("package.json"), Some("json".to_string()));
+  }
+
+  #[test]
+  fn detect_language_html() {
+    assert_eq!(detect_language("index.html"), Some("html".to_string()));
+  }
+
+  #[test]
+  fn detect_language_css() {
+    assert_eq!(detect_language("style.css"), Some("css".to_string()));
+  }
+
+  #[test]
+  fn detect_language_md() {
+    assert_eq!(detect_language("README.md"), Some("markdown".to_string()));
+  }
+
+  #[test]
+  fn detect_language_py() {
+    assert_eq!(detect_language("script.py"), Some("python".to_string()));
+  }
+
+  #[test]
+  fn detect_language_go() {
+    assert_eq!(detect_language("main.go"), Some("go".to_string()));
+  }
+
+  #[test]
+  fn detect_language_sh() {
+    assert_eq!(detect_language("build.sh"), Some("shell".to_string()));
+  }
+
+  #[test]
+  fn detect_language_unknown_ext() {
+    assert_eq!(detect_language("file.xyz"), None);
+  }
+
+  #[test]
+  fn detect_language_no_extension() {
+    assert_eq!(detect_language("Makefile"), None);
+  }
+
+  #[test]
+  fn is_image_file_png() {
+    assert!(is_image_file("photo.png"));
+  }
+
+  #[test]
+  fn is_image_file_unknown_ext() {
+    assert!(!is_image_file("file.txt"));
+  }
+
+  #[test]
+  fn is_image_file_case_insensitive() {
+    assert!(is_image_file("FILE.PNG"));
+  }
+
+  #[test]
+  fn is_image_file_no_extension() {
+    assert!(!is_image_file("noext"));
+  }
+
+  #[test]
+  fn blob_to_data_uri_basic() {
+    let blob = b"hello";
+    let uri = blob_to_data_uri(blob, "test.png");
+    assert!(uri.starts_with("data:image/png;base64,"));
+    assert!(uri.len() > "data:image/png;base64,".len());
+  }
+
+  #[test]
+  fn blob_to_data_uri_empty() {
+    let uri = blob_to_data_uri(&[], "empty.jpg");
+    assert_eq!(uri, "data:image/jpeg;base64,");
+  }
+}

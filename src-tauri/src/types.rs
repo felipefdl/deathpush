@@ -209,3 +209,66 @@ pub struct ProjectInfo {
   pub path: String,
   pub name: String,
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn file_status_serializes_to_camel_case() {
+    let json = serde_json::to_string(&FileStatus::IndexModified).unwrap();
+    assert_eq!(json, "\"indexModified\"");
+  }
+
+  #[test]
+  fn repo_operation_state_serializes_to_camel_case() {
+    let json = serde_json::to_string(&RepoOperationState::CherryPicking).unwrap();
+    assert_eq!(json, "\"cherryPicking\"");
+  }
+
+  #[test]
+  fn resource_group_kind_serializes_to_camel_case() {
+    let json = serde_json::to_string(&ResourceGroupKind::WorkingTree).unwrap();
+    assert_eq!(json, "\"workingTree\"");
+  }
+
+  #[test]
+  fn repository_status_fields_serialize_as_camel_case() {
+    let status = RepositoryStatus {
+      root: "/tmp".to_string(),
+      head_branch: Some("main".to_string()),
+      head_commit: None,
+      ahead: 0,
+      behind: 0,
+      groups: vec![],
+      operation_state: RepoOperationState::None,
+    };
+    let json = serde_json::to_string(&status).unwrap();
+    assert!(json.contains("\"headBranch\""));
+    assert!(json.contains("\"headCommit\""));
+    assert!(json.contains("\"operationState\""));
+  }
+
+  #[test]
+  fn diff_hunk_and_line_fields_serialize_as_camel_case() {
+    let hunk = DiffHunk {
+      header: "@@ -1,3 +1,3 @@".to_string(),
+      old_start: 1,
+      old_lines: 3,
+      new_start: 1,
+      new_lines: 3,
+      lines: vec![DiffLine {
+        content: "hello".to_string(),
+        line_type: "add".to_string(),
+        old_line_number: None,
+        new_line_number: Some(1),
+      }],
+    };
+    let json = serde_json::to_string(&hunk).unwrap();
+    assert!(json.contains("\"oldStart\""));
+    assert!(json.contains("\"newLines\""));
+    assert!(json.contains("\"lineType\""));
+    assert!(json.contains("\"oldLineNumber\""));
+    assert!(json.contains("\"newLineNumber\""));
+  }
+}

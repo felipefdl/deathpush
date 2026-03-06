@@ -28,3 +28,39 @@ impl Serialize for Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn no_repository_display() {
+    let err = Error::NoRepository;
+    assert_eq!(err.to_string(), "No repository open");
+  }
+
+  #[test]
+  fn git_cli_display() {
+    let err = Error::GitCli("msg".into());
+    assert_eq!(err.to_string(), "Git CLI failed: msg");
+  }
+
+  #[test]
+  fn other_display() {
+    let err = Error::Other("custom".into());
+    assert_eq!(err.to_string(), "custom");
+  }
+
+  #[test]
+  fn error_serializes_to_string() {
+    let err = Error::NoRepository;
+    let json = serde_json::to_string(&err).unwrap();
+    assert_eq!(json, "\"No repository open\"");
+  }
+
+  #[test]
+  fn io_error_display_contains_io_error() {
+    let err = Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "nope"));
+    assert!(err.to_string().contains("IO error"));
+  }
+}
