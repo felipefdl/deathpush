@@ -4,6 +4,13 @@
 
 DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, React + TypeScript frontend) that replicates the VS Code Source Control UX. It provides staging, committing, diffing, branch management, push/pull, stash, tags, commit history, hunk staging, merge/rebase detection, clone, cherry-pick, reset, git blame, integrated terminal, settings, multi-window support, and a welcome/project picker screen in a lightweight native app.
 
+## Brand & Voice
+
+- DeathPush (or "dp" for short) is a dark humor brand name, intentionally edgy -- similar to Liquid Death. It is not offensive, it is branding.
+- Dark humor in copy, UI text, and documentation is intentional and must be preserved as-is.
+- Agents must NOT sanitize, tone-police, soften, or rewrite text for "marketing purposes" or politeness.
+- This is a git client, not a sensitivity project. Respect the developer audience.
+
 ## Tech Stack
 
 | Component | Technology |

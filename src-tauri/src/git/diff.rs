@@ -50,7 +50,8 @@ fn read_head_blob_base64(repo: &git2::Repository, path: &str) -> Option<String> 
 }
 
 fn read_index_blob_base64(repo: &git2::Repository, path: &str) -> Option<String> {
-  let index = repo.index().ok()?;
+  let mut index = repo.index().ok()?;
+  index.read(true).ok()?;
   let entry = index.get_path(Path::new(path), 0)?;
   let blob = repo.find_blob(entry.id).ok()?;
   Some(blob_to_data_uri(blob.content(), path))
@@ -120,7 +121,8 @@ fn read_head_blob(repo: &git2::Repository, path: &str) -> Option<String> {
 }
 
 fn read_index_blob(repo: &git2::Repository, path: &str) -> Option<String> {
-  let index = repo.index().ok()?;
+  let mut index = repo.index().ok()?;
+  index.read(true).ok()?;
   let entry = index.get_path(Path::new(path), 0)?;
   let blob = repo.find_blob(entry.id).ok()?;
   String::from_utf8(blob.content().to_vec()).ok()

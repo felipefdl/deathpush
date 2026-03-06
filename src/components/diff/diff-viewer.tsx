@@ -122,13 +122,39 @@ export const DiffViewer = () => {
         themeActionOrig.dispose();
         iconThemeActionOrig.dispose();
       };
+
+      // Explicitly set model content on mount to fix race condition where
+      // @monaco-editor/react creates empty models before populating them
+      const currentDiff = useRepositoryStore.getState().diff;
+      if (currentDiff) {
+        const origModel = editor.getOriginalEditor().getModel();
+        const modModel = editor.getModifiedEditor().getModel();
+        if (origModel) origModel.setValue(currentDiff.original);
+        if (modModel) {
+          knownModifiedRef.current = currentDiff.modified;
+          modModel.setValue(currentDiff.modified);
+        }
+      }
     },
     [setDiff, setError, setIsDiffDirty, setCursorLine],
   );
 
+  // Force-update original model when diff changes (handles same-file refresh from watcher)
+  useEffect(() => {
+    if (!editorRef.current || !diff) return;
+    const origModel = editorRef.current.getOriginalEditor().getModel();
+    if (origModel) origModel.setValue(diff.original);
+  }, [diff]);
+
   useEffect(() => {
     return () => {
       if (disposeRef.current) disposeRef.current();
+      // Dispose models to prevent stale content when the same file is reopened
+      if (editorRef.current) {
+        editorRef.current.getOriginalEditor().getModel()?.dispose();
+        editorRef.current.getModifiedEditor().getModel()?.dispose();
+        editorRef.current = null;
+      }
     };
   }, []);
 
@@ -150,6 +176,7 @@ export const DiffViewer = () => {
       <DiffHeader isDirty={isDiffDirty} />
       <div className="diff-editor-container">
         <DiffEditor
+          key={`${diff.path}:${selectedFile.staged}`}
           original={diff.original}
           modified={diff.modified}
           originalModelPath={`original/${diff.path}`}
