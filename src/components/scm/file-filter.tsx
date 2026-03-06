@@ -21,11 +21,16 @@ export const FileFilter = () => {
 
   return (
     <div className="file-filter">
-      <span className="codicon codicon-search" />
+      <span className="codicon codicon-search file-filter-icon" />
       <input
         className="file-filter-input"
-        type="text"
+        type="search"
         placeholder="Filter files..."
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        data-form-type="other"
         value={value}
         onChange={handleChange}
       />

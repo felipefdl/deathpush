@@ -79,6 +79,12 @@ textarea,
   cursor: text;
 }
 
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 button,
 [role="button"],
 select,

@@ -65,6 +65,11 @@ export const CloneDialog = ({ onClose }: CloneDialogProps) => {
           <input
             ref={inputRef}
             className="clone-dialog-input"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            data-form-type="other"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://github.com/user/repo.git"
@@ -75,6 +80,11 @@ export const CloneDialog = ({ onClose }: CloneDialogProps) => {
           <div className="clone-dialog-dir-row">
             <input
               className="clone-dialog-input"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-form-type="other"
               value={directory}
               onChange={(e) => setDirectory(e.target.value)}
               placeholder="Select a directory..."

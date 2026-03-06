@@ -85,8 +85,13 @@ export const IconThemePicker = ({ onClose }: IconThemePickerProps) => {
         <input
           ref={inputRef}
           className="theme-picker-input"
+          type="search"
           placeholder="Select File Icon Theme"
           autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          data-form-type="other"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />

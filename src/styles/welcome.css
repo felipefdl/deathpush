@@ -90,7 +90,7 @@
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  max-height: 320px;
+  height: 320px;
   border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
   border-radius: var(--radius-md);
   background: var(--vscode-sideBar-background, var(--vscode-editor-background));
@@ -116,7 +116,8 @@ body.hc-light .welcome-list {
   font-family: inherit;
 }
 
-.welcome-list-item:hover {
+.welcome-list-item:hover,
+.welcome-list-item.selected {
   background: var(--vscode-list-hoverBackground);
 }
 
@@ -199,4 +200,96 @@ body.hc-light .welcome-configure-btn {
 body.vs .welcome-configure-btn:hover,
 body.hc-light .welcome-configure-btn:hover {
   background: var(--vscode-list-hoverBackground, #e8e8e8);
+}
+
+.welcome-filter {
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  border-radius: var(--radius-md);
+  background: var(--vscode-input-background);
+  overflow: hidden;
+}
+
+.welcome-filter-icon {
+  padding-left: 8px;
+  font-size: 13px;
+  color: var(--vscode-input-foreground);
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.welcome-filter-input {
+  flex: 1;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-input-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+  outline: none;
+}
+
+.welcome-filter:focus-within {
+  border-color: var(--vscode-focusBorder);
+}
+
+.welcome-tree-folder {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--vscode-foreground);
+  width: 100%;
+  user-select: none;
+}
+
+.welcome-tree-folder:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.welcome-tree-folder-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.welcome-tree-chevron {
+  font-size: 14px;
+  transition: transform 0.1s ease;
+  flex-shrink: 0;
+}
+
+.welcome-tree-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.welcome-tree-project {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font-size: 13px;
+  font-family: inherit;
+  width: 100%;
+}
+
+.welcome-tree-project:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.welcome-tree-project-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--vscode-foreground);
 }

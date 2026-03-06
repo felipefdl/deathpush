@@ -416,26 +416,36 @@
 }
 
 .file-filter {
-  padding: 4px 8px;
   display: flex;
   align-items: center;
-  gap: 4px;
+  margin: 4px 8px;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--radius-xs);
+  background: var(--vscode-input-background);
+  overflow: hidden;
+}
+
+.file-filter-icon {
+  padding-left: 6px;
+  font-size: 13px;
+  color: var(--vscode-input-foreground);
+  opacity: 0.5;
+  flex-shrink: 0;
 }
 
 .file-filter-input {
   flex: 1;
   height: 22px;
-  padding: 0 4px;
-  border: 1px solid var(--vscode-input-border);
-  background: var(--vscode-input-background);
+  padding: 0 6px;
+  border: none;
+  background: transparent;
   color: var(--vscode-input-foreground);
   font-family: var(--vscode-font-family);
   font-size: 12px;
   outline: none;
-  border-radius: var(--radius-xs);
 }
 
-.file-filter-input:focus {
+.file-filter:focus-within {
   border-color: var(--vscode-focusBorder);
 }
 

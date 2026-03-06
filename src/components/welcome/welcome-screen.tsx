@@ -1,9 +1,73 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getRecentProjects, removeRecentProject, type RecentProject } from "../../lib/recent-projects";
 import { scanProjectsDirectory, type ProjectInfo } from "../../lib/tauri-commands";
+import { buildWorkspaceTree, type WorkspaceTreeNode } from "../../lib/workspace-tree";
 import { useSettingsStore } from "../../stores/settings-store";
 import { useThemeStore } from "../../stores/theme-store";
+
+interface WorkspaceFolderProps {
+  node: WorkspaceTreeNode;
+  depth: number;
+  onSelectProject: (path: string) => void;
+}
+
+const WorkspaceFolder = ({ node, depth, onSelectProject }: WorkspaceFolderProps) => {
+  const [collapsed, setCollapsed] = useState(!!node.name);
+
+  const sortedChildren = Array.from(node.children.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const sortedProjects = [...node.projects].sort((a, b) => a.name.localeCompare(b.name));
+
+  return (
+    <div>
+      {node.name && (
+        <div
+          className="welcome-tree-folder"
+          style={{ paddingLeft: 12 + depth * 16 }}
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          <span className={`codicon codicon-chevron-down welcome-tree-chevron ${collapsed ? "collapsed" : ""}`} />
+          <span className="codicon codicon-folder" />
+          <span className="welcome-tree-folder-name">{node.name}</span>
+        </div>
+      )}
+      {!collapsed && (
+        <>
+          {sortedChildren.map((child) => (
+            <WorkspaceFolder
+              key={child.name}
+              node={child}
+              depth={node.name ? depth + 1 : depth}
+              onSelectProject={onSelectProject}
+            />
+          ))}
+          {sortedProjects.map((project) => (
+            <button
+              key={project.path}
+              className="welcome-tree-project"
+              style={{ paddingLeft: 12 + (node.name ? depth + 1 : depth) * 16 }}
+              onClick={() => onSelectProject(project.path)}
+            >
+              <span className="codicon codicon-repo" />
+              <span className="welcome-tree-project-name">{project.name}</span>
+            </button>
+          ))}
+        </>
+      )}
+    </div>
+  );
+};
+
+interface WorkspaceTreeProps {
+  projects: ProjectInfo[];
+  rootDirectory: string;
+  onSelectProject: (path: string) => void;
+}
+
+const WorkspaceTree = ({ projects, rootDirectory, onSelectProject }: WorkspaceTreeProps) => {
+  const tree = buildWorkspaceTree(projects, rootDirectory);
+  return <WorkspaceFolder node={tree} depth={0} onSelectProject={onSelectProject} />;
+};
 
 interface WelcomeScreenProps {
   onOpenRepository: () => void;
@@ -11,9 +75,20 @@ interface WelcomeScreenProps {
   onSelectProject: (path: string) => void;
 }
 
+const IS_MAC = navigator.platform.toUpperCase().includes("MAC");
+const MOD_KEY = IS_MAC ? "\u2318" : "Ctrl+";
+
 export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectProject }: WelcomeScreenProps) => {
   const [recents, setRecents] = useState<RecentProject[]>([]);
+  const [recentFilter, setRecentFilter] = useState("");
+  const [recentIndex, setRecentIndex] = useState<number | null>(null);
   const [workspaceProjects, setWorkspaceProjects] = useState<ProjectInfo[]>([]);
+  const [workspaceFilter, setWorkspaceFilter] = useState("");
+  const [workspaceIndex, setWorkspaceIndex] = useState<number | null>(null);
+  const recentFilterRef = useRef<HTMLInputElement>(null);
+  const workspaceFilterRef = useRef<HTMLInputElement>(null);
+  const recentListRef = useRef<HTMLDivElement>(null);
+  const workspaceListRef = useRef<HTMLDivElement>(null);
   const projectsSettings = useSettingsStore((s) => s.settings.projects);
   const updateProjects = useSettingsStore((s) => s.updateProjects);
   const themeKind = useThemeStore((s) => s.currentTheme.kind);
@@ -32,6 +107,99 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
       setWorkspaceProjects([]);
     }
   }, [projectsSettings.projectsDirectory, projectsSettings.scanDepth]);
+
+  const filteredRecents = useMemo(() => {
+    if (!recentFilter) return recents;
+    const lower = recentFilter.toLowerCase();
+    return recents.filter((p) => p.name.toLowerCase().includes(lower) || p.path.toLowerCase().includes(lower));
+  }, [recents, recentFilter]);
+
+  const filteredWorkspaceProjects = useMemo(() => {
+    if (!workspaceFilter) return workspaceProjects;
+    const lower = workspaceFilter.toLowerCase();
+    return workspaceProjects.filter((p) => p.name.toLowerCase().includes(lower) || p.path.toLowerCase().includes(lower));
+  }, [workspaceProjects, workspaceFilter]);
+
+  useEffect(() => { setRecentIndex(null); }, [recentFilter]);
+  useEffect(() => { setWorkspaceIndex(null); }, [workspaceFilter]);
+
+  useEffect(() => {
+    if (recentIndex === null || !recentListRef.current) return;
+    const items = recentListRef.current.querySelectorAll(".welcome-list-item");
+    items[recentIndex]?.scrollIntoView({ block: "nearest" });
+  }, [recentIndex]);
+
+  useEffect(() => {
+    if (workspaceIndex === null || !workspaceListRef.current) return;
+    const items = workspaceListRef.current.querySelectorAll(".welcome-list-item");
+    items[workspaceIndex]?.scrollIntoView({ block: "nearest" });
+  }, [workspaceIndex]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMod = e.metaKey || e.ctrlKey;
+      if (isMod && e.key === "1") {
+        e.preventDefault();
+        recentFilterRef.current?.focus();
+      }
+      if (isMod && e.key === "2") {
+        e.preventDefault();
+        workspaceFilterRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const handleRecentKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setRecentIndex((prev) => {
+        const max = filteredRecents.length - 1;
+        return prev === null ? 0 : Math.min(prev + 1, max);
+      });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setRecentIndex((prev) => {
+        return prev === null ? 0 : Math.max(prev - 1, 0);
+      });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (recentIndex !== null && filteredRecents[recentIndex]) {
+        onSelectProject(filteredRecents[recentIndex].path);
+      } else if (filteredRecents.length > 0) {
+        setRecentIndex(0);
+      }
+    } else if (e.key === "Escape") {
+      recentFilterRef.current?.blur();
+      setRecentIndex(null);
+    }
+  }, [filteredRecents, recentIndex, onSelectProject]);
+
+  const handleWorkspaceKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setWorkspaceIndex((prev) => {
+        const max = filteredWorkspaceProjects.length - 1;
+        return prev === null ? 0 : Math.min(prev + 1, max);
+      });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setWorkspaceIndex((prev) => {
+        return prev === null ? 0 : Math.max(prev - 1, 0);
+      });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (workspaceIndex !== null && filteredWorkspaceProjects[workspaceIndex]) {
+        onSelectProject(filteredWorkspaceProjects[workspaceIndex].path);
+      } else if (filteredWorkspaceProjects.length > 0) {
+        setWorkspaceIndex(0);
+      }
+    } else if (e.key === "Escape") {
+      workspaceFilterRef.current?.blur();
+      setWorkspaceIndex(null);
+    }
+  }, [filteredWorkspaceProjects, workspaceIndex, onSelectProject]);
 
   const handleRemoveRecent = useCallback((e: React.MouseEvent, path: string) => {
     e.stopPropagation();
@@ -71,14 +239,34 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
         <div className="welcome-lists">
           <div className="welcome-list-section">
             <div className="welcome-list-header">Recent</div>
-            <div className="welcome-list">
+            <div className="welcome-filter">
+              <span className="codicon codicon-search welcome-filter-icon" />
+              <input
+                ref={recentFilterRef}
+                className="welcome-filter-input"
+                type="search"
+                placeholder={`Filter recent (${MOD_KEY}1)`}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                data-form-type="other"
+                value={recentFilter}
+                onChange={(e) => setRecentFilter(e.target.value)}
+                onKeyDown={handleRecentKeyDown}
+                onBlur={() => setRecentIndex(null)}
+              />
+            </div>
+            <div className="welcome-list" ref={recentListRef}>
               {recents.length === 0 ? (
                 <div className="welcome-list-empty">No recent projects</div>
+              ) : filteredRecents.length === 0 ? (
+                <div className="welcome-list-empty">No matching projects</div>
               ) : (
-                recents.map((project) => (
+                filteredRecents.map((project, i) => (
                   <button
                     key={project.path}
-                    className="welcome-list-item"
+                    className={`welcome-list-item${recentIndex === i ? " selected" : ""}`}
                     onClick={() => onSelectProject(project.path)}
                   >
                     <span className="codicon codicon-repo" />
@@ -101,31 +289,53 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
 
           <div className="welcome-list-section">
             <div className="welcome-list-header">Workspace</div>
-            {projectsSettings.projectsDirectory ? (
-              <div className="welcome-list">
-                {workspaceProjects.length === 0 ? (
-                  <div className="welcome-list-empty">No git repositories found</div>
-                ) : (
-                  workspaceProjects.map((project) => (
-                    <button
-                      key={project.path}
-                      className="welcome-list-item"
-                      onClick={() => onSelectProject(project.path)}
-                    >
-                      <span className="codicon codicon-repo" />
-                      <div className="welcome-list-item-info">
-                        <div className="welcome-list-item-name">{project.name}</div>
-                        <div className="welcome-list-item-path">{project.path}</div>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            ) : (
-              <div className="welcome-list">
+            <div className="welcome-filter">
+              <span className="codicon codicon-search welcome-filter-icon" />
+              <input
+                ref={workspaceFilterRef}
+                className="welcome-filter-input"
+                type="search"
+                placeholder={`Filter workspace (${MOD_KEY}2)`}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                data-form-type="other"
+                value={workspaceFilter}
+                onChange={(e) => setWorkspaceFilter(e.target.value)}
+                onKeyDown={handleWorkspaceKeyDown}
+                onBlur={() => setWorkspaceIndex(null)}
+              />
+            </div>
+            <div className="welcome-list" ref={workspaceListRef}>
+              {!projectsSettings.projectsDirectory ? (
                 <div className="welcome-list-empty">No projects directory configured</div>
-              </div>
-            )}
+              ) : workspaceProjects.length === 0 ? (
+                <div className="welcome-list-empty">No git repositories found</div>
+              ) : filteredWorkspaceProjects.length === 0 ? (
+                <div className="welcome-list-empty">No matching projects</div>
+              ) : projectsSettings.scanDepth > 1 && !workspaceFilter && workspaceIndex === null ? (
+                <WorkspaceTree
+                  projects={filteredWorkspaceProjects}
+                  rootDirectory={projectsSettings.projectsDirectory}
+                  onSelectProject={onSelectProject}
+                />
+              ) : (
+                filteredWorkspaceProjects.map((project, i) => (
+                  <button
+                    key={project.path}
+                    className={`welcome-list-item${workspaceIndex === i ? " selected" : ""}`}
+                    onClick={() => onSelectProject(project.path)}
+                  >
+                    <span className="codicon codicon-repo" />
+                    <div className="welcome-list-item-info">
+                      <div className="welcome-list-item-name">{project.name}</div>
+                      <div className="welcome-list-item-path">{project.path}</div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
             <button className="welcome-configure-btn" onClick={handleConfigureWorkspace}>
               {projectsSettings.projectsDirectory ? "Change Directory..." : "Set Projects Directory..."}
             </button>

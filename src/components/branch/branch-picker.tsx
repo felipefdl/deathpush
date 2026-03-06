@@ -69,6 +69,12 @@ export const BranchPicker = ({ onClose }: BranchPickerProps) => {
         <input
           ref={inputRef}
           className="branch-picker-input"
+          type="search"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          data-form-type="other"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={handleKeyDown}

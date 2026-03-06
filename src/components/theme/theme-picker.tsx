@@ -153,8 +153,13 @@ export const ThemePicker = ({ onClose }: ThemePickerProps) => {
         <input
           ref={inputRef}
           className="theme-picker-input"
+          type="search"
           placeholder="Select Color Theme"
           autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          data-form-type="other"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
