@@ -1,5 +1,6 @@
 pub mod blame;
 pub mod branch;
+pub mod cli;
 pub mod commit;
 pub mod config;
 pub mod file_ops;

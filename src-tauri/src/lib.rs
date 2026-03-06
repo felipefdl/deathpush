@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use commands::repository::{AppRepoState, CliArgs};
-use commands::{blame, branch, commit, config, file_ops, lifecycle, log, remote, repository, staging, stash, status, tag, terminal};
+use commands::{blame, branch, cli, commit, config, file_ops, lifecycle, log, remote, repository, staging, stash, status, tag, terminal};
 use git::watcher::WatcherState;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::webview::{WebviewWindowBuilder};
@@ -57,6 +57,8 @@ pub fn run() {
       let settings_item = MenuItemBuilder::with_id("preferences", "Settings...")
         .accelerator("CmdOrCtrl+,")
         .build(app)?;
+      let install_cli_item = MenuItemBuilder::with_id("install-cli", "Install Command Line Tool...")
+        .build(app)?;
 
       let open_repo_item = MenuItemBuilder::with_id("open-repo", "Open Repository...")
         .accelerator("CmdOrCtrl+O")
@@ -91,6 +93,7 @@ pub fn run() {
         .about(None)
         .separator()
         .item(&settings_item)
+        .item(&install_cli_item)
         .separator()
         .services()
         .separator()
@@ -223,6 +226,7 @@ pub fn run() {
             || id == git_stash_item.id()
             || id == git_stash_pop_item.id()
             || id == git_undo_commit_item.id()
+            || id == install_cli_item.id()
           {
             let _ = window.emit(&format!("menu:{}", id.0), ());
           }
@@ -318,6 +322,9 @@ pub fn run() {
       blame::get_file_blame,
       blame::get_file_log,
       blame::get_last_commit_info,
+      cli::check_cli_installed,
+      cli::install_cli,
+      cli::uninstall_cli,
       new_window,
     ])
     .build(tauri::generate_context!())

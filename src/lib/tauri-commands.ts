@@ -176,3 +176,18 @@ export const getInitialPath = (): Promise<string | null> =>
 
 export const scanProjectsDirectory = (path: string, depth: number): Promise<ProjectInfo[]> =>
   invoke("scan_projects_directory", { path, depth });
+
+export interface CliInstallStatus {
+  installed: boolean;
+  dpPath: string | null;
+  deathpushPath: string | null;
+}
+
+export const checkCliInstalled = (): Promise<CliInstallStatus> =>
+  invoke("check_cli_installed");
+
+export const installCli = (): Promise<void> =>
+  invoke("install_cli");
+
+export const uninstallCli = (): Promise<void> =>
+  invoke("uninstall_cli");

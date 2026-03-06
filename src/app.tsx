@@ -13,7 +13,7 @@ import { TerminalPanel } from "./components/terminal/terminal-panel";
 import { ThemePicker } from "./components/theme/theme-picker";
 import { IconThemePicker } from "./components/theme/icon-theme-picker";
 import { WelcomeScreen } from "./components/welcome/welcome-screen";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm, message } from "@tauri-apps/plugin-dialog";
 import { useRepository } from "./hooks/use-repository";
 import { useStash } from "./hooks/use-stash";
 import { useRepositoryStore } from "./stores/repository-store";
@@ -186,6 +186,31 @@ export const App = () => {
           const newStatus = await commands.undoLastCommit();
           setStatus(newStatus);
         } catch (err) {
+          setError(String(err));
+        }
+      }),
+      appWindow.listen("menu:install-cli", async () => {
+        try {
+          const status = await commands.checkCliInstalled();
+          if (status.installed) {
+            const shouldUninstall = await confirm(
+              "Command line tools 'dp' and 'deathpush' are already installed. Would you like to uninstall them?",
+              { title: "Command Line Tool", kind: "info" },
+            );
+            if (!shouldUninstall) return;
+            await commands.uninstallCli();
+            await message("Command line tools have been uninstalled.", { title: "Command Line Tool" });
+          } else {
+            const shouldInstall = await confirm(
+              "Install 'dp' and 'deathpush' commands to /usr/local/bin?\n\nYou can then use 'dp .' or 'deathpush /path/to/repo' from any terminal.",
+              { title: "Install Command Line Tool", kind: "info" },
+            );
+            if (!shouldInstall) return;
+            await commands.installCli();
+            await message("Command line tools installed successfully.\n\nUse 'dp .' or 'deathpush /path/to/repo' to open a repository.", { title: "Command Line Tool" });
+          }
+        } catch (err) {
+          if (String(err).includes("Authorization cancelled")) return;
           setError(String(err));
         }
       }),
