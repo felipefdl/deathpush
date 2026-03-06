@@ -61,7 +61,7 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
-      if (isMod && e.key === "`") {
+      if (isMod && e.key === "j") {
         e.preventDefault();
         toggleTerminal();
         return;

@@ -128,12 +128,12 @@ pub fn run() {
         .build(app)?;
 
       let new_terminal_item = MenuItemBuilder::with_id("new-terminal", "New Terminal")
-        .accelerator("CmdOrCtrl+Shift+`")
+        .accelerator("CmdOrCtrl+Shift+J")
         .build(app)?;
       let kill_terminal_item = MenuItemBuilder::with_id("kill-terminal", "Kill Terminal")
         .build(app)?;
       let toggle_terminal_item = MenuItemBuilder::with_id("toggle-terminal", "Toggle Terminal")
-        .accelerator("CmdOrCtrl+`")
+        .accelerator("CmdOrCtrl+J")
         .build(app)?;
 
       // DeathPush
