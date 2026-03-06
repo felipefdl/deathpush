@@ -1,10 +1,23 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
 import { getRecentProjects, removeRecentProject, type RecentProject } from "../../lib/recent-projects";
 import { scanProjectsDirectory, type ProjectInfo } from "../../lib/tauri-commands";
-import { buildWorkspaceTree, type WorkspaceTreeNode } from "../../lib/workspace-tree";
-import { useSettingsStore } from "../../stores/settings-store";
+import { buildMultiRootWorkspaceTree, type WorkspaceTreeNode } from "../../lib/workspace-tree";
+import { useSettingsStore, type WorkspaceEntry } from "../../stores/settings-store";
 import { useThemeStore } from "../../stores/theme-store";
+import { WorkspaceConfigModal } from "../shared/workspace-config-modal";
+
+const handleListNavKeyDown = (e: React.KeyboardEvent) => {
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  e.preventDefault();
+  const container = (e.currentTarget as HTMLElement).closest(".welcome-list");
+  if (!container) return;
+  const focusables = Array.from(
+    container.querySelectorAll<HTMLElement>(".welcome-list-item, .welcome-tree-project, .welcome-tree-folder"),
+  );
+  const idx = focusables.indexOf(e.currentTarget as HTMLElement);
+  const next = e.key === "ArrowDown" ? idx + 1 : idx - 1;
+  focusables[next]?.focus();
+};
 
 interface WorkspaceFolderProps {
   node: WorkspaceTreeNode;
@@ -24,7 +37,29 @@ const WorkspaceFolder = ({ node, depth, onSelectProject }: WorkspaceFolderProps)
         <div
           className="welcome-tree-folder"
           style={{ paddingLeft: 12 + depth * 16 }}
+          tabIndex={0}
+          role="button"
           onClick={() => setCollapsed(!collapsed)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowRight" || e.key === "Enter") {
+              if (collapsed) {
+                e.preventDefault();
+                setCollapsed(false);
+                return;
+              }
+            } else if (e.key === "ArrowLeft") {
+              if (!collapsed) {
+                e.preventDefault();
+                setCollapsed(true);
+                return;
+              }
+            } else if (e.key === " ") {
+              e.preventDefault();
+              setCollapsed(!collapsed);
+              return;
+            }
+            handleListNavKeyDown(e);
+          }}
         >
           <span className={`codicon codicon-chevron-down welcome-tree-chevron ${collapsed ? "collapsed" : ""}`} />
           <span className="codicon codicon-folder" />
@@ -47,6 +82,7 @@ const WorkspaceFolder = ({ node, depth, onSelectProject }: WorkspaceFolderProps)
               className="welcome-tree-project"
               style={{ paddingLeft: 12 + (node.name ? depth + 1 : depth) * 16 }}
               onClick={() => onSelectProject(project.path)}
+              onKeyDown={handleListNavKeyDown}
             >
               <span className="codicon codicon-repo" />
               <span className="welcome-tree-project-name">{project.name}</span>
@@ -60,12 +96,12 @@ const WorkspaceFolder = ({ node, depth, onSelectProject }: WorkspaceFolderProps)
 
 interface WorkspaceTreeProps {
   projects: ProjectInfo[];
-  rootDirectory: string;
+  workspaces: WorkspaceEntry[];
   onSelectProject: (path: string) => void;
 }
 
-const WorkspaceTree = ({ projects, rootDirectory, onSelectProject }: WorkspaceTreeProps) => {
-  const tree = buildWorkspaceTree(projects, rootDirectory);
+const WorkspaceTree = ({ projects, workspaces, onSelectProject }: WorkspaceTreeProps) => {
+  const tree = buildMultiRootWorkspaceTree(projects, workspaces);
   return <WorkspaceFolder node={tree} depth={0} onSelectProject={onSelectProject} />;
 };
 
@@ -85,6 +121,7 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
   const [workspaceProjects, setWorkspaceProjects] = useState<ProjectInfo[]>([]);
   const [workspaceFilter, setWorkspaceFilter] = useState("");
   const [workspaceIndex, setWorkspaceIndex] = useState<number | null>(null);
+  const [showConfigModal, setShowConfigModal] = useState(false);
   const recentFilterRef = useRef<HTMLInputElement>(null);
   const workspaceFilterRef = useRef<HTMLInputElement>(null);
   const recentListRef = useRef<HTMLDivElement>(null);
@@ -99,14 +136,29 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
   }, []);
 
   useEffect(() => {
-    if (projectsSettings.projectsDirectory) {
-      scanProjectsDirectory(projectsSettings.projectsDirectory, projectsSettings.scanDepth)
-        .then(setWorkspaceProjects)
-        .catch(() => setWorkspaceProjects([]));
-    } else {
+    if (projectsSettings.workspaces.length === 0) {
       setWorkspaceProjects([]);
+      return;
     }
-  }, [projectsSettings.projectsDirectory, projectsSettings.scanDepth]);
+    Promise.all(
+      projectsSettings.workspaces.map((ws) =>
+        scanProjectsDirectory(ws.directory, ws.scanDepth).catch(() => [] as ProjectInfo[]),
+      ),
+    ).then((results) => {
+      const seen = new Set<string>();
+      const merged: ProjectInfo[] = [];
+      for (const list of results) {
+        for (const p of list) {
+          if (!seen.has(p.path)) {
+            seen.add(p.path);
+            merged.push(p);
+          }
+        }
+      }
+      merged.sort((a, b) => a.name.localeCompare(b.name));
+      setWorkspaceProjects(merged);
+    });
+  }, [projectsSettings.workspaces]);
 
   const filteredRecents = useMemo(() => {
     if (!recentFilter) return recents;
@@ -176,9 +228,18 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
     }
   }, [filteredRecents, recentIndex, onSelectProject]);
 
+  const isTreeView = (projectsSettings.workspaces.length > 1 || projectsSettings.workspaces.some((ws) => ws.scanDepth > 1)) && !workspaceFilter && workspaceIndex === null;
+
   const handleWorkspaceKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
+      if (isTreeView && workspaceListRef.current) {
+        const first = workspaceListRef.current.querySelector<HTMLElement>(
+          ".welcome-tree-folder, .welcome-tree-project",
+        );
+        first?.focus();
+        return;
+      }
       setWorkspaceIndex((prev) => {
         const max = filteredWorkspaceProjects.length - 1;
         return prev === null ? 0 : Math.min(prev + 1, max);
@@ -199,20 +260,13 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
       workspaceFilterRef.current?.blur();
       setWorkspaceIndex(null);
     }
-  }, [filteredWorkspaceProjects, workspaceIndex, onSelectProject]);
+  }, [filteredWorkspaceProjects, workspaceIndex, onSelectProject, isTreeView]);
 
   const handleRemoveRecent = useCallback((e: React.MouseEvent, path: string) => {
     e.stopPropagation();
     removeRecentProject(path);
     setRecents(getRecentProjects());
   }, []);
-
-  const handleConfigureWorkspace = useCallback(async () => {
-    const selected = await open({ directory: true, title: "Select Git Projects Directory" });
-    if (selected) {
-      updateProjects({ projectsDirectory: selected });
-    }
-  }, [updateProjects]);
 
   return (
     <div className="welcome-screen">
@@ -268,6 +322,7 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
                     key={project.path}
                     className={`welcome-list-item${recentIndex === i ? " selected" : ""}`}
                     onClick={() => onSelectProject(project.path)}
+                    onKeyDown={handleListNavKeyDown}
                   >
                     <span className="codicon codicon-repo" />
                     <div className="welcome-list-item-info">
@@ -308,16 +363,16 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
               />
             </div>
             <div className="welcome-list" ref={workspaceListRef}>
-              {!projectsSettings.projectsDirectory ? (
-                <div className="welcome-list-empty">No projects directory configured</div>
+              {projectsSettings.workspaces.length === 0 ? (
+                <div className="welcome-list-empty">No workspace directories configured</div>
               ) : workspaceProjects.length === 0 ? (
                 <div className="welcome-list-empty">No git repositories found</div>
               ) : filteredWorkspaceProjects.length === 0 ? (
                 <div className="welcome-list-empty">No matching projects</div>
-              ) : projectsSettings.scanDepth > 1 && !workspaceFilter && workspaceIndex === null ? (
+              ) : isTreeView ? (
                 <WorkspaceTree
                   projects={filteredWorkspaceProjects}
-                  rootDirectory={projectsSettings.projectsDirectory}
+                  workspaces={projectsSettings.workspaces}
                   onSelectProject={onSelectProject}
                 />
               ) : (
@@ -326,6 +381,7 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
                     key={project.path}
                     className={`welcome-list-item${workspaceIndex === i ? " selected" : ""}`}
                     onClick={() => onSelectProject(project.path)}
+                    onKeyDown={handleListNavKeyDown}
                   >
                     <span className="codicon codicon-repo" />
                     <div className="welcome-list-item-info">
@@ -336,9 +392,18 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
                 ))
               )}
             </div>
-            <button className="welcome-configure-btn" onClick={handleConfigureWorkspace}>
-              {projectsSettings.projectsDirectory ? "Change Directory..." : "Set Projects Directory..."}
-            </button>
+            <div className="welcome-workspace-footer">
+              <button className="welcome-configure-btn" onClick={() => setShowConfigModal(true)}>
+                Configure Workspace...
+              </button>
+            </div>
+            {showConfigModal && (
+              <WorkspaceConfigModal
+                onClose={() => setShowConfigModal(false)}
+                workspaces={projectsSettings.workspaces}
+                onSave={(workspaces) => updateProjects({ workspaces })}
+              />
+            )}
           </div>
         </div>
       </div>

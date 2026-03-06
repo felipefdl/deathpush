@@ -4,8 +4,8 @@ import type { EditorSettings, GitSettings, ProjectsSettings, TerminalSettings, U
 import { useThemeStore } from "../../stores/theme-store";
 import { useIconThemeStore } from "../../stores/icon-theme-store";
 import { THEME_ENTRIES } from "../../lib/themes/theme-registry";
-import { open } from "@tauri-apps/plugin-dialog";
 import { getGitConfig, setGitConfig } from "../../lib/tauri-commands";
+import { WorkspaceConfigModal } from "../shared/workspace-config-modal";
 import "../../styles/settings.css";
 
 export const SettingsPage = () => {
@@ -217,39 +217,38 @@ const ProjectsSection = ({
   settings: ProjectsSettings;
   onUpdate: (partial: Partial<ProjectsSettings>) => void;
 }) => {
-  const handleBrowse = async () => {
-    const selected = await open({ directory: true, title: "Select Git Projects Directory" });
-    if (selected) {
-      onUpdate({ projectsDirectory: selected });
-    }
-  };
+  const [showModal, setShowModal] = useState(false);
+
+  const displayValue = settings.workspaces.length > 0
+    ? settings.workspaces.map((ws) => `"${ws.directory}"`).join(", ")
+    : "";
 
   return (
     <div className="settings-section">
       <div className="settings-section-title">Projects</div>
       <div className="settings-field">
-        <label className="settings-label">Git Projects Directory</label>
+        <label className="settings-label">Workspace Directories</label>
         <div style={{ display: "flex", gap: 6, flex: 1, maxWidth: 300 }}>
           <input
             className="settings-input"
             type="text"
-            value={settings.projectsDirectory}
+            value={displayValue}
             placeholder="Not configured"
-            onChange={(e) => onUpdate({ projectsDirectory: e.target.value })}
+            readOnly
             style={{ flex: 1, maxWidth: "none" }}
           />
-          <button className="settings-reset-btn" onClick={handleBrowse}>
-            Browse...
+          <button className="settings-reset-btn" onClick={() => setShowModal(true)}>
+            Configure...
           </button>
         </div>
       </div>
-      <NumberField
-        label="Scan Depth"
-        value={settings.scanDepth}
-        onChange={(v) => onUpdate({ scanDepth: v })}
-        min={1}
-        max={5}
-      />
+      {showModal && (
+        <WorkspaceConfigModal
+          onClose={() => setShowModal(false)}
+          workspaces={settings.workspaces}
+          onSave={(workspaces) => onUpdate({ workspaces })}
+        />
+      )}
     </div>
   );
 };

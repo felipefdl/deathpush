@@ -28,9 +28,13 @@ export interface UISettings {
   sidebarPosition: "left" | "right";
 }
 
-export interface ProjectsSettings {
-  projectsDirectory: string;
+export interface WorkspaceEntry {
+  directory: string;
   scanDepth: number;
+}
+
+export interface ProjectsSettings {
+  workspaces: WorkspaceEntry[];
 }
 
 export interface AppSettings {
@@ -79,8 +83,7 @@ const DEFAULTS: AppSettings = {
     blame: true,
   },
   projects: {
-    projectsDirectory: "",
-    scanDepth: 1,
+    workspaces: [],
   },
 };
 
@@ -94,7 +97,9 @@ const loadSettings = (): AppSettings => {
       editor: { ...DEFAULTS.editor, ...parsed.editor },
       terminal: { ...DEFAULTS.terminal, ...parsed.terminal },
       git: { ...DEFAULTS.git, ...parsed.git },
-      projects: { ...DEFAULTS.projects, ...parsed.projects },
+      projects: {
+        workspaces: Array.isArray(parsed.projects?.workspaces) ? parsed.projects.workspaces : [],
+      },
     };
   } catch {
     return { ...DEFAULTS };

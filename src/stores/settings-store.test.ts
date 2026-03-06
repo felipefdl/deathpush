@@ -26,7 +26,7 @@ const DEFAULTS = {
     cursorStyle: "block" as const,
   },
   git: { blame: true },
-  projects: { projectsDirectory: "", scanDepth: 1 },
+  projects: { workspaces: [] },
 };
 
 beforeEach(() => {
@@ -46,7 +46,7 @@ describe("settings store", () => {
       expect(settings.editor.tabSize).toBe(4);
       expect(settings.terminal.cursorBlink).toBe(true);
       expect(settings.git.blame).toBe(true);
-      expect(settings.projects.scanDepth).toBe(1);
+      expect(settings.projects.workspaces).toEqual([]);
     });
 
     it("resetToDefaults saves defaults to localStorage", () => {
@@ -69,7 +69,7 @@ describe("settings store", () => {
         editor: { ...DEFAULTS.editor, tabSize: 2 },
         terminal: { ...DEFAULTS.terminal, cursorBlink: false },
         git: { blame: false },
-        projects: { projectsDirectory: "/home", scanDepth: 3 },
+        projects: { workspaces: [{ directory: "/home", scanDepth: 3 }] },
       };
       useSettingsStore.setState({ settings: custom });
       const { settings } = useSettingsStore.getState();
@@ -77,7 +77,7 @@ describe("settings store", () => {
       expect(settings.editor.tabSize).toBe(2);
       expect(settings.terminal.cursorBlink).toBe(false);
       expect(settings.git.blame).toBe(false);
-      expect(settings.projects.projectsDirectory).toBe("/home");
+      expect(settings.projects.workspaces).toEqual([{ directory: "/home", scanDepth: 3 }]);
     });
   });
 
@@ -151,17 +151,18 @@ describe("settings store", () => {
   });
 
   describe("updateProjects", () => {
-    it("partial update preserves other fields", () => {
-      useSettingsStore.getState().updateProjects({ scanDepth: 5 });
+    it("updates workspaces array", () => {
+      const workspaces = [{ directory: "/repos", scanDepth: 2 }];
+      useSettingsStore.getState().updateProjects({ workspaces });
       const { projects } = useSettingsStore.getState().settings;
-      expect(projects.scanDepth).toBe(5);
-      expect(projects.projectsDirectory).toBe("");
+      expect(projects.workspaces).toEqual(workspaces);
     });
 
     it("saves to localStorage", () => {
-      useSettingsStore.getState().updateProjects({ projectsDirectory: "/repos" });
+      const workspaces = [{ directory: "/repos", scanDepth: 1 }];
+      useSettingsStore.getState().updateProjects({ workspaces });
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
-      expect(stored.projects.projectsDirectory).toBe("/repos");
+      expect(stored.projects.workspaces).toEqual(workspaces);
     });
   });
 
@@ -171,14 +172,14 @@ describe("settings store", () => {
       useSettingsStore.getState().updateEditor({ tabSize: 8 });
       useSettingsStore.getState().updateTerminal({ cursorBlink: false });
       useSettingsStore.getState().updateGit({ blame: false });
-      useSettingsStore.getState().updateProjects({ scanDepth: 10 });
+      useSettingsStore.getState().updateProjects({ workspaces: [{ directory: "/tmp", scanDepth: 10 }] });
       useSettingsStore.getState().resetToDefaults();
       const { settings } = useSettingsStore.getState();
       expect(settings.ui.fontSize).toBe(13);
       expect(settings.editor.tabSize).toBe(4);
       expect(settings.terminal.cursorBlink).toBe(true);
       expect(settings.git.blame).toBe(true);
-      expect(settings.projects.scanDepth).toBe(1);
+      expect(settings.projects.workspaces).toEqual([]);
     });
 
     it("saves defaults to localStorage", () => {
