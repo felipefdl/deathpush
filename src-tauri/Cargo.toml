@@ -1,0 +1,33 @@
+[package]
+name = "deathpush"
+version = "0.1.0"
+description = "A desktop Git client inspired by VS Code Source Control"
+authors = ["felipefdl"]
+license = "Apache-2.0"
+edition = "2024"
+rust-version = "1.85.0"
+
+[lib]
+name = "deathpush_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+chrono = "0.4"
+git2 = "0.20"
+notify = "7"
+notify-debouncer-mini = "0.5"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+portable-pty = "0.9"
+thiserror = "2"
+tracing = "0.1"
+trash = "5"
+tracing-subscriber = "0.3"
+base64 = "0.22"

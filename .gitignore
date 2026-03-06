@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+target/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+*.local
+.env*
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# VS Code reference (large)
+.temp-vscode/
+
+# Claude Code
+.claude/
+
+# Playwright MCP
+.playwright-mcp/

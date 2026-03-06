@@ -1,0 +1,155 @@
+use std::fs;
+use std::path::Path;
+
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+
+use crate::error::Result;
+use crate::git::repository::GitRepository;
+use crate::types::DiffContent;
+
+const IMAGE_EXTENSIONS: &[&str] = &[
+  "png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "avif", "tiff", "svg",
+];
+
+pub fn is_image_file(path: &str) -> bool {
+  Path::new(path)
+    .extension()
+    .and_then(|e| e.to_str())
+    .is_some_and(|ext| IMAGE_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
+}
+
+fn image_mime_type(ext: &str) -> &str {
+  match ext.to_lowercase().as_str() {
+    "png" => "image/png",
+    "jpg" | "jpeg" => "image/jpeg",
+    "gif" => "image/gif",
+    "bmp" => "image/bmp",
+    "webp" => "image/webp",
+    "ico" => "image/x-icon",
+    "avif" => "image/avif",
+    "tiff" => "image/tiff",
+    "svg" => "image/svg+xml",
+    _ => "application/octet-stream",
+  }
+}
+
+pub fn blob_to_data_uri(blob: &[u8], path: &str) -> String {
+  let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("");
+  let mime = image_mime_type(ext);
+  let encoded = STANDARD.encode(blob);
+  format!("data:{};base64,{}", mime, encoded)
+}
+
+fn read_head_blob_base64(repo: &git2::Repository, path: &str) -> Option<String> {
+  let head = repo.head().ok()?;
+  let tree = head.peel_to_tree().ok()?;
+  let entry = tree.get_path(Path::new(path)).ok()?;
+  let blob = repo.find_blob(entry.id()).ok()?;
+  Some(blob_to_data_uri(blob.content(), path))
+}
+
+fn read_index_blob_base64(repo: &git2::Repository, path: &str) -> Option<String> {
+  let index = repo.index().ok()?;
+  let entry = index.get_path(Path::new(path), 0)?;
+  let blob = repo.find_blob(entry.id).ok()?;
+  Some(blob_to_data_uri(blob.content(), path))
+}
+
+fn read_working_tree_file_base64(abs_path: &Path, rel_path: &str) -> Option<String> {
+  let bytes = fs::read(abs_path).ok()?;
+  Some(blob_to_data_uri(&bytes, rel_path))
+}
+
+pub fn get_file_diff(repo: &GitRepository, path: &str, staged: bool) -> Result<DiffContent> {
+  let repo_root = repo.root();
+  let abs_path = repo_root.join(path);
+  let r = repo.inner();
+
+  if is_image_file(path) {
+    let original = if staged {
+      read_head_blob_base64(r, path)
+    } else {
+      read_index_blob_base64(r, path)
+    };
+
+    let modified = if staged {
+      read_index_blob_base64(r, path)
+    } else {
+      read_working_tree_file_base64(&abs_path, path)
+    };
+
+    return Ok(DiffContent {
+      path: path.to_string(),
+      original: original.unwrap_or_default(),
+      modified: modified.unwrap_or_default(),
+      original_language: None,
+      file_type: "image".to_string(),
+    });
+  }
+
+  let original = if staged {
+    read_head_blob(r, path)
+  } else {
+    read_index_blob(r, path)
+  };
+
+  let modified = if staged {
+    read_index_blob(r, path)
+  } else {
+    read_working_tree_file(&abs_path)
+  };
+
+  let language = detect_language(path);
+
+  Ok(DiffContent {
+    path: path.to_string(),
+    original: original.unwrap_or_default(),
+    modified: modified.unwrap_or_default(),
+    original_language: language,
+    file_type: "text".to_string(),
+  })
+}
+
+fn read_head_blob(repo: &git2::Repository, path: &str) -> Option<String> {
+  let head = repo.head().ok()?;
+  let tree = head.peel_to_tree().ok()?;
+  let entry = tree.get_path(Path::new(path)).ok()?;
+  let blob = repo.find_blob(entry.id()).ok()?;
+  String::from_utf8(blob.content().to_vec()).ok()
+}
+
+fn read_index_blob(repo: &git2::Repository, path: &str) -> Option<String> {
+  let index = repo.index().ok()?;
+  let entry = index.get_path(Path::new(path), 0)?;
+  let blob = repo.find_blob(entry.id).ok()?;
+  String::from_utf8(blob.content().to_vec()).ok()
+}
+
+fn read_working_tree_file(abs_path: &Path) -> Option<String> {
+  fs::read_to_string(abs_path).ok()
+}
+
+pub fn detect_language(path: &str) -> Option<String> {
+  let ext = Path::new(path).extension()?.to_str()?;
+  let lang = match ext {
+    "rs" => "rust",
+    "ts" | "tsx" => "typescript",
+    "js" | "jsx" => "javascript",
+    "json" => "json",
+    "html" => "html",
+    "css" => "css",
+    "scss" => "scss",
+    "md" => "markdown",
+    "toml" => "toml",
+    "yaml" | "yml" => "yaml",
+    "py" => "python",
+    "go" => "go",
+    "sh" | "bash" | "zsh" => "shell",
+    "sql" => "sql",
+    "xml" => "xml",
+    "svg" => "xml",
+    _ => return None,
+  };
+  Some(lang.to_string())
+}

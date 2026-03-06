@@ -1,0 +1,66 @@
+import type { ReactNode } from "react";
+import { useLayoutStore } from "../../stores/layout-store";
+import { GitOutput } from "../terminal/git-output";
+
+interface MainPanelProps {
+  changesView: ReactNode;
+  historyView: ReactNode;
+  settingsView?: ReactNode;
+}
+
+export const MainPanel = ({ changesView, historyView, settingsView }: MainPanelProps) => {
+  const { mainView, setMainView, terminalMaximized } = useLayoutStore();
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div className="main-view-tabs">
+        <button
+          className={`main-view-tab${mainView === "changes" ? " active" : ""}`}
+          onClick={() => setMainView("changes")}
+        >
+          Changes
+        </button>
+        <button
+          className={`main-view-tab${mainView === "history" ? " active" : ""}`}
+          onClick={() => setMainView("history")}
+        >
+          History
+        </button>
+        {terminalMaximized && (
+          <button
+            className={`main-view-tab${mainView === "terminal" ? " active" : ""}`}
+            onClick={() => setMainView("terminal")}
+          >
+            Terminal
+          </button>
+        )}
+        <div className="main-view-tab-spacer" />
+        {terminalMaximized && (
+          <button
+            className={`main-view-tab${mainView === "output" ? " active" : ""}`}
+            onClick={() => setMainView("output")}
+          >
+            Output
+          </button>
+        )}
+        <button
+          className={`main-view-tab${mainView === "settings" ? " active" : ""}`}
+          onClick={() => setMainView(mainView === "settings" ? "changes" : "settings")}
+        >
+          Settings
+        </button>
+      </div>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        {mainView === "output"
+          ? <GitOutput />
+          : mainView === "settings" && settingsView
+            ? settingsView
+            : mainView === "history"
+              ? historyView
+              : mainView !== "terminal"
+                ? changesView
+                : null}
+      </div>
+    </div>
+  );
+};
