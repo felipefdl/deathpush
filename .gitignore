@@ -15,8 +15,7 @@ npm-debug.log*
 .env*
 
 # IDE
-.vscode/*
-!.vscode/extensions.json
+.vscode/
 .idea/
 .DS_Store
 *.suo
