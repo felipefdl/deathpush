@@ -24,7 +24,7 @@ export const SettingsPage = () => {
         <EditorSection settings={settings.editor} onUpdate={updateEditor} />
         <GitSection settings={settings.git} onUpdate={updateGit} />
         <ProjectsSection settings={settings.projects} onUpdate={updateProjects} />
-        <TerminalSection settings={settings.terminal} onUpdate={updateTerminal} />
+        <TerminalSection settings={settings.terminal} onUpdate={updateTerminal} uiSettings={settings.ui} onUpdateUI={updateUI} />
       </div>
     </div>
   );
@@ -150,12 +150,23 @@ const FONT_WEIGHT_OPTIONS = [
 const TerminalSection = ({
   settings,
   onUpdate,
+  uiSettings,
+  onUpdateUI,
 }: {
   settings: TerminalSettings;
   onUpdate: (partial: Partial<TerminalSettings>) => void;
+  uiSettings: UISettings;
+  onUpdateUI: (partial: Partial<UISettings>) => void;
 }) => (
   <div className="settings-section">
     <div className="settings-section-title">Terminal</div>
+
+    <div className="settings-subsection-title">General</div>
+    <CheckboxField
+      label="Always Open Terminal on Start"
+      checked={uiSettings.alwaysOpenTerminalOnStart}
+      onChange={(v) => onUpdateUI({ alwaysOpenTerminalOnStart: v })}
+    />
 
     <div className="settings-subsection-title">Text &amp; Font</div>
     <NumberField label="Font Size" value={settings.fontSize} onChange={(v) => onUpdate({ fontSize: v })} min={8} max={32} />

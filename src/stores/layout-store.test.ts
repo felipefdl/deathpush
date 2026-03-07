@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useLayoutStore } from "./layout-store";
+import { useSettingsStore } from "./settings-store";
 
 const PROJECT_ROOT = "/test/project";
 const STORAGE_KEY = `deathpush:layout:${btoa(PROJECT_ROOT)}`;
@@ -17,6 +18,7 @@ beforeEach(() => {
     collapsedPanes: [],
     terminalMaximized: false,
   });
+  useSettingsStore.getState().updateUI({ alwaysOpenTerminalOnStart: false });
 });
 
 describe("layout store", () => {
@@ -25,7 +27,7 @@ describe("layout store", () => {
       useLayoutStore.getState().loadForProject(PROJECT_ROOT);
       const state = useLayoutStore.getState();
       expect(state.sidebarWidth).toBe(300);
-      expect(state.terminalVisible).toBe(false);
+      expect(state.terminalVisible).toBe(true);
       expect(state.terminalHeight).toBe(250);
       expect(state.mainView).toBe("changes");
       expect(state.diffMode).toBe("sideBySide");
@@ -86,6 +88,30 @@ describe("layout store", () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ mainView: "output" }));
       useLayoutStore.getState().loadForProject(PROJECT_ROOT);
       expect(useLayoutStore.getState().mainView).toBe("changes");
+    });
+
+    it("opens terminal by default on first project open", () => {
+      useLayoutStore.getState().loadForProject(PROJECT_ROOT);
+      expect(useLayoutStore.getState().terminalVisible).toBe(true);
+    });
+
+    it("respects saved terminalVisible=false on subsequent opens", () => {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ terminalVisible: false }),
+      );
+      useLayoutStore.getState().loadForProject(PROJECT_ROOT);
+      expect(useLayoutStore.getState().terminalVisible).toBe(false);
+    });
+
+    it("alwaysOpenTerminalOnStart overrides saved terminalVisible=false", () => {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ terminalVisible: false }),
+      );
+      useSettingsStore.getState().updateUI({ alwaysOpenTerminalOnStart: true });
+      useLayoutStore.getState().loadForProject(PROJECT_ROOT);
+      expect(useLayoutStore.getState().terminalVisible).toBe(true);
     });
   });
 

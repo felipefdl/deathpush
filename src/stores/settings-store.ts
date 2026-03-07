@@ -52,6 +52,7 @@ export interface UISettings {
   fontFamily: string;
   fontSize: number;
   sidebarPosition: "left" | "right";
+  alwaysOpenTerminalOnStart: boolean;
 }
 
 export interface WorkspaceEntry {
@@ -88,6 +89,7 @@ const DEFAULTS: AppSettings = {
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
     fontSize: 13,
     sidebarPosition: "left",
+    alwaysOpenTerminalOnStart: false,
   },
   editor: {
     fontSize: 13,

@@ -8,6 +8,7 @@ const DEFAULTS = {
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
     fontSize: 13,
     sidebarPosition: "left" as const,
+    alwaysOpenTerminalOnStart: false,
   },
   editor: {
     fontSize: 13,

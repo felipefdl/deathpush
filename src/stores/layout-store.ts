@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useSettingsStore } from "./settings-store";
 
 export type MainView = "changes" | "history" | "settings" | "terminal" | "output";
 
@@ -43,7 +44,7 @@ interface PersistedLayout {
 
 const DEFAULTS: PersistedLayout = {
   sidebarWidth: 300,
-  terminalVisible: false,
+  terminalVisible: true,
   terminalHeight: 250,
   mainView: "changes",
   diffMode: "sideBySide",
@@ -66,6 +67,10 @@ const loadLayout = (root: string): PersistedLayout => {
     const layout: PersistedLayout = { ...DEFAULTS, ...parsed };
     if (layout.mainView === "settings" || layout.mainView === "terminal" || layout.mainView === "output") {
       layout.mainView = "changes";
+    }
+    const { alwaysOpenTerminalOnStart } = useSettingsStore.getState().settings.ui;
+    if (alwaysOpenTerminalOnStart) {
+      layout.terminalVisible = true;
     }
     return layout;
   } catch {
