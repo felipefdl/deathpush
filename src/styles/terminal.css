@@ -219,6 +219,7 @@
 .terminal-split-pane {
   flex: 1;
   min-width: 80px;
+  min-height: 80px;
   overflow: hidden;
 }
 
@@ -234,6 +235,18 @@
   background: var(--vscode-focusBorder);
 }
 
+.terminal-split-divider-vertical {
+  height: 1px;
+  background: var(--vscode-panel-border);
+  cursor: row-resize;
+  flex-shrink: 0;
+}
+
+.terminal-split-divider-vertical:hover {
+  height: 3px;
+  background: var(--vscode-focusBorder);
+}
+
 /* ---- Terminal instance ---- */
 
 .terminal-tab-container {
@@ -242,9 +255,7 @@
 
 .terminal-instance-wrapper {
   height: 100%;
-  padding: 4px 0 0 4px;
-  box-sizing: border-box;
-  background: var(--vscode-terminal-background, var(--vscode-editor-background, #1e1e1e));
+  position: relative;
 }
 
 .terminal-instance {
@@ -253,12 +264,77 @@
 
 .terminal-instance .xterm {
   height: 100%;
+  padding: 4px 0 0 4px;
   -webkit-user-select: text;
   user-select: text;
 }
 
-.terminal-instance .xterm-viewport {
+.terminal-instance .xterm .xterm-viewport {
   background-color: var(--vscode-terminal-background, var(--vscode-editor-background, #1e1e1e)) !important;
+}
+
+.terminal-instance .xterm ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- Terminal search bar ---- */
+
+.terminal-search-bar {
+  position: absolute;
+  top: 4px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--vscode-editorWidget-background, #252526);
+  border: 1px solid var(--vscode-editorWidget-border, #454545);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.terminal-search-input {
+  width: 180px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--vscode-input-foreground, #cccccc);
+  background: var(--vscode-input-background, #3c3c3c);
+  border: 1px solid var(--vscode-input-border, #3c3c3c);
+  border-radius: 2px;
+  outline: none;
+}
+
+.terminal-search-input:focus {
+  border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.terminal-search-count {
+  font-size: 11px;
+  color: var(--vscode-editorWidget-foreground, #cccccc);
+  opacity: 0.7;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.terminal-search-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-editorWidget-foreground, #cccccc);
+  cursor: pointer;
+  border-radius: 2px;
+  font-size: 12px;
+}
+
+.terminal-search-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.1));
 }
 
 /* ---- Git output log ---- */

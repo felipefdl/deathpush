@@ -1,0 +1,98 @@
+---
+const year = new Date().getFullYear();
+---
+
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-top">
+      <div class="footer-brand">
+        <img src="/logo-white.png" alt="DeathPush" width="24" height="24" />
+        <span class="footer-name">DeathPush</span>
+      </div>
+      <nav class="footer-links" aria-label="Footer navigation">
+        <a href="https://github.com/felipefdl/deathpush" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://github.com/felipefdl/deathpush/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a>
+        <a href="https://github.com/felipefdl/deathpush/releases" target="_blank" rel="noopener noreferrer">Changelog</a>
+      </nav>
+    </div>
+    <div class="footer-bottom">
+      <p class="copyright">&copy; {year} DeathPush. All rights reserved.</p>
+      <p class="tagline">Made with Rust and bad decisions.</p>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    border-top: 1px solid var(--color-border);
+    padding-block: var(--space-2xl);
+  }
+
+  .footer-inner {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xl);
+  }
+
+  .footer-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+  }
+
+  .footer-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .footer-brand img {
+    border-radius: 4px;
+  }
+
+  .footer-name {
+    font-weight: 600;
+    font-size: var(--text-sm);
+  }
+
+  .footer-links {
+    display: flex;
+    gap: var(--space-sm);
+  }
+
+  .footer-links a {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    padding: var(--space-xs) var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .footer-links a:hover {
+    color: var(--color-text);
+    border-color: var(--color-border-hover);
+  }
+
+  .footer-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    padding-top: var(--space-xl);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .copyright {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+
+  .tagline {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+</style>

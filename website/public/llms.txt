@@ -1,0 +1,34 @@
+# DeathPush
+
+> A standalone desktop Git client that replicates the VS Code Source Control UX. Beautiful diffs, clean staging, zero bloat.
+
+## About
+
+DeathPush is an open-source desktop Git client built with Rust and Tauri. It provides a familiar VS Code-style source control interface as a standalone application, designed for developers who want a fast, native Git GUI without the overhead of Electron-based alternatives.
+
+## Key Features
+
+- VS Code Source Control UX with inline diff toggles, file-level staging, and chunk-level control
+- Monaco-powered diffs with syntax highlighting, inline editing, side-by-side and unified views
+- Branch management: create, switch, merge, rebase, rename, delete, remote tracking
+- Image diffs with side-by-side, overlay, and difference modes
+- Git blame with line-by-line annotations and file history timeline
+- Integrated terminal with PTY support
+- Stash management, tag creation, cherry-pick support
+- Multi-window support with independent workspaces
+- Multiple built-in themes (dark, light, high-contrast)
+- Native performance via Rust + Tauri backend
+
+## Technical Details
+
+- Stack: Rust (backend), TypeScript + React (frontend), Tauri (framework)
+- License: Apache-2.0
+- Platforms: macOS (Apple Silicon & Intel), Windows 10+, Linux (AppImage & .deb)
+- Version: 0.1.0
+
+## Links
+
+- Website: https://deathpush.com
+- GitHub: https://github.com/felipefdl/deathpush
+- License: https://github.com/felipefdl/deathpush/blob/main/LICENSE
+- Download: https://github.com/felipefdl/deathpush/releases/latest

@@ -16,14 +16,18 @@ export const TerminalGroupView = ({ group, isActive }: TerminalGroupViewProps) =
   const syncFlexCount = (count: number) => {
     setFlexValues((prev) => {
       if (prev.length === count) return prev;
-      const next = Array.from({ length: count }, (_, i) => prev[i] ?? 1);
-      return next;
+      if (count < prev.length) {
+        return Array.from({ length: count }, () => 1);
+      }
+      return Array.from({ length: count }, (_, i) => prev[i] ?? 1);
     });
   };
 
   if (flexValues.length !== group.panes.length) {
     syncFlexCount(group.panes.length);
   }
+
+  const isVertical = group.splitDirection === "vertical";
 
   const handleDividerMouseDown = useCallback(
     (e: React.MouseEvent, dividerIndex: number) => {
@@ -32,26 +36,30 @@ export const TerminalGroupView = ({ group, isActive }: TerminalGroupViewProps) =
       if (!container) return;
 
       const paneEls = container.querySelectorAll<HTMLElement>(".terminal-split-pane");
-      const leftPane = paneEls[dividerIndex];
-      const rightPane = paneEls[dividerIndex + 1];
-      if (!leftPane || !rightPane) return;
+      const firstPane = paneEls[dividerIndex];
+      const secondPane = paneEls[dividerIndex + 1];
+      if (!firstPane || !secondPane) return;
 
-      const startX = e.clientX;
-      const leftStartWidth = leftPane.getBoundingClientRect().width;
-      const rightStartWidth = rightPane.getBoundingClientRect().width;
-      const totalWidth = leftStartWidth + rightStartWidth;
+      const vertical = group.splitDirection === "vertical";
+      const startPos = vertical ? e.clientY : e.clientX;
+      const firstRect = firstPane.getBoundingClientRect();
+      const secondRect = secondPane.getBoundingClientRect();
+      const firstStartSize = vertical ? firstRect.height : firstRect.width;
+      const secondStartSize = vertical ? secondRect.height : secondRect.width;
+      const totalSize = firstStartSize + secondStartSize;
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
-        const delta = moveEvent.clientX - startX;
-        const newLeftWidth = Math.max(80, leftStartWidth + delta);
-        const newRightWidth = Math.max(80, rightStartWidth - delta);
-        const clampedLeft = totalWidth - newRightWidth < 80 ? 80 : newLeftWidth;
-        const clampedRight = totalWidth - clampedLeft;
+        const currentPos = vertical ? moveEvent.clientY : moveEvent.clientX;
+        const delta = currentPos - startPos;
+        const newFirstSize = Math.max(80, firstStartSize + delta);
+        const newSecondSize = Math.max(80, secondStartSize - delta);
+        const clampedFirst = totalSize - newSecondSize < 80 ? 80 : newFirstSize;
+        const clampedSecond = totalSize - clampedFirst;
 
         setFlexValues((prev) => {
           const next = [...prev];
-          next[dividerIndex] = clampedLeft / totalWidth;
-          next[dividerIndex + 1] = clampedRight / totalWidth;
+          next[dividerIndex] = clampedFirst / totalSize;
+          next[dividerIndex + 1] = clampedSecond / totalSize;
           return next;
         });
       };
@@ -64,20 +72,20 @@ export const TerminalGroupView = ({ group, isActive }: TerminalGroupViewProps) =
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
     },
-    [],
+    [group.splitDirection],
   );
 
   return (
     <div
       ref={containerRef}
       className="terminal-group-view"
-      style={{ display: isActive ? "flex" : "none" }}
+      style={{ display: isActive ? "flex" : "none", flexDirection: isVertical ? "column" : "row" }}
     >
       {group.panes.map((pane, i) => (
         <div key={pane.paneId} style={{ display: "contents" }}>
           {i > 0 && (
             <div
-              className="terminal-split-divider"
+              className={isVertical ? "terminal-split-divider-vertical" : "terminal-split-divider"}
               onMouseDown={(e) => handleDividerMouseDown(e, i - 1)}
             />
           )}

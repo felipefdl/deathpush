@@ -7,7 +7,7 @@
 
 <h1 align="center">DeathPush</h1>
 
-<p align="center"><strong>Murder Your Context Switches.</strong></p>
+<p align="center"><strong>Murder the Noise. Ship the Code.</strong></p>
 
 <p align="center">Beautiful diffs, clean GUI, zero bloat. No more opening VS Code just to review your own shit.</p>
 

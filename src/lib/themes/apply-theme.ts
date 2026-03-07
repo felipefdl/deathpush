@@ -42,31 +42,8 @@ export const applyTheme = (theme: ResolvedTheme): void => {
   localStorage.setItem(THEME_STORAGE_KEY, theme.id);
 };
 
-let diagnosticsDisabled = false;
-
-const disableMonacoDiagnostics = (monaco: Awaited<ReturnType<typeof loader.init>>): void => {
-  if (diagnosticsDisabled) return;
-  diagnosticsDisabled = true;
-
-  monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-    noSemanticValidation: true,
-    noSyntaxValidation: true,
-  });
-  monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-    noSemanticValidation: true,
-    noSyntaxValidation: true,
-  });
-  monaco.languages.json?.jsonDefaults?.setDiagnosticsOptions?.({
-    validate: false,
-  });
-  monaco.languages.css?.cssDefaults?.setDiagnosticsOptions?.({
-    validate: false,
-  });
-};
-
 const applyMonacoTheme = (theme: ResolvedTheme): void => {
   loader.init().then((monaco) => {
-    disableMonacoDiagnostics(monaco);
     const base = uiThemeToMonacoBase(theme.uiTheme);
 
     const rules = theme.tokenColors.flatMap((tc) => {

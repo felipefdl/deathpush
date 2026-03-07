@@ -14,6 +14,7 @@ export const TerminalPanel = () => {
     removeTerminalGroup,
     setActiveGroup,
     splitTerminal,
+    splitTerminalVertical,
     removePane,
     setActivePaneInGroup,
   } = useRepositoryStore();
@@ -56,9 +57,16 @@ export const TerminalPanel = () => {
                 <button
                   className="terminal-panel-btn"
                   onClick={() => { if (activeGroupId !== null) splitTerminal(activeGroupId); }}
-                  title="Split Terminal"
+                  title="Split Terminal Horizontally"
                 >
                   <span className="codicon codicon-split-horizontal" />
+                </button>
+                <button
+                  className="terminal-panel-btn"
+                  onClick={() => { if (activeGroupId !== null) splitTerminalVertical(activeGroupId); }}
+                  title="Split Terminal Vertically"
+                >
+                  <span className="codicon codicon-split-vertical" />
                 </button>
                 <button
                   className="terminal-panel-btn"
@@ -99,9 +107,16 @@ export const TerminalPanel = () => {
               <button
                 className="terminal-panel-btn"
                 onClick={() => { if (activeGroupId !== null) splitTerminal(activeGroupId); }}
-                title="Split Terminal"
+                title="Split Terminal Horizontally"
               >
                 <span className="codicon codicon-split-horizontal" />
+              </button>
+              <button
+                className="terminal-panel-btn"
+                onClick={() => { if (activeGroupId !== null) splitTerminalVertical(activeGroupId); }}
+                title="Split Terminal Vertically"
+              >
+                <span className="codicon codicon-split-vertical" />
               </button>
               <button
                 className="terminal-panel-btn"
@@ -134,9 +149,19 @@ export const TerminalPanel = () => {
                         e.stopPropagation();
                         splitTerminal(group.groupId);
                       }}
-                      title="Split Terminal"
+                      title="Split Horizontally"
                     >
                       <span className="codicon codicon-split-horizontal" />
+                    </button>
+                    <button
+                      className="terminal-sidebar-action-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        splitTerminalVertical(group.groupId);
+                      }}
+                      title="Split Vertically"
+                    >
+                      <span className="codicon codicon-split-vertical" />
                     </button>
                     <button
                       className="terminal-sidebar-action-btn"

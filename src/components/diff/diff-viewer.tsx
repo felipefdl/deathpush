@@ -149,12 +149,7 @@ export const DiffViewer = () => {
   useEffect(() => {
     return () => {
       if (disposeRef.current) disposeRef.current();
-      // Dispose models to prevent stale content when the same file is reopened
-      if (editorRef.current) {
-        editorRef.current.getOriginalEditor().getModel()?.dispose();
-        editorRef.current.getModifiedEditor().getModel()?.dispose();
-        editorRef.current = null;
-      }
+      editorRef.current = null;
     };
   }, []);
 
@@ -183,6 +178,8 @@ export const DiffViewer = () => {
           modifiedModelPath={`modified/${diff.path}`}
           language={diff.originalLanguage ?? undefined}
           theme={currentTheme.id}
+          keepCurrentOriginalModel
+          keepCurrentModifiedModel
           onMount={handleMount}
           options={{
             readOnly: !isEditable,

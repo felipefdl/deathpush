@@ -1,0 +1,159 @@
+# DeathPush - Full Documentation
+
+> A standalone desktop Git client that replicates the VS Code Source Control UX. Beautiful diffs, clean staging, zero bloat.
+
+## About
+
+DeathPush is an open-source desktop Git client built with Rust and Tauri. It provides a familiar VS Code-style source control interface as a standalone application, designed for developers who want a fast, native Git GUI without the overhead of Electron-based alternatives.
+
+## Features
+
+### Source Control Interface
+- Replicates the VS Code Source Control panel as a standalone desktop experience
+- Inline diff toggles for quick review of changes
+- File-level staging and unstaging with single click
+- Chunk-level (hunk) staging for granular control over what gets committed
+- Commit message editor with conventional commit support
+
+### Monaco-Powered Diff Viewer
+- Full Monaco editor integration for viewing diffs
+- Syntax highlighting for all major languages
+- Side-by-side (split) and unified diff views
+- Inline editing capability directly in the diff view
+- Word-level diff highlighting for precise change tracking
+
+### Branch Management
+- Create new branches from any ref
+- Switch between branches
+- Merge branches with conflict resolution
+- Rebase support (standard and interactive)
+- Rename and delete branches
+- Full remote tracking with push and pull
+- Upstream branch configuration
+
+### Image Diffs
+- Visual comparison for image file changes
+- Side-by-side comparison mode
+- Overlay comparison mode
+- Difference highlighting mode
+- Supports PNG, JPG, SVG, WebP, and more
+
+### Git Blame & File History
+- Line-by-line blame annotations
+- Author information and timestamps for each line
+- Full file history timeline
+- Diff previews for each historical commit
+- Navigate through file revisions
+
+### Integrated Terminal
+- Built-in terminal with full PTY support
+- Run git commands directly
+- Execute scripts and shell commands
+- Multiple terminal instances
+- Terminal persists across view changes
+
+### Advanced Git Operations
+- Full stash management (save, pop, apply, drop, list)
+- Tag creation and listing (annotated and lightweight)
+- Cherry-pick commits between branches
+- Reset support (soft, mixed, hard)
+- Clean untracked files
+
+### Multi-Window Support
+- Open multiple repositories in separate windows
+- Each workspace has independent terminal, branches, and state
+- Quick switch between recent repositories
+- Deep link support for opening repositories from external tools
+
+### Theming
+- Multiple built-in themes
+- Dark, light, and high-contrast variants
+- Customizable workflow aesthetics
+- Theme-aware diff highlighting
+
+## Installation
+
+### macOS
+1. Download the latest `.dmg` file from the [releases page](https://github.com/felipefdl/deathpush/releases/latest)
+2. Open the `.dmg` file
+3. Drag DeathPush to your Applications folder
+4. Launch DeathPush from Applications
+- Supports both Apple Silicon (M1/M2/M3/M4) and Intel Macs
+
+### Windows
+1. Download the latest `.msi` installer from the [releases page](https://github.com/felipefdl/deathpush/releases/latest)
+2. Run the installer
+3. Launch DeathPush from the Start Menu
+- Requires Windows 10 or later
+
+### Linux
+1. Download the `.AppImage` or `.deb` package from the [releases page](https://github.com/felipefdl/deathpush/releases/latest)
+2. For AppImage: `chmod +x DeathPush.AppImage && ./DeathPush.AppImage`
+3. For .deb: `sudo dpkg -i deathpush_*.deb`
+
+## Build from Source
+
+### Prerequisites
+- Rust 1.85.0 or later
+- Node.js 18 or later
+- Git
+
+### Steps
+```bash
+git clone https://github.com/felipefdl/deathpush.git
+cd deathpush
+npm install
+npm run tauri build
+```
+
+The built application will be in `src-tauri/target/release/`.
+
+## Architecture
+
+DeathPush uses a layered architecture:
+
+- **Frontend**: TypeScript + React with Monaco editor integration
+- **Backend**: Rust with Tauri framework
+- **Git Operations**: Native git2 library bindings via Rust
+- **Terminal**: PTY-based terminal emulation
+- **IPC**: Tauri command system for frontend-backend communication
+
+### Key Design Decisions
+- Native Rust backend for performance and memory efficiency
+- Tauri instead of Electron for smaller binary size and lower resource usage
+- Monaco editor for VS Code-quality diff viewing
+- PTY-based terminal for full shell compatibility
+
+## Supported Git Operations
+
+- `init`, `clone`
+- `add`, `reset` (staging/unstaging)
+- `commit`, `amend`
+- `push`, `pull`, `fetch`
+- `branch` (create, delete, rename, list)
+- `checkout`, `switch`
+- `merge`, `rebase`
+- `stash` (save, pop, apply, drop, list)
+- `tag` (create, delete, list)
+- `cherry-pick`
+- `blame`
+- `log` (file history, commit history)
+- `diff` (staged, unstaged, between commits)
+- `remote` (add, remove, list)
+- `clean`
+
+## Technical Details
+
+- Stack: Rust (backend), TypeScript + React (frontend), Tauri (framework)
+- License: Apache-2.0
+- Platforms: macOS (Apple Silicon & Intel), Windows 10+, Linux (AppImage & .deb)
+- Version: 0.1.0
+- Author: Felipe Lima
+
+## Links
+
+- Website: https://deathpush.com
+- GitHub: https://github.com/felipefdl/deathpush
+- License: https://github.com/felipefdl/deathpush/blob/main/LICENSE
+- Download: https://github.com/felipefdl/deathpush/releases/latest
+- Issues: https://github.com/felipefdl/deathpush/issues

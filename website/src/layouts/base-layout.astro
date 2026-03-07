@@ -1,0 +1,122 @@
+---
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "DeathPush — Murder the Noise. Ship the Code.",
+  description = "A standalone desktop Git client that replicates the VS Code Source Control UX. Beautiful diffs, clean staging, zero bloat.",
+} = Astro.props;
+
+const ogImage = new URL("/og.png", Astro.site);
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
+
+const jsonLdSoftware = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "DeathPush",
+  description,
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "macOS, Windows, Linux",
+  softwareVersion: "0.1.0",
+  author: {
+    "@type": "Person",
+    name: "Felipe Lima",
+    address: {
+      "@type": "PostalAddress",
+      addressLocality: "Mount Dora",
+      addressRegion: "FL",
+    },
+  },
+  license: "https://opensource.org/licenses/Apache-2.0",
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+  featureList: [
+    "VS Code Source Control UX",
+    "Monaco-powered diffs",
+    "Branch management",
+    "Image diffs",
+    "Git blame and file history",
+    "Integrated terminal",
+    "Stash, tags, cherry-pick",
+    "Multi-window support",
+    "Theme support",
+    "Built with Rust and Tauri",
+  ],
+});
+
+const jsonLdWebsite = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "DeathPush",
+  url: "https://deathpush.com",
+});
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
+
+    <!-- Favicons -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Meta -->
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="author" content="Felipe Lima" />
+    <meta name="keywords" content="git client, desktop git client, vs code git, source control, git gui, git diff viewer, git staging, tauri, rust, open source git client, git blame, git history" />
+    <meta name="application-name" content="DeathPush" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:site_name" content="DeathPush" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <!-- AI Agent Discovery -->
+    <link rel="help" type="text/markdown" href="/llms.txt" />
+
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json" set:html={jsonLdSoftware} />
+    <script type="application/ld+json" set:html={jsonLdWebsite} />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  @import "../styles/global.css";
+</style>

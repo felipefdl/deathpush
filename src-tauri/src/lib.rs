@@ -174,12 +174,23 @@ pub fn run() {
         .build()?;
 
       // View
-      let view_submenu = SubmenuBuilder::new(app, "View")
+      let mut view_builder = SubmenuBuilder::new(app, "View")
         .item(&changes_item)
         .item(&history_item)
         .separator()
-        .item(&toggle_diff_item)
-        .build()?;
+        .item(&toggle_diff_item);
+
+      #[cfg(debug_assertions)]
+      let inspect_item = MenuItemBuilder::with_id("inspect", "Inspect Element")
+        .accelerator("CmdOrCtrl+Shift+I")
+        .build(app)?;
+
+      #[cfg(debug_assertions)]
+      {
+        view_builder = view_builder.separator().item(&inspect_item);
+      }
+
+      let view_submenu = view_builder.build()?;
 
       // Git
       let git_pull_item = MenuItemBuilder::with_id("git-pull", "Pull").build(app)?;
@@ -257,6 +268,12 @@ pub fn run() {
           .or_else(|| app_handle.webview_windows().values().next().cloned());
 
         if let Some(window) = window {
+          #[cfg(debug_assertions)]
+          if id == inspect_item.id() {
+            window.open_devtools();
+            return;
+          }
+
           if id == settings_item.id()
             || id == open_repo_item.id()
             || id == clone_repo_item.id()

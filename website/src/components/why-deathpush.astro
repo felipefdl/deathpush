@@ -1,0 +1,92 @@
+---
+const valueProps = [
+  {
+    title: "Lightweight & Fast",
+    description: "Rust + Tauri. No Electron. Fast startup, low memory.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+  },
+  {
+    title: "VS Code Muscle Memory",
+    description: "Same staging workflow you already know. No relearning.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
+  },
+  {
+    title: "Free Forever",
+    description: "Open source (Apache-2.0). No subscriptions, no feature gates.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
+  },
+  {
+    title: "Privacy First",
+    description: "Fully local. No telemetry, no accounts.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+  },
+];
+---
+
+<section class="why section">
+  <div class="container">
+    <div class="why-grid">
+      {valueProps.map((prop) => (
+        <div class="why-card">
+          <div class="why-icon" set:html={prop.icon} />
+          <h3 class="why-title">{prop.title}</h3>
+          <p class="why-description">{prop.description}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .why-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  @media (min-width: 768px) {
+    .why-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .why-grid {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+
+  .why-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: var(--space-xl);
+  }
+
+  .why-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    margin-bottom: var(--space-md);
+    color: var(--color-accent);
+    background: var(--color-accent-glow);
+    border-radius: var(--radius-full);
+  }
+
+  .why-title {
+    font-size: var(--text-lg);
+    font-weight: 600;
+    margin-bottom: var(--space-xs);
+    color: var(--color-text);
+    white-space: nowrap;
+  }
+
+  .why-description {
+    font-size: var(--text-sm);
+    line-height: 1.5;
+    color: var(--color-text-secondary);
+  }
+</style>

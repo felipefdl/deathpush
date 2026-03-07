@@ -98,6 +98,12 @@ summary {
   user-select: text;
 }
 
+.monaco-editor,
+.monaco-diff-editor,
+.monaco-component {
+  --vscode-focusBorder: transparent !important;
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

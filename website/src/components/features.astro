@@ -1,0 +1,146 @@
+---
+const features = [
+  {
+    title: "VS Code Source Control UX",
+    description: "Familiar staging workflow with inline diff toggles, file-level staging, and chunk-level control. Feels like home.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
+  },
+  {
+    title: "Monaco-Powered Diffs",
+    description: "Full Monaco editor for diffs with syntax highlighting, inline editing, and side-by-side or unified views.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
+  },
+  {
+    title: "Branch Management",
+    description: "Create, switch, merge, rebase, rename, and delete branches. Full remote tracking and push/pull support.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`,
+  },
+  {
+    title: "Image Diffs",
+    description: "Visual comparison for image changes. Side-by-side, overlay, and difference modes for PNG, JPG, SVG, and more.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
+  },
+  {
+    title: "Git Blame + File History",
+    description: "Line-by-line blame annotations with author info and timestamps. Full file history timeline with diff previews.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+  },
+  {
+    title: "Integrated Terminal",
+    description: "Built-in terminal with PTY support. Run git commands, scripts, or anything else without leaving the app.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`,
+  },
+  {
+    title: "Stash, Tags, Cherry-pick",
+    description: "Full stash management, tag creation and listing, and cherry-pick support. The advanced Git operations you need.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
+  },
+  {
+    title: "Multi-Window",
+    description: "Open multiple repositories in separate windows. Each workspace has its own terminal, branches, and state.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`,
+  },
+  {
+    title: "Theme Support",
+    description: "Multiple built-in themes including dark, light, and high-contrast variants. Customize your workflow aesthetics.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
+  },
+  {
+    title: "Built with Rust",
+    description: "Tauri + Rust backend for native performance. Fast startup, low memory usage, and no Electron bloat.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+  },
+];
+---
+
+<section id="features" class="features section">
+  <div class="container">
+    <div class="features-header">
+      <h2 class="text-heading">Everything You Need. Nothing You Don't.</h2>
+      <p class="text-subheading">
+        Every feature built to keep you focused and moving fast.
+      </p>
+    </div>
+    <div class="features-grid">
+      {features.map((feature) => (
+        <div class="feature-card">
+          <div class="feature-icon" set:html={feature.icon} />
+          <h3 class="feature-title">{feature.title}</h3>
+          <p class="feature-description">{feature.description}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .features-header {
+    text-align: center;
+    margin-bottom: var(--space-3xl);
+  }
+
+  .features-header h2 {
+    margin-bottom: var(--space-md);
+  }
+
+  .features-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+
+  @media (min-width: 768px) {
+    .features-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .features-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .feature-card:last-child:nth-child(3n + 1) {
+      grid-column: 2;
+    }
+  }
+
+  .feature-card {
+    padding: var(--space-xl);
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    transition: border-color 0.3s, background 0.3s, box-shadow 0.3s;
+  }
+
+  .feature-card:hover {
+    background: rgba(220, 38, 38, 0.03);
+    border-color: rgba(220, 38, 38, 0.2);
+    box-shadow: 0 0 40px rgba(220, 38, 38, 0.06);
+  }
+
+  .feature-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin-bottom: var(--space-md);
+    color: var(--color-accent);
+    background: var(--color-accent-glow);
+    border-radius: var(--radius-md);
+  }
+
+  .feature-title {
+    font-size: var(--text-lg);
+    font-weight: 600;
+    margin-bottom: var(--space-sm);
+    color: var(--color-text);
+  }
+
+  .feature-description {
+    font-size: var(--text-sm);
+    line-height: 1.6;
+    color: var(--color-text-secondary);
+  }
+</style>

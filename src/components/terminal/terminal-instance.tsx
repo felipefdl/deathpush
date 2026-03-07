@@ -1,13 +1,18 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+
+import { WebglAddon } from "@xterm/addon-webgl";
+import { SearchAddon } from "@xterm/addon-search";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { useThemeStore } from "../../stores/theme-store";
 import { useSettingsStore } from "../../stores/settings-store";
 import { getTerminalTheme } from "../../lib/themes/apply-theme";
+import { TerminalSearchBar } from "./terminal-search-bar";
 import "@xterm/xterm/css/xterm.css";
 
 interface TerminalDataEvent {
@@ -39,104 +44,180 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const searchAddonRef = useRef<SearchAddon | null>(null);
   const sessionIdRef = useRef(0);
   const exitedRef = useRef(false);
+  const [showSearch, setShowSearch] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
+    const container = containerRef.current;
     const { currentTheme } = useThemeStore.getState();
     const theme = getTerminalTheme(currentTheme.colors);
     const termSettings = useSettingsStore.getState().settings.terminal;
 
-    const term = new Terminal({
-      theme,
-      fontFamily: termSettings.fontFamily,
-      fontSize: termSettings.fontSize,
-      lineHeight: termSettings.lineHeight,
-      cursorBlink: termSettings.cursorBlink,
-      cursorStyle: termSettings.cursorStyle,
-      allowProposedApi: true,
-    });
+    let aborted = false;
+    let term: Terminal | null = null;
+    let fitAddon: FitAddon | null = null;
+    let dataDisposable: { dispose: () => void } | null = null;
+    let resizeDisposable: { dispose: () => void } | null = null;
+    let unlistenData: Promise<() => void> | null = null;
+    let unlistenExit: Promise<() => void> | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let resizeTimer: ReturnType<typeof setTimeout>;
 
-    const fitAddon = new FitAddon();
-    const webLinksAddon = new WebLinksAddon();
-    term.loadAddon(fitAddon);
-    term.loadAddon(webLinksAddon);
-    term.open(containerRef.current);
+    // We must defer term.open() until BOTH:
+    // 1. The custom font is loaded (so CharSizeService measures real metrics)
+    // 2. The container has non-zero dimensions (so CharSizeService gets real sizes)
+    // If either condition is missing, CharSizeService.measure() returns 0 and
+    // FitAddon.fit() bails out, leaving the PTY at default 80x24.
+    let fontReady = false;
+    let containerVisible = false;
+    let initialized = false;
 
-    termRef.current = term;
-    fitAddonRef.current = fitAddon;
+    const initTerminal = () => {
+      if (initialized || aborted || !fontReady || !containerVisible) return;
+      if (!container.isConnected) return;
+      initialized = true;
 
-    requestAnimationFrame(() => {
-      fitAddon.fit();
-      spawnSession(term, sessionIdRef, paneId);
-    });
+      term = new Terminal({
+        theme,
+        fontFamily: termSettings.fontFamily,
+        fontSize: termSettings.fontSize,
+        lineHeight: termSettings.lineHeight,
+        cursorBlink: termSettings.cursorBlink,
+        cursorStyle: termSettings.cursorStyle,
+        scrollback: termSettings.scrollback,
+        allowProposedApi: true,
+      });
 
-    const dataDisposable = term.onData((data) => {
-      if (exitedRef.current) {
-        exitedRef.current = false;
-        term.reset();
-        const oldId = sessionIdRef.current;
-        if (oldId) {
-          invoke("terminal_kill", { id: oldId }).then(() => spawnSession(term, sessionIdRef, paneId));
-        } else {
-          spawnSession(term, sessionIdRef, paneId);
+      fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      term.loadAddon(new WebLinksAddon());
+      term.open(container);
+
+      const unicode11Addon = new Unicode11Addon();
+      term.loadAddon(unicode11Addon);
+      term.unicode.activeVersion = "11";
+
+      const searchAddon = new SearchAddon();
+      term.loadAddon(searchAddon);
+      searchAddonRef.current = searchAddon;
+
+      try {
+        const webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => {
+          webglAddon.dispose();
+        });
+        term.loadAddon(webglAddon);
+      } catch {
+        // WebGL not available, fall back to canvas renderer
+      }
+
+      termRef.current = term;
+      fitAddonRef.current = fitAddon;
+
+      const localTerm = term;
+
+      dataDisposable = localTerm.onData((data) => {
+        if (exitedRef.current) {
+          exitedRef.current = false;
+          localTerm.reset();
+          const oldId = sessionIdRef.current;
+          if (oldId) {
+            invoke("terminal_kill", { id: oldId }).then(() => spawnSession(localTerm, sessionIdRef, paneId));
+          } else {
+            spawnSession(localTerm, sessionIdRef, paneId);
+          }
+          return;
         }
-        return;
-      }
-      if (sessionIdRef.current) {
-        invoke("terminal_write", { id: sessionIdRef.current, data });
-      }
+        if (sessionIdRef.current) {
+          invoke("terminal_write", { id: sessionIdRef.current, data });
+        }
+      });
+
+      // Debounce PTY resize notifications to prevent SIGWINCH flooding,
+      // but let xterm reflow its buffer immediately (via ResizeObserver below).
+      resizeDisposable = localTerm.onResize(({ cols, rows }) => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          if (sessionIdRef.current) {
+            invoke("terminal_resize", { id: sessionIdRef.current, cols, rows });
+          }
+        }, 150);
+      });
+
+      const appWindow = getCurrentWebviewWindow();
+      unlistenData = appWindow.listen<TerminalDataEvent>("terminal:data", (event) => {
+        if (event.payload.id === sessionIdRef.current) {
+          localTerm.write(event.payload.data);
+        }
+      });
+
+      unlistenExit = appWindow.listen<number>("terminal:exit", (event) => {
+        if (event.payload === sessionIdRef.current) {
+          exitedRef.current = true;
+        }
+      });
+
+      fitAddon.fit();
+      spawnSession(localTerm, sessionIdRef, paneId);
+      if (isActive) localTerm.focus();
+    };
+
+    // Condition 1: Font loading
+    const primaryFont = termSettings.fontFamily.split(",")[0].trim();
+    const fontLoad = Promise.all([
+      document.fonts.load(`${termSettings.fontSize}px ${primaryFont}`),
+      document.fonts.load(`bold ${termSettings.fontSize}px ${primaryFont}`),
+    ]);
+    const timeout = new Promise<FontFace[]>((resolve) => setTimeout(() => resolve([]), 500));
+
+    Promise.race([fontLoad, timeout]).then(() => {
+      fontReady = true;
+      initTerminal();
     });
 
-    const resizeDisposable = term.onResize(({ cols, rows }) => {
-      if (sessionIdRef.current) {
-        invoke("terminal_resize", { id: sessionIdRef.current, cols, rows });
-      }
-    });
-
-    const appWindow = getCurrentWebviewWindow();
-    const unlistenData = appWindow.listen<TerminalDataEvent>("terminal:data", (event) => {
-      if (event.payload.id === sessionIdRef.current) {
-        term.write(event.payload.data);
-      }
-    });
-
-    const unlistenExit = appWindow.listen<number>("terminal:exit", (event) => {
-      if (event.payload === sessionIdRef.current) {
-        exitedRef.current = true;
-      }
-    });
-
-    const resizeObserver = new ResizeObserver((entries) => {
+    // Condition 2: Container visibility (non-zero dimensions).
+    // Also handles resize after initialization.
+    resizeObserver = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect;
       if (width > 0 && height > 0) {
-        fitAddon.fit();
+        if (!containerVisible) {
+          containerVisible = true;
+          initTerminal();
+        } else if (fitAddon) {
+          fitAddon.fit();
+        }
       }
     });
-    resizeObserver.observe(containerRef.current);
+    resizeObserver.observe(container);
 
     return () => {
-      resizeObserver.disconnect();
-      dataDisposable.dispose();
-      resizeDisposable.dispose();
-      unlistenData.then((fn) => fn());
-      unlistenExit.then((fn) => fn());
+      aborted = true;
+      clearTimeout(resizeTimer);
+      resizeObserver?.disconnect();
+      dataDisposable?.dispose();
+      resizeDisposable?.dispose();
+      unlistenData?.then((fn) => fn());
+      unlistenExit?.then((fn) => fn());
       if (sessionIdRef.current) {
         invoke("terminal_kill", { id: sessionIdRef.current });
       }
       sessionIdRef.current = 0;
-      term.dispose();
+      term?.dispose();
       termRef.current = null;
       fitAddonRef.current = null;
+      searchAddonRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    if (isActive && fitAddonRef.current && termRef.current) {
+    if (isActive && termRef.current) {
       requestAnimationFrame(() => {
         fitAddonRef.current?.fit();
+        termRef.current?.refresh(0, termRef.current.rows - 1);
         termRef.current?.focus();
       });
     }
@@ -163,6 +244,34 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
     return () => window.removeEventListener("deathpush:theme-applied", handler);
   }, []);
 
+  useEffect(() => {
+    if (!isActive) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey && e.key === "f") {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowSearch((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [isActive]);
+
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    const disposable = term.onSelectionChange(() => {
+      const { copyOnSelect } = useSettingsStore.getState().settings.terminal;
+      if (copyOnSelect) {
+        const selection = term.getSelection();
+        if (selection) {
+          navigator.clipboard.writeText(selection);
+        }
+      }
+    });
+    return () => disposable.dispose();
+  }, []);
+
   const terminalSettings = useSettingsStore((s) => s.settings.terminal);
   useEffect(() => {
     const term = termRef.current;
@@ -172,11 +281,16 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
     term.options.lineHeight = terminalSettings.lineHeight;
     term.options.cursorBlink = terminalSettings.cursorBlink;
     term.options.cursorStyle = terminalSettings.cursorStyle;
+    term.options.scrollback = terminalSettings.scrollback;
     fitAddonRef.current?.fit();
+    term.refresh(0, term.rows - 1);
   }, [terminalSettings]);
 
   return (
     <div className="terminal-instance-wrapper">
+      {showSearch && searchAddonRef.current && (
+        <TerminalSearchBar searchAddon={searchAddonRef.current} onClose={() => setShowSearch(false)} />
+      )}
       <div className="terminal-instance" ref={containerRef} />
     </div>
   );

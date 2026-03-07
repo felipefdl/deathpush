@@ -16,6 +16,8 @@ export interface TerminalSettings {
   lineHeight: number;
   cursorBlink: boolean;
   cursorStyle: "block" | "underline" | "bar";
+  scrollback: number;
+  copyOnSelect: boolean;
 }
 
 export interface GitSettings {
@@ -78,6 +80,8 @@ const DEFAULTS: AppSettings = {
     lineHeight: 1.2,
     cursorBlink: true,
     cursorStyle: "block",
+    scrollback: 5000,
+    copyOnSelect: false,
   },
   git: {
     blame: true,

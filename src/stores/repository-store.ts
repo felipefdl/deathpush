@@ -10,6 +10,7 @@ export interface TerminalGroup {
   groupId: number;
   panes: TerminalPane[];
   activePaneId: number;
+  splitDirection: "horizontal" | "vertical";
 }
 
 interface RepositoryState {
@@ -57,6 +58,7 @@ interface RepositoryState {
   removeTerminalGroup: (groupId: number) => void;
   setActiveGroup: (groupId: number) => void;
   splitTerminal: (groupId: number) => void;
+  splitTerminalVertical: (groupId: number) => void;
   removePane: (groupId: number, paneId: number) => void;
   renamePane: (paneId: number, name: string) => void;
   setActivePaneInGroup: (groupId: number, paneId: number) => void;
@@ -133,7 +135,7 @@ export const useRepositoryStore = create<RepositoryState>((set, get) => ({
     set((state) => {
       const num = state.terminalIdCounter + 1;
       const pane: TerminalPane = { paneId: num, name: `Terminal ${num}` };
-      const group: TerminalGroup = { groupId: num, panes: [pane], activePaneId: num };
+      const group: TerminalGroup = { groupId: num, panes: [pane], activePaneId: num, splitDirection: "horizontal" };
       return {
         terminalGroups: [...state.terminalGroups, group],
         activeGroupId: num,
@@ -152,7 +154,7 @@ export const useRepositoryStore = create<RepositoryState>((set, get) => ({
       if (groups.length === 0) {
         const num = state.terminalIdCounter + 1;
         const pane: TerminalPane = { paneId: num, name: `Terminal ${num}` };
-        const group: TerminalGroup = { groupId: num, panes: [pane], activePaneId: num };
+        const group: TerminalGroup = { groupId: num, panes: [pane], activePaneId: num, splitDirection: "horizontal" };
         return {
           terminalGroups: [group],
           activeGroupId: num,
@@ -168,7 +170,22 @@ export const useRepositoryStore = create<RepositoryState>((set, get) => ({
       const pane: TerminalPane = { paneId: num, name: `Terminal ${num}` };
       return {
         terminalGroups: state.terminalGroups.map((g) =>
-          g.groupId === groupId ? { ...g, panes: [...g.panes, pane], activePaneId: num } : g,
+          g.groupId === groupId
+            ? { ...g, panes: [...g.panes, pane], activePaneId: num, splitDirection: "horizontal" as const }
+            : g,
+        ),
+        terminalIdCounter: num,
+      };
+    }),
+  splitTerminalVertical: (groupId) =>
+    set((state) => {
+      const num = state.terminalIdCounter + 1;
+      const pane: TerminalPane = { paneId: num, name: `Terminal ${num}` };
+      return {
+        terminalGroups: state.terminalGroups.map((g) =>
+          g.groupId === groupId
+            ? { ...g, panes: [...g.panes, pane], activePaneId: num, splitDirection: "vertical" as const }
+            : g,
         ),
         terminalIdCounter: num,
       };

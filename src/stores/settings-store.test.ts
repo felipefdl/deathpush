@@ -24,6 +24,8 @@ const DEFAULTS = {
     lineHeight: 1.2,
     cursorBlink: true,
     cursorStyle: "block" as const,
+    scrollback: 5000,
+    copyOnSelect: false,
   },
   git: { blame: true },
   projects: { workspaces: [] },

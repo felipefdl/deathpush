@@ -113,6 +113,8 @@ export const CommitDetail = () => {
                 modified={fileDiff.modified}
                 language={fileDiff.language ?? undefined}
                 theme={currentTheme.id}
+                keepCurrentOriginalModel
+                keepCurrentModifiedModel
                 onMount={handleDiffMount}
                 options={{
                   readOnly: true,

@@ -13,6 +13,17 @@ export default defineConfig(async () => ({
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
   // 2. tauri expects a fixed port, fail if that port is not available
+  build: {
+    chunkSizeWarningLimit: 4000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-monaco": ["monaco-editor"],
+          "vendor-xterm": ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-web-links"],
+        },
+      },
+    },
+  },
   server: {
     port: 1420,
     strictPort: true,

@@ -69,12 +69,49 @@ impl PtySession {
     let label_for_thread = window_label.clone();
     thread::spawn(move || {
       let mut reader = reader;
-      let mut buf = [0u8; 8192];
+      let mut buf = [0u8; 65536];
+      // Leftover bytes from an incomplete UTF-8 sequence at the end of the
+      // previous read. Max UTF-8 char is 4 bytes, so this is tiny.
+      let mut leftover = [0u8; 4];
+      let mut leftover_len: usize = 0;
       loop {
-        match reader.read(&mut buf) {
+        // Place leftover bytes at the start of the buffer, then read after them.
+        buf[..leftover_len].copy_from_slice(&leftover[..leftover_len]);
+        match reader.read(&mut buf[leftover_len..]) {
           Ok(0) => break,
           Ok(n) => {
-            let data = String::from_utf8_lossy(&buf[..n]).to_string();
+            let total = leftover_len + n;
+            leftover_len = 0;
+
+            // Find the longest valid UTF-8 prefix. If the tail has an
+            // incomplete multi-byte sequence, hold it back for the next read
+            // instead of replacing it with U+FFFD.
+            let valid_up_to = match std::str::from_utf8(&buf[..total]) {
+              Ok(_) => total,
+              Err(e) => {
+                let valid = e.valid_up_to();
+                let remaining = total - valid;
+                // An incomplete sequence at the end (1-3 trailing bytes) is
+                // carried over. Anything else is a genuine decoding error --
+                // skip the bad byte so we don't loop forever.
+                if e.error_len().is_none() && remaining <= 3 {
+                  leftover[..remaining].copy_from_slice(&buf[valid..total]);
+                  leftover_len = remaining;
+                  valid
+                } else {
+                  // Skip past the bad byte(s) to include them (lossy).
+                  valid + e.error_len().unwrap_or(1)
+                }
+              }
+            };
+
+            if valid_up_to == 0 {
+              continue;
+            }
+
+            // SAFETY: we verified buf[..valid_up_to] is valid UTF-8 above
+            // (or up to the error boundary which is also valid).
+            let data = String::from_utf8_lossy(&buf[..valid_up_to]).to_string();
             if let Some(w) = app_handle.get_webview_window(&label_for_thread) {
               let _ = w.emit("terminal:data", TerminalDataEvent { id: session_id, data });
             }

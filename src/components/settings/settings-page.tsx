@@ -164,6 +164,15 @@ const TerminalSection = ({
       ]}
       onChange={(v) => onUpdate({ cursorStyle: v as TerminalSettings["cursorStyle"] })}
     />
+    <NumberField
+      label="Scrollback"
+      value={settings.scrollback}
+      onChange={(v) => onUpdate({ scrollback: v })}
+      min={500}
+      max={100000}
+      step={500}
+    />
+    <CheckboxField label="Copy on Select" checked={settings.copyOnSelect} onChange={(v) => onUpdate({ copyOnSelect: v })} />
   </div>
 );
 

@@ -318,11 +318,20 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
                 <div className="welcome-list-empty">No matching projects</div>
               ) : (
                 filteredRecents.map((project, i) => (
-                  <button
+                  <div
                     key={project.path}
+                    role="button"
+                    tabIndex={0}
                     className={`welcome-list-item${recentIndex === i ? " selected" : ""}`}
                     onClick={() => onSelectProject(project.path)}
-                    onKeyDown={handleListNavKeyDown}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onSelectProject(project.path);
+                      } else {
+                        handleListNavKeyDown(e);
+                      }
+                    }}
                   >
                     <span className="codicon codicon-repo" />
                     <div className="welcome-list-item-info">
@@ -336,7 +345,7 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
                     >
                       <span className="codicon codicon-close" />
                     </button>
-                  </button>
+                  </div>
                 ))
               )}
             </div>

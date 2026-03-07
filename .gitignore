@@ -32,3 +32,7 @@ npm-debug.log*
 
 # Playwright MCP
 .playwright-mcp/
+
+# Website
+website/node_modules/
+website/dist/

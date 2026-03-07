@@ -1,0 +1,147 @@
+---
+const platforms = [
+  {
+    name: "macOS",
+    note: "Apple Silicon & Intel",
+    icon: `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>`,
+    href: "https://github.com/felipefdl/deathpush/releases/latest",
+  },
+  {
+    name: "Windows",
+    note: "Windows 10+",
+    icon: `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>`,
+    href: "https://github.com/felipefdl/deathpush/releases/latest",
+  },
+  {
+    name: "Linux",
+    note: "AppImage & .deb",
+    icon: `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 0 0-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.368 1.884 1.43.868.065 1.657-.344 2.085-.81.7-.642 1.065-1.478.67-2.396-.113-.265-.395-.468-.665-.58-.135-.057-.284-.085-.432-.114-.291-.063-.39-.063-.467-.198-.025-.065-.054-.198.044-.398.066-.133.218-.332.315-.465.145-.199.241-.4.399-.465.166-.065.332-.198.497-.398.166-.2.332-.465.397-.602.066-.199.166-.464.133-.664-.033-.2-.166-.399-.332-.399l-.003-.003c-.032-.133-.032-.333-.065-.6-.033-.2-.065-.398-.1-.532a3.39 3.39 0 0 0-.133-.4c-.066-.133-.2-.334-.333-.467-.066-.133-.133-.266-.133-.466-.067-.466.066-.934.199-1.335.133-.399.333-.797.333-1.197 0-.399-.066-.798-.399-1.064-.333-.266-.8-.333-1.197-.4a3.988 3.988 0 0 1-.598-.133c-.2-.066-.4-.2-.533-.333-.266-.333-.4-.666-.533-1.064-.067-.2-.133-.466-.2-.666-.066-.199-.133-.399-.266-.532-.066-.066-.2-.133-.333-.2a.762.762 0 0 0 .004-.073c0-1.532-.794-2.77-1.466-3.734C14.903.967 14.176.4 13.106.133 12.906.067 12.706 0 12.504 0"/></svg>`,
+    href: "https://github.com/felipefdl/deathpush/releases/latest",
+  },
+];
+---
+
+<section id="download" class="download section">
+  <div class="container">
+    <div class="download-header">
+      <h2 class="text-heading">Download DeathPush</h2>
+      <p class="text-subheading">Free. Open source. Apache-2.0 licensed.</p>
+    </div>
+    <div class="download-grid">
+      {platforms.map((platform) => (
+        <div class="download-card">
+          <div class="platform-icon" set:html={platform.icon} />
+          <h3 class="platform-name">{platform.name}</h3>
+          <p class="platform-note">{platform.note}</p>
+          <a href={platform.href} class="download-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Download for {platform.name}
+          </a>
+        </div>
+      ))}
+    </div>
+    <p class="source-note">
+      Or <a href="https://github.com/felipefdl/deathpush" target="_blank" rel="noopener noreferrer">build from source</a> on GitHub.
+    </p>
+  </div>
+</section>
+
+<style>
+  .download-header {
+    text-align: center;
+    margin-bottom: var(--space-3xl);
+  }
+
+  .download-header h2 {
+    margin-bottom: var(--space-md);
+  }
+
+  .download-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+    max-width: 900px;
+    margin-inline: auto;
+  }
+
+  @media (min-width: 768px) {
+    .download-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+
+  .download-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: var(--space-2xl) var(--space-xl);
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    transition: border-color 0.3s, background 0.3s, box-shadow 0.3s;
+  }
+
+  .download-card:hover {
+    background: rgba(220, 38, 38, 0.03);
+    border-color: rgba(220, 38, 38, 0.2);
+    box-shadow: 0 0 40px rgba(220, 38, 38, 0.06);
+  }
+
+  .platform-icon {
+    color: var(--color-text);
+    margin-bottom: var(--space-lg);
+  }
+
+  .platform-name {
+    font-size: var(--text-xl);
+    font-weight: 600;
+    margin-bottom: var(--space-xs);
+  }
+
+  .platform-note {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-xl);
+  }
+
+  .download-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 0.625rem 1.25rem;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--color-white);
+    background: var(--color-accent);
+    border-radius: var(--radius-md);
+    transition: background 0.2s;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .download-btn:hover {
+    background: var(--color-accent-hover);
+  }
+
+  .source-note {
+    text-align: center;
+    margin-top: var(--space-xl);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .source-note a {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .source-note a:hover {
+    color: var(--color-accent-hover);
+  }
+</style>
