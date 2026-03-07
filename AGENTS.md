@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, React + TypeScript frontend) that replicates the VS Code Source Control UX. It provides staging, committing, diffing, branch management, push/pull, stash, tags, commit history, hunk staging, merge/rebase detection, clone, cherry-pick, reset, git blame, integrated terminal, settings, multi-window support, and a welcome/project picker screen in a lightweight native app.
+DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, React + TypeScript frontend) that replicates the VS Code Source Control UX. It provides staging, committing, diffing, branch management, push/pull, stash, tags, commit history, hunk staging, merge/rebase detection, clone, cherry-pick, reset, git blame, integrated terminal, settings, multi-window support, CLI tool (`dp`/`deathpush`), auto-update, and a welcome/project picker screen in a lightweight native app.
 
 ## Brand & Voice
 
@@ -45,7 +45,7 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 ### Backend (src-tauri/src/)
 
 - `error.rs` -- Error type via thiserror with Serialize impl
-- `types.rs` -- Serde DTOs shared with frontend (FileStatus, ResourceGroup, RepositoryStatus, DiffContent, BranchEntry, CommitEntry, CommitDetail, StashEntry, TagEntry, DiffHunk, FileDiffWithHunks, RepoOperationState, BlameLineGroup, FileBlame, LastCommitInfo, ProjectInfo)
+- `types.rs` -- Serde DTOs shared with frontend (FileStatus, ResourceGroup, RepositoryStatus, DiffContent, BranchEntry, CommitEntry, CommitDetail, StashEntry, TagEntry, DiffHunk, FileDiffWithHunks, RepoOperationState, BlameLineGroup, FileBlame, LastCommitInfo, ProjectInfo, CliInstallStatus)
 - `pty.rs` -- PTY session management via portable-pty (spawn shell, read/write, resize, per-window sessions)
 - `git/repository.rs` -- git2::Repository wrapper (open, head, ahead/behind)
 - `git/status.rs` -- git2 status flags -> resource groups + operation state detection
@@ -58,8 +58,8 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - `git/blame.rs` -- Git blame (porcelain), file log (--follow), last commit info via CLI
 - `git/cli.rs` -- Async git CLI runner for all write ops
 - `git/watcher.rs` -- FS watcher (notify + debouncer, 500ms) emitting Tauri events, per-window
-- `commands/` -- Thin Tauri command handlers (repository, status, staging, commit, branch, remote, log, stash, tag, file_ops, lifecycle, terminal, blame, config)
-- `lib.rs` -- App builder with managed state (AppRepoState, TerminalState, WatcherState), native menu system, multi-window support, 58 commands registered
+- `commands/` -- Thin Tauri command handlers (repository, status, staging, commit, branch, remote, log, stash, tag, file_ops, lifecycle, terminal, blame, config, cli)
+- `lib.rs` -- App builder with managed state (AppRepoState, TerminalState, WatcherState), native menu system, multi-window support, 61 commands registered
 
 ### Frontend (src/)
 
@@ -68,7 +68,7 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - `stores/theme-store.ts` -- Zustand store for color theme (currentTheme, setTheme)
 - `stores/icon-theme-store.ts` -- Zustand store for file icon theme (currentIconTheme, setIconTheme)
 - `stores/settings-store.ts` -- Zustand store for app settings (UI, editor, terminal, git, projects) with localStorage persistence
-- `lib/tauri-commands.ts` -- Typed invoke() wrappers for all 58 Tauri commands
+- `lib/tauri-commands.ts` -- Typed invoke() wrappers for all 61 Tauri commands
 - `lib/git-types.ts` -- TypeScript types matching Rust DTOs (including BlameLineGroup, FileBlame, LastCommitInfo)
 - `lib/flat-file-list.ts` -- Flatten resource groups into indexed file list for keyboard nav
 - `lib/format-date.ts` -- Relative date formatting
@@ -77,18 +77,25 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - `lib/constants.ts` -- App constants (APP_NAME, DEFAULT_REMOTE)
 - `lib/recent-projects.ts` -- Recent project history (localStorage, max 20)
 - `lib/toggle-terminal.ts` -- Terminal toggle logic
+- `lib/workspace-tree.ts` -- Build tree structure from scanned projects for welcome screen
+- `lib/author-utils.ts` -- Author initials extraction + deterministic avatar color hashing
+- `lib/diff-options.ts` -- Monaco diff editor options builder from settings
+- `lib/monaco-setup.ts` -- Monaco worker registration, custom language registration, diagnostics suppression
+- `lib/updater.ts` -- Tauri auto-update check + download wrapper
+- `lib/languages/` -- Custom Monaco language definitions (toml, justfile, dotenv)
 - `lib/themes/` -- Color theme infrastructure (types, registry, defaults, apply-theme, json/)
 - `lib/icon-themes/` -- File icon theme infrastructure (types, registry, apply, get-icon-classes, generate-icon-css)
-- `hooks/` -- use-repository, use-git-status, use-diff, use-branches, use-keyboard-shortcuts, use-tauri-event, use-commit-log, use-stash, use-tags, use-resize-observer
-- `components/scm/` -- SCM view, commit input (with amend/undo), resource groups (list + tree), resource item, file filter, stash view, action button, context menu, merge banner, overflow menu, SCM toolbar, resizable pane container
+- `hooks/` -- use-repository, use-git-status, use-diff, use-branches, use-keyboard-shortcuts, use-tauri-event, use-commit-log, use-stash, use-tags, use-resize-observer, use-color-scheme
+- `components/scm/` -- SCM view, commit input (with amend/undo), resource groups (list + tree), resource item, resource tree, file filter, stash view, stash entry, action button, context menu, merge banner, overflow menu, SCM toolbar, resizable pane container
 - `components/diff/` -- Monaco DiffEditor with inline/side-by-side + hunk view, diff header, image diff, empty state
-- `components/history/` -- Commit history (commit-list with cherry-pick/reset context menu, commit-detail, history-view)
+- `components/history/` -- Commit history (commit-list with cherry-pick/reset context menu, commit-detail, commit-file-tree, history-view)
 - `components/branch/` -- Branch picker with search, create, branch item, and tags section (tag-item)
-- `components/terminal/` -- Terminal panel, terminal instance (xterm.js), terminal group view, git output panel
+- `components/terminal/` -- Terminal panel, terminal instance (xterm.js), terminal group view, terminal search bar, git output panel
 - `components/layout/` -- App layout, main panel (Changes/History/Settings tabs), status bar, title bar (macOS overlay), clone dialog
 - `components/settings/` -- Settings page (UI, editor, terminal, git, projects configuration)
 - `components/welcome/` -- Welcome screen with recent projects and project directory scanner
 - `components/theme/` -- Theme picker, icon theme picker (VS Code command palette style)
+- `components/shared/` -- Workspace config modal (multi-workspace directory configuration)
 - `components/ui/` -- Spinner
 - `styles/global.css` -- Base styles + theme picker CSS (no hardcoded colors; all set by JS via applyTheme)
 - `styles/scm.css` -- SCM, merge banner, clone dialog, stash, filter, keyboard focus styles
@@ -98,7 +105,7 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - `styles/settings.css` -- Settings page styles
 - `styles/codicons.css` -- VS Code Codicon font styles
 
-### Tauri Commands (API Surface - 58 total)
+### Tauri Commands (API Surface - 61 total)
 
 | Command | Returns | Method |
 |---------|---------|--------|
@@ -159,6 +166,9 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 | `get_file_blame(path)` | FileBlame | CLI |
 | `get_file_log(path, skip, limit)` | Vec\<CommitEntry\> | CLI |
 | `get_last_commit_info()` | LastCommitInfo | CLI |
+| `check_cli_installed()` | CliInstallStatus | filesystem |
+| `install_cli()` | () | filesystem + elevated |
+| `uninstall_cli()` | () | filesystem + elevated |
 | `new_window()` | () | Tauri |
 
 ### Tauri Events
@@ -201,7 +211,7 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 - `src-tauri/src/commands/` -- Tauri command handlers (thin, delegate to git/ or pty)
 - `src-tauri/src/git/` -- Git operations (git2 reads, CLI writes, blame)
 - `src-tauri/src/pty.rs` -- PTY session management (portable-pty)
-- `src/components/` -- React components organized by feature (scm/, diff/, branch/, history/, terminal/, layout/, settings/, welcome/, theme/, ui/)
+- `src/components/` -- React components organized by feature (scm/, diff/, branch/, history/, terminal/, layout/, settings/, welcome/, theme/, shared/, ui/)
 - `src/hooks/` -- Custom React hooks
 - `src/stores/` -- Zustand stores (repository, layout, theme, icon-theme, settings)
 - `src/lib/` -- Utilities, types, constants
@@ -241,6 +251,18 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 - Terminal theme extracted from resolved theme `colors` at runtime via `getTerminalTheme()`
 - Theme picker opens via Cmd+K Cmd+T chord or status bar icon
 
+### CLI Tool
+
+- DeathPush installs `dp` and `deathpush` symlinks (or `.cmd` scripts on Windows) to `/usr/local/bin`
+- Install/uninstall managed via `commands/cli.rs` with elevated permissions when needed
+- CLI opens DeathPush with the given repo path: `dp /path/to/repo`
+
+### Monaco Setup
+
+- Monaco workers configured in `lib/monaco-setup.ts` (no CDN, all local)
+- Custom languages registered: TOML, Justfile, dotenv
+- All diagnostics (TS, JS, JSON, CSS, HTML) suppressed -- diff viewer only
+
 ### Icon Themes
 
 - File icon themes use VS Code icon theme JSON format (`src/lib/icon-themes/`)
@@ -276,8 +298,8 @@ The `.temp-vscode/` directory contains VS Code source for reference. Key files:
 just dev          # Start Tauri dev server
 just build        # Production build
 just lint         # Run oxlint + clippy
-just fmt          # Format with oxfmt + rustfmt
-just check        # Type check (tsc + cargo check)
+just fmt          # Format with rustfmt
+just check        # Type check (cargo check)
 just test         # Run vitest
 just test-watch   # Run vitest in watch mode
 ```

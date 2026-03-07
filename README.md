@@ -35,7 +35,9 @@ DeathPush is a standalone desktop Git client for people who like the VS Code Sou
 - Browse history and inspect commit details when you need context.
 - View file blame to trace who changed what.
 - Handle merge and rebase conflicts (continue, abort, skip) without touching the terminal.
+- Search inside your terminal output with the built-in search bar.
 - Use the integrated terminal with full PTY support when you do need it.
+- Install the `dp` command line tool to open repos from your terminal.
 - Manage files directly: delete, add to `.gitignore`, open in editor, or reveal in file manager.
 - Open multiple windows for different repositories.
 
@@ -81,6 +83,8 @@ DeathPush is built with a hybrid Git engine:
 
 - `git2` for fast read operations (status, diff, branches, log, tags).
 - Native `git` CLI for write operations (commit, push/pull, stash, checkout, reset, clone), so hooks, signing, credentials, SSH config, and LFS keep working as expected.
+- Custom syntax highlighting for TOML, Justfile, and dotenv files in diffs.
+- Auto-update support -- get notified and install new versions without leaving the app.
 
 Stack: Tauri v2 (Rust) + React 19 + TypeScript + Zustand + Monaco Editor.
 
