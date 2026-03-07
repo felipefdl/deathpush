@@ -240,6 +240,14 @@
   background: transparent;
 }
 
+.terminal-panel-btn .codicon-chrome-maximize {
+  font-size: 18px;
+}
+
+.terminal-panel-btn .codicon-chrome-restore {
+  font-size: 22px;
+}
+
 /* ---- Split pane layout ---- */
 
 .terminal-group-view {

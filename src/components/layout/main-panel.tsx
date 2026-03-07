@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useLayoutStore } from "../../stores/layout-store";
+import { useSettingsStore } from "../../stores/settings-store";
 import { GitOutput } from "../terminal/git-output";
 
 interface MainPanelProps {
@@ -10,10 +11,11 @@ interface MainPanelProps {
 
 export const MainPanel = ({ changesView, historyView, settingsView }: MainPanelProps) => {
   const { mainView, setMainView, terminalMaximized } = useLayoutStore();
+  const sidebarRight = useSettingsStore((s) => s.settings.ui.sidebarPosition === "right");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div className="main-view-tabs">
+      <div className="main-view-tabs" style={sidebarRight ? { flexDirection: "row-reverse" } : undefined}>
         <button
           className={`main-view-tab${mainView === "changes" ? " active" : ""}`}
           onClick={() => setMainView("changes")}

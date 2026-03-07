@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { useLayoutStore } from "../../stores/layout-store";
+import { useSettingsStore } from "../../stores/settings-store";
 import { toggleTerminal } from "../../lib/toggle-terminal";
 import { GitOutput } from "./git-output";
 import { TerminalGroupView } from "./terminal-group-view";
@@ -19,15 +20,17 @@ export const TerminalPanel = () => {
     setActivePaneInGroup,
   } = useRepositoryStore();
   const { panelTab, setPanelTab, toggleTerminalMaximized, terminalMaximized } = useLayoutStore();
+  const sidebarRight = useSettingsStore((s) => s.settings.ui.sidebarPosition === "right");
   const [sidebarWidth, setSidebarWidth] = useState(160);
 
   const handleSidebarMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
     const startWidth = sidebarWidth;
+    const direction = useSettingsStore.getState().settings.ui.sidebarPosition === "right" ? 1 : -1;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const newWidth = Math.max(100, Math.min(400, startWidth - (moveEvent.clientX - startX)));
+      const newWidth = Math.max(100, Math.min(400, startWidth + (moveEvent.clientX - startX) * direction));
       setSidebarWidth(newWidth);
     };
 
@@ -112,8 +115,8 @@ export const TerminalPanel = () => {
   return (
     <div className="terminal-panel">
       {!terminalMaximized && (
-        <div className="terminal-panel-header">
-          <div className="panel-tabs">
+        <div className="terminal-panel-header" style={sidebarRight ? { flexDirection: "row-reverse" } : undefined}>
+          <div className="panel-tabs" style={sidebarRight ? { flexDirection: "row-reverse" } : undefined}>
             <div
               className={`panel-tab ${!isTerminal ? "active" : ""}`}
               onClick={() => setPanelTab("git-output")}
@@ -128,7 +131,7 @@ export const TerminalPanel = () => {
             </div>
           </div>
           {isTerminal && (
-            <div className="terminal-header-actions">
+            <div className="terminal-header-actions" style={sidebarRight ? { flexDirection: "row-reverse" } : undefined}>
               <button className="terminal-panel-btn" onClick={addTerminalGroup} title="New Terminal">
                 <span className="codicon codicon-plus" />
               </button>
@@ -161,7 +164,7 @@ export const TerminalPanel = () => {
           )}
         </div>
       )}
-      <div className="terminal-panel-body">
+      <div className="terminal-panel-body" style={sidebarRight ? { flexDirection: "row-reverse" } : undefined}>
         <div className="terminal-panel-content">
           <div className="terminal-panel-main" style={{ display: isTerminal ? undefined : "none" }}>
             {terminalGroups.map((group) => (
