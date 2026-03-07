@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { useLayoutStore } from "../../stores/layout-store";
 import { toggleTerminal } from "../../lib/toggle-terminal";
@@ -19,6 +19,26 @@ export const TerminalPanel = () => {
     setActivePaneInGroup,
   } = useRepositoryStore();
   const { panelTab, setPanelTab, toggleTerminalMaximized, terminalMaximized } = useLayoutStore();
+  const [sidebarWidth, setSidebarWidth] = useState(160);
+
+  const handleSidebarMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const newWidth = Math.max(100, Math.min(400, startWidth - (moveEvent.clientX - startX)));
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  }, [sidebarWidth]);
 
   useEffect(() => {
     const state = useRepositoryStore.getState();
@@ -28,82 +48,91 @@ export const TerminalPanel = () => {
   }, []);
 
   const isTerminal = terminalMaximized || panelTab === "terminal";
+  const totalPanes = terminalGroups.reduce((sum, g) => sum + g.panes.length, 0);
+  const showSidebar = isTerminal && (terminalMaximized || totalPanes > 1);
 
-  return (
-    <div className="terminal-panel">
-      <div className="terminal-panel-left">
-        {!terminalMaximized && (
-          <div className="terminal-panel-header">
-            <div className="panel-tabs">
-              <div
-                className={`panel-tab ${!isTerminal ? "active" : ""}`}
-                onClick={() => setPanelTab("git-output")}
-              >
-                Output
-              </div>
-              <div
-                className={`panel-tab ${isTerminal ? "active" : ""}`}
-                onClick={() => setPanelTab("terminal")}
-              >
-                Terminal
-              </div>
-            </div>
-            {isTerminal && (
-              <div className="terminal-header-actions">
-                <button className="terminal-panel-btn" onClick={addTerminalGroup} title="New Terminal">
-                  <span className="codicon codicon-plus" />
-                </button>
-                <span className="terminal-header-separator" />
+  const sidebarList = (
+    <div className="terminal-sidebar-list">
+      {terminalGroups.map((group) => (
+        <div key={group.groupId} className="terminal-sidebar-group">
+          {group.panes.map((pane) => (
+            <div
+              key={pane.paneId}
+              className={`terminal-sidebar-item ${group.groupId === activeGroupId && pane.paneId === group.activePaneId ? "active" : ""}`}
+              onClick={() => {
+                setActiveGroup(group.groupId);
+                setActivePaneInGroup(group.groupId, pane.paneId);
+              }}
+            >
+              <span className="codicon codicon-terminal terminal-sidebar-icon" />
+              <span className="terminal-sidebar-name">{pane.name}</span>
+              <div className="terminal-sidebar-hover-actions">
                 <button
-                  className="terminal-panel-btn"
-                  onClick={() => { if (activeGroupId !== null) splitTerminal(activeGroupId); }}
-                  title="Split Terminal Horizontally"
+                  className="terminal-sidebar-action-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    splitTerminal(group.groupId);
+                  }}
+                  title="Split Horizontally"
                 >
                   <span className="codicon codicon-split-horizontal" />
                 </button>
                 <button
-                  className="terminal-panel-btn"
-                  onClick={() => { if (activeGroupId !== null) splitTerminalVertical(activeGroupId); }}
-                  title="Split Terminal Vertically"
+                  className="terminal-sidebar-action-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    splitTerminalVertical(group.groupId);
+                  }}
+                  title="Split Vertically"
                 >
                   <span className="codicon codicon-split-vertical" />
                 </button>
                 <button
-                  className="terminal-panel-btn"
-                  onClick={toggleTerminalMaximized}
-                  title="Maximize Panel Size"
+                  className="terminal-sidebar-action-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (group.panes.length > 1) {
+                      removePane(group.groupId, pane.paneId);
+                    } else {
+                      removeTerminalGroup(group.groupId);
+                    }
+                  }}
+                  title="Kill Terminal"
                 >
-                  <span className="codicon codicon-chrome-maximize" />
-                </button>
-                <button className="terminal-panel-btn" onClick={() => toggleTerminal()} title="Close Panel">
-                  <span className="codicon codicon-close" />
+                  <span className="codicon codicon-trash" />
                 </button>
               </div>
-            )}
-          </div>
-        )}
-        <div className="terminal-panel-main" style={{ display: isTerminal ? undefined : "none" }}>
-          {terminalGroups.map((group) => (
-            <TerminalGroupView
-              key={group.groupId}
-              group={group}
-              isActive={isTerminal && group.groupId === activeGroupId}
-            />
+            </div>
           ))}
         </div>
-        {!terminalMaximized && (
-          <div className="terminal-panel-main" style={{ display: isTerminal ? "none" : undefined }}>
-            <GitOutput />
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="terminal-panel">
+      {!terminalMaximized && (
+        <div className="terminal-panel-header">
+          <div className="panel-tabs">
+            <div
+              className={`panel-tab ${!isTerminal ? "active" : ""}`}
+              onClick={() => setPanelTab("git-output")}
+            >
+              Output
+            </div>
+            <div
+              className={`panel-tab ${isTerminal ? "active" : ""}`}
+              onClick={() => setPanelTab("terminal")}
+            >
+              Terminal
+            </div>
           </div>
-        )}
-      </div>
-      <div className="terminal-sidebar" style={{ display: isTerminal ? undefined : "none" }}>
-        {terminalMaximized && (
-          <div className="terminal-sidebar-actions">
-            <div className="terminal-sidebar-actions-left">
+          {isTerminal && (
+            <div className="terminal-header-actions">
               <button className="terminal-panel-btn" onClick={addTerminalGroup} title="New Terminal">
                 <span className="codicon codicon-plus" />
               </button>
+              <span className="terminal-header-separator" />
               <button
                 className="terminal-panel-btn"
                 onClick={() => { if (activeGroupId !== null) splitTerminal(activeGroupId); }}
@@ -121,68 +150,72 @@ export const TerminalPanel = () => {
               <button
                 className="terminal-panel-btn"
                 onClick={toggleTerminalMaximized}
-                title="Restore Panel Size"
+                title="Maximize Panel Size"
               >
-                <span className="codicon codicon-chrome-restore" />
+                <span className="codicon codicon-chrome-maximize" />
+              </button>
+              <button className="terminal-panel-btn" onClick={() => toggleTerminal()} title="Close Panel">
+                <span className="codicon codicon-close" />
               </button>
             </div>
-          </div>
-        )}
-        <div className="terminal-sidebar-list">
-          {terminalGroups.map((group) => (
-            <div key={group.groupId} className="terminal-sidebar-group">
-              {group.panes.map((pane) => (
-                <div
-                  key={pane.paneId}
-                  className={`terminal-sidebar-item ${group.groupId === activeGroupId && pane.paneId === group.activePaneId ? "active" : ""}`}
-                  onClick={() => {
-                    setActiveGroup(group.groupId);
-                    setActivePaneInGroup(group.groupId, pane.paneId);
-                  }}
-                >
-                  <span className="codicon codicon-terminal terminal-sidebar-icon" />
-                  <span className="terminal-sidebar-name">{pane.name}</span>
-                  <div className="terminal-sidebar-hover-actions">
-                    <button
-                      className="terminal-sidebar-action-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        splitTerminal(group.groupId);
-                      }}
-                      title="Split Horizontally"
-                    >
-                      <span className="codicon codicon-split-horizontal" />
-                    </button>
-                    <button
-                      className="terminal-sidebar-action-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        splitTerminalVertical(group.groupId);
-                      }}
-                      title="Split Vertically"
-                    >
-                      <span className="codicon codicon-split-vertical" />
-                    </button>
-                    <button
-                      className="terminal-sidebar-action-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (group.panes.length > 1) {
-                          removePane(group.groupId, pane.paneId);
-                        } else {
-                          removeTerminalGroup(group.groupId);
-                        }
-                      }}
-                      title="Kill Terminal"
-                    >
-                      <span className="codicon codicon-trash" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ))}
+          )}
         </div>
+      )}
+      <div className="terminal-panel-body">
+        <div className="terminal-panel-content">
+          <div className="terminal-panel-main" style={{ display: isTerminal ? undefined : "none" }}>
+            {terminalGroups.map((group) => (
+              <TerminalGroupView
+                key={group.groupId}
+                group={group}
+                isActive={isTerminal && group.groupId === activeGroupId}
+              />
+            ))}
+          </div>
+          {!terminalMaximized && (
+            <div className="terminal-panel-main" style={{ display: isTerminal ? "none" : undefined }}>
+              <GitOutput />
+            </div>
+          )}
+        </div>
+        {showSidebar && (
+          <>
+          <div className="terminal-sidebar-divider" onMouseDown={handleSidebarMouseDown} />
+          <div className="terminal-sidebar" style={{ width: sidebarWidth }}>
+            {terminalMaximized && (
+              <div className="terminal-sidebar-actions">
+                <div className="terminal-sidebar-actions-left">
+                  <button className="terminal-panel-btn" onClick={addTerminalGroup} title="New Terminal">
+                    <span className="codicon codicon-plus" />
+                  </button>
+                  <button
+                    className="terminal-panel-btn"
+                    onClick={() => { if (activeGroupId !== null) splitTerminal(activeGroupId); }}
+                    title="Split Terminal Horizontally"
+                  >
+                    <span className="codicon codicon-split-horizontal" />
+                  </button>
+                  <button
+                    className="terminal-panel-btn"
+                    onClick={() => { if (activeGroupId !== null) splitTerminalVertical(activeGroupId); }}
+                    title="Split Terminal Vertically"
+                  >
+                    <span className="codicon codicon-split-vertical" />
+                  </button>
+                  <button
+                    className="terminal-panel-btn"
+                    onClick={toggleTerminalMaximized}
+                    title="Restore Panel Size"
+                  >
+                    <span className="codicon codicon-chrome-restore" />
+                  </button>
+                </div>
+              </div>
+            )}
+            {sidebarList}
+          </div>
+          </>
+        )}
       </div>
     </div>
   );
