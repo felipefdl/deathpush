@@ -118,7 +118,6 @@ const EditorSection = ({
       ]}
       onChange={(v) => onUpdate({ wordWrap: v as EditorSettings["wordWrap"] })}
     />
-    <CheckboxField label="Minimap" checked={settings.minimap} onChange={(v) => onUpdate({ minimap: v })} />
     <SelectField
       label="Render Whitespace"
       value={settings.renderWhitespace}

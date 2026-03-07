@@ -6,7 +6,6 @@ export interface EditorSettings {
   lineHeight: number;
   tabSize: number;
   wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
-  minimap: boolean;
   renderWhitespace: "none" | "boundary" | "selection" | "trailing" | "all";
 }
 
@@ -71,7 +70,6 @@ const DEFAULTS: AppSettings = {
     lineHeight: 20,
     tabSize: 4,
     wordWrap: "off",
-    minimap: false,
     renderWhitespace: "none",
   },
   terminal: {

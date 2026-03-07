@@ -119,7 +119,7 @@ export const CommitDetail = () => {
                 options={{
                   readOnly: true,
                   renderSideBySide: diffMode === "sideBySide",
-                  minimap: { enabled: settings.editor.minimap },
+                  minimap: { enabled: false },
                   scrollBeyondLastLine: false,
                   fontSize: settings.editor.fontSize,
                   fontFamily: settings.editor.fontFamily,

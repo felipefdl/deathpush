@@ -146,6 +146,7 @@ export const DiffViewer = () => {
     if (origModel) origModel.setValue(diff.original);
   }, [diff]);
 
+
   useEffect(() => {
     return () => {
       if (disposeRef.current) disposeRef.current();
@@ -185,7 +186,7 @@ export const DiffViewer = () => {
             readOnly: !isEditable,
             domReadOnly: !isEditable,
             renderSideBySide: diffMode === "sideBySide",
-            minimap: { enabled: settings.editor.minimap },
+            minimap: { enabled: false },
             scrollBeyondLastLine: false,
             fontSize: settings.editor.fontSize,
             fontFamily: settings.editor.fontFamily,
@@ -194,7 +195,8 @@ export const DiffViewer = () => {
             tabSize: settings.editor.tabSize,
             wordWrap: settings.editor.wordWrap,
             renderWhitespace: settings.editor.renderWhitespace,
-            renderOverviewRuler: false,
+            renderOverviewRuler: true,
+            hideCursorInOverviewRuler: true,
             originalEditable: false,
             quickSuggestions: false,
             parameterHints: { enabled: false },

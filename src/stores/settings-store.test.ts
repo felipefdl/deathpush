@@ -15,7 +15,6 @@ const DEFAULTS = {
     lineHeight: 20,
     tabSize: 4,
     wordWrap: "off" as const,
-    minimap: false,
     renderWhitespace: "none" as const,
   },
   terminal: {
@@ -117,9 +116,9 @@ describe("settings store", () => {
     });
 
     it("saves to localStorage", () => {
-      useSettingsStore.getState().updateEditor({ minimap: true });
+      useSettingsStore.getState().updateEditor({ tabSize: 2 });
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
-      expect(stored.editor.minimap).toBe(true);
+      expect(stored.editor.tabSize).toBe(2);
     });
   });
 
