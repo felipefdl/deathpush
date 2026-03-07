@@ -35,7 +35,13 @@ const spawnSession = async (
   sessionIdRef: React.RefObject<number>,
   paneId: number,
 ) => {
-  const result = await invoke<SpawnResult>("terminal_spawn", { cols: term.cols, rows: term.rows });
+  const { shellPath, shellArgs } = useSettingsStore.getState().settings.terminal;
+  const result = await invoke<SpawnResult>("terminal_spawn", {
+    cols: term.cols,
+    rows: term.rows,
+    shellPath: shellPath || null,
+    shellArgs: shellArgs || null,
+  });
   sessionIdRef.current = result.id;
   useRepositoryStore.getState().renamePane(paneId, result.shell);
 };
@@ -90,6 +96,24 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
         cursorStyle: termSettings.cursorStyle,
         scrollback: termSettings.scrollback,
         allowProposedApi: true,
+        macOptionIsMeta: termSettings.macOptionIsMeta,
+        cursorInactiveStyle: termSettings.cursorInactiveStyle,
+        minimumContrastRatio: termSettings.minimumContrastRatio,
+        scrollSensitivity: termSettings.scrollSensitivity,
+        fastScrollSensitivity: termSettings.fastScrollSensitivity,
+        fontWeight: termSettings.fontWeight as any,
+        fontWeightBold: termSettings.fontWeightBold as any,
+        letterSpacing: termSettings.letterSpacing,
+        cursorWidth: termSettings.cursorWidth,
+        smoothScrollDuration: termSettings.smoothScrollDuration,
+        drawBoldTextInBrightColors: termSettings.drawBoldTextInBrightColors,
+        rightClickSelectsWord: termSettings.rightClickSelectsWord,
+        macOptionClickForcesSelection: termSettings.macOptionClickForcesSelection,
+        altClickMovesCursor: termSettings.altClickMovesCursor,
+        wordSeparator: termSettings.wordSeparator,
+        tabStopWidth: termSettings.tabStopWidth,
+        scrollOnUserInput: termSettings.scrollOnUserInput,
+        rescaleOverlappingGlyphs: termSettings.rescaleOverlappingGlyphs,
       });
 
       fitAddon = new FitAddon();
@@ -282,9 +306,54 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
     term.options.cursorBlink = terminalSettings.cursorBlink;
     term.options.cursorStyle = terminalSettings.cursorStyle;
     term.options.scrollback = terminalSettings.scrollback;
+    term.options.macOptionIsMeta = terminalSettings.macOptionIsMeta;
+    term.options.cursorInactiveStyle = terminalSettings.cursorInactiveStyle;
+    term.options.minimumContrastRatio = terminalSettings.minimumContrastRatio;
+    term.options.scrollSensitivity = terminalSettings.scrollSensitivity;
+    term.options.fastScrollSensitivity = terminalSettings.fastScrollSensitivity;
+    term.options.fontWeight = terminalSettings.fontWeight as any;
+    term.options.fontWeightBold = terminalSettings.fontWeightBold as any;
+    term.options.letterSpacing = terminalSettings.letterSpacing;
+    term.options.cursorWidth = terminalSettings.cursorWidth;
+    term.options.smoothScrollDuration = terminalSettings.smoothScrollDuration;
+    term.options.drawBoldTextInBrightColors = terminalSettings.drawBoldTextInBrightColors;
+    term.options.rightClickSelectsWord = terminalSettings.rightClickSelectsWord;
+    term.options.macOptionClickForcesSelection = terminalSettings.macOptionClickForcesSelection;
+    term.options.altClickMovesCursor = terminalSettings.altClickMovesCursor;
+    term.options.wordSeparator = terminalSettings.wordSeparator;
+    term.options.tabStopWidth = terminalSettings.tabStopWidth;
+    term.options.scrollOnUserInput = terminalSettings.scrollOnUserInput;
+    term.options.rescaleOverlappingGlyphs = terminalSettings.rescaleOverlappingGlyphs;
     fitAddonRef.current?.fit();
     term.refresh(0, term.rows - 1);
   }, [terminalSettings]);
+
+  const bellStyle = useSettingsStore((s) => s.settings.terminal.bellStyle);
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || bellStyle === "off") return;
+    const disposable = term.onBell(() => {
+      if (bellStyle === "sound" || bellStyle === "both") {
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 800;
+        gain.gain.value = 0.1;
+        osc.start();
+        osc.stop(ctx.currentTime + 0.1);
+      }
+      if (bellStyle === "visual" || bellStyle === "both") {
+        const el = containerRef.current;
+        if (el) {
+          el.classList.add("terminal-bell-flash");
+          el.addEventListener("animationend", () => el.classList.remove("terminal-bell-flash"), { once: true });
+        }
+      }
+    });
+    return () => disposable.dispose();
+  }, [bellStyle]);
 
   return (
     <div className="terminal-instance-wrapper">

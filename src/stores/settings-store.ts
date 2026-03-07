@@ -17,6 +17,31 @@ export interface TerminalSettings {
   cursorStyle: "block" | "underline" | "bar";
   scrollback: number;
   copyOnSelect: boolean;
+  // Tier 1
+  macOptionIsMeta: boolean;
+  cursorInactiveStyle: "outline" | "block" | "bar" | "underline" | "none";
+  minimumContrastRatio: number;
+  scrollSensitivity: number;
+  fastScrollSensitivity: number;
+  fontWeight: string;
+  fontWeightBold: string;
+  // Tier 2
+  letterSpacing: number;
+  cursorWidth: number;
+  smoothScrollDuration: number;
+  drawBoldTextInBrightColors: boolean;
+  rightClickSelectsWord: boolean;
+  macOptionClickForcesSelection: boolean;
+  altClickMovesCursor: boolean;
+  // Tier 3
+  wordSeparator: string;
+  tabStopWidth: number;
+  scrollOnUserInput: boolean;
+  rescaleOverlappingGlyphs: boolean;
+  // Non-xterm
+  shellPath: string;
+  shellArgs: string;
+  bellStyle: "off" | "sound" | "visual" | "both";
 }
 
 export interface GitSettings {
@@ -80,6 +105,27 @@ const DEFAULTS: AppSettings = {
     cursorStyle: "block",
     scrollback: 5000,
     copyOnSelect: false,
+    macOptionIsMeta: false,
+    cursorInactiveStyle: "outline",
+    minimumContrastRatio: 1,
+    scrollSensitivity: 1,
+    fastScrollSensitivity: 5,
+    fontWeight: "normal",
+    fontWeightBold: "bold",
+    letterSpacing: 0,
+    cursorWidth: 1,
+    smoothScrollDuration: 0,
+    drawBoldTextInBrightColors: true,
+    rightClickSelectsWord: false,
+    macOptionClickForcesSelection: false,
+    altClickMovesCursor: true,
+    wordSeparator: " ()[]{}',\"`",
+    tabStopWidth: 8,
+    scrollOnUserInput: true,
+    rescaleOverlappingGlyphs: false,
+    shellPath: "",
+    shellArgs: "-l",
+    bellStyle: "off",
   },
   git: {
     blame: true,

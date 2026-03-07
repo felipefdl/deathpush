@@ -28,7 +28,15 @@ pub struct PtySession {
 }
 
 impl PtySession {
-  pub fn spawn(window: WebviewWindow, cwd: &str, cols: u16, rows: u16, window_label: String) -> Result<Self> {
+  pub fn spawn(
+    window: WebviewWindow,
+    cwd: &str,
+    cols: u16,
+    rows: u16,
+    window_label: String,
+    shell_path: Option<String>,
+    shell_args: Option<String>,
+  ) -> Result<Self> {
     let id = NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed);
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -40,13 +48,18 @@ impl PtySession {
       })
       .map_err(|e| Error::Other(e.to_string()))?;
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let shell = shell_path
+      .filter(|s| !s.is_empty())
+      .unwrap_or_else(|| std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()));
     let shell_name = std::path::Path::new(&shell)
       .file_name()
       .map(|n| n.to_string_lossy().to_string())
       .unwrap_or_else(|| shell.clone());
     let mut cmd = CommandBuilder::new(&shell);
-    cmd.arg("-l");
+    let args_str = shell_args.unwrap_or_else(|| "-l".to_string());
+    for arg in args_str.split_whitespace() {
+      cmd.arg(arg);
+    }
     cmd.env("TERM", "xterm-256color");
     cmd.cwd(cwd);
 

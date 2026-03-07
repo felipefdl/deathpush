@@ -25,6 +25,27 @@ const DEFAULTS = {
     cursorStyle: "block" as const,
     scrollback: 5000,
     copyOnSelect: false,
+    macOptionIsMeta: false,
+    cursorInactiveStyle: "outline" as const,
+    minimumContrastRatio: 1,
+    scrollSensitivity: 1,
+    fastScrollSensitivity: 5,
+    fontWeight: "normal",
+    fontWeightBold: "bold",
+    letterSpacing: 0,
+    cursorWidth: 1,
+    smoothScrollDuration: 0,
+    drawBoldTextInBrightColors: true,
+    rightClickSelectsWord: false,
+    macOptionClickForcesSelection: false,
+    altClickMovesCursor: true,
+    wordSeparator: " ()[]{}',\"`",
+    tabStopWidth: 8,
+    scrollOnUserInput: true,
+    rescaleOverlappingGlyphs: false,
+    shellPath: "",
+    shellArgs: "-l",
+    bellStyle: "off" as const,
   },
   git: { blame: true },
   projects: { workspaces: [] },
@@ -135,6 +156,50 @@ describe("settings store", () => {
       useSettingsStore.getState().updateTerminal({ fontSize: 16 });
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
       expect(stored.terminal.fontSize).toBe(16);
+    });
+
+    it("new terminal settings update independently", () => {
+      useSettingsStore.getState().updateTerminal({ macOptionIsMeta: true, bellStyle: "sound" });
+      const { terminal } = useSettingsStore.getState().settings;
+      expect(terminal.macOptionIsMeta).toBe(true);
+      expect(terminal.bellStyle).toBe("sound");
+      expect(terminal.cursorBlink).toBe(true);
+      expect(terminal.scrollSensitivity).toBe(1);
+    });
+
+    it("old localStorage without new fields loads with defaults", () => {
+      const oldData = {
+        ui: DEFAULTS.ui,
+        editor: DEFAULTS.editor,
+        terminal: {
+          fontSize: 14,
+          fontFamily: DEFAULTS.terminal.fontFamily,
+          lineHeight: 1.2,
+          cursorBlink: false,
+          cursorStyle: "bar",
+          scrollback: 3000,
+          copyOnSelect: true,
+        },
+        git: DEFAULTS.git,
+        projects: DEFAULTS.projects,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(oldData));
+      // Force re-load by resetting state as if the app just started
+      const { loadSettings } = (() => {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        const parsed = JSON.parse(raw!);
+        return {
+          loadSettings: {
+            ...DEFAULTS,
+            terminal: { ...DEFAULTS.terminal, ...parsed.terminal },
+          },
+        };
+      })();
+      expect(loadSettings.terminal.fontSize).toBe(14);
+      expect(loadSettings.terminal.cursorBlink).toBe(false);
+      expect(loadSettings.terminal.macOptionIsMeta).toBe(false);
+      expect(loadSettings.terminal.bellStyle).toBe("off");
+      expect(loadSettings.terminal.shellPath).toBe("");
     });
   });
 

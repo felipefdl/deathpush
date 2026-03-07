@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSettingsStore } from "../../stores/settings-store";
 import type { EditorSettings, GitSettings, ProjectsSettings, TerminalSettings, UISettings } from "../../stores/settings-store";
 import { useThemeStore } from "../../stores/theme-store";
@@ -22,9 +22,9 @@ export const SettingsPage = () => {
       <div className="settings-content">
         <AppearanceSection settings={settings.ui} onUpdate={updateUI} />
         <EditorSection settings={settings.editor} onUpdate={updateEditor} />
-        <TerminalSection settings={settings.terminal} onUpdate={updateTerminal} />
         <GitSection settings={settings.git} onUpdate={updateGit} />
         <ProjectsSection settings={settings.projects} onUpdate={updateProjects} />
+        <TerminalSection settings={settings.terminal} onUpdate={updateTerminal} />
       </div>
     </div>
   );
@@ -133,6 +133,20 @@ const EditorSection = ({
   </div>
 );
 
+const FONT_WEIGHT_OPTIONS = [
+  { value: "normal", label: "Normal" },
+  { value: "bold", label: "Bold" },
+  { value: "100", label: "100" },
+  { value: "200", label: "200" },
+  { value: "300", label: "300" },
+  { value: "400", label: "400" },
+  { value: "500", label: "500" },
+  { value: "600", label: "600" },
+  { value: "700", label: "700" },
+  { value: "800", label: "800" },
+  { value: "900", label: "900" },
+];
+
 const TerminalSection = ({
   settings,
   onUpdate,
@@ -142,6 +156,8 @@ const TerminalSection = ({
 }) => (
   <div className="settings-section">
     <div className="settings-section-title">Terminal</div>
+
+    <div className="settings-subsection-title">Text &amp; Font</div>
     <NumberField label="Font Size" value={settings.fontSize} onChange={(v) => onUpdate({ fontSize: v })} min={8} max={32} />
     <TextField label="Font Family" value={settings.fontFamily} onChange={(v) => onUpdate({ fontFamily: v })} />
     <NumberField
@@ -152,7 +168,28 @@ const TerminalSection = ({
       max={3}
       step={0.1}
     />
-    <CheckboxField label="Cursor Blink" checked={settings.cursorBlink} onChange={(v) => onUpdate({ cursorBlink: v })} />
+    <SelectField
+      label="Font Weight"
+      value={settings.fontWeight}
+      options={FONT_WEIGHT_OPTIONS}
+      onChange={(v) => onUpdate({ fontWeight: v })}
+    />
+    <SelectField
+      label="Font Weight Bold"
+      value={settings.fontWeightBold}
+      options={FONT_WEIGHT_OPTIONS}
+      onChange={(v) => onUpdate({ fontWeightBold: v })}
+    />
+    <NumberField
+      label="Letter Spacing"
+      value={settings.letterSpacing}
+      onChange={(v) => onUpdate({ letterSpacing: v })}
+      min={-5}
+      max={10}
+      step={1}
+    />
+
+    <div className="settings-subsection-title">Cursor</div>
     <SelectField
       label="Cursor Style"
       value={settings.cursorStyle}
@@ -163,6 +200,29 @@ const TerminalSection = ({
       ]}
       onChange={(v) => onUpdate({ cursorStyle: v as TerminalSettings["cursorStyle"] })}
     />
+    <CheckboxField label="Cursor Blink" checked={settings.cursorBlink} onChange={(v) => onUpdate({ cursorBlink: v })} />
+    <NumberField
+      label="Cursor Width"
+      value={settings.cursorWidth}
+      onChange={(v) => onUpdate({ cursorWidth: v })}
+      min={1}
+      max={5}
+      step={1}
+    />
+    <SelectField
+      label="Cursor Inactive Style"
+      value={settings.cursorInactiveStyle}
+      options={[
+        { value: "outline", label: "Outline" },
+        { value: "block", label: "Block" },
+        { value: "bar", label: "Bar" },
+        { value: "underline", label: "Underline" },
+        { value: "none", label: "None" },
+      ]}
+      onChange={(v) => onUpdate({ cursorInactiveStyle: v as TerminalSettings["cursorInactiveStyle"] })}
+    />
+
+    <div className="settings-subsection-title">Scrolling</div>
     <NumberField
       label="Scrollback"
       value={settings.scrollback}
@@ -171,7 +231,104 @@ const TerminalSection = ({
       max={100000}
       step={500}
     />
+    <NumberField
+      label="Scroll Sensitivity"
+      value={settings.scrollSensitivity}
+      onChange={(v) => onUpdate({ scrollSensitivity: v })}
+      min={0.1}
+      max={10}
+      step={0.1}
+    />
+    <NumberField
+      label="Fast Scroll Sensitivity"
+      value={settings.fastScrollSensitivity}
+      onChange={(v) => onUpdate({ fastScrollSensitivity: v })}
+      min={1}
+      max={20}
+      step={1}
+    />
+    <NumberField
+      label="Smooth Scroll Duration"
+      value={settings.smoothScrollDuration}
+      onChange={(v) => onUpdate({ smoothScrollDuration: v })}
+      min={0}
+      max={500}
+      step={25}
+    />
+    <CheckboxField
+      label="Scroll on User Input"
+      checked={settings.scrollOnUserInput}
+      onChange={(v) => onUpdate({ scrollOnUserInput: v })}
+    />
+
+    <div className="settings-subsection-title">Behavior</div>
     <CheckboxField label="Copy on Select" checked={settings.copyOnSelect} onChange={(v) => onUpdate({ copyOnSelect: v })} />
+    <CheckboxField
+      label="Right Click Selects Word"
+      checked={settings.rightClickSelectsWord}
+      onChange={(v) => onUpdate({ rightClickSelectsWord: v })}
+    />
+    <CheckboxField
+      label="Alt Click Moves Cursor"
+      checked={settings.altClickMovesCursor}
+      onChange={(v) => onUpdate({ altClickMovesCursor: v })}
+    />
+    <CheckboxField
+      label="macOS Option as Meta"
+      checked={settings.macOptionIsMeta}
+      onChange={(v) => onUpdate({ macOptionIsMeta: v })}
+    />
+    <CheckboxField
+      label="macOS Option Click Forces Selection"
+      checked={settings.macOptionClickForcesSelection}
+      onChange={(v) => onUpdate({ macOptionClickForcesSelection: v })}
+    />
+
+    <div className="settings-subsection-title">Rendering</div>
+    <CheckboxField
+      label="Draw Bold Text in Bright Colors"
+      checked={settings.drawBoldTextInBrightColors}
+      onChange={(v) => onUpdate({ drawBoldTextInBrightColors: v })}
+    />
+    <NumberField
+      label="Minimum Contrast Ratio"
+      value={settings.minimumContrastRatio}
+      onChange={(v) => onUpdate({ minimumContrastRatio: v })}
+      min={1}
+      max={21}
+      step={0.5}
+    />
+    <CheckboxField
+      label="Rescale Overlapping Glyphs"
+      checked={settings.rescaleOverlappingGlyphs}
+      onChange={(v) => onUpdate({ rescaleOverlappingGlyphs: v })}
+    />
+
+    <div className="settings-subsection-title">Shell</div>
+    <ShellPathField value={settings.shellPath} onChange={(v) => onUpdate({ shellPath: v })} />
+    <ShellArgsField value={settings.shellArgs} onChange={(v) => onUpdate({ shellArgs: v })} />
+    <SelectField
+      label="Bell Style"
+      value={settings.bellStyle}
+      options={[
+        { value: "off", label: "Off" },
+        { value: "sound", label: "Sound" },
+        { value: "visual", label: "Visual" },
+        { value: "both", label: "Both" },
+      ]}
+      onChange={(v) => onUpdate({ bellStyle: v as TerminalSettings["bellStyle"] })}
+    />
+
+    <div className="settings-subsection-title">Advanced</div>
+    <NumberField
+      label="Tab Stop Width"
+      value={settings.tabStopWidth}
+      onChange={(v) => onUpdate({ tabStopWidth: v })}
+      min={1}
+      max={16}
+      step={1}
+    />
+    <TextField label="Word Separator" value={settings.wordSeparator} onChange={(v) => onUpdate({ wordSeparator: v })} />
   </div>
 );
 
@@ -228,7 +385,7 @@ const ProjectsSection = ({
   const [showModal, setShowModal] = useState(false);
 
   const displayValue = settings.workspaces.length > 0
-    ? settings.workspaces.map((ws) => `"${ws.directory}"`).join(", ")
+    ? settings.workspaces.map((ws) => ws.scanDepth === 1 ? ws.directory : `${ws.directory}:${ws.scanDepth}`).join(", ")
     : "";
 
   return (
@@ -256,6 +413,138 @@ const ProjectsSection = ({
           onSave={(workspaces) => onUpdate({ workspaces })}
         />
       )}
+    </div>
+  );
+};
+
+const CUSTOM_SHELL = "__custom__";
+
+const SHELL_PRESETS: { value: string; label: string; platforms: string[] }[] = [
+  { value: "", label: "Default ($SHELL)", platforms: ["mac", "linux", "win"] },
+  { value: "/bin/zsh", label: "Zsh (/bin/zsh)", platforms: ["mac", "linux"] },
+  { value: "/bin/bash", label: "Bash (/bin/bash)", platforms: ["mac", "linux"] },
+  { value: "/usr/bin/fish", label: "Fish (/usr/bin/fish)", platforms: ["linux"] },
+  { value: "/opt/homebrew/bin/fish", label: "Fish (/opt/homebrew/bin/fish)", platforms: ["mac"] },
+  { value: "/bin/sh", label: "sh (/bin/sh)", platforms: ["mac", "linux"] },
+  { value: "powershell.exe", label: "PowerShell", platforms: ["win"] },
+  { value: "cmd.exe", label: "CMD", platforms: ["win"] },
+  { value: "wsl.exe", label: "WSL (Ubuntu)", platforms: ["win"] },
+  { value: "C:\\Program Files\\Git\\bin\\bash.exe", label: "Git Bash", platforms: ["win"] },
+];
+
+const getPlatform = (): string => {
+  const p = navigator.platform.toUpperCase();
+  if (p.includes("MAC")) return "mac";
+  if (p.includes("WIN")) return "win";
+  return "linux";
+};
+
+const ShellPathField = ({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) => {
+  const platform = useMemo(getPlatform, []);
+  const options = useMemo(
+    () => SHELL_PRESETS.filter((s) => s.platforms.includes(platform)),
+    [platform],
+  );
+  const isPreset = options.some((o) => o.value === value);
+  const [customMode, setCustomMode] = useState(!isPreset);
+
+  const selectValue = customMode ? CUSTOM_SHELL : value;
+
+  return (
+    <div className="settings-field">
+      <label className="settings-label">Shell Path</label>
+      <div className="settings-field-shell">
+        <select
+          className="settings-input settings-select"
+          value={selectValue}
+          onChange={(e) => {
+            if (e.target.value === CUSTOM_SHELL) {
+              setCustomMode(true);
+              onChange("");
+            } else {
+              setCustomMode(false);
+              onChange(e.target.value);
+            }
+          }}
+        >
+          {options.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+          <option value={CUSTOM_SHELL}>Custom...</option>
+        </select>
+        {customMode && (
+          <input
+            className="settings-input"
+            type="text"
+            value={value}
+            placeholder="/path/to/shell"
+            onChange={(e) => onChange(e.target.value)}
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
+const SHELL_ARGS_PRESETS = [
+  { value: "-l", label: "Login shell (-l)" },
+  { value: "-il", label: "Interactive login (-il)" },
+  { value: "-i", label: "Interactive (-i)" },
+  { value: "--login", label: "Login (--login)" },
+  { value: "--login --interactive", label: "Login + Interactive (--login --interactive)" },
+  { value: "", label: "No arguments" },
+];
+
+const ShellArgsField = ({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) => {
+  const isPreset = SHELL_ARGS_PRESETS.some((o) => o.value === value);
+  const [customMode, setCustomMode] = useState(!isPreset);
+
+  const selectValue = customMode ? CUSTOM_SHELL : value;
+
+  return (
+    <div className="settings-field">
+      <label className="settings-label">Shell Arguments</label>
+      <div className="settings-field-shell">
+        <select
+          className="settings-input settings-select"
+          value={selectValue}
+          onChange={(e) => {
+            if (e.target.value === CUSTOM_SHELL) {
+              setCustomMode(true);
+              onChange("");
+            } else {
+              setCustomMode(false);
+              onChange(e.target.value);
+            }
+          }}
+        >
+          {SHELL_ARGS_PRESETS.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+          <option value={CUSTOM_SHELL}>Custom...</option>
+        </select>
+        {customMode && (
+          <input
+            className="settings-input"
+            type="text"
+            value={value}
+            placeholder="--flag1 --flag2"
+            onChange={(e) => onChange(e.target.value)}
+          />
+        )}
+      </div>
     </div>
   );
 };

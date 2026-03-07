@@ -17,6 +17,8 @@ pub struct SpawnResult {
 pub async fn terminal_spawn(
   cols: u16,
   rows: u16,
+  shell_path: Option<String>,
+  shell_args: Option<String>,
   window: WebviewWindow,
   repo_state: State<'_, Mutex<AppRepoState>>,
   terminal_state: State<'_, TerminalState>,
@@ -31,7 +33,7 @@ pub async fn terminal_spawn(
 
   let label = window.label().to_string();
   let cwd_str = cwd.to_string_lossy();
-  let new_session = PtySession::spawn(window, &cwd_str, cols, rows, label)?;
+  let new_session = PtySession::spawn(window, &cwd_str, cols, rows, label, shell_path, shell_args)?;
   let id = new_session.id;
   let shell = new_session.shell_name.clone();
 
