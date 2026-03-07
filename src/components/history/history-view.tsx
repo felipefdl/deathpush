@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRepositoryStore } from "../../stores/repository-store";
+import { useLayoutStore } from "../../stores/layout-store";
 import { useCommitLog } from "../../hooks/use-commit-log";
 import { CommitList } from "./commit-list";
 import { CommitDetail } from "./commit-detail";
@@ -12,6 +13,7 @@ export const HistoryView = () => {
   const { status, setCommitLog, setError } = useRepositoryStore();
   const { loadCommitLog, loadMore, selectCommit } = useCommitLog();
   const [fileHistoryPath, setFileHistoryPath] = useState<string | null>(null);
+  const { historyListWidth, setHistoryListWidth } = useLayoutStore();
 
   useEffect(() => {
     if (status && !fileHistoryPath) {
@@ -57,9 +59,28 @@ export const HistoryView = () => {
     }
   }, [fileHistoryPath, loadFileHistory, loadMore]);
 
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = historyListWidth;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const newWidth = Math.max(200, Math.min(600, startWidth + (moveEvent.clientX - startX)));
+      setHistoryListWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  }, [historyListWidth, setHistoryListWidth]);
+
   return (
     <div className="history-view">
-      <div className="history-list-panel">
+      <div className="history-list-panel" style={{ width: historyListWidth }}>
         {fileHistoryPath && (
           <div className="file-history-header">
             <span className="codicon codicon-history" />
@@ -78,6 +99,7 @@ export const HistoryView = () => {
         )}
         <CommitList onLoadMore={handleLoadMore} onSelectCommit={selectCommit} />
       </div>
+      <div className="history-divider" onMouseDown={handleDividerMouseDown} />
       <div className="history-detail-panel">
         <CommitDetail />
       </div>

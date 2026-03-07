@@ -85,6 +85,7 @@ export interface CommitEntry {
   authorEmail: string;
   authorDate: string;
   parentIds: string[];
+  avatarUrl: string;
 }
 
 export interface CommitFileEntry {

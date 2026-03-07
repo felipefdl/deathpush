@@ -52,17 +52,22 @@ export const MainPanel = ({ changesView, historyView, settingsView }: MainPanelP
           Settings
         </button>
       </div>
-      <div style={{ flex: 1, minHeight: 0 }}>
-        {mainView === "output"
-          ? <GitOutput />
-          : mainView === "settings" && settingsView
-            ? settingsView
-            : mainView === "history"
-              ? historyView
-              : mainView !== "terminal"
-                ? changesView
-                : null}
+      <div style={{ flex: 1, minHeight: 0, display: mainView === "changes" ? undefined : "none" }}>
+        {changesView}
       </div>
+      <div style={{ flex: 1, minHeight: 0, display: mainView === "history" ? undefined : "none" }}>
+        {historyView}
+      </div>
+      {mainView === "output" && (
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <GitOutput />
+        </div>
+      )}
+      {mainView === "settings" && settingsView && (
+        <div style={{ flex: 1, minHeight: 0 }}>
+          {settingsView}
+        </div>
+      )}
     </div>
   );
 };

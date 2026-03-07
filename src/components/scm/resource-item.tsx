@@ -63,6 +63,8 @@ export const ResourceItem = ({ file, groupKind, focused }: ResourceItemProps) =>
     }
     clearFileSelection();
     loadDiff(file.path, isStaged);
+    const { mainView, setMainView } = useLayoutStore.getState();
+    if (mainView !== "changes") setMainView("changes");
   }, [file.path, isStaged, loadDiff, selectionKey, toggleFileSelection, clearFileSelection]);
 
   const handleStage = useCallback(async (e?: React.MouseEvent) => {

@@ -7,6 +7,20 @@ use crate::git::diff::{blob_to_data_uri, detect_language, is_image_file};
 use crate::git::repository::GitRepository;
 use crate::types::{CommitDiffContent, CommitDetail, CommitEntry, CommitFileEntry};
 
+pub fn compute_avatar_url(email: &str) -> String {
+  let email_lower = email.trim().to_lowercase();
+  // GitHub noreply: {id}+{username}@users.noreply.github.com or {username}@users.noreply.github.com
+  if email_lower.ends_with("@users.noreply.github.com") {
+    let local = email_lower.split('@').next().unwrap_or("");
+    let username = if let Some(pos) = local.find('+') { &local[pos + 1..] } else { local };
+    if !username.is_empty() {
+      return format!("https://github.com/{username}.png?size=48");
+    }
+  }
+  let hash = md5::compute(email_lower.as_bytes());
+  format!("https://www.gravatar.com/avatar/{hash:x}?s=48&d=404")
+}
+
 pub fn get_commit_log(repo: &GitRepository, skip: usize, limit: usize) -> Result<Vec<CommitEntry>> {
   let r = repo.inner();
   let mut revwalk = r.revwalk()?;
@@ -138,7 +152,8 @@ fn commit_to_entry(commit: &git2::Commit) -> CommitEntry {
     .map(|oid| oid.to_string())
     .collect();
 
-  CommitEntry { id, short_id, message, author_name, author_email, author_date, parent_ids }
+  let avatar_url = compute_avatar_url(&author_email);
+  CommitEntry { id, short_id, message, author_name, author_email, author_date, parent_ids, avatar_url }
 }
 
 fn format_git_time(time: &git2::Time) -> String {

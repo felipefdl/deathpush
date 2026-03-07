@@ -5,6 +5,7 @@ import { useRepositoryStore } from "../../stores/repository-store";
 import { useLayoutStore } from "../../stores/layout-store";
 import { useSettingsStore } from "../../stores/settings-store";
 import { useThemeStore } from "../../stores/theme-store";
+import { buildDiffOptions } from "../../lib/diff-options";
 import { DiffHeader } from "./diff-header";
 import { EmptyState } from "./empty-state";
 import { ImageDiff } from "./image-diff";
@@ -183,38 +184,9 @@ export const DiffViewer = () => {
           keepCurrentModifiedModel
           onMount={handleMount}
           options={{
+            ...buildDiffOptions(settings.editor, diffMode),
             readOnly: !isEditable,
             domReadOnly: !isEditable,
-            renderSideBySide: diffMode === "sideBySide",
-            minimap: { enabled: false },
-            scrollBeyondLastLine: false,
-            fontSize: settings.editor.fontSize,
-            fontFamily: settings.editor.fontFamily,
-            lineHeight: settings.editor.lineHeight,
-            // @ts-expect-error tabSize works at runtime but is missing from IDiffEditorConstructionOptions
-            tabSize: settings.editor.tabSize,
-            wordWrap: settings.editor.wordWrap,
-            renderWhitespace: settings.editor.renderWhitespace,
-            renderOverviewRuler: true,
-            hideCursorInOverviewRuler: true,
-            originalEditable: false,
-            quickSuggestions: false,
-            parameterHints: { enabled: false },
-            suggestOnTriggerCharacters: false,
-            codeLens: false,
-            stickyScroll: { enabled: false },
-            hover: { enabled: false },
-            inlayHints: { enabled: "off" },
-            glyphMargin: false,
-            lineNumbersMinChars: 3,
-            folding: false,
-            matchBrackets: "never",
-            occurrencesHighlight: "off",
-            selectionHighlight: false,
-            links: false,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            lightbulb: { enabled: "off" as any },
-            bracketPairColorization: { enabled: false },
           }}
         />
       </div>

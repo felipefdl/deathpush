@@ -4,6 +4,7 @@ use std::path::Path;
 use tokio::process::Command;
 
 use crate::error::{Error, Result};
+use crate::git::log::compute_avatar_url;
 use crate::types::{BlameLineGroup, CommitEntry, FileBlame, LastCommitInfo};
 
 pub async fn get_file_blame(repo_root: &Path, path: &str) -> Result<FileBlame> {
@@ -176,14 +177,17 @@ pub async fn get_file_log(
       Vec::new()
     };
 
+    let author_email = lines[4].to_string();
+    let avatar_url = compute_avatar_url(&author_email);
     entries.push(CommitEntry {
       id: lines[0].to_string(),
       short_id: lines[1].to_string(),
       message: lines[2].to_string(),
       author_name: lines[3].to_string(),
-      author_email: lines[4].to_string(),
+      author_email,
       author_date: lines[5].to_string(),
       parent_ids,
+      avatar_url,
     });
   }
 

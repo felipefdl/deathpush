@@ -270,15 +270,17 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
 
   useEffect(() => {
     if (!isActive) return;
+    const container = containerRef.current;
+    if (!container) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key === "f") {
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();
         e.stopPropagation();
         setShowSearch((prev) => !prev);
       }
     };
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
+    container.addEventListener("keydown", handler, true);
+    return () => container.removeEventListener("keydown", handler, true);
   }, [isActive]);
 
   useEffect(() => {

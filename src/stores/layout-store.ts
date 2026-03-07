@@ -12,6 +12,7 @@ interface LayoutState {
   panelTab: "terminal" | "git-output";
   collapsedPanes: string[];
   terminalMaximized: boolean;
+  historyListWidth: number;
 
   setSidebarWidth: (width: number) => void;
   setTerminalVisible: (visible: boolean) => void;
@@ -23,6 +24,7 @@ interface LayoutState {
   togglePaneCollapsed: (id: string) => void;
   setTerminalMaximized: (maximized: boolean) => void;
   toggleTerminalMaximized: () => void;
+  setHistoryListWidth: (width: number) => void;
   loadForProject: (root: string) => void;
 }
 
@@ -36,6 +38,7 @@ interface PersistedLayout {
   panelTab: "terminal" | "git-output";
   collapsedPanes: string[];
   terminalMaximized: boolean;
+  historyListWidth: number;
 }
 
 const DEFAULTS: PersistedLayout = {
@@ -48,6 +51,7 @@ const DEFAULTS: PersistedLayout = {
   panelTab: "terminal",
   collapsedPanes: [],
   terminalMaximized: false,
+  historyListWidth: 300,
 };
 
 let currentProjectRoot: string | null = null;
@@ -81,6 +85,7 @@ const saveLayout = (state: LayoutState) => {
     panelTab: state.panelTab,
     collapsedPanes: state.collapsedPanes,
     terminalMaximized: state.terminalMaximized,
+    historyListWidth: state.historyListWidth,
   };
   localStorage.setItem(storageKey(currentProjectRoot), JSON.stringify(data));
 };
@@ -128,6 +133,10 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     } else {
       set({ terminalMaximized: false, mainView: "changes" });
     }
+    saveLayout(get());
+  },
+  setHistoryListWidth: (historyListWidth) => {
+    set({ historyListWidth });
     saveLayout(get());
   },
   togglePaneCollapsed: (id) => {

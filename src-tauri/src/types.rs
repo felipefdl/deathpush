@@ -132,6 +132,7 @@ pub struct CommitEntry {
   pub author_email: String,
   pub author_date: String,
   pub parent_ids: Vec<String>,
+  pub avatar_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
