@@ -326,6 +326,10 @@
   background-color: var(--vscode-terminal-background, var(--vscode-editor-background, #1e1e1e)) !important;
 }
 
+.terminal-instance .xterm .xterm-scrollable-element {
+  background-color: var(--vscode-terminal-background, var(--vscode-editor-background, #1e1e1e));
+}
+
 .terminal-instance .xterm ::-webkit-scrollbar-track {
   background: transparent;
 }

@@ -129,6 +129,9 @@ export const resolveTheme = (entry: ThemeEntry, json: VscodeThemeJson): Resolved
   const defaults = getDefaults(entry.uiTheme);
   const mergedColors = { ...defaults, ...colors };
 
+  // Force terminal background to match editor background
+  delete mergedColors["terminal.background"];
+
   return {
     ...entry,
     colors: mergedColors,
