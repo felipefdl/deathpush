@@ -12,6 +12,7 @@
     "dialog:allow-message",
     "shell:default",
     "core:window:allow-start-dragging",
-    "deep-link:default"
+    "deep-link:default",
+    "window-state:default"
   ]
 }

@@ -28,17 +28,20 @@ fn extract_path_from_url(url: &url::Url) -> Option<String> {
   }
 }
 
-fn create_window(app_handle: &AppHandle) -> Result<tauri::WebviewWindow, tauri::Error> {
-  let id = WINDOW_COUNTER.fetch_add(1, Ordering::Relaxed);
-  let label = format!("main-{}", id);
-  WebviewWindowBuilder::new(app_handle, &label, WebviewUrl::App("index.html".into()))
+fn build_window(app_handle: &AppHandle, label: &str) -> Result<tauri::WebviewWindow, tauri::Error> {
+  WebviewWindowBuilder::new(app_handle, label, WebviewUrl::App("index.html".into()))
     .title("DeathPush")
-    .inner_size(1200.0, 800.0)
+    .inner_size(1400.0, 900.0)
     .min_inner_size(640.0, 480.0)
     .title_bar_style(tauri::TitleBarStyle::Overlay)
     .hidden_title(true)
     .background_color(Color(30, 30, 30, 255))
     .build()
+}
+
+fn create_window(app_handle: &AppHandle) -> Result<tauri::WebviewWindow, tauri::Error> {
+  let id = WINDOW_COUNTER.fetch_add(1, Ordering::Relaxed);
+  build_window(app_handle, &format!("main-{}", id))
 }
 
 #[tauri::command]
@@ -328,6 +331,7 @@ pub fn run() {
         }
       }
     })
+    .plugin(tauri_plugin_window_state::Builder::new().build())
     .plugin(tauri_plugin_deep_link::init())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_shell::init())
@@ -406,7 +410,7 @@ pub fn run() {
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Reopen { has_visible_windows, .. } => {
           if !has_visible_windows {
-            let _ = create_window(_app_handle);
+            let _ = build_window(_app_handle, "main");
           }
         }
         _ => {}
