@@ -78,6 +78,17 @@ export const CommitInput = () => {
     doCommit(amendMode);
   }, [doCommit, amendMode]);
 
+  const autoResize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+
+  useEffect(() => {
+    autoResize();
+  }, [message, autoResize]);
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
@@ -137,7 +148,7 @@ export const CommitInput = () => {
           ref={textareaRef}
           className="commit-input"
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={(e) => { setMessage(e.target.value); autoResize(); }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           rows={1}

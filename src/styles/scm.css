@@ -80,14 +80,15 @@
 .commit-input {
   width: 100%;
   min-height: 26px;
-  max-height: 134px;
+  max-height: 180px;
   padding: 3px 6px;
   border: 1px solid var(--vscode-input-border);
   background: var(--vscode-input-background);
   color: var(--vscode-input-foreground);
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
-  resize: vertical;
+  resize: none;
+  overflow-y: auto;
   outline: none;
   border-radius: var(--radius-lg);
 }
