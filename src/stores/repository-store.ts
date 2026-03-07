@@ -93,7 +93,19 @@ export const useRepositoryStore = create<RepositoryState>((set, get) => ({
   setTags: (tags) => set({ tags }),
   setStashes: (stashes) => set({ stashes }),
   setAmendMode: (amend) => set({ amendMode: amend }),
-  setStatus: (status) => set({ status }),
+  setStatus: (status) => {
+    const { selectedFile } = get();
+    if (selectedFile && status) {
+      const stillExists = status.groups.some((g) =>
+        g.files.some((f) => f.path === selectedFile.path)
+      );
+      if (!stillExists) {
+        set({ status, selectedFile: null, diff: null, blame: null, cursorLine: null });
+        return;
+      }
+    }
+    set({ status });
+  },
   setSelectedFile: (selectedFile) => set({ selectedFile, blame: null, cursorLine: null }),
   setDiff: (diff) => set({ diff }),
   setBranches: (branches) => set({ branches }),
