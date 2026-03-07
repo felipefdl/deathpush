@@ -298,11 +298,13 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
     <div className="welcome-screen">
       <div className="welcome-drag-region" data-tauri-drag-region />
       <div className="welcome-body">
-        <img
-          className="welcome-logo"
-          src={isDark ? "/deathpush-white.png" : "/deathpush-black.png"}
-          alt="DeathPush"
-        />
+        <div className={`welcome-logo-wrapper${availableUpdate ? " has-update" : ""}`}>
+          <img
+            className="welcome-logo"
+            src={isDark ? "/deathpush-white.png" : "/deathpush-black.png"}
+            alt="DeathPush"
+          />
+        </div>
         <div className="welcome-title">DeathPush</div>
 
         <div className="welcome-actions">
