@@ -237,14 +237,13 @@ const ProjectsSection = ({
       <div className="settings-section-title">Projects</div>
       <div className="settings-field">
         <label className="settings-label">Workspace Directories</label>
-        <div style={{ display: "flex", gap: 6, flex: 1, maxWidth: 300 }}>
+        <div className="settings-field-with-action">
           <input
-            className="settings-input"
+            className="settings-input settings-input-full"
             type="text"
             value={displayValue}
             placeholder="Not configured"
             readOnly
-            style={{ flex: 1, maxWidth: "none" }}
           />
           <button className="settings-reset-btn" onClick={() => setShowModal(true)}>
             Configure...

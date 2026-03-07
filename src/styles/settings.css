@@ -29,6 +29,9 @@
   border-radius: var(--radius-lg);
   cursor: pointer;
   font-size: 12px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
 }
 
 body.vs .settings-reset-btn,
@@ -126,6 +129,7 @@ body.hc-light .settings-reset-btn:hover {
   font-family: inherit;
   flex: 1;
   max-width: 300px;
+  height: 28px;
 }
 
 .settings-input:focus {
@@ -141,6 +145,11 @@ body.hc-light .settings-reset-btn:hover {
   cursor: pointer;
 }
 
+.settings-select:focus-visible,
+.settings-picker-btn:focus-visible {
+  outline: none;
+  border-color: var(--vscode-focusBorder);
+}
 
 .settings-picker-btn {
   display: flex;
@@ -159,4 +168,15 @@ body.hc-light .settings-reset-btn:hover {
   opacity: 0.5;
   margin-left: 8px;
   flex-shrink: 0;
+}
+
+.settings-field-with-action {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  max-width: 300px;
+}
+
+.settings-input-full {
+  max-width: none;
 }
