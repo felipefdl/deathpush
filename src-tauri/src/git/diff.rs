@@ -132,28 +132,99 @@ fn read_working_tree_file(abs_path: &Path) -> Option<String> {
   fs::read_to_string(abs_path).ok()
 }
 
-pub fn detect_language(path: &str) -> Option<String> {
-  let ext = Path::new(path).extension()?.to_str()?;
+fn detect_language_by_filename(path: &str) -> Option<&'static str> {
+  let filename = Path::new(path).file_name()?.to_str()?;
+
+  // Exact filename matches
+  let lang = match filename {
+    "justfile" | "Justfile" | ".justfile" => "justfile",
+    "Makefile" | "GNUmakefile" => "shell",
+    "Gemfile" | "Rakefile" => "ruby",
+    ".gitignore" | ".gitattributes" | ".editorconfig" | ".gitconfig" => "ini",
+    "Cargo.lock" => "toml",
+    _ => {
+      // Prefix-based matches
+      if filename == "Dockerfile" || filename.starts_with("Dockerfile.") {
+        "dockerfile"
+      } else if filename == ".env" || filename.starts_with(".env.") {
+        "dotenv"
+      } else {
+        return None;
+      }
+    }
+  };
+  Some(lang)
+}
+
+fn detect_language_by_extension(ext: &str) -> Option<&'static str> {
   let lang = match ext {
     "rs" => "rust",
     "ts" | "tsx" => "typescript",
-    "js" | "jsx" => "javascript",
-    "json" => "json",
-    "html" => "html",
+    "js" | "jsx" | "mjs" | "cjs" => "javascript",
+    "json" | "jsonc" => "json",
+    "html" | "htm" => "html",
     "css" => "css",
     "scss" => "scss",
+    "less" => "less",
     "md" => "markdown",
+    "mdx" => "mdx",
     "toml" => "toml",
     "yaml" | "yml" => "yaml",
-    "py" => "python",
+    "py" | "pyw" => "python",
     "go" => "go",
     "sh" | "bash" | "zsh" => "shell",
     "sql" => "sql",
-    "xml" => "xml",
+    "xml" | "xsl" | "xsd" => "xml",
     "svg" => "xml",
+    "java" => "java",
+    "kt" | "kts" => "kotlin",
+    "swift" => "swift",
+    "dart" => "dart",
+    "c" | "h" => "c",
+    "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => "cpp",
+    "cs" => "csharp",
+    "fs" | "fsi" | "fsx" => "fsharp",
+    "rb" => "ruby",
+    "php" => "php",
+    "lua" => "lua",
+    "pl" | "pm" => "perl",
+    "r" => "r",
+    "jl" => "julia",
+    "scala" | "sc" | "sbt" => "scala",
+    "clj" | "cljs" | "cljc" | "edn" => "clojure",
+    "ex" | "exs" => "elixir",
+    "coffee" => "coffeescript",
+    "tf" | "tfvars" | "hcl" => "hcl",
+    "graphql" | "gql" => "graphql",
+    "proto" => "proto",
+    "dockerfile" => "dockerfile",
+    "ps1" | "psm1" | "psd1" => "powershell",
+    "bat" | "cmd" => "bat",
+    "ini" | "properties" | "cfg" => "ini",
+    "m" => "objective-c",
+    "pas" => "pascal",
+    "scm" | "ss" | "rkt" => "scheme",
+    "tcl" => "tcl",
+    "hbs" | "handlebars" => "handlebars",
+    "pug" | "jade" => "pug",
+    "rst" => "restructuredtext",
+    "sol" => "sol",
+    "wgsl" => "wgsl",
+    "bicep" => "bicep",
+    "liquid" => "liquid",
+    "env" => "dotenv",
     _ => return None,
   };
-  Some(lang.to_string())
+  Some(lang)
+}
+
+pub fn detect_language(path: &str) -> Option<String> {
+  if let Some(lang) = detect_language_by_filename(path) {
+    return Some(lang.to_string());
+  }
+
+  let ext = Path::new(path).extension()?.to_str()?;
+  detect_language_by_extension(ext).map(|l| l.to_string())
 }
 
 #[cfg(test)]
@@ -221,8 +292,80 @@ mod tests {
   }
 
   #[test]
-  fn detect_language_no_extension() {
-    assert_eq!(detect_language("Makefile"), None);
+  fn detect_language_makefile() {
+    assert_eq!(detect_language("Makefile"), Some("shell".to_string()));
+  }
+
+  #[test]
+  fn detect_language_dockerfile() {
+    assert_eq!(detect_language("Dockerfile"), Some("dockerfile".to_string()));
+    assert_eq!(detect_language("Dockerfile.prod"), Some("dockerfile".to_string()));
+  }
+
+  #[test]
+  fn detect_language_justfile() {
+    assert_eq!(detect_language("justfile"), Some("justfile".to_string()));
+    assert_eq!(detect_language("Justfile"), Some("justfile".to_string()));
+  }
+
+  #[test]
+  fn detect_language_dotenv() {
+    assert_eq!(detect_language(".env"), Some("dotenv".to_string()));
+    assert_eq!(detect_language(".env.local"), Some("dotenv".to_string()));
+  }
+
+  #[test]
+  fn detect_language_gitignore() {
+    assert_eq!(detect_language(".gitignore"), Some("ini".to_string()));
+  }
+
+  #[test]
+  fn detect_language_java() {
+    assert_eq!(detect_language("Main.java"), Some("java".to_string()));
+  }
+
+  #[test]
+  fn detect_language_kotlin() {
+    assert_eq!(detect_language("App.kt"), Some("kotlin".to_string()));
+  }
+
+  #[test]
+  fn detect_language_c() {
+    assert_eq!(detect_language("main.c"), Some("c".to_string()));
+    assert_eq!(detect_language("lib.h"), Some("c".to_string()));
+  }
+
+  #[test]
+  fn detect_language_cpp() {
+    assert_eq!(detect_language("main.cpp"), Some("cpp".to_string()));
+    assert_eq!(detect_language("lib.hpp"), Some("cpp".to_string()));
+  }
+
+  #[test]
+  fn detect_language_ruby() {
+    assert_eq!(detect_language("app.rb"), Some("ruby".to_string()));
+    assert_eq!(detect_language("Gemfile"), Some("ruby".to_string()));
+  }
+
+  #[test]
+  fn detect_language_php() {
+    assert_eq!(detect_language("index.php"), Some("php".to_string()));
+  }
+
+  #[test]
+  fn detect_language_lua() {
+    assert_eq!(detect_language("init.lua"), Some("lua".to_string()));
+  }
+
+  #[test]
+  fn detect_language_elixir() {
+    assert_eq!(detect_language("app.ex"), Some("elixir".to_string()));
+    assert_eq!(detect_language("test.exs"), Some("elixir".to_string()));
+  }
+
+  #[test]
+  fn detect_language_no_extension_unknown() {
+    assert_eq!(detect_language("README"), None);
   }
 
   #[test]

@@ -16,7 +16,23 @@ self.MonacoEnvironment = {
   },
 };
 
+import { conf as tomlConf, language as tomlLanguage } from "./languages/toml";
+import { conf as justfileConf, language as justfileLanguage } from "./languages/justfile";
+import { conf as dotenvConf, language as dotenvLanguage } from "./languages/dotenv";
+
 loader.config({ monaco });
+
+monaco.languages.register({ id: "toml", extensions: [".toml"], aliases: ["TOML"] });
+monaco.languages.setMonarchTokensProvider("toml", tomlLanguage);
+monaco.languages.setLanguageConfiguration("toml", tomlConf);
+
+monaco.languages.register({ id: "justfile", filenames: ["justfile", "Justfile"], aliases: ["Justfile"] });
+monaco.languages.setMonarchTokensProvider("justfile", justfileLanguage);
+monaco.languages.setLanguageConfiguration("justfile", justfileConf);
+
+monaco.languages.register({ id: "dotenv", filenames: [".env"], aliases: ["dotenv"] });
+monaco.languages.setMonarchTokensProvider("dotenv", dotenvLanguage);
+monaco.languages.setLanguageConfiguration("dotenv", dotenvConf);
 
 monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
   noSemanticValidation: true,
