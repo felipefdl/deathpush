@@ -18,7 +18,7 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: "--target universal-apple-darwin"
+            args: ""
           - platform: ubuntu-22.04
             args: ""
           - platform: ubuntu-22.04-arm
@@ -35,7 +35,7 @@ jobs:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.platform == 'windows-arm64' && 'aarch64-pc-windows-msvc' || '' }}
+          targets: ${{ matrix.platform == 'windows-arm64' && 'aarch64-pc-windows-msvc' || '' }}
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
@@ -43,7 +43,7 @@ jobs:
         if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
       - run: npm ci
       - name: Lint frontend
         run: npx oxlint src/
@@ -56,6 +56,4 @@ jobs:
       - name: Test Rust
         run: cd src-tauri && cargo test
       - name: Build
-        run: npx tauri build ${{ matrix.args }}
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ""
+        run: npx tauri build --no-bundle ${{ matrix.args }}
