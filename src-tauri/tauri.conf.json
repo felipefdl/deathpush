@@ -31,10 +31,17 @@
       "desktop": {
         "schemes": ["deathpush"]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJGNjkyMjhEQkE4NUJEMDAKUldRQXZZVzZqU0pwTHh2VGlkTzg4UHNxdGFyb09BOEJDRzl5UnNrYmRzVWJXMGVJbGZXZnRHMk8K",
+      "endpoints": [
+        "https://github.com/felipefdl/deathpush/releases/latest/download/latest.json"
+      ]
     }
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "resources": ["resources/bin/dp", "resources/bin/dp.cmd"],
     "icon": [

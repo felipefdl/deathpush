@@ -1,16 +1,21 @@
 import { useRepositoryStore } from "../../stores/repository-store";
 import { useSettingsStore } from "../../stores/settings-store";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BranchPicker } from "../branch/branch-picker";
 import { formatRelativeDate } from "../../lib/format-date";
 import * as commands from "../../lib/tauri-commands";
 import type { LastCommitInfo } from "../../lib/git-types";
+import { checkForUpdate, downloadAndInstallUpdate } from "../../lib/updater";
+import type { Update } from "@tauri-apps/plugin-updater";
 
 export const StatusBar = () => {
   const { status, blame, cursorLine } = useRepositoryStore();
   const blameEnabled = useSettingsStore((s) => s.settings.git.blame);
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [lastCommit, setLastCommit] = useState<LastCommitInfo | null>(null);
+  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<number | null>(null);
+  const updatingRef = useRef(false);
 
   const branch = status?.headBranch ?? "No branch";
   const ahead = status?.ahead ?? 0;
@@ -19,6 +24,27 @@ export const StatusBar = () => {
   const syncLabel = ahead > 0 || behind > 0
     ? `${behind > 0 ? `${behind}\u2193 ` : ""}${ahead > 0 ? `${ahead}\u2191` : ""}`
     : "";
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      checkForUpdate().then(setAvailableUpdate);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleUpdate = () => {
+    if (!availableUpdate || updatingRef.current) return;
+    updatingRef.current = true;
+    setUpdateProgress(0);
+    downloadAndInstallUpdate(availableUpdate, (downloaded, total) => {
+      if (total) {
+        setUpdateProgress(Math.round((downloaded / total) * 100));
+      }
+    }).catch(() => {
+      setUpdateProgress(null);
+      updatingRef.current = false;
+    });
+  };
 
   useEffect(() => {
     if (!status?.headCommit) {
@@ -54,6 +80,19 @@ export const StatusBar = () => {
             <span className="codicon codicon-person" />
             <span className="status-bar-text">{cursorBlame}</span>
           </span>
+        )}
+        {availableUpdate && (
+          <button
+            className="status-bar-item"
+            onClick={handleUpdate}
+            title={`Update to v${availableUpdate.version}`}
+            disabled={updateProgress !== null}
+          >
+            <span className="codicon codicon-cloud-download" />
+            <span className="status-bar-text">
+              {updateProgress !== null ? `Updating ${updateProgress}%` : "Update available"}
+            </span>
+          </button>
         )}
         <div className="status-bar-spacer" />
         {lastCommit && (
