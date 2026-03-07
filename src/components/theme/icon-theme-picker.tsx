@@ -14,6 +14,7 @@ export const IconThemePicker = ({ onClose }: IconThemePickerProps) => {
   const [activeIndex, setActiveIndex] = useState(-1);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isKeyboardNavRef = useRef(false);
 
   const filtered = useMemo(() => {
     if (!search) return ICON_THEME_ENTRIES;
@@ -60,9 +61,11 @@ export const IconThemePicker = ({ onClose }: IconThemePickerProps) => {
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
+      isKeyboardNavRef.current = true;
       setActiveIndex((prev) => (prev + 1) % filtered.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
+      isKeyboardNavRef.current = true;
       setActiveIndex((prev) => (prev - 1 + filtered.length) % filtered.length);
     } else if (e.key === "Enter") {
       e.preventDefault();
@@ -95,13 +98,13 @@ export const IconThemePicker = ({ onClose }: IconThemePickerProps) => {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <div className="theme-picker-list" ref={listRef}>
+        <div className="theme-picker-list" ref={listRef} onMouseMove={() => { isKeyboardNavRef.current = false; }}>
           {filtered.map((theme, idx) => (
             <div
               key={theme.id}
               data-icon-theme-item
               className={`theme-picker-item${idx === activeIndex ? " active" : ""}`}
-              onMouseEnter={() => setActiveIndex(idx)}
+              onMouseEnter={() => { if (!isKeyboardNavRef.current) setActiveIndex(idx); }}
               onClick={() => confirmTheme(theme.id)}
             >
               <span className="theme-picker-item-label">{theme.label}</span>
