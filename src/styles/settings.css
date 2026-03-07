@@ -26,7 +26,7 @@
   border: 1px solid var(--vscode-button-secondaryBackground, #3a3d41);
   color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
   padding: 4px 12px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   cursor: pointer;
   font-size: 12px;
 }
@@ -121,7 +121,7 @@ body.hc-light .settings-reset-btn:hover {
   color: var(--vscode-input-foreground);
   border: 1px solid var(--vscode-input-border, transparent);
   padding: 4px 8px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   font-size: 13px;
   font-family: inherit;
   flex: 1;

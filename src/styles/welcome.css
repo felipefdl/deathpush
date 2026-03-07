@@ -160,7 +160,7 @@ body.hc-light .welcome-list {
   color: var(--vscode-foreground);
   opacity: 0;
   cursor: pointer;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   flex-shrink: 0;
 }
 
@@ -193,7 +193,7 @@ body.hc-light .welcome-list {
   border: 1px solid var(--vscode-button-secondaryBackground, #3a3d41);
   background: transparent;
   color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   cursor: pointer;
   font-size: 12px;
   font-family: inherit;
@@ -220,7 +220,7 @@ body.hc-light .welcome-configure-btn:hover {
   align-items: center;
   margin-bottom: 4px;
   border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--vscode-input-background);
   overflow: hidden;
 }
@@ -350,7 +350,7 @@ body.hc-light .welcome-configure-btn:hover {
   color: var(--vscode-foreground);
   opacity: 0.5;
   cursor: pointer;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   flex-shrink: 0;
   padding: 0;
 }
@@ -408,7 +408,7 @@ body.hc-light .welcome-configure-btn:hover {
   background: none;
   color: var(--vscode-foreground);
   cursor: pointer;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   font-size: 11px;
   padding: 0;
 }

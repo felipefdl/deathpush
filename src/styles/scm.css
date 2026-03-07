@@ -49,7 +49,7 @@
   background: transparent;
   color: var(--vscode-editor-foreground);
   cursor: pointer;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   padding: 0;
 }
 
@@ -89,7 +89,7 @@
   font-size: var(--vscode-font-size);
   resize: vertical;
   outline: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
 }
 
 .commit-input:focus {
@@ -110,7 +110,7 @@
 .commit-button-group {
   display: flex;
   flex: 1;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -157,7 +157,7 @@
   z-index: 3000;
   background: var(--vscode-menu-background, var(--vscode-dropdown-background));
   border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   padding: 4px 0;
 }
@@ -187,7 +187,7 @@
   flex: 1;
   height: 26px;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
   font-family: var(--vscode-font-family);
@@ -384,7 +384,7 @@
   background: transparent;
   color: var(--vscode-editor-foreground);
   cursor: pointer;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   padding: 0;
   font-size: 14px;
 }
@@ -420,7 +420,7 @@
   align-items: center;
   margin: 4px 8px;
   border: 1px solid var(--vscode-input-border);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-lg);
   background: var(--vscode-input-background);
   overflow: hidden;
 }
@@ -480,7 +480,7 @@
   height: 22px;
   padding: 0 8px;
   border: none;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-lg);
   background: var(--vscode-button-secondaryBackground);
   color: var(--vscode-button-secondaryForeground);
   font-family: var(--vscode-font-family);
@@ -541,7 +541,7 @@
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
   outline: none;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-lg);
 }
 
 .clone-dialog-input:focus {
@@ -560,7 +560,7 @@
   background: var(--vscode-button-secondaryBackground);
   color: var(--vscode-button-secondaryForeground);
   cursor: pointer;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
