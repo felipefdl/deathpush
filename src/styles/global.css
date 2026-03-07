@@ -291,7 +291,6 @@ summary {
   height: 35px;
   padding: 0 12px;
   border-bottom: 1px solid var(--vscode-panel-border);
-  background: var(--vscode-sideBar-background);
   font-size: 13px;
 }
 
