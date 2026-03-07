@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use tauri::{State, WebviewWindow};
+use tauri::{Emitter, State, WebviewWindow};
 
 use crate::commands::update_window_title;
 use crate::error::{Error, Result};
@@ -59,6 +59,10 @@ pub fn open_repository(
   }
   if let Err(err) = watcher::start_watcher(&window, &repo_root, &watcher_state) {
     tracing::warn!("failed to start watcher: {:?}", err);
+    let _ = window.emit(
+      "watcher:error",
+      format!("File watching unavailable: {}. Changes won't auto-refresh.", err),
+    );
   }
 
   update_window_title(&window, &status);

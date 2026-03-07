@@ -21,9 +21,14 @@ pub async fn write_file(
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
     win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
-  let full_path = root.join(&path).canonicalize().unwrap_or_else(|_| root.join(&path));
-  let canon_root = root.canonicalize().unwrap_or(root);
-  if !full_path.starts_with(&canon_root) {
+  let canon_root = root.canonicalize().map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
+  let target = root.join(&path);
+  let parent = target.parent().ok_or_else(|| Error::Other("Invalid path".into()))?;
+  std::fs::create_dir_all(parent)?;
+  let canon_parent = parent.canonicalize().map_err(|e| Error::Other(format!("Cannot resolve path: {}", e)))?;
+  let file_name = target.file_name().ok_or_else(|| Error::Other("Invalid file name".into()))?;
+  let full_path = canon_parent.join(file_name);
+  if !canon_parent.starts_with(&canon_root) {
     return Err(Error::Other("Path traversal denied".into()));
   }
   std::fs::write(&full_path, content)?;
@@ -118,8 +123,8 @@ pub async fn delete_file(
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
   };
-  let full_path = root.join(&path).canonicalize().unwrap_or_else(|_| root.join(&path));
-  let canon_root = root.canonicalize().unwrap_or(root.clone());
+  let canon_root = root.canonicalize().map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
+  let full_path = root.join(&path).canonicalize().map_err(|e| Error::Other(format!("Cannot resolve file path: {}", e)))?;
   if !full_path.starts_with(&canon_root) {
     return Err(Error::Other("Path traversal denied".into()));
   }

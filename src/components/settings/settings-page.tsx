@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSettingsStore } from "../../stores/settings-store";
 import type { EditorSettings, GitSettings, ProjectsSettings, TerminalSettings, UISettings } from "../../stores/settings-store";
+import type { FontWeight } from "@xterm/xterm";
 import { useThemeStore } from "../../stores/theme-store";
 import { useIconThemeStore } from "../../stores/icon-theme-store";
 import { THEME_ENTRIES } from "../../lib/themes/theme-registry";
@@ -181,15 +182,15 @@ const TerminalSection = ({
     />
     <SelectField
       label="Font Weight"
-      value={settings.fontWeight}
+      value={String(settings.fontWeight)}
       options={FONT_WEIGHT_OPTIONS}
-      onChange={(v) => onUpdate({ fontWeight: v })}
+      onChange={(v) => onUpdate({ fontWeight: v as FontWeight })}
     />
     <SelectField
       label="Font Weight Bold"
-      value={settings.fontWeightBold}
+      value={String(settings.fontWeightBold)}
       options={FONT_WEIGHT_OPTIONS}
-      onChange={(v) => onUpdate({ fontWeightBold: v })}
+      onChange={(v) => onUpdate({ fontWeightBold: v as FontWeight })}
     />
     <NumberField
       label="Letter Spacing"

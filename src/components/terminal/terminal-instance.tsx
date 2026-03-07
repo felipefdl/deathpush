@@ -101,8 +101,8 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
         minimumContrastRatio: termSettings.minimumContrastRatio,
         scrollSensitivity: termSettings.scrollSensitivity,
         fastScrollSensitivity: termSettings.fastScrollSensitivity,
-        fontWeight: termSettings.fontWeight as any,
-        fontWeightBold: termSettings.fontWeightBold as any,
+        fontWeight: termSettings.fontWeight,
+        fontWeightBold: termSettings.fontWeightBold,
         letterSpacing: termSettings.letterSpacing,
         cursorWidth: termSettings.cursorWidth,
         smoothScrollDuration: termSettings.smoothScrollDuration,
@@ -150,14 +150,16 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
           localTerm.reset();
           const oldId = sessionIdRef.current;
           if (oldId) {
-            invoke("terminal_kill", { id: oldId }).then(() => spawnSession(localTerm, sessionIdRef, paneId));
+            invoke("terminal_kill", { id: oldId })
+              .then(() => spawnSession(localTerm, sessionIdRef, paneId))
+              .catch((err) => console.error("terminal_kill failed:", err));
           } else {
             spawnSession(localTerm, sessionIdRef, paneId);
           }
           return;
         }
         if (sessionIdRef.current) {
-          invoke("terminal_write", { id: sessionIdRef.current, data });
+          invoke("terminal_write", { id: sessionIdRef.current, data }).catch(() => {});
         }
       });
 
@@ -167,7 +169,7 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => {
           if (sessionIdRef.current) {
-            invoke("terminal_resize", { id: sessionIdRef.current, cols, rows });
+            invoke("terminal_resize", { id: sessionIdRef.current, cols, rows }).catch(() => {});
           }
         }, 150);
       });
@@ -227,7 +229,7 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
       unlistenData?.then((fn) => fn());
       unlistenExit?.then((fn) => fn());
       if (sessionIdRef.current) {
-        invoke("terminal_kill", { id: sessionIdRef.current });
+        invoke("terminal_kill", { id: sessionIdRef.current }).catch(() => {});
       }
       sessionIdRef.current = 0;
       term?.dispose();
@@ -313,8 +315,8 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
     term.options.minimumContrastRatio = terminalSettings.minimumContrastRatio;
     term.options.scrollSensitivity = terminalSettings.scrollSensitivity;
     term.options.fastScrollSensitivity = terminalSettings.fastScrollSensitivity;
-    term.options.fontWeight = terminalSettings.fontWeight as any;
-    term.options.fontWeightBold = terminalSettings.fontWeightBold as any;
+    term.options.fontWeight = terminalSettings.fontWeight;
+    term.options.fontWeightBold = terminalSettings.fontWeightBold;
     term.options.letterSpacing = terminalSettings.letterSpacing;
     term.options.cursorWidth = terminalSettings.cursorWidth;
     term.options.smoothScrollDuration = terminalSettings.smoothScrollDuration;

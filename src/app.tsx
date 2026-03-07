@@ -215,6 +215,11 @@ export const App = () => {
         }
       }),
     ];
+    listeners.push(
+      appWindow.listen<string>("watcher:error", (event) => {
+        setError(event.payload);
+      }),
+    );
     return () => { listeners.forEach((p) => p.then((fn) => fn())); };
   }, [handleOpenRepository, startOperation, endOperation, setError, setStatus, saveStash, popStash]);
 

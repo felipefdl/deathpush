@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { FontWeight } from "@xterm/xterm";
 
 export interface EditorSettings {
   fontSize: number;
@@ -23,8 +24,8 @@ export interface TerminalSettings {
   minimumContrastRatio: number;
   scrollSensitivity: number;
   fastScrollSensitivity: number;
-  fontWeight: string;
-  fontWeightBold: string;
+  fontWeight: FontWeight;
+  fontWeightBold: FontWeight;
   // Tier 2
   letterSpacing: number;
   cursorWidth: number;

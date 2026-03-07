@@ -2,7 +2,7 @@ default:
   @just --list
 
 dev:
-  npm run tauri dev
+  npm run tauri dev -- --features devtools
 
 build:
   npm run tauri build

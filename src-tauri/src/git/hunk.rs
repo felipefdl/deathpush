@@ -79,8 +79,8 @@ fn parse_hunk_header(line: &str) -> Option<DiffHunk> {
   let old_range = parts[0].strip_prefix('-')?;
   let new_range = parts[1].strip_prefix('+')?;
 
-  let (old_start, old_lines) = parse_range(old_range);
-  let (new_start, new_lines) = parse_range(new_range);
+  let (old_start, old_lines) = parse_range(old_range)?;
+  let (new_start, new_lines) = parse_range(new_range)?;
 
   Some(DiffHunk {
     header: format!("@@ -{} +{} @@ {}", old_range, new_range, header_text).trim_end().to_string(),
@@ -92,14 +92,11 @@ fn parse_hunk_header(line: &str) -> Option<DiffHunk> {
   })
 }
 
-fn parse_range(range: &str) -> (usize, usize) {
+fn parse_range(range: &str) -> Option<(usize, usize)> {
   if let Some((start, lines)) = range.split_once(',') {
-    (
-      start.parse().unwrap_or(1),
-      lines.parse().unwrap_or(0),
-    )
+    Some((start.parse().ok()?, lines.parse().ok()?))
   } else {
-    (range.parse().unwrap_or(1), 1)
+    Some((range.parse().ok()?, 1))
   }
 }
 

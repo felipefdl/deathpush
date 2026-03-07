@@ -7,6 +7,9 @@ license = "Apache-2.0"
 edition = "2024"
 rust-version = "1.85.0"
 
+[features]
+devtools = ["tauri/devtools"]
+
 [lib]
 name = "deathpush_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -15,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["devtools"] }
+tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 chrono = "0.4"
