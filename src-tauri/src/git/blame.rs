@@ -1,14 +1,13 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use tokio::process::Command;
-
 use crate::error::{Error, Result};
+use crate::util::async_command;
 use crate::git::log::compute_avatar_url;
 use crate::types::{BlameLineGroup, CommitEntry, FileBlame, LastCommitInfo};
 
 pub async fn get_file_blame(repo_root: &Path, path: &str) -> Result<FileBlame> {
-  let output = Command::new("git")
+  let output = async_command("git")
     .args(["blame", "--porcelain", "--", path])
     .current_dir(repo_root)
     .output()
@@ -139,7 +138,7 @@ pub async fn get_file_log(
   skip: usize,
   limit: usize,
 ) -> Result<Vec<CommitEntry>> {
-  let output = Command::new("git")
+  let output = async_command("git")
     .args([
       "log",
       "--follow",
@@ -323,7 +322,7 @@ aaa1234567890 3 3
 }
 
 pub async fn get_last_commit_info(repo_root: &Path) -> Result<LastCommitInfo> {
-  let output = Command::new("git")
+  let output = async_command("git")
     .args(["log", "-1", "--format=%h|%s|%aI"])
     .current_dir(repo_root)
     .output()

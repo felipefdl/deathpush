@@ -386,6 +386,7 @@ fn broadcast_environment_change() {
   }
 }
 
+#[cfg(unix)]
 fn dir_is_writable(dir: &Path) -> bool {
   if !dir.exists() {
     return false;

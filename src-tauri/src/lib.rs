@@ -3,6 +3,7 @@ mod error;
 mod git;
 mod pty;
 mod types;
+mod util;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -29,14 +30,22 @@ fn extract_path_from_url(url: &url::Url) -> Option<String> {
 }
 
 fn build_window(app_handle: &AppHandle, label: &str) -> Result<tauri::WebviewWindow, tauri::Error> {
-  WebviewWindowBuilder::new(app_handle, label, WebviewUrl::App("index.html".into()))
-    .title("DeathPush")
-    .inner_size(1400.0, 900.0)
-    .min_inner_size(640.0, 480.0)
-    .title_bar_style(tauri::TitleBarStyle::Overlay)
-    .hidden_title(true)
-    .background_color(Color(30, 30, 30, 255))
-    .build()
+  #[allow(unused_mut)]
+  let mut builder =
+    WebviewWindowBuilder::new(app_handle, label, WebviewUrl::App("index.html".into()))
+      .title("DeathPush")
+      .inner_size(1400.0, 900.0)
+      .min_inner_size(640.0, 480.0)
+      .background_color(Color(30, 30, 30, 255));
+
+  #[cfg(target_os = "macos")]
+  {
+    builder = builder
+      .title_bar_style(tauri::TitleBarStyle::Overlay)
+      .hidden_title(true);
+  }
+
+  builder.build()
 }
 
 fn create_window(app_handle: &AppHandle) -> Result<tauri::WebviewWindow, tauri::Error> {

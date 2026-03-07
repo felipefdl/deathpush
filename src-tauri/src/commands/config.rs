@@ -1,8 +1,9 @@
 use crate::error::Error;
+use crate::util::async_command;
 
 #[tauri::command]
 pub async fn get_git_config(key: String) -> Result<String, Error> {
-  let output = tokio::process::Command::new("git")
+  let output = async_command("git")
     .args(["config", "--global", "--get", &key])
     .output()
     .await
@@ -17,7 +18,7 @@ pub async fn get_git_config(key: String) -> Result<String, Error> {
 
 #[tauri::command]
 pub async fn set_git_config(key: String, value: String) -> Result<(), Error> {
-  let output = tokio::process::Command::new("git")
+  let output = async_command("git")
     .args(["config", "--global", &key, &value])
     .output()
     .await

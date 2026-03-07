@@ -48,15 +48,19 @@ impl PtySession {
       })
       .map_err(|e| Error::Other(e.to_string()))?;
 
-    let shell = shell_path
-      .filter(|s| !s.is_empty())
-      .unwrap_or_else(|| std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()));
+    let default_shell = if cfg!(windows) {
+      std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_string())
+    } else {
+      std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+    };
+    let shell = shell_path.filter(|s| !s.is_empty()).unwrap_or(default_shell);
     let shell_name = std::path::Path::new(&shell)
       .file_name()
       .map(|n| n.to_string_lossy().to_string())
       .unwrap_or_else(|| shell.clone());
     let mut cmd = CommandBuilder::new(&shell);
-    let args_str = shell_args.unwrap_or_else(|| "-l".to_string());
+    let default_args = if cfg!(windows) { "" } else { "-l" };
+    let args_str = shell_args.unwrap_or_else(|| default_args.to_string());
     for arg in args_str.split_whitespace() {
       cmd.arg(arg);
     }

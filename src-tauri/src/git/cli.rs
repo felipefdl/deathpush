@@ -3,9 +3,9 @@ use std::sync::OnceLock;
 use std::time::Instant;
 
 use tauri::{AppHandle, Emitter};
-use tokio::process::Command;
 
 use crate::error::{Error, Result};
+use crate::util::async_command;
 use crate::types::StashEntry;
 
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
@@ -52,7 +52,7 @@ impl GitCli {
     let args_str = args.join(" ");
     let start = Instant::now();
 
-    let output = Command::new(&self.git_path)
+    let output = async_command(&self.git_path)
       .args(args)
       .current_dir(&self.repo_root)
       .output()
@@ -230,7 +230,7 @@ impl GitCli {
 
   pub async fn clone_repo(url: &str, path: &Path) -> Result<()> {
     let start = Instant::now();
-    let output = Command::new("git")
+    let output = async_command("git")
       .args(["clone", url, &path.to_string_lossy()])
       .output()
       .await?;
@@ -305,7 +305,7 @@ impl GitCli {
     let args_str = args.join(" ");
     let start = Instant::now();
 
-    let mut child = tokio::process::Command::new(&self.git_path)
+    let mut child = async_command(&self.git_path)
       .args(&args)
       .current_dir(&self.repo_root)
       .stdin(std::process::Stdio::piped())

@@ -4,6 +4,7 @@ use tauri::{State, WebviewWindow};
 
 use crate::commands::repository::AppRepoState;
 use crate::error::{Error, Result};
+use crate::util::async_command;
 use crate::git::repository::GitRepository;
 use crate::git::status::get_repository_status;
 use crate::types::RepositoryStatus;
@@ -44,21 +45,21 @@ pub async fn open_in_editor(
 
   #[cfg(target_os = "macos")]
   {
-    tokio::process::Command::new("open")
+    async_command("open")
       .arg(&full_path)
       .output()
       .await?;
   }
   #[cfg(target_os = "linux")]
   {
-    tokio::process::Command::new("xdg-open")
+    async_command("xdg-open")
       .arg(&full_path)
       .output()
       .await?;
   }
   #[cfg(target_os = "windows")]
   {
-    tokio::process::Command::new("cmd")
+    async_command("cmd")
       .args(["/c", "start", "", &full_path.to_string_lossy()])
       .output()
       .await?;
@@ -82,21 +83,21 @@ pub async fn reveal_in_file_manager(
 
   #[cfg(target_os = "macos")]
   {
-    tokio::process::Command::new("open")
+    async_command("open")
       .args(["-R", &full_path.to_string_lossy()])
       .output()
       .await?;
   }
   #[cfg(target_os = "linux")]
   {
-    tokio::process::Command::new("xdg-open")
+    async_command("xdg-open")
       .arg(full_path.parent().unwrap_or(&full_path))
       .output()
       .await?;
   }
   #[cfg(target_os = "windows")]
   {
-    tokio::process::Command::new("explorer")
+    async_command("explorer")
       .args(["/select,", &full_path.to_string_lossy()])
       .output()
       .await?;
