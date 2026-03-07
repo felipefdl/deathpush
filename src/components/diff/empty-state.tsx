@@ -1,8 +1,8 @@
-import { useThemeStore } from "../../stores/theme-store";
+import { useColorScheme } from "../../hooks/use-color-scheme";
 
 export const EmptyState = () => {
-  const themeKind = useThemeStore((s) => s.currentTheme.kind);
-  const isDark = themeKind === "dark" || themeKind === "hc-dark";
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
 
   return (
     <div className="diff-empty-state">

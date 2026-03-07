@@ -80,7 +80,7 @@ export const CommitDetail = () => {
   if (!commitDetail) {
     return (
       <div className="commit-detail-empty">
-        <span className="codicon codicon-git-commit commit-detail-empty-icon" />
+        <span className="codicon codicon-history commit-detail-empty-icon" />
         <span>Select a commit to view details</span>
       </div>
     );

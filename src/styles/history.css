@@ -43,7 +43,7 @@
 
 .history-empty-icon,
 .commit-detail-empty-icon {
-  font-size: 32px;
+  font-size: 48px !important;
   opacity: 0.3;
 }
 

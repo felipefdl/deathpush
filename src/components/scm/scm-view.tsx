@@ -2,6 +2,7 @@ import { useMemo, useCallback, useEffect } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { useLayoutStore } from "../../stores/layout-store";
+import { useColorScheme } from "../../hooks/use-color-scheme";
 import { useGitStatus } from "../../hooks/use-git-status";
 import { useStash } from "../../hooks/use-stash";
 import { CommitInput } from "./commit-input";
@@ -31,6 +32,8 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
     focusedIndex,
   } = useRepositoryStore();
   const { viewMode } = useLayoutStore();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
   useGitStatus();
   const { loadStashes, applyStash, popStash, dropStash } = useStash();
 
@@ -167,6 +170,16 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
         )}
         <CommitInput />
         {hasFiles && <FileFilter />}
+        {status && status.groups.length === 0 && (
+          <div className="scm-empty">
+            <img
+              className="scm-empty-watermark"
+              src={isDark ? "/deathpush-white.png" : "/deathpush-black.png"}
+              alt=""
+            />
+            <span className="scm-empty-label">No changes</span>
+          </div>
+        )}
         <ResizablePaneContainer panes={panes} />
         {!status && (
           <div className="scm-empty">
@@ -181,13 +194,6 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
               <span className="codicon codicon-folder-opened" />
               Open Repository
             </button>
-          </div>
-        )}
-        {status && status.groups.length === 0 && (
-          <div className="scm-empty">
-            <span style={{ opacity: 0.5, padding: 16, display: "block", textAlign: "center" }}>
-              No changes
-            </span>
           </div>
         )}
       </div>
