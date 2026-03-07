@@ -174,6 +174,7 @@ pub fn run() {
         .build()?;
 
       // View
+      #[allow(unused_mut)]
       let mut view_builder = SubmenuBuilder::new(app, "View")
         .item(&changes_item)
         .item(&history_item)
