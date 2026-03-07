@@ -25,7 +25,7 @@ jobs:
             args: ""
           - platform: windows-latest
             args: ""
-          - platform: windows-arm64
+          - platform: windows-11-arm
             args: "--target aarch64-pc-windows-msvc"
     runs-on: ${{ matrix.platform }}
     steps:
@@ -35,7 +35,7 @@ jobs:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'windows-arm64' && 'aarch64-pc-windows-msvc' || '' }}
+          targets: ${{ matrix.platform == 'windows-11-arm' && 'aarch64-pc-windows-msvc' || '' }}
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"

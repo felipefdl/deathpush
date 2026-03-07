@@ -55,3 +55,15 @@ monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
   allowNonTsExtensions: true,
   noLib: true,
 });
+
+monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+  validate: false,
+});
+
+monaco.languages.css.cssDefaults.setOptions({ validate: false });
+monaco.languages.css.scssDefaults.setOptions({ validate: false });
+monaco.languages.css.lessDefaults.setOptions({ validate: false });
+
+monaco.languages.html.htmlDefaults.setModeConfiguration({
+  diagnostics: false,
+});

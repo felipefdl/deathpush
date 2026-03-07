@@ -5,6 +5,8 @@ import { buildMultiRootWorkspaceTree, type WorkspaceTreeNode } from "../../lib/w
 import { useSettingsStore, type WorkspaceEntry } from "../../stores/settings-store";
 import { useThemeStore } from "../../stores/theme-store";
 import { WorkspaceConfigModal } from "../shared/workspace-config-modal";
+import { checkForUpdate, downloadAndInstallUpdate } from "../../lib/updater";
+import type { Update } from "@tauri-apps/plugin-updater";
 
 const handleListNavKeyDown = (e: React.KeyboardEvent) => {
   if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
@@ -130,10 +132,34 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
   const updateProjects = useSettingsStore((s) => s.updateProjects);
   const themeKind = useThemeStore((s) => s.currentTheme.kind);
   const isDark = themeKind === "dark" || themeKind === "hc-dark";
+  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<number | null>(null);
+  const updatingRef = useRef(false);
 
   useEffect(() => {
     setRecents(getRecentProjects());
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      checkForUpdate().then(setAvailableUpdate);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleUpdate = () => {
+    if (!availableUpdate || updatingRef.current) return;
+    updatingRef.current = true;
+    setUpdateProgress(0);
+    downloadAndInstallUpdate(availableUpdate, (downloaded, total) => {
+      if (total) {
+        setUpdateProgress(Math.round((downloaded / total) * 100));
+      }
+    }).catch(() => {
+      setUpdateProgress(null);
+      updatingRef.current = false;
+    });
+  };
 
   useEffect(() => {
     if (projectsSettings.workspaces.length === 0) {
@@ -415,6 +441,19 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
             )}
           </div>
         </div>
+      </div>
+      <div className="welcome-footer">
+        {availableUpdate && (
+          <button
+            className="welcome-update-btn"
+            onClick={handleUpdate}
+            disabled={updateProgress !== null}
+          >
+            <span className="codicon codicon-cloud-download" />
+            {updateProgress !== null ? `Updating ${updateProgress}%` : `Update to v${availableUpdate.version}`}
+          </button>
+        )}
+        <span className="welcome-version">Version {__APP_VERSION__} ({__GIT_HASH__})</span>
       </div>
     </div>
   );

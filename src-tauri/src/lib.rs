@@ -63,7 +63,7 @@ fn new_window(app: AppHandle) -> Result<(), error::Error> {
 pub fn run() {
   tracing_subscriber::fmt::init();
 
-  tauri::Builder::default()
+  let mut builder = tauri::Builder::default()
     .manage(Mutex::new(AppRepoState::default()))
     .manage(pty::TerminalState::new(HashMap::new()))
     .manage(WatcherState::new(HashMap::new()))
@@ -344,9 +344,13 @@ pub fn run() {
     .plugin(tauri_plugin_deep_link::init())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_shell::init())
-    .plugin(tauri_plugin_updater::Builder::new().build())
-    .plugin(tauri_plugin_process::init())
-    .invoke_handler(tauri::generate_handler![
+    .plugin(tauri_plugin_process::init());
+
+    if !cfg!(dev) {
+      builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+
+    builder.invoke_handler(tauri::generate_handler![
       repository::open_repository,
       repository::get_initial_path,
       repository::scan_projects_directory,
