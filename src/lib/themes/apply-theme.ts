@@ -1,4 +1,5 @@
 import { loader } from "@monaco-editor/react";
+import { setNativeTheme } from "../tauri-commands";
 import type { ResolvedTheme, UiTheme } from "./theme-types";
 
 const THEME_STORAGE_KEY = "deathpush:theme";
@@ -36,6 +37,9 @@ export const applyTheme = (theme: ResolvedTheme): void => {
   if (theme.uiTheme === "hc-light") document.body.classList.add("hc-light");
 
   applyMonacoTheme(theme);
+
+  const isDark = scheme === "dark";
+  setNativeTheme(isDark).catch(() => {});
 
   window.dispatchEvent(new CustomEvent("deathpush:theme-applied", { detail: { colors: theme.colors } }));
 

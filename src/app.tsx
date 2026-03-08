@@ -65,6 +65,10 @@ export const App = () => {
     }
   }, [status?.root]);
 
+  useEffect(() => {
+    commands.setRepoMenuEnabled(status !== null).catch(() => {});
+  }, [status]);
+
   const handleOpenRepository = useCallback(async () => {
     const selected = await open({ directory: true, title: "Open Git Repository" });
     if (selected) {

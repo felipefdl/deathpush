@@ -80,6 +80,7 @@ const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
 mediaQuery.addEventListener("change", (e) => {
   const state = useThemeStore.getState();
   const id = e.matches ? state.preferredDarkThemeId : state.preferredLightThemeId;
+  if (id === state.currentTheme.id) return;
   const theme = getResolvedTheme(id);
   if (theme) {
     applyTheme(theme);

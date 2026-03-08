@@ -12,10 +12,12 @@ use std::sync::Mutex;
 use commands::repository::{AppRepoState, CliPaths};
 use commands::{blame, branch, cli, commit, config, file_ops, lifecycle, log, remote, repository, staging, stash, status, tag, terminal};
 use git::watcher::WatcherState;
-use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder};
 use tauri::webview::{WebviewWindowBuilder};
 use tauri::window::Color;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WindowEvent};
+
+struct RepoMenuItems(Vec<MenuItem<tauri::Wry>>);
 use tauri_plugin_deep_link::DeepLinkExt;
 
 static WINDOW_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -56,6 +58,24 @@ fn create_window(app_handle: &AppHandle) -> Result<tauri::WebviewWindow, tauri::
 #[tauri::command]
 fn new_window(app: AppHandle) -> Result<(), error::Error> {
   create_window(&app).map_err(|e| error::Error::Other(e.to_string()))?;
+  Ok(())
+}
+
+#[tauri::command]
+fn set_repo_menu_enabled(app: AppHandle, enabled: bool) -> Result<(), error::Error> {
+  let items = app.state::<RepoMenuItems>();
+  for item in &items.0 {
+    item.set_enabled(enabled).map_err(|e| error::Error::Other(e.to_string()))?;
+  }
+  Ok(())
+}
+
+#[tauri::command]
+fn set_native_theme(app: AppHandle, dark: bool) -> Result<(), error::Error> {
+  let theme = if dark { Some(tauri::Theme::Dark) } else { Some(tauri::Theme::Light) };
+  for window in app.webview_windows().values() {
+    window.set_theme(theme).map_err(|e| error::Error::Other(e.to_string()))?;
+  }
   Ok(())
 }
 
@@ -263,6 +283,27 @@ pub fn run() {
 
       app.set_menu(menu)?;
 
+      let repo_items: Vec<MenuItem<tauri::Wry>> = vec![
+        changes_item.clone(),
+        history_item.clone(),
+        toggle_diff_item.clone(),
+        git_pull_item.clone(),
+        git_push_item.clone(),
+        git_fetch_item.clone(),
+        git_stage_all_item.clone(),
+        git_unstage_all_item.clone(),
+        git_stash_item.clone(),
+        git_stash_pop_item.clone(),
+        git_undo_commit_item.clone(),
+        new_terminal_item.clone(),
+        kill_terminal_item.clone(),
+        toggle_terminal_item.clone(),
+      ];
+      for item in &repo_items {
+        let _ = item.set_enabled(false);
+      }
+      app.manage(RepoMenuItems(repo_items));
+
       app.on_menu_event(move |app_handle, event| {
         let id = event.id();
 
@@ -412,6 +453,8 @@ pub fn run() {
       cli::install_cli,
       cli::uninstall_cli,
       new_window,
+      set_repo_menu_enabled,
+      set_native_theme,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

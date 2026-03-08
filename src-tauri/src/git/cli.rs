@@ -8,6 +8,14 @@ use crate::error::{Error, Result};
 use crate::util::async_command;
 use crate::types::StashEntry;
 
+fn map_git_not_found(err: std::io::Error) -> Error {
+  if err.kind() == std::io::ErrorKind::NotFound {
+    Error::Other("Git is not installed. Please install git and try again.".into())
+  } else {
+    Error::Io(err)
+  }
+}
+
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
 pub fn set_app_handle(handle: AppHandle) {
@@ -56,7 +64,8 @@ impl GitCli {
       .args(args)
       .current_dir(&self.repo_root)
       .output()
-      .await?;
+      .await
+      .map_err(map_git_not_found)?;
 
     emit_git_command(&args_str, start.elapsed().as_millis() as u64);
 
@@ -233,7 +242,8 @@ impl GitCli {
     let output = async_command("git")
       .args(["clone", url, &path.to_string_lossy()])
       .output()
-      .await?;
+      .await
+      .map_err(map_git_not_found)?;
     emit_git_command(&format!("clone {url} {}", path.to_string_lossy()), start.elapsed().as_millis() as u64);
     if !output.status.success() {
       let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -311,7 +321,8 @@ impl GitCli {
       .stdin(std::process::Stdio::piped())
       .stdout(std::process::Stdio::piped())
       .stderr(std::process::Stdio::piped())
-      .spawn()?;
+      .spawn()
+      .map_err(map_git_not_found)?;
 
     if let Some(mut stdin) = child.stdin.take() {
       stdin.write_all(patch.as_bytes()).await?;

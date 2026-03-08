@@ -11,6 +11,10 @@ import "./styles/global.css";
 
 document.addEventListener("contextmenu", (e) => {
   const target = e.target as HTMLElement;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) {
+    return;
+  }
   if (target.closest(".xterm") || target.closest(".monaco-editor")) {
     return;
   }

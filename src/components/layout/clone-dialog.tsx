@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useRepositoryStore } from "../../stores/repository-store";
+import { addRecentProject } from "../../lib/recent-projects";
 import * as commands from "../../lib/tauri-commands";
 
 interface CloneDialogProps {
@@ -33,6 +34,7 @@ export const CloneDialog = ({ onClose }: CloneDialogProps) => {
     setCloning(true);
     try {
       const status = await commands.cloneRepository(url.trim(), targetPath);
+      addRecentProject(status.root);
       setStatus(status);
       onClose();
     } catch (err) {

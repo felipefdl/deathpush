@@ -191,3 +191,9 @@ export const installCli = (): Promise<void> =>
 
 export const uninstallCli = (): Promise<void> =>
   invoke("uninstall_cli");
+
+export const setRepoMenuEnabled = (enabled: boolean): Promise<void> =>
+  invoke("set_repo_menu_enabled", { enabled });
+
+export const setNativeTheme = (dark: boolean): Promise<void> =>
+  invoke("set_native_theme", { dark });
