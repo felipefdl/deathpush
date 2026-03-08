@@ -130,7 +130,7 @@ fn set_native_theme(app: AppHandle, dark: bool) -> Result<(), error::Error> {
   #[cfg(target_os = "linux")]
   {
     let _ = (&app, dark);
-    return Ok(());
+    Ok(())
   }
 
   #[cfg(not(target_os = "linux"))]
