@@ -2,21 +2,27 @@
 const platforms = [
   {
     name: "macOS",
+    platform: "darwin",
     note: "Apple Silicon & Intel",
     icon: `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>`,
     href: "https://github.com/felipefdl/deathpush/releases/latest",
+    btnLabel: "Download for macOS",
   },
   {
     name: "Windows",
+    platform: "windows",
     note: "Windows 10+",
     icon: `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>`,
     href: "https://github.com/felipefdl/deathpush/releases/latest",
+    btnLabel: "Download for Windows",
   },
   {
     name: "Linux",
+    platform: "linux",
     note: "AppImage & .deb",
-    icon: `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 0 0-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.368 1.884 1.43.868.065 1.657-.344 2.085-.81.7-.642 1.065-1.478.67-2.396-.113-.265-.395-.468-.665-.58-.135-.057-.284-.085-.432-.114-.291-.063-.39-.063-.467-.198-.025-.065-.054-.198.044-.398.066-.133.218-.332.315-.465.145-.199.241-.4.399-.465.166-.065.332-.198.497-.398.166-.2.332-.465.397-.602.066-.199.166-.464.133-.664-.033-.2-.166-.399-.332-.399l-.003-.003c-.032-.133-.032-.333-.065-.6-.033-.2-.065-.398-.1-.532a3.39 3.39 0 0 0-.133-.4c-.066-.133-.2-.334-.333-.467-.066-.133-.133-.266-.133-.466-.067-.466.066-.934.199-1.335.133-.399.333-.797.333-1.197 0-.399-.066-.798-.399-1.064-.333-.266-.8-.333-1.197-.4a3.988 3.988 0 0 1-.598-.133c-.2-.066-.4-.2-.533-.333-.266-.333-.4-.666-.533-1.064-.067-.2-.133-.466-.2-.666-.066-.199-.133-.399-.266-.532-.066-.066-.2-.133-.333-.2a.762.762 0 0 0 .004-.073c0-1.532-.794-2.77-1.466-3.734C14.903.967 14.176.4 13.106.133 12.906.067 12.706 0 12.504 0"/></svg>`,
+    icon: `<svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor"><path d="M8.996 4.497c.104-.076.1-.168.186-.158s.022.102-.098.207c-.12.104-.308.243-.46.323-.291.152-.631.336-.993.336s-.647-.167-.853-.33c-.102-.082-.186-.162-.248-.221-.11-.086-.096-.207-.052-.204.075.01.087.109.134.153.064.06.144.137.241.214.195.154.454.304.778.304s.702-.19.932-.32c.13-.073.297-.204.433-.304M7.34 3.781c.055-.02.123-.031.174-.003.011.006.024.021.02.034-.012.038-.074.032-.11.05-.032.017-.057.052-.093.054-.034 0-.086-.012-.09-.046-.007-.044.058-.072.1-.089m.581-.003c.05-.028.119-.018.173.003.041.017.106.045.1.09-.004.033-.057.046-.09.045-.036-.002-.062-.037-.093-.053-.036-.019-.098-.013-.11-.051-.004-.013.008-.028.02-.034"/><path fill-rule="evenodd" d="M8.446.019c2.521.003 2.38 2.66 2.364 4.093-.01.939.509 1.574 1.04 2.244.474.56 1.095 1.38 1.45 2.32.29.765.402 1.613.115 2.465a.8.8 0 0 1 .254.152l.001.002c.207.175.271.447.329.698.058.252.112.488.224.615.344.382.494.667.48.922-.015.254-.203.43-.435.57-.465.28-1.164.491-1.586 1.002-.443.527-.99.83-1.505.871a1.25 1.25 0 0 1-1.256-.716v-.001a1 1 0 0 1-.078-.21c-.67.038-1.252-.165-1.718-.128-.687.038-1.116.204-1.506.206-.151.331-.445.547-.808.63-.5.114-1.126 0-1.743-.324-.577-.306-1.31-.278-1.85-.39-.27-.057-.51-.157-.626-.384-.116-.226-.095-.538.07-.988.051-.16.012-.398-.026-.648a2.5 2.5 0 0 1-.037-.369c0-.133.022-.265.087-.386v-.002c.14-.266.368-.377.577-.451s.397-.125.53-.258c.143-.15.27-.374.443-.56q.036-.037.073-.07c-.081-.538.007-1.105.192-1.662.393-1.18 1.223-2.314 1.811-3.014.502-.713.65-1.287.701-2.016.042-.997-.705-3.974 2.112-4.2q.168-.015.321-.013m2.596 10.866-.03.016c-.223.121-.348.337-.427.656-.08.32-.107.733-.13 1.206v.001c-.023.37-.192.824-.31 1.267s-.176.862-.036 1.128v.002c.226.452.608.636 1.051.601s.947-.304 1.36-.795c.474-.576 1.218-.796 1.638-1.05.21-.126.324-.242.333-.4.009-.157-.097-.403-.425-.767-.17-.192-.217-.462-.274-.71-.056-.247-.122-.468-.26-.585l-.001-.001c-.18-.157-.356-.17-.565-.164q-.069.001-.14.005c-.239.275-.805.612-1.197.508-.359-.09-.562-.508-.587-.918m-7.204.03H3.83c-.189.002-.314.09-.44.225-.149.158-.276.382-.445.56v.002h-.002c-.183.184-.414.239-.61.31-.195.069-.353.143-.46.35v.002c-.085.155-.066.378-.029.624.038.245.096.507.018.746v.002l-.001.002c-.157.427-.155.678-.082.822.074.143.235.22.48.272.493.103 1.26.069 1.906.41.583.305 1.168.404 1.598.305.431-.098.712-.369.75-.867v-.002c.029-.292-.195-.673-.485-1.052-.29-.38-.633-.752-.795-1.09v-.002l-.61-1.11c-.21-.286-.43-.462-.68-.5a1 1 0 0 0-.106-.008M9.584 4.85c-.14.2-.386.37-.695.467-.147.048-.302.17-.495.28a1.3 1.3 0 0 1-.74.19.97.97 0 0 1-.582-.227c-.14-.113-.25-.237-.394-.322a3 3 0 0 1-.192-.126c-.063 1.179-.85 2.658-1.226 3.511a5.4 5.4 0 0 0-.43 1.917c-.68-.906-.184-2.066.081-2.568.297-.55.343-.701.27-.649-.266.436-.685 1.13-.848 1.844-.085.372-.1.749.01 1.097.11.349.345.67.766.931.573.351.963.703 1.193 1.015s.302.584.23.777a.4.4 0 0 1-.212.22.7.7 0 0 1-.307.056l.184.235c.094.124.186.249.266.375 1.179.805 2.567.496 3.568-.218.1-.342.197-.664.212-.903.024-.474.05-.896.136-1.245s.244-.634.53-.791a1 1 0 0 1 .138-.061q.005-.045.013-.087c.082-.546.569-.572 1.18-.303.588.266.81.499.71.814h.13c.122-.398-.133-.69-.822-1.025l-.137-.06a2.35 2.35 0 0 0-.012-1.113c-.188-.79-.704-1.49-1.098-1.838-.072-.003-.065.06.081.203.363.333 1.156 1.532.727 2.644a1.2 1.2 0 0 0-.342-.043c-.164-.907-.543-1.66-.735-2.014-.359-.668-.918-2.036-1.158-2.983M7.72 3.503a1 1 0 0 0-.312.053c-.268.093-.447.286-.559.391-.022.021-.05.04-.119.091s-.172.126-.321.238q-.198.151-.13.38c.046.15.192.325.459.476.166.098.28.23.41.334a1 1 0 0 0 .215.133.9.9 0 0 0 .298.066c.282.017.49-.068.673-.173s.34-.233.518-.29c.365-.115.627-.345.709-.564a.37.37 0 0 0-.01-.309c-.048-.096-.148-.187-.318-.257h-.001c-.354-.151-.507-.162-.705-.29-.321-.207-.587-.28-.807-.279m-.89-1.122h-.025a.4.4 0 0 0-.278.135.76.76 0 0 0-.191.334 1.2 1.2 0 0 0-.051.445v.001c.01.162.041.299.102.436.05.116.109.204.183.274l.089-.065.117-.09-.023-.018a.4.4 0 0 1-.11-.161.7.7 0 0 1-.054-.22v-.01a.7.7 0 0 1 .014-.234.4.4 0 0 1 .08-.179q.056-.069.126-.073h.013a.18.18 0 0 1 .123.05c.045.04.08.09.11.162a.7.7 0 0 1 .054.22v.01a.7.7 0 0 1-.002.17 1.1 1.1 0 0 1 .317-.143 1.3 1.3 0 0 0 .002-.194V3.23a1.2 1.2 0 0 0-.102-.437.8.8 0 0 0-.227-.31.4.4 0 0 0-.268-.102m1.95-.155a.63.63 0 0 0-.394.14.9.9 0 0 0-.287.376 1.2 1.2 0 0 0-.1.51v.015q0 .079.01.152c.114.027.278.074.406.138a1 1 0 0 1-.011-.172.8.8 0 0 1 .058-.278.5.5 0 0 1 .139-.2.26.26 0 0 1 .182-.069.26.26 0 0 1 .178.081c.055.054.094.12.124.21.029.086.042.17.04.27l-.002.012a.8.8 0 0 1-.057.277c-.024.059-.089.106-.122.145.046.016.09.03.146.052a5 5 0 0 1 .248.102 1.2 1.2 0 0 0 .244-.763 1.2 1.2 0 0 0-.11-.495.9.9 0 0 0-.294-.37.64.64 0 0 0-.39-.133z"/></svg>`,
     href: "https://github.com/felipefdl/deathpush/releases/latest",
+    btnLabel: "Download for Linux",
   },
 ];
 ---
@@ -26,21 +32,19 @@ const platforms = [
     <div class="download-header">
       <h2 class="text-heading">Download DeathPush</h2>
       <p class="text-subheading">Free. Open source. Apache-2.0 licensed.</p>
+      <p class="version-info"></p>
     </div>
     <div class="download-grid">
       {platforms.map((platform) => (
-        <div class="download-card">
+        <div class="download-card" data-platform={platform.platform}>
           <div class="platform-icon" set:html={platform.icon} />
           <h3 class="platform-name">{platform.name}</h3>
           <p class="platform-note">{platform.note}</p>
-          <a href={platform.href} class="download-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            Download for {platform.name}
-          </a>
+          <div class="download-actions">
+            <a href={platform.href} class="download-btn">
+              <span class="btn-label">{platform.btnLabel}</span>
+            </a>
+          </div>
         </div>
       ))}
     </div>
@@ -50,6 +54,138 @@ const platforms = [
   </div>
 </section>
 
+<script is:inline>
+  (function () {
+    var CACHE_KEY = "deathpush_release";
+    var CACHE_TTL = 30 * 60 * 1000;
+    var API_URL = "https://api.github.com/repos/felipefdl/deathpush/releases/latest";
+
+    var ASSET_MAP = [
+      { suffix: "_universal.dmg",       platform: "darwin",  label: ".dmg Universal" },
+      { suffix: "_x64_en-US.msi",       platform: "windows", label: ".msi x64" },
+      { suffix: "_arm64_en-US.msi",     platform: "windows", label: ".msi ARM" },
+      { suffix: "_x64-setup.exe",       platform: "windows", label: ".exe x64" },
+      { suffix: "_arm64-setup.exe",     platform: "windows", label: ".exe ARM" },
+      { suffix: "_amd64.AppImage",      platform: "linux",   label: "AppImage x64" },
+      { suffix: "_aarch64.AppImage",    platform: "linux",   label: "AppImage ARM" },
+      { suffix: "_amd64.deb",           platform: "linux",   label: ".deb x64" },
+      { suffix: "_arm64.deb",           platform: "linux",   label: ".deb ARM" },
+    ];
+
+    function getCached() {
+      try {
+        var raw = localStorage.getItem(CACHE_KEY);
+        if (!raw) return null;
+        var cached = JSON.parse(raw);
+        if (Date.now() - cached.ts > CACHE_TTL) {
+          localStorage.removeItem(CACHE_KEY);
+          return null;
+        }
+        return cached.data;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function setCache(data) {
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data }));
+      } catch (e) {
+        // localStorage full or unavailable
+      }
+    }
+
+    function classifyAssets(assets) {
+      var urlMap = {};
+      for (var i = 0; i < assets.length; i++) {
+        var asset = assets[i];
+        if (asset.name.endsWith(".sig") || asset.name === "latest.json") continue;
+        for (var j = 0; j < ASSET_MAP.length; j++) {
+          if (asset.name.endsWith(ASSET_MAP[j].suffix)) {
+            urlMap[ASSET_MAP[j].suffix] = asset.browser_download_url;
+            break;
+          }
+        }
+      }
+      var result = { darwin: [], windows: [], linux: [] };
+      for (var k = 0; k < ASSET_MAP.length; k++) {
+        var rule = ASSET_MAP[k];
+        var url = urlMap[rule.suffix];
+        if (url) {
+          result[rule.platform].push({ url: url, label: rule.label });
+        }
+      }
+      return result;
+    }
+
+    var BTN_STYLE = "display:inline-flex;align-items:center;justify-content:center;"
+      + "padding:0.625rem 0.5rem;font-size:0.875rem;font-weight:600;"
+      + "color:#fff;background:#dc2626;border-radius:0.375rem;"
+      + "text-decoration:none;width:100%;box-sizing:border-box;"
+      + "white-space:nowrap;transition:background 0.2s";
+
+    function updateDOM(version, classified) {
+      var versionEl = document.querySelector(".version-info");
+      if (versionEl) {
+        versionEl.textContent = version;
+      }
+
+      var cards = document.querySelectorAll(".download-card[data-platform]");
+      for (var i = 0; i < cards.length; i++) {
+        var card = cards[i];
+        var platform = card.getAttribute("data-platform");
+        var items = classified[platform];
+        if (!items || items.length === 0) continue;
+
+        var actions = card.querySelector(".download-actions");
+        if (!actions) continue;
+
+        var isSingle = items.length === 1;
+        actions.style.display = "grid";
+        actions.style.gridTemplateColumns = isSingle ? "1fr" : "1fr 1fr";
+        actions.style.gap = "0.25rem";
+
+        var html = "";
+        for (var k = 0; k < items.length; k++) {
+          var span = isSingle ? "" : (items.length % 2 === 1 && k === 0
+            ? ' style="grid-column:1/-1"' : "");
+          html += '<a href="' + items[k].url + '" style="' + BTN_STYLE + '"'
+            + span
+            + ' onmouseover="this.style.background=\'#b91c1c\'"'
+            + ' onmouseout="this.style.background=\'#dc2626\'">'
+            + items[k].label + "</a>";
+        }
+        actions.innerHTML = html;
+      }
+    }
+
+    function processRelease(data) {
+      var version = data.tag_name || "";
+      var classified = classifyAssets(data.assets || []);
+      updateDOM(version, classified);
+    }
+
+    var cached = getCached();
+    if (cached) {
+      processRelease(cached);
+      return;
+    }
+
+    fetch(API_URL)
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        setCache(data);
+        processRelease(data);
+      })
+      .catch(function () {
+        // Fallback: static links remain intact
+      });
+  })();
+</script>
+
 <style>
   .download-header {
     text-align: center;
@@ -58,6 +194,18 @@ const platforms = [
 
   .download-header h2 {
     margin-bottom: var(--space-md);
+  }
+
+  .version-info {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--color-accent);
+    margin-top: var(--space-sm);
+    min-height: 1.4em;
+  }
+
+  .version-info:empty {
+    display: none;
   }
 
   .download-grid {
@@ -79,7 +227,7 @@ const platforms = [
     flex-direction: column;
     align-items: center;
     text-align: center;
-    padding: var(--space-2xl) var(--space-xl);
+    padding: var(--space-xl) var(--space-sm);
     background: transparent;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
@@ -109,10 +257,16 @@ const platforms = [
     margin-bottom: var(--space-xl);
   }
 
+  .download-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    width: 100%;
+  }
+
   .download-btn {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-sm);
     padding: 0.625rem 1.25rem;
     font-size: var(--text-sm);
     font-weight: 600;
