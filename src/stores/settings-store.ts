@@ -54,6 +54,7 @@ export interface UISettings {
   fontSize: number;
   sidebarPosition: "left" | "right";
   alwaysOpenTerminalOnStart: boolean;
+  zoomLevel: number;
 }
 
 export interface WorkspaceEntry {
@@ -80,6 +81,9 @@ interface SettingsState {
   updateTerminal: (partial: Partial<TerminalSettings>) => void;
   updateGit: (partial: Partial<GitSettings>) => void;
   updateProjects: (partial: Partial<ProjectsSettings>) => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetZoom: () => void;
   resetToDefaults: () => void;
 }
 
@@ -91,6 +95,7 @@ const DEFAULTS: AppSettings = {
     fontSize: 13,
     sidebarPosition: "left",
     alwaysOpenTerminalOnStart: false,
+    zoomLevel: 0,
   },
   editor: {
     fontSize: 13,
@@ -210,6 +215,29 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         ...state.settings,
         projects: { ...state.settings.projects, ...partial },
       };
+      saveSettings(settings);
+      return { settings };
+    }),
+
+  zoomIn: () =>
+    set((state) => {
+      const zoomLevel = Math.min(state.settings.ui.zoomLevel + 1, 9);
+      const settings = { ...state.settings, ui: { ...state.settings.ui, zoomLevel } };
+      saveSettings(settings);
+      return { settings };
+    }),
+
+  zoomOut: () =>
+    set((state) => {
+      const zoomLevel = Math.max(state.settings.ui.zoomLevel - 1, -5);
+      const settings = { ...state.settings, ui: { ...state.settings.ui, zoomLevel } };
+      saveSettings(settings);
+      return { settings };
+    }),
+
+  resetZoom: () =>
+    set((state) => {
+      const settings = { ...state.settings, ui: { ...state.settings.ui, zoomLevel: 0 } };
       saveSettings(settings);
       return { settings };
     }),

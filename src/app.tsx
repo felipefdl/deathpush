@@ -118,6 +118,9 @@ export const App = () => {
         const layout = useLayoutStore.getState();
         layout.setDiffMode(layout.diffMode === "inline" ? "sideBySide" : "inline");
       }),
+      appWindow.listen("menu:zoom-in", () => useSettingsStore.getState().zoomIn()),
+      appWindow.listen("menu:zoom-out", () => useSettingsStore.getState().zoomOut()),
+      appWindow.listen("menu:zoom-reset", () => useSettingsStore.getState().resetZoom()),
       appWindow.listen("menu:git-pull", async () => {
         const branch = useRepositoryStore.getState().status?.headBranch;
         if (!branch) return;
@@ -258,6 +261,12 @@ export const App = () => {
     document.documentElement.style.setProperty("--vscode-font-family", uiSettings.fontFamily);
     document.documentElement.style.setProperty("--vscode-font-size", `${uiSettings.fontSize}px`);
   }, [uiSettings]);
+
+  // Apply zoom level to webview
+  const zoomLevel = useSettingsStore((s) => s.settings.ui.zoomLevel);
+  useEffect(() => {
+    getCurrentWebviewWindow().setZoom(Math.pow(1.2, zoomLevel)).catch(() => {});
+  }, [zoomLevel]);
 
   // Auto-switch theme on system preference change (only if no stored preference)
   useEffect(() => {

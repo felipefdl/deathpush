@@ -9,6 +9,7 @@ const DEFAULTS = {
     fontSize: 13,
     sidebarPosition: "left" as const,
     alwaysOpenTerminalOnStart: false,
+    zoomLevel: 0,
   },
   editor: {
     fontSize: 13,
@@ -254,6 +255,54 @@ describe("settings store", () => {
       useSettingsStore.getState().resetToDefaults();
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
       expect(stored.ui.fontSize).toBe(13);
+    });
+  });
+
+  describe("zoom", () => {
+    it("zoomIn increments zoomLevel", () => {
+      useSettingsStore.getState().zoomIn();
+      expect(useSettingsStore.getState().settings.ui.zoomLevel).toBe(1);
+    });
+
+    it("zoomOut decrements zoomLevel", () => {
+      useSettingsStore.getState().zoomOut();
+      expect(useSettingsStore.getState().settings.ui.zoomLevel).toBe(-1);
+    });
+
+    it("resetZoom sets zoomLevel to 0", () => {
+      useSettingsStore.getState().zoomIn();
+      useSettingsStore.getState().zoomIn();
+      useSettingsStore.getState().resetZoom();
+      expect(useSettingsStore.getState().settings.ui.zoomLevel).toBe(0);
+    });
+
+    it("clamps zoomLevel at max 9", () => {
+      for (let i = 0; i < 15; i++) {
+        useSettingsStore.getState().zoomIn();
+      }
+      expect(useSettingsStore.getState().settings.ui.zoomLevel).toBe(9);
+    });
+
+    it("clamps zoomLevel at min -5", () => {
+      for (let i = 0; i < 10; i++) {
+        useSettingsStore.getState().zoomOut();
+      }
+      expect(useSettingsStore.getState().settings.ui.zoomLevel).toBe(-5);
+    });
+
+    it("persists zoomLevel to localStorage", () => {
+      useSettingsStore.getState().zoomIn();
+      useSettingsStore.getState().zoomIn();
+      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+      expect(stored.ui.zoomLevel).toBe(2);
+    });
+
+    it("resetToDefaults resets zoomLevel", () => {
+      useSettingsStore.getState().zoomIn();
+      useSettingsStore.getState().zoomIn();
+      useSettingsStore.getState().zoomIn();
+      useSettingsStore.getState().resetToDefaults();
+      expect(useSettingsStore.getState().settings.ui.zoomLevel).toBe(0);
     });
   });
 });

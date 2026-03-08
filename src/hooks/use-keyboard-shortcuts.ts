@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { useRepositoryStore } from "../stores/repository-store";
 import { useLayoutStore } from "../stores/layout-store";
+import { useSettingsStore } from "../stores/settings-store";
 import { toggleTerminal } from "../lib/toggle-terminal";
 import { buildFlatFileList } from "../lib/flat-file-list";
 import * as commands from "../lib/tauri-commands";
@@ -48,6 +49,23 @@ export const useKeyboardShortcuts = () => {
       }
 
       chordK = false;
+
+      // Zoom: Cmd/Ctrl + =/- /0 (must be before isInput check)
+      if (isMod && (e.key === "=" || e.key === "+")) {
+        e.preventDefault();
+        useSettingsStore.getState().zoomIn();
+        return;
+      }
+      if (isMod && e.key === "-") {
+        e.preventDefault();
+        useSettingsStore.getState().zoomOut();
+        return;
+      }
+      if (isMod && e.key === "0") {
+        e.preventDefault();
+        useSettingsStore.getState().resetZoom();
+        return;
+      }
 
       if (isMod && e.key === "s") {
         e.preventDefault();

@@ -91,6 +91,12 @@ const AppearanceSection = ({
       />
       <TextField label="UI Font Family" value={settings.fontFamily} onChange={(v) => onUpdate({ fontFamily: v })} />
       <NumberField label="UI Font Size" value={settings.fontSize} onChange={(v) => onUpdate({ fontSize: v })} min={10} max={20} />
+      <SelectField
+        label="Zoom"
+        value={String(settings.zoomLevel)}
+        options={ZOOM_OPTIONS}
+        onChange={(v) => onUpdate({ zoomLevel: parseInt(v) })}
+      />
     </div>
   );
 };
@@ -133,6 +139,12 @@ const EditorSection = ({
     />
   </div>
 );
+
+const ZOOM_OPTIONS = Array.from({ length: 15 }, (_, i) => {
+  const level = i - 5;
+  const percent = Math.round(Math.pow(1.2, level) * 100);
+  return { value: String(level), label: `${percent}%` };
+});
 
 const FONT_WEIGHT_OPTIONS = [
   { value: "normal", label: "Normal" },

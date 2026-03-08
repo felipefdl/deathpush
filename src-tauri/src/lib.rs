@@ -171,6 +171,16 @@ pub fn run() {
         .accelerator("CmdOrCtrl+Shift+P")
         .build(app)?;
 
+      let zoom_in_item = MenuItemBuilder::with_id("zoom-in", "Zoom In")
+        .accelerator("CmdOrCtrl+=")
+        .build(app)?;
+      let zoom_out_item = MenuItemBuilder::with_id("zoom-out", "Zoom Out")
+        .accelerator("CmdOrCtrl+-")
+        .build(app)?;
+      let zoom_reset_item = MenuItemBuilder::with_id("zoom-reset", "Reset Zoom")
+        .accelerator("CmdOrCtrl+0")
+        .build(app)?;
+
       let new_terminal_item = MenuItemBuilder::with_id("new-terminal", "New Terminal")
         .accelerator("CmdOrCtrl+Shift+J")
         .build(app)?;
@@ -223,7 +233,11 @@ pub fn run() {
         .item(&changes_item)
         .item(&history_item)
         .separator()
-        .item(&toggle_diff_item);
+        .item(&toggle_diff_item)
+        .separator()
+        .item(&zoom_in_item)
+        .item(&zoom_out_item)
+        .item(&zoom_reset_item);
 
       #[cfg(debug_assertions)]
       let inspect_item = MenuItemBuilder::with_id("inspect", "Inspect Element")
@@ -349,6 +363,9 @@ pub fn run() {
             || id == kill_terminal_item.id()
             || id == toggle_terminal_item.id()
             || id == toggle_diff_item.id()
+            || id == zoom_in_item.id()
+            || id == zoom_out_item.id()
+            || id == zoom_reset_item.id()
             || id == git_pull_item.id()
             || id == git_push_item.id()
             || id == git_fetch_item.id()

@@ -9,6 +9,8 @@ import type { LastCommitInfo } from "../../lib/git-types";
 export const StatusBar = () => {
   const { status, blame, cursorLine } = useRepositoryStore();
   const blameEnabled = useSettingsStore((s) => s.settings.git.blame);
+  const zoomLevel = useSettingsStore((s) => s.settings.ui.zoomLevel);
+  const zoomPercent = zoomLevel !== 0 ? `${Math.round(Math.pow(1.2, zoomLevel) * 100)}%` : null;
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [lastCommit, setLastCommit] = useState<LastCommitInfo | null>(null);
 
@@ -56,6 +58,12 @@ export const StatusBar = () => {
           </span>
         )}
         <div className="status-bar-spacer" />
+        {zoomPercent && (
+          <button className="status-bar-item" onClick={() => useSettingsStore.getState().resetZoom()} title="Reset Zoom">
+            <span className="codicon codicon-zoom-in" />
+            <span className="status-bar-text">{zoomPercent}</span>
+          </button>
+        )}
         {lastCommit && (
           <span className="status-bar-item" title={`${lastCommit.shortId}: ${lastCommit.message}`}>
             <span className="codicon codicon-git-commit" />
