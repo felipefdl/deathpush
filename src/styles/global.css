@@ -31,7 +31,7 @@
 }
 
 :root {
-  --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --vscode-font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
   --vscode-font-size: 13px;
 
   --radius-xs: 2px;
@@ -58,6 +58,8 @@ body,
   height: 100%;
   width: 100%;
   overflow: hidden;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -102,6 +104,11 @@ summary {
 .monaco-diff-editor,
 .monaco-component {
   --vscode-focusBorder: transparent !important;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
 }
 
 ::-webkit-scrollbar {
