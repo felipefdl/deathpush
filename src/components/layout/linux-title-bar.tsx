@@ -147,13 +147,13 @@ export const LinuxTitleBar = () => {
       </div>
       <div className="linux-title-bar-drag" data-tauri-drag-region />
       <div className="linux-title-bar-right">
-        <button className="linux-title-btn" onClick={() => appWindow.minimize()}>
+        <button className="linux-title-btn" onClick={() => invoke("window_minimize")}>
           <span className="codicon codicon-chrome-minimize" />
         </button>
-        <button className="linux-title-btn" onClick={() => appWindow.toggleMaximize()}>
+        <button className="linux-title-btn" onClick={() => invoke("window_maximize")}>
           <span className={`codicon codicon-chrome-${isMaximized ? "restore" : "maximize"}`} />
         </button>
-        <button className="linux-title-btn linux-close-btn" onClick={() => appWindow.close()}>
+        <button className="linux-title-btn linux-close-btn" onClick={() => invoke("window_close")}>
           <span className="codicon codicon-chrome-close" />
         </button>
       </div>

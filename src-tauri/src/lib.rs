@@ -107,6 +107,25 @@ fn quit_app(app: AppHandle) {
   app.exit(0);
 }
 
+#[tauri::command]
+fn window_minimize(window: tauri::WebviewWindow) -> Result<(), error::Error> {
+  window.minimize().map_err(|e| error::Error::Other(e.to_string()))
+}
+
+#[tauri::command]
+fn window_maximize(window: tauri::WebviewWindow) -> Result<(), error::Error> {
+  if window.is_maximized().unwrap_or(false) {
+    window.unmaximize().map_err(|e| error::Error::Other(e.to_string()))
+  } else {
+    window.maximize().map_err(|e| error::Error::Other(e.to_string()))
+  }
+}
+
+#[tauri::command]
+fn window_close(window: tauri::WebviewWindow) -> Result<(), error::Error> {
+  window.close().map_err(|e| error::Error::Other(e.to_string()))
+}
+
 #[cfg(target_os = "linux")]
 fn hide_gtk_menu_bar(window: &tauri::WebviewWindow) {
   use gtk::prelude::*;
@@ -521,6 +540,9 @@ pub fn run() {
       set_repo_menu_enabled,
       set_native_theme,
       quit_app,
+      window_minimize,
+      window_maximize,
+      window_close,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
