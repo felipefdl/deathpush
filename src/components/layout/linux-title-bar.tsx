@@ -44,7 +44,6 @@ const MENU_ITEMS: MenuItem[] = [
   { type: "item", label: "Toggle Terminal", shortcut: "Ctrl+J", event: "menu:toggle-terminal", needsRepo: true },
   { type: "separator" },
   { type: "item", label: "Settings...", shortcut: "Ctrl+,", event: "menu:preferences" },
-  { type: "item", label: "Install CLI Tool...", event: "menu:install-cli" },
   { type: "separator" },
   { type: "item", label: "Quit", action: () => invoke("quit_app") },
 ];
