@@ -343,7 +343,11 @@ fn setup_gtk_headerbar(window: &tauri::WebviewWindow) -> Option<Vec<gio::SimpleA
   let icon = gtk::Image::from_icon_name(Some("open-menu-symbolic"), gtk::IconSize::Button);
   menu_button.set_image(Some(&icon));
   menu_button.set_menu_model(Some(&menu_model));
-  menu_button.set_use_popover(false);
+
+  // Constrain popover to window bounds so it doesn't overflow off-screen
+  if let Some(popover) = menu_button.popover() {
+    popover.set_constrain_to(gtk::PopoverConstraint::Window);
+  }
 
   header_bar.pack_end(&menu_button);
   gtk_window.set_titlebar(Some(&header_bar));
