@@ -77,16 +77,36 @@ fn new_window(app: AppHandle) -> Result<(), error::Error> {
 #[tauri::command]
 fn set_repo_menu_enabled(app: AppHandle, window: tauri::WebviewWindow, enabled: bool) -> Result<(), error::Error> {
   let flags = app.state::<RepoWindowFlags>();
-  let any_enabled = {
+  {
     let mut map = flags.0.lock().map_err(|e| error::Error::Other(e.to_string()))?;
     map.insert(window.label().to_string(), enabled);
-    map.values().any(|&v| v)
-  };
-  let items = app.state::<RepoMenuItems>();
-  for item in &items.0 {
-    item.set_enabled(any_enabled).map_err(|e| error::Error::Other(e.to_string()))?;
+  }
+  // Only enable menu items if the focused window has a repo
+  if window.is_focused().unwrap_or(false) {
+    let items = app.state::<RepoMenuItems>();
+    for item in &items.0 {
+      item.set_enabled(enabled).map_err(|e| error::Error::Other(e.to_string()))?;
+    }
   }
   Ok(())
+}
+
+fn update_menu_for_focused_window(app_handle: &AppHandle) {
+  let Some(flags) = app_handle.try_state::<RepoWindowFlags>() else { return };
+  let Some(items) = app_handle.try_state::<RepoMenuItems>() else { return };
+  let Some(last) = app_handle.try_state::<LastFocusedWindow>() else { return };
+
+  let enabled = last.0.lock().ok()
+    .and_then(|guard| {
+      let label = guard.as_ref()?;
+      let map = flags.0.lock().ok()?;
+      Some(*map.get(label).unwrap_or(&false))
+    })
+    .unwrap_or(false);
+
+  for item in &items.0 {
+    let _ = item.set_enabled(enabled);
+  }
 }
 
 #[tauri::command]
@@ -461,7 +481,7 @@ pub fn run() {
             || id == git_undo_commit_item.id()
             || id == install_cli_item.id()
           {
-            let _ = window.emit(&format!("menu:{}", id.0), ());
+            let _ = window.emit_to(window.label(), &format!("menu:{}", id.0), ());
           }
         }
       });
@@ -470,11 +490,13 @@ pub fn run() {
     })
     .on_window_event(|window, event| {
       if let WindowEvent::Focused(true) = event {
-        if let Some(state) = window.app_handle().try_state::<LastFocusedWindow>() {
+        let app_handle = window.app_handle();
+        if let Some(state) = app_handle.try_state::<LastFocusedWindow>() {
           if let Ok(mut guard) = state.0.lock() {
             *guard = Some(window.label().to_string());
           }
         }
+        update_menu_for_focused_window(app_handle);
       }
       if let WindowEvent::Destroyed = event {
         let label = window.label().to_string();
@@ -494,16 +516,10 @@ pub fn run() {
           }
         }
 
-        // Clean up repo menu flags and re-evaluate enabled state
+        // Clean up repo menu flags
         if let Some(flags) = app_handle.try_state::<RepoWindowFlags>() {
           if let Ok(mut map) = flags.0.lock() {
             map.remove(&label);
-            let any_enabled = map.values().any(|&v| v);
-            if let Some(items) = app_handle.try_state::<RepoMenuItems>() {
-              for item in &items.0 {
-                let _ = item.set_enabled(any_enabled);
-              }
-            }
           }
         }
 

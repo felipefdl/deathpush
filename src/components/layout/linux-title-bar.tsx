@@ -99,7 +99,7 @@ export const LinuxTitleBar = () => {
     if (item.action) {
       item.action();
     } else if (item.event) {
-      appWindow.emit(item.event, null);
+      appWindow.emitTo(appWindow.label, item.event, null);
     }
   }, [appWindow]);
 
