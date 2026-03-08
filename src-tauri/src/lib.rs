@@ -67,7 +67,6 @@ fn create_window(app_handle: &AppHandle) -> Result<tauri::WebviewWindow, tauri::
 
   #[cfg(target_os = "linux")]
   {
-    let _ = window.hide_menu();
     if let Some(actions) = setup_gtk_headerbar(&window) {
       if let Some(state) = app_handle.try_state::<GtkRepoActions>() {
         if let Ok(mut guard) = state.0.lock() {
@@ -140,6 +139,17 @@ fn setup_gtk_headerbar(window: &tauri::WebviewWindow) -> Option<Vec<gio::SimpleA
 
   let gtk_window = window.gtk_window().ok()?;
   let app_handle = window.app_handle().clone();
+
+  // Hide the old Tauri GtkMenuBar (hide_menu() doesn't work reliably on Linux)
+  if let Ok(vbox) = window.default_vbox() {
+    for child in vbox.children() {
+      if child.is::<gtk::MenuBar>() {
+        child.hide();
+        child.set_no_show_all(true);
+        break;
+      }
+    }
+  }
 
   let header_bar = gtk::HeaderBar::new();
   header_bar.set_show_close_button(true);
@@ -333,6 +343,7 @@ fn setup_gtk_headerbar(window: &tauri::WebviewWindow) -> Option<Vec<gio::SimpleA
   let icon = gtk::Image::from_icon_name(Some("open-menu-symbolic"), gtk::IconSize::Button);
   menu_button.set_image(Some(&icon));
   menu_button.set_menu_model(Some(&menu_model));
+  menu_button.set_use_popover(false);
 
   header_bar.pack_end(&menu_button);
   gtk_window.set_titlebar(Some(&header_bar));
@@ -584,7 +595,6 @@ pub fn run() {
       {
         let mut all_gtk_repo_actions = Vec::new();
         for window in app.webview_windows().values() {
-          let _ = window.hide_menu();
           if let Some(actions) = setup_gtk_headerbar(window) {
             all_gtk_repo_actions.extend(actions);
           }
