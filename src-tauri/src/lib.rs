@@ -22,6 +22,13 @@ struct RepoMenuItems(Vec<MenuItem<tauri::Wry>>);
 #[cfg(target_os = "linux")]
 struct GtkRepoActions(Mutex<Vec<gio::SimpleAction>>);
 
+#[cfg(target_os = "linux")]
+// SAFETY: gio::SimpleAction uses GLib atomic refcounting and its set_enabled()
+// is internally synchronized. The Vec is protected by the Mutex.
+unsafe impl Send for GtkRepoActions {}
+#[cfg(target_os = "linux")]
+unsafe impl Sync for GtkRepoActions {}
+
 use tauri_plugin_deep_link::DeepLinkExt;
 
 static WINDOW_COUNTER: AtomicU64 = AtomicU64::new(1);
