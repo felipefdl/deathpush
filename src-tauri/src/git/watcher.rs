@@ -19,6 +19,25 @@ impl Drop for WatcherHandle {
   }
 }
 
+fn is_relevant_change(path: &str) -> bool {
+  // Allow all working tree changes
+  if !path.contains(".git/") && !path.contains(".git\\") {
+    return true;
+  }
+  // Inside .git/: allow status-relevant files (HEAD, index, refs, config, etc.)
+  // but exclude transient and bulk files that cause rapid-fire events.
+  if path.contains("index.lock")
+    || path.contains(".git/objects/")
+    || path.contains(".git\\objects\\")
+    || path.contains(".git/logs/")
+    || path.contains(".git\\logs\\")
+    || path.contains(".watchman-cookie-")
+  {
+    return false;
+  }
+  true
+}
+
 pub fn start_watcher(window: &WebviewWindow, repo_root: &Path, watcher_state: &WatcherState) -> notify::Result<()> {
   let (tx, rx) = mpsc::channel();
   let (stop_tx, stop_rx) = mpsc::channel();
@@ -39,10 +58,7 @@ pub fn start_watcher(window: &WebviewWindow, repo_root: &Path, watcher_state: &W
                 return false;
               }
               let path = e.path.to_string_lossy();
-              // Exclude all .git/ internal changes (cross-platform separators).
-              // Working tree changes from branch switches, staging, etc. are
-              // handled by Tauri commands calling setStatus directly.
-              !path.contains(".git/") && !path.contains(".git\\")
+              is_relevant_change(&path)
             });
             if has_relevant {
               let _ = window_clone.emit("repository-changed", ());

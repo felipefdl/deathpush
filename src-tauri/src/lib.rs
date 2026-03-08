@@ -512,6 +512,8 @@ pub fn run() {
           }
         }
         update_menu_for_focused_window(app_handle);
+        // Catch external changes missed by file watcher (network FS, etc.)
+        let _ = window.emit("repository-changed", ());
       }
       if let WindowEvent::Destroyed = event {
         let label = window.label().to_string();
