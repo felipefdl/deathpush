@@ -605,6 +605,88 @@
   padding: 0 12px;
 }
 
+/* Licenses modal */
+.licenses-modal {
+  width: 560px;
+  max-height: 70vh;
+  background: var(--vscode-sideBar-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  align-self: flex-start;
+}
+
+.licenses-list {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.licenses-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 8px 0 4px;
+  color: var(--vscode-editor-foreground);
+  opacity: 0.7;
+}
+
+.license-entry {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 4px;
+  font-size: 13px;
+  border-radius: var(--radius-lg);
+}
+
+.license-entry:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.license-entry-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.license-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.license-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-editor-foreground);
+  opacity: 0.5;
+  cursor: pointer;
+  border-radius: var(--radius-lg);
+  padding: 0;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+.license-link:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground);
+}
+
 /* Stash section */
 .stash-section {
   margin-top: 4px;

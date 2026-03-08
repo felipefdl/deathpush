@@ -263,6 +263,9 @@ pub fn run() {
       let icon_theme_item = MenuItemBuilder::with_id("icon-theme", "File Icon Theme...")
         .build(app)?;
 
+      let licenses_item = MenuItemBuilder::with_id("open-source-licenses", "Open Source Licenses")
+        .build(app)?;
+
       let new_terminal_item = MenuItemBuilder::with_id("new-terminal", "New Terminal")
         .accelerator("CmdOrCtrl+Shift+J")
         .build(app)?;
@@ -385,6 +388,7 @@ pub fn run() {
 
       // Help
       let help_submenu = SubmenuBuilder::new(app, "Help")
+        .item(&licenses_item)
         .build()?;
 
       let menu = MenuBuilder::new(app)
@@ -480,6 +484,7 @@ pub fn run() {
             || id == git_stash_pop_item.id()
             || id == git_undo_commit_item.id()
             || id == install_cli_item.id()
+            || id == licenses_item.id()
           {
             let _ = window.emit_to(window.label(), &format!("menu:{}", id.0), ());
           }

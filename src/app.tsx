@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { AppLayout } from "./components/layout/app-layout";
 import { CloneDialog } from "./components/layout/clone-dialog";
+import { LicensesModal } from "./components/layout/licenses-modal";
 import { StatusBar } from "./components/layout/status-bar";
 import { ScmView } from "./components/scm/scm-view";
 import { DiffViewer } from "./components/diff/diff-viewer";
@@ -40,6 +41,7 @@ export const App = () => {
   const [showCloneDialog, setShowCloneDialog] = useState(false);
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [showIconThemePicker, setShowIconThemePicker] = useState(false);
+  const [showLicensesModal, setShowLicensesModal] = useState(false);
   const [initializing, setInitializing] = useState(true);
 
   useKeyboardShortcuts();
@@ -203,6 +205,9 @@ export const App = () => {
           setError(String(err));
         }
       }),
+      appWindow.listen("menu:open-source-licenses", () => {
+        setShowLicensesModal(true);
+      }),
       appWindow.listen("menu:install-cli", async () => {
         try {
           const status = await commands.checkCliInstalled();
@@ -321,6 +326,7 @@ export const App = () => {
       {showCloneDialog && <CloneDialog onClose={() => setShowCloneDialog(false)} />}
       {showThemePicker && <ThemePicker onClose={() => setShowThemePicker(false)} />}
       {showIconThemePicker && <IconThemePicker onClose={() => setShowIconThemePicker(false)} />}
+      {showLicensesModal && <LicensesModal onClose={() => setShowLicensesModal(false)} />}
     </div>
   );
 };
