@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::mpsc;
 use std::sync::Mutex;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use notify_debouncer_mini::{DebouncedEventKind, new_debouncer};
@@ -19,11 +19,7 @@ impl Drop for WatcherHandle {
   }
 }
 
-pub fn start_watcher(
-  window: &WebviewWindow,
-  repo_root: &Path,
-  watcher_state: &WatcherState,
-) -> notify::Result<()> {
+pub fn start_watcher(window: &WebviewWindow, repo_root: &Path, watcher_state: &WatcherState) -> notify::Result<()> {
   let (tx, rx) = mpsc::channel();
   let (stop_tx, stop_rx) = mpsc::channel();
 
@@ -62,7 +58,9 @@ pub fn start_watcher(
     }
   });
 
-  let mut watchers = watcher_state.lock().map_err(|_| notify::Error::generic("lock poisoned"))?;
+  let mut watchers = watcher_state
+    .lock()
+    .map_err(|_| notify::Error::generic("lock poisoned"))?;
   watchers.insert(label, WatcherHandle { stop_tx });
 
   Ok(())

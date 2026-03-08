@@ -67,10 +67,7 @@ pub async fn terminal_kill(id: u64, state: State<'_, TerminalState>) -> Result<(
 }
 
 fn get_foreground_process_name(shell_pid: u32, shell_name: &str) -> String {
-  let Ok(output) = sync_command("pgrep")
-    .args(["-P", &shell_pid.to_string()])
-    .output()
-  else {
+  let Ok(output) = sync_command("pgrep").args(["-P", &shell_pid.to_string()]).output() else {
     return shell_name.to_string();
   };
 
@@ -83,10 +80,7 @@ fn get_foreground_process_name(shell_pid: u32, shell_name: &str) -> String {
     return shell_name.to_string();
   };
 
-  let Ok(name_output) = sync_command("ps")
-    .args(["-o", "comm=", "-p", last_pid.trim()])
-    .output()
-  else {
+  let Ok(name_output) = sync_command("ps").args(["-o", "comm=", "-p", last_pid.trim()]).output() else {
     return shell_name.to_string();
   };
 

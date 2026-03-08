@@ -4,10 +4,10 @@ use tauri::{State, WebviewWindow};
 
 use crate::commands::repository::AppRepoState;
 use crate::error::{Error, Result};
-use crate::util::async_command;
 use crate::git::repository::GitRepository;
 use crate::git::status::get_repository_status;
 use crate::types::RepositoryStatus;
+use crate::util::async_command;
 
 #[tauri::command]
 pub async fn write_file(
@@ -21,12 +21,18 @@ pub async fn write_file(
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
     win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
-  let canon_root = root.canonicalize().map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
+  let canon_root = root
+    .canonicalize()
+    .map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
   let target = root.join(&path);
   let parent = target.parent().ok_or_else(|| Error::Other("Invalid path".into()))?;
   std::fs::create_dir_all(parent)?;
-  let canon_parent = parent.canonicalize().map_err(|e| Error::Other(format!("Cannot resolve path: {}", e)))?;
-  let file_name = target.file_name().ok_or_else(|| Error::Other("Invalid file name".into()))?;
+  let canon_parent = parent
+    .canonicalize()
+    .map_err(|e| Error::Other(format!("Cannot resolve path: {}", e)))?;
+  let file_name = target
+    .file_name()
+    .ok_or_else(|| Error::Other("Invalid file name".into()))?;
   let full_path = canon_parent.join(file_name);
   if !canon_parent.starts_with(&canon_root) {
     return Err(Error::Other("Path traversal denied".into()));
@@ -36,11 +42,7 @@ pub async fn write_file(
 }
 
 #[tauri::command]
-pub async fn open_in_editor(
-  path: String,
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<()> {
+pub async fn open_in_editor(path: String, state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<()> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
@@ -50,17 +52,11 @@ pub async fn open_in_editor(
 
   #[cfg(target_os = "macos")]
   {
-    async_command("open")
-      .arg(&full_path)
-      .output()
-      .await?;
+    async_command("open").arg(&full_path).output().await?;
   }
   #[cfg(target_os = "linux")]
   {
-    async_command("xdg-open")
-      .arg(&full_path)
-      .output()
-      .await?;
+    async_command("xdg-open").arg(&full_path).output().await?;
   }
   #[cfg(target_os = "windows")]
   {
@@ -123,8 +119,13 @@ pub async fn delete_file(
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
   };
-  let canon_root = root.canonicalize().map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
-  let full_path = root.join(&path).canonicalize().map_err(|e| Error::Other(format!("Cannot resolve file path: {}", e)))?;
+  let canon_root = root
+    .canonicalize()
+    .map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
+  let full_path = root
+    .join(&path)
+    .canonicalize()
+    .map_err(|e| Error::Other(format!("Cannot resolve file path: {}", e)))?;
   if !full_path.starts_with(&canon_root) {
     return Err(Error::Other("Path traversal denied".into()));
   }

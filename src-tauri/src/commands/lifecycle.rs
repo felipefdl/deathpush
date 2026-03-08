@@ -49,10 +49,7 @@ pub async fn clone_repository(
 }
 
 #[tauri::command]
-pub async fn merge_continue(
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+pub async fn merge_continue(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
   let (label, root) = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let label = window.label().to_string();
@@ -66,10 +63,7 @@ pub async fn merge_continue(
 }
 
 #[tauri::command]
-pub async fn merge_abort(
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+pub async fn merge_abort(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
   let (label, root) = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let label = window.label().to_string();
@@ -83,10 +77,7 @@ pub async fn merge_abort(
 }
 
 #[tauri::command]
-pub async fn rebase_continue(
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+pub async fn rebase_continue(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
   let (label, root) = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let label = window.label().to_string();
@@ -100,10 +91,7 @@ pub async fn rebase_continue(
 }
 
 #[tauri::command]
-pub async fn rebase_abort(
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+pub async fn rebase_abort(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
   let (label, root) = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let label = window.label().to_string();
@@ -117,10 +105,7 @@ pub async fn rebase_abort(
 }
 
 #[tauri::command]
-pub async fn rebase_skip(
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+pub async fn rebase_skip(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
   let (label, root) = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let label = window.label().to_string();

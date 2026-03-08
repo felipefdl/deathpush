@@ -9,10 +9,7 @@ use crate::git::cli::GitCli;
 use crate::types::{RepositoryStatus, StashEntry};
 
 #[tauri::command]
-pub async fn get_last_commit_message(
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<String> {
+pub async fn get_last_commit_message(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<String> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;

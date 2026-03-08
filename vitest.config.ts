@@ -6,6 +6,7 @@ export default defineConfig({
     globals: true,
     include: ["src/**/*.test.{ts,tsx}"],
     exclude: [".temp-vscode/**", "node_modules/**"],
+    setupFiles: ["src/test-setup.ts"],
     env: {
       TZ: "UTC",
     },

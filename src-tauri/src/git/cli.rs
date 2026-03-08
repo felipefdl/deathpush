@@ -5,8 +5,8 @@ use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
 use crate::error::{Error, Result};
-use crate::util::async_command;
 use crate::types::StashEntry;
+use crate::util::async_command;
 
 fn map_git_not_found(err: std::io::Error) -> Error {
   if err.kind() == std::io::ErrorKind::NotFound {
@@ -244,7 +244,10 @@ impl GitCli {
       .output()
       .await
       .map_err(map_git_not_found)?;
-    emit_git_command(&format!("clone {url} {}", path.to_string_lossy()), start.elapsed().as_millis() as u64);
+    emit_git_command(
+      &format!("clone {url} {}", path.to_string_lossy()),
+      start.elapsed().as_millis() as u64,
+    );
     if !output.status.success() {
       let stderr = String::from_utf8_lossy(&output.stderr).to_string();
       return Err(Error::GitCli(stderr));

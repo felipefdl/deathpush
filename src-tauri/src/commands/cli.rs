@@ -17,8 +17,7 @@ pub struct CliInstallStatus {
 fn install_dir() -> PathBuf {
   if cfg!(target_os = "windows") {
     // %LOCALAPPDATA%\DeathPush\bin -- added to PATH by the installer
-    let local_app_data = std::env::var("LOCALAPPDATA")
-      .unwrap_or_else(|_| r"C:\Users\Public\AppData\Local".into());
+    let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| r"C:\Users\Public\AppData\Local".into());
     PathBuf::from(local_app_data).join("DeathPush").join("bin")
   } else {
     PathBuf::from("/usr/local/bin")
@@ -44,8 +43,16 @@ pub async fn check_cli_installed() -> Result<CliInstallStatus, Error> {
 
   Ok(CliInstallStatus {
     installed: dp_exists && deathpush_exists,
-    dp_path: if dp_exists { Some(dp.to_string_lossy().into()) } else { None },
-    deathpush_path: if deathpush_exists { Some(deathpush.to_string_lossy().into()) } else { None },
+    dp_path: if dp_exists {
+      Some(dp.to_string_lossy().into())
+    } else {
+      None
+    },
+    deathpush_path: if deathpush_exists {
+      Some(deathpush.to_string_lossy().into())
+    } else {
+      None
+    },
   })
 }
 
@@ -146,8 +153,7 @@ fn remove_symlinks(dir: &Path) -> Result<(), Error> {
   for name in SYMLINK_NAMES {
     let link = dir.join(name);
     if link.exists() || link.symlink_metadata().is_ok() {
-      std::fs::remove_file(&link)
-        .map_err(|e| Error::Other(format!("Failed to remove {}: {e}", link.display())))?;
+      std::fs::remove_file(&link).map_err(|e| Error::Other(format!("Failed to remove {}: {e}", link.display())))?;
     }
   }
   Ok(())
@@ -192,10 +198,7 @@ fn uninstall_with_elevated(dir: &Path) -> Result<(), Error> {
 #[cfg(unix)]
 fn run_osascript_sudo(shell_cmd: &str, description: &str) -> Result<(), Error> {
   let escaped = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
-  let script = format!(
-    "do shell script \"{}\" with administrator privileges",
-    escaped
-  );
+  let script = format!("do shell script \"{}\" with administrator privileges", escaped);
 
   let output = std::process::Command::new("osascript")
     .args(["-e", &script])
@@ -247,8 +250,7 @@ fn install_windows(resource_dir: &Path) -> Result<(), Error> {
   }
 
   let dir = install_dir();
-  std::fs::create_dir_all(&dir)
-    .map_err(|e| Error::Other(format!("Failed to create {}: {e}", dir.display())))?;
+  std::fs::create_dir_all(&dir).map_err(|e| Error::Other(format!("Failed to create {}: {e}", dir.display())))?;
 
   // Copy the .cmd script as dp.cmd and deathpush.cmd
   for name in SYMLINK_NAMES {
@@ -275,8 +277,7 @@ fn uninstall_windows() -> Result<(), Error> {
   for name in SYMLINK_NAMES {
     let path = dir.join(format!("{name}.cmd"));
     if path.exists() {
-      std::fs::remove_file(&path)
-        .map_err(|e| Error::Other(format!("Failed to remove {}: {e}", path.display())))?;
+      std::fs::remove_file(&path).map_err(|e| Error::Other(format!("Failed to remove {}: {e}", path.display())))?;
     }
   }
 
@@ -297,8 +298,8 @@ fn uninstall_windows() -> Result<(), Error> {
 
 #[cfg(target_os = "windows")]
 fn add_to_user_path(dir: &Path) -> Result<(), Error> {
-  use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
   use winreg::RegKey;
+  use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
 
   let hkcu = RegKey::predef(HKEY_CURRENT_USER);
   let env = hkcu
@@ -308,10 +309,7 @@ fn add_to_user_path(dir: &Path) -> Result<(), Error> {
   let current_path: String = env.get_value("Path").unwrap_or_default();
   let dir_str = dir.to_string_lossy();
 
-  if current_path
-    .split(';')
-    .any(|p| p.eq_ignore_ascii_case(&dir_str))
-  {
+  if current_path.split(';').any(|p| p.eq_ignore_ascii_case(&dir_str)) {
     return Ok(());
   }
 
@@ -333,8 +331,8 @@ fn add_to_user_path(dir: &Path) -> Result<(), Error> {
 
 #[cfg(target_os = "windows")]
 fn remove_from_user_path(dir: &Path) -> Result<(), Error> {
-  use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
   use winreg::RegKey;
+  use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
 
   let hkcu = RegKey::predef(HKEY_CURRENT_USER);
   let env = hkcu

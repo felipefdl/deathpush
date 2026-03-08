@@ -8,9 +8,7 @@ use crate::error::Result;
 use crate::git::repository::GitRepository;
 use crate::types::DiffContent;
 
-const IMAGE_EXTENSIONS: &[&str] = &[
-  "png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "avif", "tiff", "svg",
-];
+const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "avif", "tiff", "svg"];
 
 pub fn is_image_file(path: &str) -> bool {
   Path::new(path)

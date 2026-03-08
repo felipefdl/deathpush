@@ -6,14 +6,17 @@ mod types;
 mod util;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use commands::repository::{AppRepoState, CliPaths};
-use commands::{blame, branch, cli, commit, config, file_ops, lifecycle, log, remote, repository, staging, stash, status, tag, terminal};
+use commands::{
+  blame, branch, cli, commit, config, file_ops, lifecycle, log, remote, repository, staging, stash, status, tag,
+  terminal,
+};
 use git::watcher::WatcherState;
 use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder};
-use tauri::webview::{WebviewWindowBuilder};
+use tauri::webview::WebviewWindowBuilder;
 use tauri::window::Color;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WindowEvent};
 
@@ -36,12 +39,11 @@ fn extract_path_from_url(url: &url::Url) -> Option<String> {
 
 fn build_window(app_handle: &AppHandle, label: &str) -> Result<tauri::WebviewWindow, tauri::Error> {
   #[allow(unused_mut)]
-  let mut builder =
-    WebviewWindowBuilder::new(app_handle, label, WebviewUrl::App("index.html".into()))
-      .title("DeathPush")
-      .inner_size(1400.0, 900.0)
-      .min_inner_size(640.0, 480.0)
-      .background_color(Color(30, 30, 30, 255));
+  let mut builder = WebviewWindowBuilder::new(app_handle, label, WebviewUrl::App("index.html".into()))
+    .title("DeathPush")
+    .inner_size(1400.0, 900.0)
+    .min_inner_size(640.0, 480.0)
+    .background_color(Color(30, 30, 30, 255));
 
   #[cfg(target_os = "macos")]
   {
@@ -85,18 +87,29 @@ fn set_repo_menu_enabled(app: AppHandle, window: tauri::WebviewWindow, enabled: 
   if window.is_focused().unwrap_or(false) {
     let items = app.state::<RepoMenuItems>();
     for item in &items.0 {
-      item.set_enabled(enabled).map_err(|e| error::Error::Other(e.to_string()))?;
+      item
+        .set_enabled(enabled)
+        .map_err(|e| error::Error::Other(e.to_string()))?;
     }
   }
   Ok(())
 }
 
 fn update_menu_for_focused_window(app_handle: &AppHandle) {
-  let Some(flags) = app_handle.try_state::<RepoWindowFlags>() else { return };
-  let Some(items) = app_handle.try_state::<RepoMenuItems>() else { return };
-  let Some(last) = app_handle.try_state::<LastFocusedWindow>() else { return };
+  let Some(flags) = app_handle.try_state::<RepoWindowFlags>() else {
+    return;
+  };
+  let Some(items) = app_handle.try_state::<RepoMenuItems>() else {
+    return;
+  };
+  let Some(last) = app_handle.try_state::<LastFocusedWindow>() else {
+    return;
+  };
 
-  let enabled = last.0.lock().ok()
+  let enabled = last
+    .0
+    .lock()
+    .ok()
     .and_then(|guard| {
       let label = guard.as_ref()?;
       let map = flags.0.lock().ok()?;
@@ -122,9 +135,15 @@ fn set_native_theme(app: AppHandle, dark: bool) -> Result<(), error::Error> {
 
   #[cfg(not(target_os = "linux"))]
   {
-    let theme = if dark { Some(tauri::Theme::Dark) } else { Some(tauri::Theme::Light) };
+    let theme = if dark {
+      Some(tauri::Theme::Dark)
+    } else {
+      Some(tauri::Theme::Light)
+    };
     for window in app.webview_windows().values() {
-      window.set_theme(theme).map_err(|e| error::Error::Other(e.to_string()))?;
+      window
+        .set_theme(theme)
+        .map_err(|e| error::Error::Other(e.to_string()))?;
     }
     Ok(())
   }
@@ -194,7 +213,9 @@ pub fn run() {
         }
       }
 
-      app.manage(CliPaths { paths: Mutex::new(initial_paths) });
+      app.manage(CliPaths {
+        paths: Mutex::new(initial_paths),
+      });
 
       // Handle deep links while app is already running.
       // The callback runs on the main thread (macOS Apple Event handler), so we must
@@ -205,17 +226,15 @@ pub fn run() {
         if let Some(url) = urls.first() {
           if let Some(path) = extract_path_from_url(url) {
             let h = handle.clone();
-            std::thread::spawn(move || {
-              match create_window(&h) {
-                Ok(window) => {
-                  if let Some(state) = h.try_state::<CliPaths>() {
-                    if let Ok(mut map) = state.paths.lock() {
-                      map.insert(window.label().to_string(), path);
-                    }
+            std::thread::spawn(move || match create_window(&h) {
+              Ok(window) => {
+                if let Some(state) = h.try_state::<CliPaths>() {
+                  if let Ok(mut map) = state.paths.lock() {
+                    map.insert(window.label().to_string(), path);
                   }
                 }
-                Err(e) => tracing::error!("failed to create window for deep link: {:?}", e),
               }
+              Err(e) => tracing::error!("failed to create window for deep link: {:?}", e),
             });
           }
         }
@@ -226,14 +245,12 @@ pub fn run() {
       let settings_item = MenuItemBuilder::with_id("preferences", "Settings...")
         .accelerator("CmdOrCtrl+,")
         .build(app)?;
-      let install_cli_item = MenuItemBuilder::with_id("install-cli", "Install Command Line Tool...")
-        .build(app)?;
+      let install_cli_item = MenuItemBuilder::with_id("install-cli", "Install Command Line Tool...").build(app)?;
 
       let open_repo_item = MenuItemBuilder::with_id("open-repo", "Open Repository...")
         .accelerator("CmdOrCtrl+O")
         .build(app)?;
-      let clone_repo_item = MenuItemBuilder::with_id("clone-repo", "Clone Repository...")
-        .build(app)?;
+      let clone_repo_item = MenuItemBuilder::with_id("clone-repo", "Clone Repository...").build(app)?;
       let new_window_item = MenuItemBuilder::with_id("new-window", "New Window")
         .accelerator("CmdOrCtrl+N")
         .build(app)?;
@@ -258,19 +275,15 @@ pub fn run() {
         .accelerator("CmdOrCtrl+0")
         .build(app)?;
 
-      let color_theme_item = MenuItemBuilder::with_id("color-theme", "Color Theme...")
-        .build(app)?;
-      let icon_theme_item = MenuItemBuilder::with_id("icon-theme", "File Icon Theme...")
-        .build(app)?;
+      let color_theme_item = MenuItemBuilder::with_id("color-theme", "Color Theme...").build(app)?;
+      let icon_theme_item = MenuItemBuilder::with_id("icon-theme", "File Icon Theme...").build(app)?;
 
-      let licenses_item = MenuItemBuilder::with_id("open-source-licenses", "Open Source Licenses")
-        .build(app)?;
+      let licenses_item = MenuItemBuilder::with_id("open-source-licenses", "Open Source Licenses").build(app)?;
 
       let new_terminal_item = MenuItemBuilder::with_id("new-terminal", "New Terminal")
         .accelerator("CmdOrCtrl+Shift+J")
         .build(app)?;
-      let kill_terminal_item = MenuItemBuilder::with_id("kill-terminal", "Kill Terminal")
-        .build(app)?;
+      let kill_terminal_item = MenuItemBuilder::with_id("kill-terminal", "Kill Terminal").build(app)?;
       let toggle_terminal_item = MenuItemBuilder::with_id("toggle-terminal", "Toggle Terminal")
         .accelerator("CmdOrCtrl+J")
         .build(app)?;
@@ -353,8 +366,7 @@ pub fn run() {
       let git_unstage_all_item = MenuItemBuilder::with_id("git-unstage-all", "Unstage All").build(app)?;
       let git_stash_item = MenuItemBuilder::with_id("git-stash", "Stash...").build(app)?;
       let git_stash_pop_item = MenuItemBuilder::with_id("git-stash-pop", "Stash Pop").build(app)?;
-      let git_undo_commit_item =
-        MenuItemBuilder::with_id("git-undo-commit", "Undo Last Commit").build(app)?;
+      let git_undo_commit_item = MenuItemBuilder::with_id("git-undo-commit", "Undo Last Commit").build(app)?;
 
       let git_submenu = SubmenuBuilder::new(app, "Git")
         .item(&git_pull_item)
@@ -387,9 +399,7 @@ pub fn run() {
         .build()?;
 
       // Help
-      let help_submenu = SubmenuBuilder::new(app, "Help")
-        .item(&licenses_item)
-        .build()?;
+      let help_submenu = SubmenuBuilder::new(app, "Help").item(&licenses_item).build()?;
 
       let menu = MenuBuilder::new(app)
         .item(&app_submenu)
@@ -551,11 +561,12 @@ pub fn run() {
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_process::init());
 
-    if !cfg!(dev) {
-      builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
-    }
+  if !cfg!(dev) {
+    builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+  }
 
-    builder.invoke_handler(tauri::generate_handler![
+  builder
+    .invoke_handler(tauri::generate_handler![
       repository::open_repository,
       repository::get_initial_path,
       repository::scan_projects_directory,
@@ -634,7 +645,9 @@ pub fn run() {
           api.prevent_exit();
         }
         #[cfg(target_os = "macos")]
-        tauri::RunEvent::Reopen { has_visible_windows, .. } => {
+        tauri::RunEvent::Reopen {
+          has_visible_windows, ..
+        } => {
           if !has_visible_windows {
             let _ = build_window(_app_handle, "main");
           }

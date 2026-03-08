@@ -1,4 +1,4 @@
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -75,10 +75,7 @@ impl PtySession {
       .master
       .try_clone_reader()
       .map_err(|e| Error::Other(e.to_string()))?;
-    let writer = pair
-      .master
-      .take_writer()
-      .map_err(|e| Error::Other(e.to_string()))?;
+    let writer = pair.master.take_writer().map_err(|e| Error::Other(e.to_string()))?;
     let writer = Arc::new(Mutex::new(writer));
 
     let session_id = id;
@@ -141,7 +138,10 @@ impl PtySession {
       if let Some(w) = app_handle.get_webview_window(&label_for_thread) {
         let _ = w.emit(
           "terminal:data",
-          TerminalDataEvent { id: session_id, data: exit_msg },
+          TerminalDataEvent {
+            id: session_id,
+            data: exit_msg,
+          },
         );
         let _ = w.emit("terminal:exit", session_id);
       }
@@ -166,7 +166,8 @@ impl PtySession {
   }
 
   pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
-    self.master
+    self
+      .master
       .resize(PtySize {
         rows,
         cols,

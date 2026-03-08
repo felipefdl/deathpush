@@ -5,7 +5,7 @@ use tauri::{State, WebviewWindow};
 use crate::commands::repository::AppRepoState;
 use crate::error::{Error, Result};
 use crate::git::log;
-use crate::types::{CommitDiffContent, CommitDetail, CommitEntry};
+use crate::types::{CommitDetail, CommitDiffContent, CommitEntry};
 
 #[tauri::command]
 pub fn get_commit_log(

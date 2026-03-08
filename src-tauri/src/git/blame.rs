@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::error::{Error, Result};
-use crate::util::async_command;
 use crate::git::log::compute_avatar_url;
 use crate::types::{BlameLineGroup, CommitEntry, FileBlame, LastCommitInfo};
+use crate::util::async_command;
 
 pub async fn get_file_blame(repo_root: &Path, path: &str) -> Result<FileBlame> {
   let output = async_command("git")
@@ -68,9 +68,7 @@ fn parse_porcelain_blame(output: &str) -> Vec<BlameLineGroup> {
           author_email = val.trim_matches(|c| c == '<' || c == '>').to_string();
         } else if let Some(val) = header.strip_prefix("author-time ") {
           if let Ok(ts) = val.parse::<i64>() {
-            let dt = chrono::DateTime::from_timestamp(ts, 0)
-              .unwrap_or_default()
-              .to_rfc3339();
+            let dt = chrono::DateTime::from_timestamp(ts, 0).unwrap_or_default().to_rfc3339();
             author_date = dt;
           }
         } else if let Some(val) = header.strip_prefix("summary ") {
@@ -105,10 +103,7 @@ fn parse_porcelain_blame(output: &str) -> Vec<BlameLineGroup> {
       commit_id.clone()
     };
 
-    let (author_name, author_email, author_date, summary) = commits
-      .get(commit_id)
-      .cloned()
-      .unwrap_or_default();
+    let (author_name, author_email, author_date, summary) = commits.get(commit_id).cloned().unwrap_or_default();
 
     if let Some(last) = groups.last_mut() {
       if last.commit_id == *commit_id && last.end_line + 1 == *line_num {
@@ -132,12 +127,7 @@ fn parse_porcelain_blame(output: &str) -> Vec<BlameLineGroup> {
   groups
 }
 
-pub async fn get_file_log(
-  repo_root: &Path,
-  path: &str,
-  skip: usize,
-  limit: usize,
-) -> Result<Vec<CommitEntry>> {
+pub async fn get_file_log(repo_root: &Path, path: &str, skip: usize, limit: usize) -> Result<Vec<CommitEntry>> {
   let output = async_command("git")
     .args([
       "log",

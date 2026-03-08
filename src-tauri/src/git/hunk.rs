@@ -83,7 +83,9 @@ fn parse_hunk_header(line: &str) -> Option<DiffHunk> {
   let (new_start, new_lines) = parse_range(new_range)?;
 
   Some(DiffHunk {
-    header: format!("@@ -{} +{} @@ {}", old_range, new_range, header_text).trim_end().to_string(),
+    header: format!("@@ -{} +{} @@ {}", old_range, new_range, header_text)
+      .trim_end()
+      .to_string(),
     old_start,
     old_lines,
     new_start,
@@ -122,7 +124,9 @@ pub fn generate_hunk_patch(path: &str, diff_output: &str, hunk_index: usize) -> 
 
   // Find the target hunk
   let hunks = parse_unified_diff(diff_output);
-  let hunk = hunks.get(hunk_index).ok_or_else(|| Error::Other(format!("Hunk index {} out of range", hunk_index)))?;
+  let hunk = hunks
+    .get(hunk_index)
+    .ok_or_else(|| Error::Other(format!("Hunk index {} out of range", hunk_index)))?;
 
   // Build the patch
   let mut patch = String::new();
