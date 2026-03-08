@@ -122,6 +122,12 @@ export const App = () => {
       appWindow.listen("menu:zoom-in", () => useSettingsStore.getState().zoomIn()),
       appWindow.listen("menu:zoom-out", () => useSettingsStore.getState().zoomOut()),
       appWindow.listen("menu:zoom-reset", () => useSettingsStore.getState().resetZoom()),
+      appWindow.listen("menu:color-theme", () => {
+        window.dispatchEvent(new CustomEvent("deathpush:open-theme-picker"));
+      }),
+      appWindow.listen("menu:icon-theme", () => {
+        window.dispatchEvent(new CustomEvent("deathpush:open-icon-theme-picker"));
+      }),
       appWindow.listen("menu:git-pull", async () => {
         const branch = useRepositoryStore.getState().status?.headBranch;
         if (!branch) return;

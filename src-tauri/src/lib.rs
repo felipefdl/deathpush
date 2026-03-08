@@ -18,6 +18,7 @@ use tauri::window::Color;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WindowEvent};
 
 struct RepoMenuItems(Vec<MenuItem<tauri::Wry>>);
+struct RepoWindowFlags(Mutex<HashMap<String, bool>>);
 
 use tauri_plugin_deep_link::DeepLinkExt;
 
@@ -73,10 +74,16 @@ fn new_window(app: AppHandle) -> Result<(), error::Error> {
 }
 
 #[tauri::command]
-fn set_repo_menu_enabled(app: AppHandle, enabled: bool) -> Result<(), error::Error> {
+fn set_repo_menu_enabled(app: AppHandle, window: tauri::WebviewWindow, enabled: bool) -> Result<(), error::Error> {
+  let flags = app.state::<RepoWindowFlags>();
+  let any_enabled = {
+    let mut map = flags.0.lock().map_err(|e| error::Error::Other(e.to_string()))?;
+    map.insert(window.label().to_string(), enabled);
+    map.values().any(|&v| v)
+  };
   let items = app.state::<RepoMenuItems>();
   for item in &items.0 {
-    item.set_enabled(enabled).map_err(|e| error::Error::Other(e.to_string()))?;
+    item.set_enabled(any_enabled).map_err(|e| error::Error::Other(e.to_string()))?;
   }
   Ok(())
 }
@@ -230,6 +237,11 @@ pub fn run() {
         .accelerator("CmdOrCtrl+0")
         .build(app)?;
 
+      let color_theme_item = MenuItemBuilder::with_id("color-theme", "Color Theme...")
+        .build(app)?;
+      let icon_theme_item = MenuItemBuilder::with_id("icon-theme", "File Icon Theme...")
+        .build(app)?;
+
       let new_terminal_item = MenuItemBuilder::with_id("new-terminal", "New Terminal")
         .accelerator("CmdOrCtrl+Shift+J")
         .build(app)?;
@@ -240,20 +252,26 @@ pub fn run() {
         .build(app)?;
 
       // DeathPush
-      let app_submenu = SubmenuBuilder::new(app, "DeathPush")
+      #[allow(unused_mut)]
+      let mut app_builder = SubmenuBuilder::new(app, "DeathPush")
         .about(None)
         .separator()
         .item(&settings_item)
         .item(&install_cli_item)
-        .separator()
-        .services()
-        .separator()
-        .hide()
-        .hide_others()
-        .show_all()
-        .separator()
-        .quit()
-        .build()?;
+        .separator();
+
+      #[cfg(target_os = "macos")]
+      {
+        app_builder = app_builder
+          .services()
+          .separator()
+          .hide()
+          .hide_others()
+          .show_all()
+          .separator();
+      }
+
+      let app_submenu = app_builder.quit().build()?;
 
       // File
       let file_submenu = SubmenuBuilder::new(app, "File")
@@ -283,6 +301,9 @@ pub fn run() {
         .item(&history_item)
         .separator()
         .item(&toggle_diff_item)
+        .separator()
+        .item(&color_theme_item)
+        .item(&icon_theme_item)
         .separator()
         .item(&zoom_in_item)
         .item(&zoom_out_item)
@@ -359,6 +380,7 @@ pub fn run() {
       app.set_menu(menu)?;
 
       let repo_items: Vec<MenuItem<tauri::Wry>> = vec![
+        settings_item.clone(),
         changes_item.clone(),
         history_item.clone(),
         toggle_diff_item.clone(),
@@ -378,6 +400,7 @@ pub fn run() {
         let _ = item.set_enabled(false);
       }
       app.manage(RepoMenuItems(repo_items));
+      app.manage(RepoWindowFlags(Mutex::new(HashMap::new())));
 
       #[cfg(target_os = "linux")]
       for window in app.webview_windows().values() {
@@ -421,6 +444,8 @@ pub fn run() {
             || id == zoom_in_item.id()
             || id == zoom_out_item.id()
             || id == zoom_reset_item.id()
+            || id == color_theme_item.id()
+            || id == icon_theme_item.id()
             || id == git_pull_item.id()
             || id == git_push_item.id()
             || id == git_fetch_item.id()
@@ -454,6 +479,19 @@ pub fn run() {
         if let Some(state) = app_handle.try_state::<WatcherState>() {
           if let Ok(mut guard) = state.lock() {
             guard.remove(&label); // Drop sends stop signal
+          }
+        }
+
+        // Clean up repo menu flags and re-evaluate enabled state
+        if let Some(flags) = app_handle.try_state::<RepoWindowFlags>() {
+          if let Ok(mut map) = flags.0.lock() {
+            map.remove(&label);
+            let any_enabled = map.values().any(|&v| v);
+            if let Some(items) = app_handle.try_state::<RepoMenuItems>() {
+              for item in &items.0 {
+                let _ = item.set_enabled(any_enabled);
+              }
+            }
           }
         }
 
