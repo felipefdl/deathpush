@@ -1,6 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "DeathPush",
+  "mainBinaryName": "deathpush",
   "version": "0.1.0",
   "identifier": "com.felipefdl.deathpush",
   "build": {
@@ -44,6 +45,18 @@
     "createUpdaterArtifacts": true,
     "targets": "all",
     "resources": ["resources/bin/dp", "resources/bin/dp.cmd"],
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/bin/dp": "scripts/dp-linux"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/bin/dp": "scripts/dp-linux"
+        }
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -1,0 +1,17 @@
+#!/bin/bash
+# DeathPush CLI launcher (Linux .deb/.rpm)
+# Opens a repository in DeathPush, detaching from the terminal.
+
+set -euo pipefail
+
+TARGET="${1:-.}"
+
+if [[ "$TARGET" != /* ]]; then
+  TARGET="$(cd "$TARGET" 2>/dev/null && pwd)" || {
+    echo "Error: Directory '$1' does not exist" >&2
+    exit 1
+  }
+fi
+
+nohup deathpush "$TARGET" >/dev/null 2>&1 &
+disown

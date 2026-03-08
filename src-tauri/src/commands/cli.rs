@@ -4,6 +4,12 @@ use tauri::{AppHandle, Manager};
 
 use crate::error::Error;
 
+// On Linux the .deb/.rpm already installs /usr/bin/dp, so the CLI
+// install only needs to handle macOS and Windows. Skip "deathpush"
+// on Linux to avoid shadowing the binary at /usr/bin/deathpush.
+#[cfg(target_os = "linux")]
+const SYMLINK_NAMES: &[&str] = &["dp"];
+#[cfg(not(target_os = "linux"))]
 const SYMLINK_NAMES: &[&str] = &["dp", "deathpush"];
 
 #[derive(Serialize)]
@@ -36,23 +42,35 @@ fn find_cli_path(name: &str) -> PathBuf {
 #[tauri::command]
 pub async fn check_cli_installed() -> Result<CliInstallStatus, Error> {
   let dp = find_cli_path("dp");
-  let deathpush = find_cli_path("deathpush");
-
   let dp_exists = dp.exists();
-  let deathpush_exists = deathpush.exists();
+
+  // On Linux the .deb/.rpm installs /usr/bin/dp directly, so we only
+  // need to check for that. On other platforms both symlinks are required.
+  #[cfg(target_os = "linux")]
+  let (installed, deathpush_path) = (dp_exists, Some("/usr/bin/deathpush".to_string()));
+
+  #[cfg(not(target_os = "linux"))]
+  let (installed, deathpush_path) = {
+    let deathpush = find_cli_path("deathpush");
+    let deathpush_exists = deathpush.exists();
+    (
+      dp_exists && deathpush_exists,
+      if deathpush_exists {
+        Some(deathpush.to_string_lossy().into())
+      } else {
+        None
+      },
+    )
+  };
 
   Ok(CliInstallStatus {
-    installed: dp_exists && deathpush_exists,
+    installed,
     dp_path: if dp_exists {
       Some(dp.to_string_lossy().into())
     } else {
       None
     },
-    deathpush_path: if deathpush_exists {
-      Some(deathpush.to_string_lossy().into())
-    } else {
-      None
-    },
+    deathpush_path,
   })
 }
 

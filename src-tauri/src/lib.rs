@@ -245,6 +245,7 @@ pub fn run() {
       let settings_item = MenuItemBuilder::with_id("preferences", "Settings...")
         .accelerator("CmdOrCtrl+,")
         .build(app)?;
+      #[cfg(not(target_os = "linux"))]
       let install_cli_item = MenuItemBuilder::with_id("install-cli", "Install Command Line Tool...").build(app)?;
 
       let open_repo_item = MenuItemBuilder::with_id("open-repo", "Open Repository...")
@@ -293,9 +294,14 @@ pub fn run() {
       let mut app_builder = SubmenuBuilder::new(app, "DeathPush")
         .about(None)
         .separator()
-        .item(&settings_item)
-        .item(&install_cli_item)
-        .separator();
+        .item(&settings_item);
+
+      #[cfg(not(target_os = "linux"))]
+      {
+        app_builder = app_builder.item(&install_cli_item);
+      }
+
+      app_builder = app_builder.separator();
 
       #[cfg(target_os = "macos")]
       {
@@ -493,9 +499,13 @@ pub fn run() {
             || id == git_stash_item.id()
             || id == git_stash_pop_item.id()
             || id == git_undo_commit_item.id()
-            || id == install_cli_item.id()
             || id == licenses_item.id()
           {
+            let _ = window.emit_to(window.label(), &format!("menu:{}", id.0), ());
+          }
+
+          #[cfg(not(target_os = "linux"))]
+          if id == install_cli_item.id() {
             let _ = window.emit_to(window.label(), &format!("menu:{}", id.0), ());
           }
         }
