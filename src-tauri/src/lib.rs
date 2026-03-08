@@ -72,11 +72,23 @@ fn set_repo_menu_enabled(app: AppHandle, enabled: bool) -> Result<(), error::Err
 
 #[tauri::command]
 fn set_native_theme(app: AppHandle, dark: bool) -> Result<(), error::Error> {
-  let theme = if dark { Some(tauri::Theme::Dark) } else { Some(tauri::Theme::Light) };
-  for window in app.webview_windows().values() {
-    window.set_theme(theme).map_err(|e| error::Error::Other(e.to_string()))?;
+  // On Linux, skip set_theme() to avoid GTK menu bar contrast issues.
+  // set_theme(Dark) makes GTK render light text on menu items, but the system
+  // compositor still draws the menu bar background using the system's light theme.
+  #[cfg(target_os = "linux")]
+  {
+    let _ = (&app, dark);
+    return Ok(());
   }
-  Ok(())
+
+  #[cfg(not(target_os = "linux"))]
+  {
+    let theme = if dark { Some(tauri::Theme::Dark) } else { Some(tauri::Theme::Light) };
+    for window in app.webview_windows().values() {
+      window.set_theme(theme).map_err(|e| error::Error::Other(e.to_string()))?;
+    }
+    Ok(())
+  }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
