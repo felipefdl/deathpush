@@ -529,7 +529,9 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "gio",
  "git2",
+ "gtk",
  "md5",
  "notify",
  "notify-debouncer-mini",
