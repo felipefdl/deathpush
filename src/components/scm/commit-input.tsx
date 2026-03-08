@@ -107,14 +107,15 @@ export const CommitInput = () => {
     if (ok) {
       try {
         startOperation("push");
-        await commands.push();
+        const newStatus = await commands.push();
+        setStatus(newStatus);
       } catch (err) {
         setError(String(err));
       } finally {
         endOperation("push");
       }
     }
-  }, [doCommit, amendMode, startOperation, endOperation, setError]);
+  }, [doCommit, amendMode, setStatus, startOperation, endOperation, setError]);
 
   const handleCommitAndSync = useCallback(async () => {
     setShowDropdown(false);
@@ -123,14 +124,15 @@ export const CommitInput = () => {
       try {
         startOperation("sync");
         await commands.pull();
-        await commands.push();
+        const newStatus = await commands.push();
+        setStatus(newStatus);
       } catch (err) {
         setError(String(err));
       } finally {
         endOperation("sync");
       }
     }
-  }, [doCommit, amendMode, startOperation, endOperation, setError]);
+  }, [doCommit, amendMode, setStatus, startOperation, endOperation, setError]);
 
   if (!status) return null;
 

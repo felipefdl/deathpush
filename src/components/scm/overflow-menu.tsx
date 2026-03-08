@@ -54,7 +54,8 @@ export const OverflowMenu = ({ anchorRef, onClose, onOpenRepository, onCloneRepo
     if (!branch) return;
     startOperation("pull");
     try {
-      await commands.pull("origin", branch);
+      const newStatus = await commands.pull("origin", branch);
+      setStatus(newStatus);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -66,7 +67,8 @@ export const OverflowMenu = ({ anchorRef, onClose, onOpenRepository, onCloneRepo
     if (!branch) return;
     startOperation("push");
     try {
-      await commands.push("origin", branch);
+      const newStatus = await commands.push("origin", branch);
+      setStatus(newStatus);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -77,7 +79,8 @@ export const OverflowMenu = ({ anchorRef, onClose, onOpenRepository, onCloneRepo
   const handleFetch = async () => {
     startOperation("fetch");
     try {
-      await commands.fetchRemote("origin", true);
+      const newStatus = await commands.fetchRemote("origin", true);
+      setStatus(newStatus);
     } catch (err) {
       setError(String(err));
     } finally {

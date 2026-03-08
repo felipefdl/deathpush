@@ -52,13 +52,13 @@ export const createBranch = (name: string, from?: string): Promise<RepositorySta
 export const deleteBranch = (name: string, force: boolean = false): Promise<void> =>
   invoke("delete_branch", { name, force });
 
-export const push = (remote: string = "origin", branch: string = "", force: boolean = false): Promise<void> =>
+export const push = (remote: string = "origin", branch: string = "", force: boolean = false): Promise<RepositoryStatus> =>
   invoke("push", { remote, branch, force });
 
-export const pull = (remote: string = "origin", branch: string = "", rebase: boolean = false): Promise<void> =>
+export const pull = (remote: string = "origin", branch: string = "", rebase: boolean = false): Promise<RepositoryStatus> =>
   invoke("pull", { remote, branch, rebase });
 
-export const fetchRemote = (remote: string = "origin", prune: boolean = false): Promise<void> =>
+export const fetchRemote = (remote: string = "origin", prune: boolean = false): Promise<RepositoryStatus> =>
   invoke("fetch", { remote, prune });
 
 export const getLastCommitMessage = (): Promise<string> =>

@@ -4,7 +4,7 @@ import * as commands from "../../lib/tauri-commands";
 import { Spinner } from "../ui/spinner";
 
 export const ActionButton = () => {
-  const { status, setError, startOperation, endOperation, operations } = useRepositoryStore();
+  const { status, setStatus, setError, startOperation, endOperation, operations } = useRepositoryStore();
 
   const branch = status?.headBranch;
   const ahead = status?.ahead ?? 0;
@@ -16,34 +16,37 @@ export const ActionButton = () => {
 
   const handleSync = useCallback(async () => {
     if (!branch) return;
+    let newStatus;
     try {
       if (behind > 0) {
         startOperation("pull");
-        await commands.pull("origin", branch);
+        newStatus = await commands.pull("origin", branch);
         endOperation("pull");
       }
       if (ahead > 0) {
         startOperation("push");
-        await commands.push("origin", branch);
+        newStatus = await commands.push("origin", branch);
         endOperation("push");
       }
+      if (newStatus) setStatus(newStatus);
     } catch (err) {
       endOperation("pull");
       endOperation("push");
       setError(String(err));
     }
-  }, [branch, ahead, behind, setError, startOperation, endOperation]);
+  }, [branch, ahead, behind, setStatus, setError, startOperation, endOperation]);
 
   const handleFetch = useCallback(async () => {
     startOperation("fetch");
     try {
-      await commands.fetchRemote("origin", true);
+      const newStatus = await commands.fetchRemote("origin", true);
+      setStatus(newStatus);
     } catch (err) {
       setError(String(err));
     } finally {
       endOperation("fetch");
     }
-  }, [setError, startOperation, endOperation]);
+  }, [setStatus, setError, startOperation, endOperation]);
 
   if (!status || !branch) return null;
 

@@ -135,7 +135,8 @@ export const App = () => {
         if (!branch) return;
         startOperation("pull");
         try {
-          await commands.pull("origin", branch);
+          const newStatus = await commands.pull("origin", branch);
+          setStatus(newStatus);
         } catch (err) {
           setError(String(err));
         } finally {
@@ -147,7 +148,8 @@ export const App = () => {
         if (!branch) return;
         startOperation("push");
         try {
-          await commands.push("origin", branch);
+          const newStatus = await commands.push("origin", branch);
+          setStatus(newStatus);
         } catch (err) {
           setError(String(err));
         } finally {
@@ -157,7 +159,8 @@ export const App = () => {
       appWindow.listen("menu:git-fetch", async () => {
         startOperation("fetch");
         try {
-          await commands.fetchRemote("origin", true);
+          const newStatus = await commands.fetchRemote("origin", true);
+          setStatus(newStatus);
         } catch (err) {
           setError(String(err));
         } finally {
