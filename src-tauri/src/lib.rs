@@ -19,16 +19,6 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WindowEvent};
 
 struct RepoMenuItems(Vec<MenuItem<tauri::Wry>>);
 
-#[cfg(target_os = "linux")]
-struct GtkRepoActions(Mutex<Vec<gio::SimpleAction>>);
-
-#[cfg(target_os = "linux")]
-// SAFETY: gio::SimpleAction uses GLib atomic refcounting and its set_enabled()
-// is internally synchronized. The Vec is protected by the Mutex.
-unsafe impl Send for GtkRepoActions {}
-#[cfg(target_os = "linux")]
-unsafe impl Sync for GtkRepoActions {}
-
 use tauri_plugin_deep_link::DeepLinkExt;
 
 static WINDOW_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -58,6 +48,11 @@ fn build_window(app_handle: &AppHandle, label: &str) -> Result<tauri::WebviewWin
       .hidden_title(true);
   }
 
+  #[cfg(target_os = "linux")]
+  {
+    builder = builder.decorations(false);
+  }
+
   builder.build()
 }
 
@@ -66,15 +61,7 @@ fn create_window(app_handle: &AppHandle) -> Result<tauri::WebviewWindow, tauri::
   let window = build_window(app_handle, &format!("main-{}", id))?;
 
   #[cfg(target_os = "linux")]
-  {
-    if let Some(actions) = setup_gtk_headerbar(&window) {
-      if let Some(state) = app_handle.try_state::<GtkRepoActions>() {
-        if let Ok(mut guard) = state.0.lock() {
-          guard.extend(actions);
-        }
-      }
-    }
-  }
+  hide_gtk_menu_bar(&window);
 
   Ok(window)
 }
@@ -91,18 +78,6 @@ fn set_repo_menu_enabled(app: AppHandle, enabled: bool) -> Result<(), error::Err
   for item in &items.0 {
     item.set_enabled(enabled).map_err(|e| error::Error::Other(e.to_string()))?;
   }
-
-  #[cfg(target_os = "linux")]
-  {
-    if let Some(gtk_state) = app.try_state::<GtkRepoActions>() {
-      if let Ok(guard) = gtk_state.0.lock() {
-        for action in guard.iter() {
-          action.set_enabled(enabled);
-        }
-      }
-    }
-  }
-
   Ok(())
 }
 
@@ -133,14 +108,8 @@ fn quit_app(app: AppHandle) {
 }
 
 #[cfg(target_os = "linux")]
-fn setup_gtk_headerbar(window: &tauri::WebviewWindow) -> Option<Vec<gio::SimpleAction>> {
-  use gio::prelude::*;
+fn hide_gtk_menu_bar(window: &tauri::WebviewWindow) {
   use gtk::prelude::*;
-
-  let gtk_window = window.gtk_window().ok()?;
-  let app_handle = window.app_handle().clone();
-
-  // Hide the old Tauri GtkMenuBar (hide_menu() doesn't work reliably on Linux)
   if let Ok(vbox) = window.default_vbox() {
     for child in vbox.children() {
       if child.is::<gtk::MenuBar>() {
@@ -150,210 +119,6 @@ fn setup_gtk_headerbar(window: &tauri::WebviewWindow) -> Option<Vec<gio::SimpleA
       }
     }
   }
-
-  let header_bar = gtk::HeaderBar::new();
-  header_bar.set_show_close_button(true);
-  header_bar.set_title(Some("DeathPush"));
-
-  let action_group = gio::SimpleActionGroup::new();
-  let mut repo_actions: Vec<gio::SimpleAction> = Vec::new();
-
-  macro_rules! menu_action {
-    ($name:expr, repo) => {{
-      let action = gio::SimpleAction::new($name, None);
-      let w = window.clone();
-      action.connect_activate(move |_, _| {
-        let _ = w.emit(concat!("menu:", $name), ());
-      });
-      action.set_enabled(false);
-      repo_actions.push(action.clone());
-      action_group.add_action(&action);
-    }};
-    ($name:expr) => {{
-      let action = gio::SimpleAction::new($name, None);
-      let w = window.clone();
-      action.connect_activate(move |_, _| {
-        let _ = w.emit(concat!("menu:", $name), ());
-      });
-      action_group.add_action(&action);
-    }};
-  }
-
-  // New Window (creates a window directly, no event needed)
-  let new_window_action = gio::SimpleAction::new("new-window", None);
-  {
-    let h = app_handle.clone();
-    new_window_action.connect_activate(move |_, _| {
-      let _ = create_window(&h);
-    });
-  }
-  action_group.add_action(&new_window_action);
-
-  // Quit
-  let quit_action = gio::SimpleAction::new("quit", None);
-  {
-    let h = app_handle.clone();
-    quit_action.connect_activate(move |_, _| {
-      h.exit(0);
-    });
-  }
-  action_group.add_action(&quit_action);
-
-  // File
-  menu_action!("open-repo");
-  menu_action!("clone-repo");
-
-  // Edit (JS-based, forwarded to webview)
-  for (name, js) in [
-    ("edit-undo", "document.execCommand('undo')"),
-    ("edit-redo", "document.execCommand('redo')"),
-    ("edit-cut", "document.execCommand('cut')"),
-    ("edit-copy", "document.execCommand('copy')"),
-    ("edit-paste", "document.execCommand('paste')"),
-    ("edit-select-all", "document.execCommand('selectAll')"),
-  ] {
-    let action = gio::SimpleAction::new(name, None);
-    let w = window.clone();
-    let js = js.to_string();
-    action.connect_activate(move |_, _| {
-      let _ = w.eval(&js);
-    });
-    action_group.add_action(&action);
-  }
-
-  // View
-  menu_action!("view-changes", repo);
-  menu_action!("view-history", repo);
-  menu_action!("toggle-diff", repo);
-  menu_action!("zoom-in");
-  menu_action!("zoom-out");
-  menu_action!("zoom-reset");
-
-  // Git
-  menu_action!("git-pull", repo);
-  menu_action!("git-push", repo);
-  menu_action!("git-fetch", repo);
-  menu_action!("git-stage-all", repo);
-  menu_action!("git-unstage-all", repo);
-  menu_action!("git-stash", repo);
-  menu_action!("git-stash-pop", repo);
-  menu_action!("git-undo-commit", repo);
-
-  // Terminal
-  menu_action!("new-terminal", repo);
-  menu_action!("kill-terminal", repo);
-  menu_action!("toggle-terminal", repo);
-
-  // Settings
-  menu_action!("preferences");
-  menu_action!("install-cli");
-
-  gtk_window.insert_action_group("dp", Some(&action_group));
-
-  // -- Menu model --
-
-  // File section (top-level)
-  let file_section = gio::Menu::new();
-  file_section.append(Some("New Window"), Some("dp.new-window"));
-  file_section.append(Some("Open Repository..."), Some("dp.open-repo"));
-  file_section.append(Some("Clone Repository..."), Some("dp.clone-repo"));
-
-  // Edit submenu
-  let edit_undo = gio::Menu::new();
-  edit_undo.append(Some("Undo"), Some("dp.edit-undo"));
-  edit_undo.append(Some("Redo"), Some("dp.edit-redo"));
-
-  let edit_clipboard = gio::Menu::new();
-  edit_clipboard.append(Some("Cut"), Some("dp.edit-cut"));
-  edit_clipboard.append(Some("Copy"), Some("dp.edit-copy"));
-  edit_clipboard.append(Some("Paste"), Some("dp.edit-paste"));
-  edit_clipboard.append(Some("Select All"), Some("dp.edit-select-all"));
-
-  let edit_submenu = gio::Menu::new();
-  edit_submenu.append_section(None, &edit_undo);
-  edit_submenu.append_section(None, &edit_clipboard);
-
-  // View submenu
-  let view_nav = gio::Menu::new();
-  view_nav.append(Some("Changes"), Some("dp.view-changes"));
-  view_nav.append(Some("History"), Some("dp.view-history"));
-  view_nav.append(Some("Toggle Diff Mode"), Some("dp.toggle-diff"));
-
-  let view_zoom = gio::Menu::new();
-  view_zoom.append(Some("Zoom In"), Some("dp.zoom-in"));
-  view_zoom.append(Some("Zoom Out"), Some("dp.zoom-out"));
-  view_zoom.append(Some("Reset Zoom"), Some("dp.zoom-reset"));
-
-  let view_submenu = gio::Menu::new();
-  view_submenu.append_section(None, &view_nav);
-  view_submenu.append_section(None, &view_zoom);
-
-  // Git submenu
-  let git_remote = gio::Menu::new();
-  git_remote.append(Some("Pull"), Some("dp.git-pull"));
-  git_remote.append(Some("Push"), Some("dp.git-push"));
-  git_remote.append(Some("Fetch"), Some("dp.git-fetch"));
-
-  let git_staging = gio::Menu::new();
-  git_staging.append(Some("Stage All"), Some("dp.git-stage-all"));
-  git_staging.append(Some("Unstage All"), Some("dp.git-unstage-all"));
-
-  let git_stash = gio::Menu::new();
-  git_stash.append(Some("Stash..."), Some("dp.git-stash"));
-  git_stash.append(Some("Stash Pop"), Some("dp.git-stash-pop"));
-
-  let git_other = gio::Menu::new();
-  git_other.append(Some("Undo Last Commit"), Some("dp.git-undo-commit"));
-
-  let git_submenu = gio::Menu::new();
-  git_submenu.append_section(None, &git_remote);
-  git_submenu.append_section(None, &git_staging);
-  git_submenu.append_section(None, &git_stash);
-  git_submenu.append_section(None, &git_other);
-
-  // Terminal submenu
-  let terminal_main = gio::Menu::new();
-  terminal_main.append(Some("New Terminal"), Some("dp.new-terminal"));
-  terminal_main.append(Some("Kill Terminal"), Some("dp.kill-terminal"));
-
-  let terminal_toggle = gio::Menu::new();
-  terminal_toggle.append(Some("Toggle Terminal"), Some("dp.toggle-terminal"));
-
-  let terminal_submenu = gio::Menu::new();
-  terminal_submenu.append_section(None, &terminal_main);
-  terminal_submenu.append_section(None, &terminal_toggle);
-
-  // Bottom section
-  let bottom_section = gio::Menu::new();
-  bottom_section.append(Some("Settings..."), Some("dp.preferences"));
-  bottom_section.append(Some("Install CLI Tool..."), Some("dp.install-cli"));
-  bottom_section.append(Some("Quit"), Some("dp.quit"));
-
-  // Assemble top-level menu
-  let menu_model = gio::Menu::new();
-  menu_model.append_section(None, &file_section);
-  menu_model.append_submenu(Some("Edit"), &edit_submenu);
-  menu_model.append_submenu(Some("View"), &view_submenu);
-  menu_model.append_submenu(Some("Git"), &git_submenu);
-  menu_model.append_submenu(Some("Terminal"), &terminal_submenu);
-  menu_model.append_section(None, &bottom_section);
-
-  // Hamburger menu button
-  let menu_button = gtk::MenuButton::new();
-  let icon = gtk::Image::from_icon_name(Some("open-menu-symbolic"), gtk::IconSize::Button);
-  menu_button.set_image(Some(&icon));
-  menu_button.set_menu_model(Some(&menu_model));
-
-  // Constrain popover to window bounds so it doesn't overflow off-screen
-  if let Some(popover) = menu_button.popover() {
-    popover.set_constrain_to(gtk::PopoverConstraint::Window);
-  }
-
-  header_bar.pack_end(&menu_button);
-  gtk_window.set_titlebar(Some(&header_bar));
-  header_bar.show_all();
-
-  Some(repo_actions)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -596,14 +361,9 @@ pub fn run() {
       app.manage(RepoMenuItems(repo_items));
 
       #[cfg(target_os = "linux")]
-      {
-        let mut all_gtk_repo_actions = Vec::new();
-        for window in app.webview_windows().values() {
-          if let Some(actions) = setup_gtk_headerbar(window) {
-            all_gtk_repo_actions.extend(actions);
-          }
-        }
-        app.manage(GtkRepoActions(Mutex::new(all_gtk_repo_actions)));
+      for window in app.webview_windows().values() {
+        let _ = window.set_decorations(false);
+        hide_gtk_menu_bar(window);
       }
 
       app.on_menu_event(move |app_handle, event| {

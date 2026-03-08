@@ -13,6 +13,7 @@ import { TerminalPanel } from "./components/terminal/terminal-panel";
 import { ThemePicker } from "./components/theme/theme-picker";
 import { IconThemePicker } from "./components/theme/icon-theme-picker";
 import { WelcomeScreen } from "./components/welcome/welcome-screen";
+import { LinuxTitleBar } from "./components/layout/linux-title-bar";
 import { confirm, message } from "@tauri-apps/plugin-dialog";
 import { useRepository } from "./hooks/use-repository";
 import { useStash } from "./hooks/use-stash";
@@ -285,6 +286,7 @@ export const App = () => {
 
   return (
     <div className="app">
+      <LinuxTitleBar />
       {error && (
         <div className="error-toast" onClick={handleDismissError}>
           <span className="codicon codicon-error" style={{ marginRight: 6 }} />

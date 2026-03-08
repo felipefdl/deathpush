@@ -114,6 +114,7 @@ interface WelcomeScreenProps {
 }
 
 const IS_MAC = navigator.platform.toUpperCase().includes("MAC");
+const IS_LINUX = !IS_MAC && !navigator.platform.toUpperCase().includes("WIN");
 const MOD_KEY = IS_MAC ? "\u2318" : "Ctrl+";
 
 export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectProject }: WelcomeScreenProps) => {
@@ -296,7 +297,7 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
 
   return (
     <div className="welcome-screen">
-      <div className="welcome-drag-region" data-tauri-drag-region />
+      {!IS_LINUX && <div className="welcome-drag-region" data-tauri-drag-region />}
       <div className="welcome-body">
         <div className={`welcome-logo-wrapper${availableUpdate ? " has-update" : ""}`}>
           <img

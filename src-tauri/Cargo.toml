@@ -50,4 +50,3 @@ windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
-gio = "0.18"
