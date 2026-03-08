@@ -1,3 +1,4 @@
+import { useLayoutStore } from "../../stores/layout-store";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { useSettingsStore } from "../../stores/settings-store";
 import { useEffect, useMemo, useState } from "react";
@@ -65,13 +66,17 @@ export const StatusBar = () => {
           </button>
         )}
         {lastCommit && (
-          <span className="status-bar-item" title={`${lastCommit.shortId}: ${lastCommit.message}`}>
+          <button
+            className="status-bar-item"
+            title="View history"
+            onClick={() => useLayoutStore.getState().setMainView("history")}
+          >
             <span className="codicon codicon-git-commit" />
             <span className="status-bar-text status-bar-last-commit">{lastCommit.message}</span>
             <span className="status-bar-text" style={{ opacity: 0.7 }}>
               {formatRelativeDate(lastCommit.authorDate)}
             </span>
-          </span>
+          </button>
         )}
       </div>
       {showBranchPicker && (
