@@ -19,6 +19,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WindowEvent};
 
 struct RepoMenuItems(Vec<MenuItem<tauri::Wry>>);
 struct RepoWindowFlags(Mutex<HashMap<String, bool>>);
+struct LastFocusedWindow(Mutex<Option<String>>);
 
 use tauri_plugin_deep_link::DeepLinkExt;
 
@@ -401,6 +402,7 @@ pub fn run() {
       }
       app.manage(RepoMenuItems(repo_items));
       app.manage(RepoWindowFlags(Mutex::new(HashMap::new())));
+      app.manage(LastFocusedWindow(Mutex::new(None)));
 
       #[cfg(target_os = "linux")]
       for window in app.webview_windows().values() {
@@ -417,13 +419,16 @@ pub fn run() {
           return;
         }
 
-        // Find focused window, or fall back to any window
+        // Use last focused window, then try currently focused, then fall back to any window
+        let windows = app_handle.webview_windows();
         let window = app_handle
-          .webview_windows()
-          .values()
-          .find(|w| w.is_focused().unwrap_or(false))
-          .cloned()
-          .or_else(|| app_handle.webview_windows().values().next().cloned());
+          .try_state::<LastFocusedWindow>()
+          .and_then(|state| {
+            let label = state.0.lock().ok()?.clone()?;
+            windows.get(&label).cloned()
+          })
+          .or_else(|| windows.values().find(|w| w.is_focused().unwrap_or(false)).cloned())
+          .or_else(|| windows.values().next().cloned());
 
         if let Some(window) = window {
           #[cfg(debug_assertions)]
@@ -464,6 +469,13 @@ pub fn run() {
       Ok(())
     })
     .on_window_event(|window, event| {
+      if let WindowEvent::Focused(true) = event {
+        if let Some(state) = window.app_handle().try_state::<LastFocusedWindow>() {
+          if let Ok(mut guard) = state.0.lock() {
+            *guard = Some(window.label().to_string());
+          }
+        }
+      }
       if let WindowEvent::Destroyed = event {
         let label = window.label().to_string();
         let app_handle = window.app_handle();
@@ -499,6 +511,15 @@ pub fn run() {
         if let Some(state) = app_handle.try_state::<pty::TerminalState>() {
           if let Ok(mut guard) = state.lock() {
             guard.retain(|_, session| session.window_label != label);
+          }
+        }
+
+        // Clear last focused window if it was this one
+        if let Some(state) = app_handle.try_state::<LastFocusedWindow>() {
+          if let Ok(mut guard) = state.0.lock() {
+            if guard.as_deref() == Some(&label) {
+              *guard = None;
+            }
           }
         }
       }
