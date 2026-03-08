@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1200, height=675">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0a;
+    --surface: #111111;
+    --border: #1e1e1e;
+    --border-hover: #2a2a2a;
+    --text: #e0e0e0;
+    --text-muted: #666;
+    --text-dim: #444;
+    --accent: #dc2626;
+    --green: #22c55e;
+    --yellow: #f59e0b;
+    --blue: #3b82f6;
+    --cyan: #06b6d4;
+    --purple: #a855f7;
+    --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .scene {
+    width: 1200px;
+    height: 675px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .window {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    right: 24px;
+    bottom: 24px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface);
+    box-shadow: 0 0 80px rgba(220, 38, 38, 0.06), 0 25px 80px rgba(0, 0, 0, 0.6);
+  }
+
+  .titlebar {
+    display: flex;
+    align-items: center;
+    height: 38px;
+    padding: 0 14px;
+    background: #0d0d0d;
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+  }
+
+  .titlebar-text {
+    flex: 1;
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* GNOME-style window buttons (right side) */
+  .wm-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .wm-btn {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #222;
+    border: 1px solid #333;
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .wm-min::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 1.5px;
+    background: #888;
+    border-radius: 1px;
+    transform: translate(-50%, -50%);
+  }
+
+  .wm-max::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    border: 1.5px solid #888;
+    border-radius: 2px;
+    transform: translate(-50%, -50%);
+  }
+
+  .wm-close::before,
+  .wm-close::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 1.5px;
+    background: #888;
+    border-radius: 1px;
+  }
+
+  .wm-close::before { transform: translate(-50%, -50%) rotate(45deg); }
+  .wm-close::after { transform: translate(-50%, -50%) rotate(-45deg); }
+
+  .body {
+    display: flex;
+    height: calc(100% - 38px);
+    background: var(--bg);
+  }
+
+  /* --- Scene 1: Main View --- */
+
+  .sidebar {
+    width: 260px;
+    border-right: 1px solid var(--border);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex-shrink: 0;
+    background: #0d0d0d;
+  }
+
+  .commit-input {
+    height: 30px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: #141414;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .commit-btn {
+    height: 30px;
+    border-radius: 5px;
+    background: var(--accent);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    letter-spacing: 0.02em;
+  }
+
+  .section-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    padding: 6px 0 3px;
+    text-transform: uppercase;
+  }
+
+  .file-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--text);
+  }
+
+  .file-row:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .file-row.active {
+    background: rgba(220, 38, 38, 0.08);
+  }
+
+  .file-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .file-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file-path {
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-left: 4px;
+  }
+
+  .file-badge {
+    font-size: 9px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .badge-m { color: var(--yellow); }
+  .badge-a { color: var(--green); }
+  .badge-d { color: var(--accent); }
+
+  /* Diff area */
+  .diff-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .diff-toolbar {
+    display: flex;
+    align-items: center;
+    height: 32px;
+    padding: 0 12px;
+    background: #0f0f0f;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-muted);
+    gap: 12px;
+  }
+
+  .diff-toolbar .filename {
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .diff-toolbar .arrow {
+    color: var(--text-dim);
+  }
+
+  .diff-cols {
+    display: flex;
+    flex: 1;
+  }
+
+  .diff-col {
+    flex: 1;
+    padding: 6px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    overflow: hidden;
+  }
+
+  .diff-col + .diff-col {
+    border-left: 1px solid var(--border);
+  }
+
+  .diff-line {
+    display: flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 12px;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  .diff-line.added {
+    background: rgba(34, 197, 94, 0.07);
+  }
+
+  .diff-line.removed {
+    background: rgba(220, 38, 38, 0.07);
+  }
+
+  .ln {
+    width: 28px;
+    text-align: right;
+    color: var(--text-dim);
+    font-size: 10px;
+    flex-shrink: 0;
+    user-select: none;
+  }
+
+  .code-bar {
+    height: 5px;
+    border-radius: 3px;
+    background: #1a1a1a;
+  }
+
+  .added .code-bar { background: rgba(34, 197, 94, 0.2); }
+  .removed .code-bar { background: rgba(220, 38, 38, 0.2); }
+
+  .code-text {
+    font-size: 11px;
+    white-space: pre;
+  }
+
+  .code-text .kw { color: var(--purple); }
+  .code-text .fn { color: var(--blue); }
+  .code-text .str { color: #e9967a; }
+  .code-text .cm { color: var(--text-dim); }
+  .code-text .num { color: var(--cyan); }
+  .code-text .op { color: var(--text-muted); }
+  .code-text .ty { color: var(--green); }
+  .code-text .var { color: var(--text); }
+
+  /* --- Scene 2: Branch Management --- */
+
+  .branch-panel {
+    width: 320px;
+    border-right: 1px solid var(--border);
+    background: #0d0d0d;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .panel-search {
+    margin: 10px 12px;
+    height: 28px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: #141414;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .branch-group-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    padding: 8px 14px 4px;
+    text-transform: uppercase;
+  }
+
+  .branch-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    font-size: 12px;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .branch-item.current {
+    background: rgba(220, 38, 38, 0.08);
+    color: #fff;
+  }
+
+  .branch-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+
+  .branch-name {
+    flex: 1;
+  }
+
+  .branch-tag {
+    font-size: 9px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(220, 38, 38, 0.15);
+    color: var(--accent);
+  }
+
+  .branch-ahead-behind {
+    font-size: 9px;
+    color: var(--text-dim);
+  }
+
+  /* Merge panel */
+  .merge-panel {
+    flex: 1;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .merge-title {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .merge-visual {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    background: #0d0d0d;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .merge-branch-box {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    background: #141414;
+  }
+
+  .merge-branch-box.source {
+    border-color: var(--blue);
+    color: var(--blue);
+  }
+
+  .merge-branch-box.target {
+    border-color: var(--green);
+    color: var(--green);
+  }
+
+  .merge-arrow {
+    color: var(--text-dim);
+    font-size: 18px;
+  }
+
+  .merge-actions {
+    display: flex;
+    gap: 10px;
+  }
+
+  .merge-btn {
+    padding: 8px 20px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    background: #141414;
+    color: var(--text);
+  }
+
+  .merge-btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .merge-btn.secondary {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text-muted);
+  }
+
+  .commit-graph {
+    flex: 1;
+    padding: 16px;
+    background: #0d0d0d;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .graph-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 26px;
+    font-size: 11px;
+    font-family: var(--mono);
+  }
+
+  .graph-line {
+    width: 60px;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-shrink: 0;
+  }
+
+  .graph-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .graph-bar {
+    height: 2px;
+    flex: 1;
+  }
+
+  .graph-hash {
+    width: 60px;
+    color: var(--yellow);
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+
+  .graph-msg {
+    flex: 1;
+    color: var(--text);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .graph-date {
+    color: var(--text-dim);
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+
+  /* --- Scene 3: Terminal --- */
+
+  .terminal-body {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--bg);
+  }
+
+  .terminal-tabs {
+    display: flex;
+    align-items: center;
+    height: 34px;
+    background: #0d0d0d;
+    border-bottom: 1px solid var(--border);
+    padding: 0 12px;
+    gap: 2px;
+  }
+
+  .terminal-tab {
+    padding: 6px 14px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border-radius: 4px 4px 0 0;
+    cursor: pointer;
+  }
+
+  .terminal-tab.active {
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-bottom: 1px solid var(--bg);
+  }
+
+  .terminal-content {
+    flex: 1;
+    padding: 16px 20px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.7;
+    overflow: hidden;
+  }
+
+  .term-prompt {
+    color: var(--green);
+  }
+
+  .term-path {
+    color: var(--blue);
+  }
+
+  .term-cmd {
+    color: var(--text);
+  }
+
+  .term-output {
+    color: var(--text-muted);
+  }
+
+  .term-hash {
+    color: var(--yellow);
+  }
+
+  .term-branch {
+    color: var(--cyan);
+  }
+
+  .term-added {
+    color: var(--green);
+  }
+
+  .term-removed {
+    color: var(--accent);
+  }
+
+  .term-stat {
+    color: var(--text);
+  }
+
+  .status-bar {
+    display: flex;
+    align-items: center;
+    height: 24px;
+    background: #0d0d0d;
+    border-top: 1px solid var(--border);
+    padding: 0 12px;
+    font-size: 10px;
+    color: var(--text-dim);
+    gap: 16px;
+  }
+
+  .status-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+
+  /* Glow effects */
+  .scene::before {
+    content: "";
+    position: absolute;
+    top: -100px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 300px;
+    background: radial-gradient(ellipse, rgba(220, 38, 38, 0.04) 0%, transparent 70%);
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- Scene 1: Main View -->
+<div class="scene" id="scene-main">
+  <div class="window">
+    <div class="titlebar">
+      <div class="titlebar-text">DeathPush - main</div>
+      <div class="wm-buttons">
+        <span class="wm-btn wm-min"></span>
+        <span class="wm-btn wm-max"></span>
+        <span class="wm-btn wm-close"></span>
+      </div>
+    </div>
+    <div class="body">
+      <div class="sidebar">
+        <div class="commit-input">feat: add image diff support</div>
+        <div class="commit-btn">Commit</div>
+        <div class="section-label">Staged Changes <span style="color:#555; font-weight:400">(4)</span></div>
+        <div class="file-row">
+          <span class="file-dot" style="background: var(--green)"></span>
+          <span class="file-name">diff-viewer.tsx<span class="file-path">src/components</span></span>
+          <span class="file-badge badge-m">M</span>
+        </div>
+        <div class="file-row active">
+          <span class="file-dot" style="background: var(--green)"></span>
+          <span class="file-name">image-diff.tsx<span class="file-path">src/components</span></span>
+          <span class="file-badge badge-a">A</span>
+        </div>
+        <div class="file-row">
+          <span class="file-dot" style="background: var(--green)"></span>
+          <span class="file-name">file-list.tsx<span class="file-path">src/components</span></span>
+          <span class="file-badge badge-m">M</span>
+        </div>
+        <div class="file-row">
+          <span class="file-dot" style="background: var(--green)"></span>
+          <span class="file-name">main.rs<span class="file-path">src-tauri/src</span></span>
+          <span class="file-badge badge-m">M</span>
+        </div>
+        <div class="section-label">Changes <span style="color:#555; font-weight:400">(3)</span></div>
+        <div class="file-row">
+          <span class="file-dot" style="background: var(--accent)"></span>
+          <span class="file-name">app.tsx<span class="file-path">src</span></span>
+          <span class="file-badge badge-m">M</span>
+        </div>
+        <div class="file-row">
+          <span class="file-dot" style="background: var(--accent)"></span>
+          <span class="file-name">styles.css<span class="file-path">src</span></span>
+          <span class="file-badge badge-m">M</span>
+        </div>
+        <div class="file-row">
+          <span class="file-dot" style="background: var(--accent)"></span>
+          <span class="file-name">README.md<span class="file-path"></span></span>
+          <span class="file-badge badge-m">M</span>
+        </div>
+      </div>
+      <div class="diff-area">
+        <div class="diff-toolbar">
+          <span class="filename">image-diff.tsx</span>
+          <span class="arrow">&mdash;</span>
+          <span>src/components/image-diff.tsx</span>
+        </div>
+        <div class="diff-cols">
+          <div class="diff-col">
+            <div class="diff-line"><span class="ln">1</span><span class="code-text"><span class="kw">import</span> <span class="op">{</span> <span class="var">useState</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">"react"</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">2</span><span class="code-text"><span class="kw">import</span> <span class="op">{</span> <span class="var">invoke</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">"@tauri-apps/api"</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">3</span><span class="code-text"></span></div>
+            <div class="diff-line"><span class="ln">4</span><span class="code-text"><span class="kw">interface</span> <span class="ty">ImageDiffProps</span> <span class="op">{</span></span></div>
+            <div class="diff-line"><span class="ln">5</span><span class="code-text">  <span class="var">oldSrc</span><span class="op">:</span> <span class="ty">string</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">6</span><span class="code-text">  <span class="var">newSrc</span><span class="op">:</span> <span class="ty">string</span><span class="op">;</span></span></div>
+            <div class="diff-line removed"><span class="ln">7</span><span class="code-text">  <span class="var">mode</span><span class="op">:</span> <span class="str">"side-by-side"</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">8</span><span class="code-text"><span class="op">}</span></span></div>
+            <div class="diff-line"><span class="ln">9</span><span class="code-text"></span></div>
+            <div class="diff-line"><span class="ln">10</span><span class="code-text"><span class="kw">export</span> <span class="kw">const</span> <span class="fn">ImageDiff</span> <span class="op">=</span> <span class="op">(</span><span class="var">props</span><span class="op">:</span> <span class="ty">ImageDiffProps</span><span class="op">)</span> <span class="op">=></span> <span class="op">{</span></span></div>
+            <div class="diff-line removed"><span class="ln">11</span><span class="code-text">  <span class="kw">const</span> <span class="op">[</span><span class="var">zoom</span><span class="op">,</span> <span class="var">setZoom</span><span class="op">]</span> <span class="op">=</span> <span class="fn">useState</span><span class="op">(</span><span class="num">1</span><span class="op">);</span></span></div>
+            <div class="diff-line"><span class="ln">12</span><span class="code-text"></span></div>
+            <div class="diff-line"><span class="ln">13</span><span class="code-text">  <span class="kw">return</span> <span class="op">(</span></span></div>
+            <div class="diff-line"><span class="ln">14</span><span class="code-text">    <span class="op">&lt;</span><span class="ty">div</span> <span class="var">className</span><span class="op">=</span><span class="str">"image-diff"</span><span class="op">></span></span></div>
+            <div class="diff-line removed"><span class="ln">15</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">img</span> <span class="var">src</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">oldSrc</span><span class="op">}</span> <span class="op">/></span></span></div>
+            <div class="diff-line removed"><span class="ln">16</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">img</span> <span class="var">src</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">newSrc</span><span class="op">}</span> <span class="op">/></span></span></div>
+            <div class="diff-line"><span class="ln">17</span><span class="code-text">    <span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
+            <div class="diff-line"><span class="ln">18</span><span class="code-text">  <span class="op">);</span></span></div>
+            <div class="diff-line"><span class="ln">19</span><span class="code-text"><span class="op">};</span></span></div>
+          </div>
+          <div class="diff-col">
+            <div class="diff-line"><span class="ln">1</span><span class="code-text"><span class="kw">import</span> <span class="op">{</span> <span class="var">useState</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">"react"</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">2</span><span class="code-text"><span class="kw">import</span> <span class="op">{</span> <span class="var">invoke</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">"@tauri-apps/api"</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">3</span><span class="code-text"></span></div>
+            <div class="diff-line"><span class="ln">4</span><span class="code-text"><span class="kw">interface</span> <span class="ty">ImageDiffProps</span> <span class="op">{</span></span></div>
+            <div class="diff-line"><span class="ln">5</span><span class="code-text">  <span class="var">oldSrc</span><span class="op">:</span> <span class="ty">string</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">6</span><span class="code-text">  <span class="var">newSrc</span><span class="op">:</span> <span class="ty">string</span><span class="op">;</span></span></div>
+            <div class="diff-line added"><span class="ln">7</span><span class="code-text">  <span class="var">mode</span><span class="op">:</span> <span class="str">"side-by-side"</span> <span class="op">|</span> <span class="str">"overlay"</span> <span class="op">|</span> <span class="str">"diff"</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">8</span><span class="code-text"><span class="op">}</span></span></div>
+            <div class="diff-line"><span class="ln">9</span><span class="code-text"></span></div>
+            <div class="diff-line"><span class="ln">10</span><span class="code-text"><span class="kw">export</span> <span class="kw">const</span> <span class="fn">ImageDiff</span> <span class="op">=</span> <span class="op">(</span><span class="var">props</span><span class="op">:</span> <span class="ty">ImageDiffProps</span><span class="op">)</span> <span class="op">=></span> <span class="op">{</span></span></div>
+            <div class="diff-line added"><span class="ln">11</span><span class="code-text">  <span class="kw">const</span> <span class="op">[</span><span class="var">zoom</span><span class="op">,</span> <span class="var">setZoom</span><span class="op">]</span> <span class="op">=</span> <span class="fn">useState</span><span class="op">(</span><span class="num">1</span><span class="op">);</span></span></div>
+            <div class="diff-line added"><span class="ln">12</span><span class="code-text">  <span class="kw">const</span> <span class="op">[</span><span class="var">opacity</span><span class="op">,</span> <span class="var">setOpacity</span><span class="op">]</span> <span class="op">=</span> <span class="fn">useState</span><span class="op">(</span><span class="num">0.5</span><span class="op">);</span></span></div>
+            <div class="diff-line"><span class="ln">13</span><span class="code-text"></span></div>
+            <div class="diff-line"><span class="ln">14</span><span class="code-text">  <span class="kw">return</span> <span class="op">(</span></span></div>
+            <div class="diff-line"><span class="ln">15</span><span class="code-text">    <span class="op">&lt;</span><span class="ty">div</span> <span class="var">className</span><span class="op">=</span><span class="str">"image-diff"</span><span class="op">></span></span></div>
+            <div class="diff-line added"><span class="ln">16</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">DiffCanvas</span></span></div>
+            <div class="diff-line added"><span class="ln">17</span><span class="code-text">        <span class="var">old</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">oldSrc</span><span class="op">}</span></span></div>
+            <div class="diff-line added"><span class="ln">18</span><span class="code-text">        <span class="var">new</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">newSrc</span><span class="op">}</span></span></div>
+            <div class="diff-line added"><span class="ln">19</span><span class="code-text">        <span class="var">mode</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">mode</span><span class="op">}</span></span></div>
+            <div class="diff-line added"><span class="ln">20</span><span class="code-text">        <span class="var">zoom</span><span class="op">={</span><span class="var">zoom</span><span class="op">}</span></span></div>
+            <div class="diff-line added"><span class="ln">21</span><span class="code-text">        <span class="var">opacity</span><span class="op">={</span><span class="var">opacity</span><span class="op">}</span></span></div>
+            <div class="diff-line added"><span class="ln">22</span><span class="code-text">      <span class="op">/></span></span></div>
+            <div class="diff-line"><span class="ln">23</span><span class="code-text">    <span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
+            <div class="diff-line"><span class="ln">24</span><span class="code-text">  <span class="op">);</span></span></div>
+            <div class="diff-line"><span class="ln">25</span><span class="code-text"><span class="op">};</span></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Scene 2: Branch Management -->
+<div class="scene" id="scene-branches">
+  <div class="window">
+    <div class="titlebar">
+      <div class="titlebar-text">DeathPush - Branches</div>
+      <div class="wm-buttons">
+        <span class="wm-btn wm-min"></span>
+        <span class="wm-btn wm-max"></span>
+        <span class="wm-btn wm-close"></span>
+      </div>
+    </div>
+    <div class="body">
+      <div class="branch-panel">
+        <div class="panel-header">
+          <span>Branches</span>
+          <span style="color: var(--text-dim); font-size: 10px; font-weight: 400">8 branches</span>
+        </div>
+        <div class="panel-search">Search branches...</div>
+        <div class="branch-group-label">Local</div>
+        <div class="branch-item current">
+          <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          <span class="branch-name">main</span>
+          <span class="branch-tag">HEAD</span>
+        </div>
+        <div class="branch-item">
+          <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          <span class="branch-name">feat/image-diffs</span>
+          <span class="branch-ahead-behind">+3 -0</span>
+        </div>
+        <div class="branch-item">
+          <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          <span class="branch-name">feat/terminal-pty</span>
+          <span class="branch-ahead-behind">+7 -2</span>
+        </div>
+        <div class="branch-item">
+          <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          <span class="branch-name">fix/diff-encoding</span>
+          <span class="branch-ahead-behind">+1 -0</span>
+        </div>
+        <div class="branch-item">
+          <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          <span class="branch-name">refactor/state</span>
+          <span class="branch-ahead-behind">+12 -5</span>
+        </div>
+        <div class="branch-group-label">Remote</div>
+        <div class="branch-item">
+          <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          <span class="branch-name" style="color: var(--text-muted)">origin/main</span>
+        </div>
+        <div class="branch-item">
+          <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          <span class="branch-name" style="color: var(--text-muted)">origin/feat/image-diffs</span>
+        </div>
+        <div class="branch-item">
+          <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          <span class="branch-name" style="color: var(--text-muted)">origin/feat/terminal-pty</span>
+        </div>
+      </div>
+      <div class="merge-panel">
+        <div class="merge-title">Merge Branch</div>
+        <div class="merge-visual">
+          <div class="merge-branch-box source">feat/image-diffs</div>
+          <div class="merge-arrow">&#10140;</div>
+          <div class="merge-branch-box target">main</div>
+        </div>
+        <div class="merge-actions">
+          <div class="merge-btn primary">Merge</div>
+          <div class="merge-btn secondary">Rebase</div>
+          <div class="merge-btn secondary">Squash</div>
+        </div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: -8px">3 commits, no conflicts detected</div>
+        <div class="commit-graph">
+          <div style="font-size: 10px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.05em; margin-bottom: 4px">COMMIT HISTORY</div>
+          <div class="graph-row">
+            <div class="graph-line"><span class="graph-dot" style="background: var(--blue)"></span><span class="graph-bar" style="background: var(--blue)"></span></div>
+            <span class="graph-hash">a3f82c1</span>
+            <span class="graph-msg">add overlay diff mode</span>
+            <span class="graph-date">2m ago</span>
+          </div>
+          <div class="graph-row">
+            <div class="graph-line"><span class="graph-dot" style="background: var(--blue)"></span><span class="graph-bar" style="background: var(--blue)"></span></div>
+            <span class="graph-hash">7d1e9b4</span>
+            <span class="graph-msg">implement side-by-side image comparison</span>
+            <span class="graph-date">15m ago</span>
+          </div>
+          <div class="graph-row">
+            <div class="graph-line"><span class="graph-dot" style="background: var(--blue)"></span><span class="graph-bar" style="background: var(--blue)"></span></div>
+            <span class="graph-hash">c92f1a8</span>
+            <span class="graph-msg">add image format detection</span>
+            <span class="graph-date">1h ago</span>
+          </div>
+          <div class="graph-row">
+            <div class="graph-line"><span class="graph-dot" style="background: var(--accent)"></span><span class="graph-bar" style="background: var(--accent)"></span></div>
+            <span class="graph-hash">3a4d8f7</span>
+            <span class="graph-msg">fix download links</span>
+            <span class="graph-date">2h ago</span>
+          </div>
+          <div class="graph-row">
+            <div class="graph-line"><span class="graph-dot" style="background: var(--accent)"></span><span class="graph-bar" style="background: var(--accent)"></span></div>
+            <span class="graph-hash">2edb07d</span>
+            <span class="graph-msg">release: v0.1.2</span>
+            <span class="graph-date">3h ago</span>
+          </div>
+          <div class="graph-row">
+            <div class="graph-line"><span class="graph-dot" style="background: var(--accent)"></span><span class="graph-bar" style="background: var(--accent)"></span></div>
+            <span class="graph-hash">de049ad</span>
+            <span class="graph-msg">fix favicon and og</span>
+            <span class="graph-date">5h ago</span>
+          </div>
+          <div class="graph-row">
+            <div class="graph-line"><span class="graph-dot" style="background: var(--accent)"></span><span class="graph-bar" style="background: var(--accent)"></span></div>
+            <span class="graph-hash">f4ccf63</span>
+            <span class="graph-msg">added svg</span>
+            <span class="graph-date">6h ago</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Scene 3: Terminal -->
+<div class="scene" id="scene-terminal">
+  <div class="window">
+    <div class="titlebar">
+      <div class="titlebar-text">DeathPush - Terminal</div>
+      <div class="wm-buttons">
+        <span class="wm-btn wm-min"></span>
+        <span class="wm-btn wm-max"></span>
+        <span class="wm-btn wm-close"></span>
+      </div>
+    </div>
+    <div class="terminal-body">
+      <div class="terminal-tabs">
+        <div class="terminal-tab">Source Control</div>
+        <div class="terminal-tab active">Terminal</div>
+        <div class="terminal-tab">Branches</div>
+      </div>
+      <div class="terminal-content">
+        <div><span class="term-prompt">&#10095;</span> <span class="term-path">~/Projects/deathpush</span> <span class="term-branch">(main)</span></div>
+        <div><span class="term-cmd">$ git log --oneline -5</span></div>
+        <div><span class="term-hash">3a4d8f7</span> <span class="term-output">fix download links</span></div>
+        <div><span class="term-hash">2edb07d</span> <span class="term-output">release: v0.1.2</span></div>
+        <div><span class="term-hash">de049ad</span> <span class="term-output">fix favicon and og</span></div>
+        <div><span class="term-hash">f4ccf63</span> <span class="term-output">added svg</span></div>
+        <div><span class="term-hash">d7983d1</span> <span class="term-output">release: v0.1.1</span></div>
+        <div style="height: 12px"></div>
+        <div><span class="term-prompt">&#10095;</span> <span class="term-path">~/Projects/deathpush</span> <span class="term-branch">(main)</span></div>
+        <div><span class="term-cmd">$ git diff --stat HEAD~3</span></div>
+        <div><span class="term-stat"> src/components/diff-viewer.tsx</span>  | <span class="term-added">+42</span> <span class="term-removed">-18</span></div>
+        <div><span class="term-stat"> src/components/file-list.tsx</span>    | <span class="term-added">+15</span> <span class="term-removed">-3</span></div>
+        <div><span class="term-stat"> src-tauri/src/main.rs</span>           | <span class="term-added">+28</span> <span class="term-removed">-7</span></div>
+        <div><span class="term-stat"> src/styles/global.css</span>           | <span class="term-added">+8</span>  <span class="term-removed">-2</span></div>
+        <div><span class="term-stat"> 4 files changed,</span> <span class="term-added">93 insertions(+)</span>, <span class="term-removed">30 deletions(-)</span></div>
+        <div style="height: 12px"></div>
+        <div><span class="term-prompt">&#10095;</span> <span class="term-path">~/Projects/deathpush</span> <span class="term-branch">(main)</span></div>
+        <div><span class="term-cmd">$ git status</span></div>
+        <div><span class="term-output">On branch main</span></div>
+        <div><span class="term-output">Your branch is up to date with 'origin/main'.</span></div>
+        <div style="height: 4px"></div>
+        <div><span class="term-output">Changes not staged for commit:</span></div>
+        <div><span class="term-removed">  modified:   src-tauri/src/main.rs</span></div>
+        <div style="height: 12px"></div>
+        <div><span class="term-prompt">&#10095;</span> <span class="term-path">~/Projects/deathpush</span> <span class="term-branch">(main)</span></div>
+        <div><span class="term-cmd">$ _</span><span style="display:inline-block; width:7px; height:14px; background: var(--text); animation: blink 1s step-end infinite; vertical-align: middle; margin-left: -6px"></span></div>
+      </div>
+      <div class="status-bar">
+        <div class="status-item"><span class="status-dot" style="background: var(--green)"></span> main</div>
+        <div class="status-item">zsh</div>
+        <div class="status-item">UTF-8</div>
+        <div class="status-item" style="margin-left: auto">DeathPush v0.1.2</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+</style>
+
+</body>
+</html>

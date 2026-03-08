@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "DeathPush",
+  "productName": "Deathpush",
   "mainBinaryName": "deathpush",
   "version": "0.1.2",
-  "identifier": "com.felipefdl.deathpush",
+  "identifier": "com.deathpush.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -44,16 +44,27 @@
     "active": true,
     "createUpdaterArtifacts": true,
     "targets": "all",
+    "license": "Apache-2.0",
+    "licenseFile": "../LICENSE",
+    "homepage": "https://deathpush.com",
+    "shortDescription": "A standalone desktop Git client with the VS Code Source Control UX",
+    "longDescription": "DeathPush is a standalone desktop Git client that replicates the VS Code Source Control UX. Beautiful diffs powered by Monaco Editor, clean staging, branch management, integrated terminal, and zero bloat. Built with Tauri and Rust for native performance.",
+    "copyright": "Copyright (c) 2026 Felipe Lima",
+    "category": "DeveloperTool",
+    "publisher": "Felipe Lima",
     "resources": ["resources/bin/dp", "resources/bin/dp.cmd"],
     "linux": {
       "deb": {
+        "section": "vcs",
         "files": {
-          "/usr/bin/dp": "scripts/dp-linux"
+          "/usr/bin/dp": "scripts/dp-linux",
+          "/usr/share/metainfo/com.deathpush.app.metainfo.xml": "metainfo/com.deathpush.app.metainfo.xml"
         }
       },
       "rpm": {
         "files": {
-          "/usr/bin/dp": "scripts/dp-linux"
+          "/usr/bin/dp": "scripts/dp-linux",
+          "/usr/share/metainfo/com.deathpush.app.metainfo.xml": "metainfo/com.deathpush.app.metainfo.xml"
         }
       }
     },
