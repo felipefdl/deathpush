@@ -5,6 +5,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const interBold = readFileSync(resolve("src/assets/inter-bold.ttf"));
+const logoSvg = readFileSync(resolve("public/favicon.svg"), "utf-8");
+const logoDataUri = `data:image/svg+xml;base64,${Buffer.from(logoSvg).toString("base64")}`;
+
+const watermarkSvg = readFileSync(resolve("../imagem/deathlogo.svg"), "utf-8")
+  .replace('fill="currentColor"', 'fill="rgba(255,255,255,0.03)"');
+const watermarkDataUri = `data:image/svg+xml;base64,${Buffer.from(watermarkSvg).toString("base64")}`;
 
 export const GET: APIRoute = async () => {
   const svg = await satori(
@@ -19,8 +25,23 @@ export const GET: APIRoute = async () => {
           backgroundColor: "#0a0a0a",
           padding: "60px",
           fontFamily: "Inter",
+          position: "relative",
+          overflow: "hidden",
         },
         children: [
+          {
+            type: "img",
+            props: {
+              src: watermarkDataUri,
+              width: 800,
+              height: 800,
+              style: {
+                position: "absolute",
+                left: "-100px",
+                top: "-80px",
+              },
+            },
+          },
           {
             type: "div",
             props: {
@@ -42,13 +63,13 @@ export const GET: APIRoute = async () => {
                     },
                     children: [
                       {
-                        type: "div",
+                        type: "img",
                         props: {
+                          src: logoDataUri,
+                          width: 48,
+                          height: 48,
                           style: {
-                            width: "48px",
-                            height: "48px",
                             borderRadius: "10px",
-                            backgroundColor: "#dc2626",
                           },
                         },
                       },
