@@ -297,7 +297,7 @@ export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectPro
 
   return (
     <div className="welcome-screen">
-      {!IS_LINUX && <div className="welcome-drag-region" data-tauri-drag-region />}
+      {IS_LINUX ? <div style={{ height: 16, flexShrink: 0 }} /> : <div className="welcome-drag-region" data-tauri-drag-region />}
       <div className="welcome-body">
         <div className={`welcome-logo-wrapper${availableUpdate ? " has-update" : ""}`}>
           <img
