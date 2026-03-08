@@ -1,5 +1,9 @@
 import { create } from "zustand";
 import type { FontWeight } from "@xterm/xterm";
+import { useThemeStore } from "./theme-store";
+import { useIconThemeStore } from "./icon-theme-store";
+import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from "../lib/themes/theme-registry";
+import { DEFAULT_ICON_THEME_ID } from "../lib/icon-themes/icon-theme-registry";
 
 export interface EditorSettings {
   fontSize: number;
@@ -246,5 +250,15 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     const settings = { ...DEFAULTS };
     saveSettings(settings);
     set({ settings });
+
+    localStorage.removeItem("deathpush:theme");
+    localStorage.removeItem("deathpush:preferred-dark-theme");
+    localStorage.removeItem("deathpush:preferred-light-theme");
+    localStorage.removeItem("deathpush:iconTheme");
+
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const id = prefersDark ? DEFAULT_DARK_THEME_ID : DEFAULT_LIGHT_THEME_ID;
+    useThemeStore.getState().setTheme(id);
+    useIconThemeStore.getState().setIconTheme(DEFAULT_ICON_THEME_ID);
   },
 }));

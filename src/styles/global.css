@@ -274,7 +274,6 @@ summary {
 
 .linux-title-text {
   opacity: 0.8;
-  pointer-events: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
