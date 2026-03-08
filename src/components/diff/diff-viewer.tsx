@@ -1,5 +1,5 @@
 import { DiffEditor, type DiffOnMount } from "@monaco-editor/react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { writeFile } from "../../lib/tauri-commands";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { useLayoutStore } from "../../stores/layout-store";
@@ -11,8 +11,13 @@ import { EmptyState } from "./empty-state";
 import { ImageDiff } from "./image-diff";
 
 export const DiffViewer = () => {
-  const { diff, selectedFile, isDiffDirty, setDiff, setError, setIsDiffDirty, setCursorLine } =
-    useRepositoryStore();
+  const diff = useRepositoryStore((s) => s.diff);
+  const selectedFile = useRepositoryStore((s) => s.selectedFile);
+  const isDiffDirty = useRepositoryStore((s) => s.isDiffDirty);
+  const setDiff = useRepositoryStore((s) => s.setDiff);
+  const setError = useRepositoryStore((s) => s.setError);
+  const setIsDiffDirty = useRepositoryStore((s) => s.setIsDiffDirty);
+  const setCursorLine = useRepositoryStore((s) => s.setCursorLine);
   const { diffMode } = useLayoutStore();
   const { settings } = useSettingsStore();
   const { currentTheme } = useThemeStore();
@@ -144,7 +149,9 @@ export const DiffViewer = () => {
   useEffect(() => {
     if (!editorRef.current || !diff) return;
     const origModel = editorRef.current.getOriginalEditor().getModel();
-    if (origModel) origModel.setValue(diff.original);
+    if (origModel && origModel.getValue() !== diff.original) {
+      origModel.setValue(diff.original);
+    }
   }, [diff]);
 
 
@@ -154,6 +161,15 @@ export const DiffViewer = () => {
       editorRef.current = null;
     };
   }, []);
+
+  const editorOptions = useMemo(
+    () => ({
+      ...buildDiffOptions(settings.editor, diffMode),
+      readOnly: !isEditable,
+      domReadOnly: !isEditable,
+    }),
+    [settings.editor, diffMode, isEditable],
+  );
 
   if (!diff || !selectedFile) {
     return <EmptyState />;
@@ -183,11 +199,7 @@ export const DiffViewer = () => {
           keepCurrentOriginalModel
           keepCurrentModifiedModel
           onMount={handleMount}
-          options={{
-            ...buildDiffOptions(settings.editor, diffMode),
-            readOnly: !isEditable,
-            domReadOnly: !isEditable,
-          }}
+          options={editorOptions}
         />
       </div>
     </div>

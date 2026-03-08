@@ -38,9 +38,16 @@ pub fn start_watcher(
       match rx.recv_timeout(Duration::from_millis(200)) {
         Ok(events) => {
           if let Ok(events) = events {
-            let has_relevant = events
-              .iter()
-              .any(|e| e.kind == DebouncedEventKind::Any && !e.path.to_string_lossy().contains(".git/objects/pack"));
+            let has_relevant = events.iter().any(|e| {
+              if e.kind != DebouncedEventKind::Any {
+                return false;
+              }
+              let path = e.path.to_string_lossy();
+              // Exclude all .git/ internal changes (cross-platform separators).
+              // Working tree changes from branch switches, staging, etc. are
+              // handled by Tauri commands calling setStatus directly.
+              !path.contains(".git/") && !path.contains(".git\\")
+            });
             if has_relevant {
               let _ = window_clone.emit("repository-changed", ());
             }
