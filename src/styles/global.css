@@ -260,7 +260,11 @@ summary {
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+
+.linux-title-bar-drag {
   flex: 1;
+  height: 100%;
 }
 
 .linux-title-bar-right {
@@ -313,7 +317,6 @@ summary {
   min-width: 260px;
   max-height: calc(100vh - 72px);
   overflow-y: auto;
-  background: var(--vscode-menu-background);
   color: var(--vscode-menu-foreground);
   border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
   border-radius: var(--radius-lg);

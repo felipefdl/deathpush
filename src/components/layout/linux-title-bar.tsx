@@ -101,7 +101,7 @@ export const LinuxTitleBar = () => {
   }, [appWindow]);
 
   return (
-    <div className="linux-title-bar" data-tauri-drag-region>
+    <div className="linux-title-bar">
       <div className="linux-title-bar-left">
         <div className="linux-menu-wrapper" ref={menuRef}>
           <button
@@ -111,7 +111,16 @@ export const LinuxTitleBar = () => {
             <span className="codicon codicon-menu" />
           </button>
           {menuOpen && (
-            <div className="linux-menu-dropdown">
+            <div
+              className="linux-menu-dropdown"
+              style={{
+                backgroundColor: getComputedStyle(document.documentElement)
+                  .getPropertyValue("--vscode-menu-background").trim()
+                  || getComputedStyle(document.documentElement)
+                    .getPropertyValue("--vscode-editor-background").trim()
+                  || "#1e1e1e",
+              }}
+            >
               {MENU_ITEMS.map((item, i) => {
                 if (item.type === "separator") {
                   return <div key={i} className="linux-menu-separator" />;
@@ -136,6 +145,7 @@ export const LinuxTitleBar = () => {
         </div>
         <span className="linux-title-text" data-tauri-drag-region>{titleText}</span>
       </div>
+      <div className="linux-title-bar-drag" data-tauri-drag-region />
       <div className="linux-title-bar-right">
         <button className="linux-title-btn" onClick={() => appWindow.minimize()}>
           <span className="codicon codicon-chrome-minimize" />
