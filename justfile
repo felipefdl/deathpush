@@ -31,4 +31,4 @@ release version:
   cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
   git add -A && git commit -m "release: v{{version}}"
   git tag "v{{version}}"
-  @echo "Run: git push origin main --tags"
+  git push origin main --tags
