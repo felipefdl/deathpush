@@ -46,7 +46,6 @@ const DEFAULTS = {
     scrollOnUserInput: true,
     rescaleOverlappingGlyphs: false,
     shellPath: "",
-    shellArgs: "-l",
     bellStyle: "off" as const,
   },
   git: { blame: true },

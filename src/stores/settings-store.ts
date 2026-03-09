@@ -45,7 +45,6 @@ export interface TerminalSettings {
   rescaleOverlappingGlyphs: boolean;
   // Non-xterm
   shellPath: string;
-  shellArgs: string;
   bellStyle: "off" | "sound" | "visual" | "both";
 }
 
@@ -136,7 +135,6 @@ const DEFAULTS: AppSettings = {
     scrollOnUserInput: true,
     rescaleOverlappingGlyphs: false,
     shellPath: "",
-    shellArgs: "-l",
     bellStyle: "off",
   },
   git: {

@@ -59,8 +59,8 @@ impl PtySession {
       .map(|n| n.to_string_lossy().to_string())
       .unwrap_or_else(|| shell.clone());
     let mut cmd = CommandBuilder::new(&shell);
-    let default_args = if cfg!(windows) { "" } else { "-l" };
-    let args_str = shell_args.unwrap_or_else(|| default_args.to_string());
+    let default_args = default_shell_args(&shell_name);
+    let args_str = shell_args.unwrap_or(default_args);
     for arg in args_str.split_whitespace() {
       cmd.arg(arg);
     }
@@ -182,4 +182,22 @@ impl PtySession {
       })
       .map_err(|e| Error::Other(e.to_string()))
   }
+}
+
+/// Determine default shell arguments per platform, matching VS Code behavior:
+/// - macOS + zsh/bash: `--login` (sources profile files)
+/// - Linux: no args (profile is already sourced via resolved env)
+/// - Windows: no args
+fn default_shell_args(shell_name: &str) -> String {
+  #[cfg(target_os = "macos")]
+  {
+    if shell_name == "zsh" || shell_name == "bash" {
+      return "--login".to_string();
+    }
+  }
+
+  #[cfg(not(target_os = "macos"))]
+  let _ = shell_name;
+
+  String::new()
 }

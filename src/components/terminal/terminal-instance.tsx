@@ -35,12 +35,12 @@ const spawnSession = async (
   sessionIdRef: React.RefObject<number>,
   paneId: number,
 ) => {
-  const { shellPath, shellArgs } = useSettingsStore.getState().settings.terminal;
+  const { shellPath } = useSettingsStore.getState().settings.terminal;
   const result = await invoke<SpawnResult>("terminal_spawn", {
     cols: term.cols,
     rows: term.rows,
     shellPath: shellPath || null,
-    shellArgs: shellArgs || null,
+    shellArgs: null,
   });
   sessionIdRef.current = result.id;
   useRepositoryStore.getState().renamePane(paneId, result.shell);

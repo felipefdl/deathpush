@@ -330,7 +330,6 @@ const TerminalSection = ({
 
     <div className="settings-subsection-title">Shell</div>
     <ShellPathField value={settings.shellPath} onChange={(v) => onUpdate({ shellPath: v })} />
-    <ShellArgsField value={settings.shellArgs} onChange={(v) => onUpdate({ shellArgs: v })} />
     <SelectField
       label="Bell Style"
       value={settings.bellStyle}
@@ -508,63 +507,6 @@ const ShellPathField = ({
             type="text"
             value={value}
             placeholder="/path/to/shell"
-            onChange={(e) => onChange(e.target.value)}
-          />
-        )}
-      </div>
-    </div>
-  );
-};
-
-const SHELL_ARGS_PRESETS = [
-  { value: "-l", label: "Login shell (-l)" },
-  { value: "-il", label: "Interactive login (-il)" },
-  { value: "-i", label: "Interactive (-i)" },
-  { value: "--login", label: "Login (--login)" },
-  { value: "--login --interactive", label: "Login + Interactive (--login --interactive)" },
-  { value: "", label: "No arguments" },
-];
-
-const ShellArgsField = ({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) => {
-  const isPreset = SHELL_ARGS_PRESETS.some((o) => o.value === value);
-  const [customMode, setCustomMode] = useState(!isPreset);
-
-  const selectValue = customMode ? CUSTOM_SHELL : value;
-
-  return (
-    <div className="settings-field">
-      <label className="settings-label">Shell Arguments</label>
-      <div className="settings-field-shell">
-        <select
-          className="settings-input settings-select"
-          value={selectValue}
-          onChange={(e) => {
-            if (e.target.value === CUSTOM_SHELL) {
-              setCustomMode(true);
-              onChange("");
-            } else {
-              setCustomMode(false);
-              onChange(e.target.value);
-            }
-          }}
-        >
-          {SHELL_ARGS_PRESETS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-          <option value={CUSTOM_SHELL}>Custom...</option>
-        </select>
-        {customMode && (
-          <input
-            className="settings-input"
-            type="text"
-            value={value}
-            placeholder="--flag1 --flag2"
             onChange={(e) => onChange(e.target.value)}
           />
         )}
