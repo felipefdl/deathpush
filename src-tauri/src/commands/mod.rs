@@ -3,6 +3,7 @@ pub mod branch;
 pub mod cli;
 pub mod commit;
 pub mod config;
+pub mod explorer;
 pub mod file_ops;
 pub mod lifecycle;
 pub mod log;

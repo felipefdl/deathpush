@@ -442,3 +442,11 @@
   color: var(--vscode-editor-foreground);
   border-bottom-color: var(--vscode-focusBorder);
 }
+
+.main-view-tab-primary {
+  width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}

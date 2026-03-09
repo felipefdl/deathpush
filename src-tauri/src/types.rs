@@ -211,6 +211,24 @@ pub struct ProjectInfo {
   pub name: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplorerEntry {
+  pub name: String,
+  pub path: String,
+  pub is_directory: bool,
+  pub is_symlink: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileContent {
+  pub path: String,
+  pub content: String,
+  pub language: Option<String>,
+  pub file_type: String,
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

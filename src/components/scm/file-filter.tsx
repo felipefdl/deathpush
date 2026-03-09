@@ -34,6 +34,11 @@ export const FileFilter = () => {
         value={value}
         onChange={handleChange}
       />
+      {value && (
+        <button className="file-filter-clear" onClick={() => { setValue(""); setFileFilter(""); }}>
+          <span className="codicon codicon-close" />
+        </button>
+      )}
     </div>
   );
 };

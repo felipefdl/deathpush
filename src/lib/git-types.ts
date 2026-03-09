@@ -149,3 +149,17 @@ export interface LastCommitInfo {
   message: string;
   authorDate: string;
 }
+
+export interface ExplorerEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  isSymlink: boolean;
+}
+
+export interface FileContent {
+  path: string;
+  content: string;
+  language: string | null;
+  fileType: string;
+}

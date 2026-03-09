@@ -5,7 +5,9 @@ import type {
   CommitDiffContent,
   CommitEntry,
   DiffContent,
+  ExplorerEntry,
   FileBlame,
+  FileContent,
   FileDiffWithHunks,
   LastCommitInfo,
   RepositoryStatus,
@@ -197,3 +199,9 @@ export const setRepoMenuEnabled = (enabled: boolean): Promise<void> =>
 
 export const setNativeTheme = (dark: boolean): Promise<void> =>
   invoke("set_native_theme", { dark });
+
+export const listDirectory = (path: string | null): Promise<ExplorerEntry[]> =>
+  invoke("list_directory", { path });
+
+export const readFileContent = (path: string): Promise<FileContent> =>
+  invoke("read_file_content", { path });

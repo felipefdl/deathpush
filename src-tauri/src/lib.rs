@@ -12,8 +12,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use commands::repository::{AppRepoState, CliPaths};
 use commands::{
-  blame, branch, cli, commit, config, file_ops, lifecycle, log, remote, repository, staging, stash, status, tag,
-  terminal,
+  blame, branch, cli, commit, config, explorer, file_ops, lifecycle, log, remote, repository, staging, stash, status,
+  tag, terminal,
 };
 use git::watcher::WatcherState;
 use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder};
@@ -615,6 +615,8 @@ pub fn run() {
       tag::create_tag,
       tag::delete_tag,
       tag::push_tag,
+      explorer::list_directory,
+      explorer::read_file_content,
       file_ops::open_in_editor,
       file_ops::reveal_in_file_manager,
       file_ops::add_to_gitignore,

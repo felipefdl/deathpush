@@ -467,6 +467,29 @@
   outline: none;
 }
 
+.file-filter-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 2px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-input-foreground);
+  cursor: pointer;
+  border-radius: var(--radius-lg);
+  padding: 0;
+  font-size: 12px;
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.file-filter-clear:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground);
+}
+
 .file-filter:focus-within {
   border-color: var(--vscode-focusBorder);
 }

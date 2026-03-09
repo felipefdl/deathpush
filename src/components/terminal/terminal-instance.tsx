@@ -250,6 +250,15 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
   }, [isActive]);
 
   useEffect(() => {
+    if (!isActive) return;
+    const handleFocus = () => {
+      termRef.current?.focus();
+    };
+    window.addEventListener("deathpush:focus-terminal", handleFocus);
+    return () => window.removeEventListener("deathpush:focus-terminal", handleFocus);
+  }, [isActive]);
+
+  useEffect(() => {
     const interval = setInterval(async () => {
       const sid = sessionIdRef.current;
       if (!sid || exitedRef.current) return;

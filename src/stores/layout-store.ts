@@ -1,13 +1,15 @@
 import { create } from "zustand";
 import { useSettingsStore } from "./settings-store";
 
-export type MainView = "changes" | "history" | "settings" | "terminal" | "output";
+export type MainView = "changes" | "history" | "settings" | "terminal" | "output" | "file";
+export type SidebarView = "scm" | "explorer";
 
 interface LayoutState {
   sidebarWidth: number;
   terminalVisible: boolean;
   terminalHeight: number;
   mainView: MainView;
+  sidebarView: SidebarView;
   diffMode: "inline" | "sideBySide";
   viewMode: "list" | "tree";
   panelTab: "terminal" | "git-output";
@@ -19,6 +21,7 @@ interface LayoutState {
   setTerminalVisible: (visible: boolean) => void;
   setTerminalHeight: (height: number) => void;
   setMainView: (view: MainView) => void;
+  setSidebarView: (view: SidebarView) => void;
   setDiffMode: (mode: "inline" | "sideBySide") => void;
   setViewMode: (mode: "list" | "tree") => void;
   setPanelTab: (tab: "terminal" | "git-output") => void;
@@ -34,6 +37,7 @@ interface PersistedLayout {
   terminalVisible: boolean;
   terminalHeight: number;
   mainView: MainView;
+  sidebarView: SidebarView;
   diffMode: "inline" | "sideBySide";
   viewMode: "list" | "tree";
   panelTab: "terminal" | "git-output";
@@ -47,6 +51,7 @@ const DEFAULTS: PersistedLayout = {
   terminalVisible: true,
   terminalHeight: 250,
   mainView: "changes",
+  sidebarView: "scm",
   diffMode: "sideBySide",
   viewMode: "list",
   panelTab: "terminal",
@@ -65,7 +70,7 @@ const loadLayout = (root: string): PersistedLayout => {
     if (!raw) return { ...DEFAULTS };
     const parsed = JSON.parse(raw);
     const layout: PersistedLayout = { ...DEFAULTS, ...parsed };
-    if (layout.mainView === "settings" || layout.mainView === "terminal" || layout.mainView === "output") {
+    if (layout.mainView === "settings" || layout.mainView === "terminal" || layout.mainView === "output" || layout.mainView === "file") {
       layout.mainView = "changes";
     }
     const { alwaysOpenTerminalOnStart } = useSettingsStore.getState().settings.ui;
@@ -85,6 +90,7 @@ const saveLayout = (state: LayoutState) => {
     terminalVisible: state.terminalVisible,
     terminalHeight: state.terminalHeight,
     mainView: state.mainView,
+    sidebarView: state.sidebarView,
     diffMode: state.diffMode,
     viewMode: state.viewMode,
     panelTab: state.panelTab,
@@ -112,6 +118,15 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   },
   setMainView: (mainView) => {
     set({ mainView });
+    saveLayout(get());
+  },
+  setSidebarView: (sidebarView) => {
+    const { mainView } = get();
+    const update: Partial<LayoutState> = { sidebarView };
+    if (mainView === "changes" || mainView === "file") {
+      update.mainView = sidebarView === "explorer" ? "file" : "changes";
+    }
+    set(update);
     saveLayout(get());
   },
   setDiffMode: (diffMode) => {

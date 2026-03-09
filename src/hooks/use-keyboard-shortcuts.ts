@@ -3,6 +3,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import { useRepositoryStore } from "../stores/repository-store";
 import { useLayoutStore } from "../stores/layout-store";
 import { useSettingsStore } from "../stores/settings-store";
+import { useExplorerStore } from "../stores/explorer-store";
 import { toggleTerminal } from "../lib/toggle-terminal";
 import { buildFlatFileList } from "../lib/flat-file-list";
 import * as commands from "../lib/tauri-commands";
@@ -67,6 +68,56 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
+      // Opt+Cmd+1..9: Switch terminal tabs (check before Cmd+digit)
+      if (isMod && e.altKey && e.code >= "Digit1" && e.code <= "Digit9") {
+        e.preventDefault();
+        const idx = parseInt(e.code.slice(5), 10) - 1;
+        const repo = useRepositoryStore.getState();
+        const group = repo.terminalGroups[idx];
+        if (group) {
+          repo.setActiveGroup(group.groupId);
+        }
+        return;
+      }
+
+      // Cmd+1: Changes, Cmd+2: Explorer, Cmd+3: Terminal
+      if (isMod && !e.altKey && e.key === "1") {
+        e.preventDefault();
+        const layout = useLayoutStore.getState();
+        layout.setSidebarView("scm");
+        layout.setMainView("changes");
+        return;
+      }
+      if (isMod && !e.altKey && e.key === "2") {
+        e.preventDefault();
+        const layout = useLayoutStore.getState();
+        layout.setSidebarView("explorer");
+        layout.setMainView("file");
+        return;
+      }
+      if (isMod && !e.altKey && e.key === "3") {
+        e.preventDefault();
+        const layout = useLayoutStore.getState();
+        const repo = useRepositoryStore.getState();
+        if (layout.terminalMaximized) {
+          layout.setMainView("terminal");
+          requestAnimationFrame(() => {
+            window.dispatchEvent(new CustomEvent("deathpush:focus-terminal"));
+          });
+        } else if (!layout.terminalVisible) {
+          if (repo.terminalGroups.length === 0) {
+            repo.addTerminalGroup();
+          }
+          layout.setTerminalVisible(true);
+          requestAnimationFrame(() => {
+            window.dispatchEvent(new CustomEvent("deathpush:focus-terminal"));
+          });
+        } else {
+          window.dispatchEvent(new CustomEvent("deathpush:focus-terminal"));
+        }
+        return;
+      }
+
       if (isMod && e.key === "s") {
         e.preventDefault();
         return;
@@ -105,6 +156,19 @@ export const useKeyboardShortcuts = () => {
       // Skip navigation keys when focus is in an input
       if (isInput) return;
 
+      // Escape: clear focus and selection
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setFocusedIndex(null);
+        setSelectedFile(null);
+        setDiff(null);
+        clearFileSelection();
+        const explorer = useExplorerStore.getState();
+        explorer.setSelectedPath(null);
+        explorer.setFileContent(null);
+        return;
+      }
+
       const state = useRepositoryStore.getState();
       const { status, fileFilter, focusedIndex } = state;
       if (!status) return;
@@ -125,16 +189,6 @@ export const useKeyboardShortcuts = () => {
         e.preventDefault();
         const next = focusedIndex === null ? flatList.length - 1 : Math.max(focusedIndex - 1, 0);
         setFocusedIndex(next);
-        return;
-      }
-
-      // Escape: clear focus and selection
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setFocusedIndex(null);
-        setSelectedFile(null);
-        setDiff(null);
-        clearFileSelection();
         return;
       }
 

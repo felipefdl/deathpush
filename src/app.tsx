@@ -5,11 +5,12 @@ import { AppLayout } from "./components/layout/app-layout";
 import { CloneDialog } from "./components/layout/clone-dialog";
 import { LicensesModal } from "./components/layout/licenses-modal";
 import { StatusBar } from "./components/layout/status-bar";
-import { ScmView } from "./components/scm/scm-view";
 import { DiffViewer } from "./components/diff/diff-viewer";
 import { HistoryView } from "./components/history/history-view";
 import { MainPanel } from "./components/layout/main-panel";
 import { SettingsPage } from "./components/settings/settings-page";
+import { FileViewer } from "./components/file-viewer/file-viewer";
+import { SidebarView } from "./components/layout/sidebar-view";
 import { TerminalPanel } from "./components/terminal/terminal-panel";
 import { ThemePicker } from "./components/theme/theme-picker";
 import { IconThemePicker } from "./components/theme/icon-theme-picker";
@@ -22,6 +23,7 @@ import { useRepositoryStore } from "./stores/repository-store";
 import { useLayoutStore } from "./stores/layout-store";
 import * as commands from "./lib/tauri-commands";
 import { useSettingsStore } from "./stores/settings-store";
+import { useExplorerStore } from "./stores/explorer-store";
 import { useThemeStore } from "./stores/theme-store";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { toggleTerminal } from "./lib/toggle-terminal";
@@ -65,6 +67,7 @@ export const App = () => {
   useEffect(() => {
     if (status?.root) {
       useLayoutStore.getState().loadForProject(status.root);
+      useExplorerStore.getState().clearCache();
     }
   }, [status?.root]);
 
@@ -316,12 +319,19 @@ export const App = () => {
       ) : status !== null ? (
         <AppLayout
           sidebar={
-            <ScmView
+            <SidebarView
               onOpenRepository={handleOpenRepository}
               onCloneRepository={() => setShowCloneDialog(true)}
             />
           }
-          main={<MainPanel changesView={<DiffViewer />} historyView={<HistoryView />} settingsView={<SettingsPage />} />}
+          main={
+            <MainPanel
+              changesView={<DiffViewer />}
+              historyView={<HistoryView />}
+              settingsView={<SettingsPage />}
+              fileView={<FileViewer />}
+            />
+          }
           terminal={<TerminalPanel />}
           statusBar={<StatusBar />}
         />
