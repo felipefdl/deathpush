@@ -87,6 +87,8 @@ impl PtySession {
     let session_id = id;
     let app_handle = window.app_handle().clone();
     let label_for_thread = window_label.clone();
+    #[cfg(windows)]
+    let writer_for_reader = Arc::clone(&writer);
     thread::spawn(move || {
       let mut reader = reader;
       let mut buf = [0u8; 65536];
@@ -131,7 +133,25 @@ impl PtySession {
 
             // SAFETY: we verified buf[..valid_up_to] is valid UTF-8 above
             // (or up to the error boundary which is also valid).
-            let data = String::from_utf8_lossy(&buf[..valid_up_to]).to_string();
+            #[allow(unused_mut)]
+            let mut data = String::from_utf8_lossy(&buf[..valid_up_to]).to_string();
+
+            // Windows ConPTY fix: portable-pty 0.9.0 sets PSEUDOCONSOLE_INHERIT_CURSOR,
+            // causing ConPTY to send a Device Status Report (\x1b[6n) at startup.
+            // If we don't respond with a cursor position, ConPTY deadlocks all output.
+            // Respond with position (1,1) and strip the sequence from forwarded data.
+            #[cfg(windows)]
+            if data.contains("\x1b[6n") {
+              if let Ok(mut w) = writer_for_reader.lock() {
+                let _ = w.write_all(b"\x1b[1;1R");
+                let _ = w.flush();
+              }
+              data = data.replace("\x1b[6n", "");
+              if data.is_empty() {
+                continue;
+              }
+            }
+
             if let Some(w) = app_handle.get_webview_window(&label_for_thread) {
               let _ = w.emit("terminal:data", TerminalDataEvent { id: session_id, data });
             }
