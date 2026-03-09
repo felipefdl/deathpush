@@ -1,12 +1,22 @@
-/// Create a `tokio::process::Command` that hides the console window on Windows.
+/// Create a `tokio::process::Command` with the resolved shell environment
+/// and hidden console window on Windows.
 pub fn async_command<S: AsRef<std::ffi::OsStr>>(program: S) -> tokio::process::Command {
-  let cmd = tokio::process::Command::new(program);
+  let mut cmd = tokio::process::Command::new(program);
+  if let Some(env) = crate::shell_env::get() {
+    cmd.env_clear();
+    cmd.envs(env.iter());
+  }
   apply_no_window(cmd)
 }
 
-/// Create a `std::process::Command` that hides the console window on Windows.
+/// Create a `std::process::Command` with the resolved shell environment
+/// and hidden console window on Windows.
 pub fn sync_command<S: AsRef<std::ffi::OsStr>>(program: S) -> std::process::Command {
-  let cmd = std::process::Command::new(program);
+  let mut cmd = std::process::Command::new(program);
+  if let Some(env) = crate::shell_env::get() {
+    cmd.env_clear();
+    cmd.envs(env.iter());
+  }
   apply_no_window_sync(cmd)
 }
 

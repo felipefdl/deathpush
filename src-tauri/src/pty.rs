@@ -64,6 +64,12 @@ impl PtySession {
     for arg in args_str.split_whitespace() {
       cmd.arg(arg);
     }
+    if let Some(resolved) = crate::shell_env::get() {
+      cmd.env_clear();
+      for (key, value) in resolved {
+        cmd.env(key, value);
+      }
+    }
     cmd.env("TERM", "xterm-256color");
     cmd.cwd(cwd);
 

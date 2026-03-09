@@ -2,6 +2,7 @@ mod commands;
 mod error;
 mod git;
 mod pty;
+mod shell_env;
 mod types;
 mod util;
 
@@ -190,6 +191,7 @@ fn hide_gtk_menu_bar(window: &tauri::WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tracing_subscriber::fmt::init();
+  shell_env::init();
 
   let mut builder = tauri::Builder::default()
     .manage(Mutex::new(AppRepoState::default()))
