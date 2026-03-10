@@ -11,10 +11,19 @@ import { FileFilter } from "./file-filter";
 import { MergeBanner } from "./merge-banner";
 import { ResourceGroupHeader, ResourceGroupBody } from "./resource-group";
 import { StashHeader, StashBody } from "./stash-view";
+import { SubReposHeader, SubReposBody, useSubRepos } from "./sub-repos-view";
 import { ScmToolbar } from "./scm-toolbar";
 import { ResizablePaneContainer, type PaneDefinition } from "./resizable-pane-container";
 import * as commands from "../../lib/tauri-commands";
 import "../../styles/scm.css";
+import "../../styles/repositories.css";
+
+const GROUP_RATIOS: Record<string, number> = {
+  merge: 1,
+  index: 0.8,
+  workingTree: 1,
+  untracked: 0.4,
+};
 
 interface ScmViewProps {
   onOpenRepository: () => void;
@@ -37,6 +46,7 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
   const isDark = colorScheme === "dark";
   useGitStatus();
   const { loadStashes, applyStash, popStash, dropStash } = useStash();
+  const { repos: subRepos } = useSubRepos();
 
   useEffect(() => {
     if (status) {
@@ -140,6 +150,7 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
 
       result.push({
         id: `group-${group.kind}`,
+        defaultRatio: GROUP_RATIOS[group.kind] ?? 1,
         header: (collapsed, onToggle) => (
           <ResourceGroupHeader
             collapsed={collapsed}
@@ -167,6 +178,7 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
     if (stashes.length > 0) {
       result.push({
         id: "stashes",
+        defaultRatio: 0.3,
         header: (collapsed, onToggle) => (
           <StashHeader collapsed={collapsed} onToggle={onToggle} count={stashes.length} />
         ),
@@ -176,8 +188,21 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
       });
     }
 
+    if (subRepos.length > 0 && status?.root) {
+      result.push({
+        id: "sub-repos",
+        defaultRatio: 0.3,
+        header: (collapsed, onToggle) => (
+          <SubReposHeader collapsed={collapsed} onToggle={onToggle} count={subRepos.length} />
+        ),
+        body: () => (
+          <SubReposBody repos={subRepos} repoRoot={status.root} />
+        ),
+      });
+    }
+
     return result;
-  }, [filteredGroups, groupOffsets, stashes, viewMode, focusedIndex, handleStageAll, handleUnstageAll, handleDiscardAll, applyStash, popStash, dropStash]);
+  }, [filteredGroups, groupOffsets, stashes, subRepos, status?.root, viewMode, focusedIndex, handleStageAll, handleUnstageAll, handleDiscardAll, applyStash, popStash, dropStash]);
 
   const hasFiles = status?.groups.some((g) => g.files.length > 0);
 

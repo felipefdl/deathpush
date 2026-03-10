@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use serde::Serialize;
 use tauri::{Emitter, State, WebviewWindow};
 
 use crate::commands::update_window_title;
@@ -127,4 +128,162 @@ pub fn scan_projects_directory(path: String, depth: u32) -> Result<Vec<ProjectIn
 
   projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
   Ok(projects)
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveredRepo {
+  pub path: String,
+  pub name: String,
+}
+
+#[tauri::command]
+pub fn discover_repositories(
+  state: State<'_, Mutex<AppRepoState>>,
+  window: WebviewWindow,
+) -> Result<Vec<DiscoveredRepo>> {
+  let label = window.label().to_string();
+  let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
+  let cli_root = win_state.cli_root.as_ref().ok_or(Error::NoRepository)?;
+
+  let mut repos = Vec::new();
+  let mut queue: VecDeque<PathBuf> = VecDeque::new();
+
+  // Seed with immediate children of the repo root (skip .git itself)
+  if let Ok(entries) = std::fs::read_dir(cli_root) {
+    for entry in entries.flatten() {
+      let p = entry.path();
+      if p.is_dir() {
+        let fname = entry.file_name();
+        let name = fname.to_string_lossy();
+        if name == ".git" {
+          continue;
+        }
+        queue.push_back(p);
+      }
+    }
+  }
+
+  // BFS: find nested directories that contain a `.git` (sub-repos)
+  while let Some(dir) = queue.pop_front() {
+    if dir.join(".git").exists() {
+      let rel = dir
+        .strip_prefix(cli_root)
+        .unwrap_or(&dir)
+        .to_string_lossy()
+        .to_string();
+      let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+      repos.push(DiscoveredRepo {
+        path: rel,
+        name,
+      });
+      // Don't recurse into sub-repos
+      continue;
+    }
+
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+      for entry in entries.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+          let fname = entry.file_name();
+          let name = fname.to_string_lossy();
+          // Skip .git dirs but allow other dot-prefixed dirs (they may be sub-repos)
+          if name == ".git" {
+            continue;
+          }
+          queue.push_back(p);
+        }
+      }
+    }
+  }
+
+  repos.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+  Ok(repos)
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeInfo {
+  pub path: String,
+  pub name: String,
+  pub branch: Option<String>,
+  pub is_main: bool,
+}
+
+#[tauri::command]
+pub fn detect_worktrees(
+  state: State<'_, Mutex<AppRepoState>>,
+  window: WebviewWindow,
+) -> Result<Vec<WorktreeInfo>> {
+  let label = window.label().to_string();
+  let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
+  let cli_root = win_state.cli_root.as_ref().ok_or(Error::NoRepository)?;
+
+  let repo = git2::Repository::open(cli_root)?;
+
+  let mut result = Vec::new();
+
+  // Main worktree
+  if let Some(workdir) = repo.workdir() {
+    let name = workdir
+      .file_name()
+      .map(|n| n.to_string_lossy().to_string())
+      .unwrap_or_default();
+    let branch = repo
+      .head()
+      .ok()
+      .and_then(|h| if h.is_branch() { h.shorthand().map(|s| s.to_string()) } else { None });
+    result.push(WorktreeInfo {
+      path: workdir.to_string_lossy().to_string(),
+      name,
+      branch,
+      is_main: true,
+    });
+  }
+
+  // Linked worktrees
+  if let Ok(worktrees) = repo.worktrees() {
+    let mut linked: Vec<WorktreeInfo> = Vec::new();
+    for wt_name in worktrees.iter().flatten() {
+      if let Ok(wt) = repo.find_worktree(wt_name) {
+        let wt_path = wt.path().to_path_buf();
+        let branch = git2::Repository::open(&wt_path)
+          .ok()
+          .and_then(|r| {
+            r.head()
+              .ok()
+              .and_then(|h| if h.is_branch() { h.shorthand().map(|s| s.to_string()) } else { None })
+          });
+        let name = wt_path
+          .file_name()
+          .map(|n| n.to_string_lossy().to_string())
+          .unwrap_or_else(|| wt_name.to_string());
+        linked.push(WorktreeInfo {
+          path: wt_path.to_string_lossy().to_string(),
+          name,
+          branch,
+          is_main: false,
+        });
+      }
+    }
+    linked.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    result.extend(linked);
+  }
+
+  Ok(result)
+}
+
+#[tauri::command]
+pub fn get_repo_branch(path: String) -> Result<Option<String>> {
+  let repo = git2::Repository::discover(&path)?;
+  let branch = repo
+    .head()
+    .ok()
+    .and_then(|h| if h.is_branch() { h.shorthand().map(|s| s.to_string()) } else { None });
+  Ok(branch)
 }

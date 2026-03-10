@@ -4,6 +4,7 @@ import { useLayoutStore } from "../../stores/layout-store";
 
 interface PaneDefinition {
   id: string;
+  defaultRatio?: number;
   header: (collapsed: boolean, onToggle: () => void) => ReactNode;
   body: () => ReactNode;
 }
@@ -45,7 +46,7 @@ export const ResizablePaneContainer = ({ panes }: { panes: PaneDefinition[] }) =
         if (prev[pane.id]) {
           next[pane.id] = prev[pane.id];
         } else {
-          next[pane.id] = { heightRatio: 1 };
+          next[pane.id] = { heightRatio: pane.defaultRatio ?? 1 };
           hasNew = true;
         }
       }

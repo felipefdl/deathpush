@@ -207,8 +207,8 @@ export const getFileLog = (path: string, skip: number, limit: number): Promise<C
 export const getLastCommitInfo = (): Promise<LastCommitInfo> =>
   invoke("get_last_commit_info");
 
-export const newWindow = (): Promise<void> =>
-  invoke("new_window");
+export const newWindow = (path?: string): Promise<void> =>
+  invoke("new_window", { path: path ?? null });
 
 export interface ProjectInfo {
   path: string;
@@ -220,6 +220,27 @@ export const getInitialPath = (): Promise<string | null> =>
 
 export const scanProjectsDirectory = (path: string, depth: number): Promise<ProjectInfo[]> =>
   invoke("scan_projects_directory", { path, depth });
+
+export interface DiscoveredRepo {
+  path: string;
+  name: string;
+}
+
+export interface WorktreeInfo {
+  path: string;
+  name: string;
+  branch: string | null;
+  isMain: boolean;
+}
+
+export const discoverRepositories = (): Promise<DiscoveredRepo[]> =>
+  invoke("discover_repositories");
+
+export const detectWorktrees = (): Promise<WorktreeInfo[]> =>
+  invoke("detect_worktrees");
+
+export const getRepoBranch = (path: string): Promise<string | null> =>
+  invoke("get_repo_branch", { path });
 
 export interface CliInstallStatus {
   installed: boolean;

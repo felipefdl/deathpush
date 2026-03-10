@@ -72,8 +72,15 @@ fn create_window(app_handle: &AppHandle) -> Result<tauri::WebviewWindow, tauri::
 }
 
 #[tauri::command]
-fn new_window(app: AppHandle) -> Result<(), error::Error> {
-  create_window(&app).map_err(|e| error::Error::Other(e.to_string()))?;
+fn new_window(app: AppHandle, path: Option<String>) -> Result<(), error::Error> {
+  let window = create_window(&app).map_err(|e| error::Error::Other(e.to_string()))?;
+  if let Some(p) = path {
+    if let Some(state) = app.try_state::<CliPaths>() {
+      if let Ok(mut map) = state.paths.lock() {
+        map.insert(window.label().to_string(), p);
+      }
+    }
+  }
   Ok(())
 }
 
@@ -584,6 +591,9 @@ pub fn run() {
       repository::open_repository,
       repository::get_initial_path,
       repository::scan_projects_directory,
+      repository::discover_repositories,
+      repository::detect_worktrees,
+      repository::get_repo_branch,
       status::get_status,
       status::get_file_diff,
       staging::stage_files,

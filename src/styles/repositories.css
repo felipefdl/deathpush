@@ -1,0 +1,36 @@
+.sub-repo-item {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 12px;
+  cursor: pointer;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.sub-repo-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.sub-repo-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.sub-repo-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.sub-repo-branch {
+  opacity: 0.6;
+  font-size: 12px;
+  flex-shrink: 0;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
