@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { useExplorerGitStatus } from "../../hooks/use-explorer-git-status";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { useExplorerStore } from "../../stores/explorer-store";
 import { useTauriEvent } from "../../hooks/use-tauri-event";
 import { ContextMenu, type ContextMenuItem } from "../scm/context-menu";
-import { ExplorerTree } from "./explorer-tree";
+import { ExplorerTree, GitDecorationContext } from "./explorer-tree";
 import type { ConflictResolution } from "../../lib/tauri-commands";
 import * as commands from "../../lib/tauri-commands";
 import "../../styles/explorer.css";
@@ -37,6 +38,7 @@ export const ExplorerView = ({ onOpenRepository }: ExplorerViewProps) => {
   const { clearCache, fileFilter, setFileFilter, setCreatingIn, clipboardEntry, setClipboardEntry } = useExplorerStore();
   const dropTarget = useExplorerStore((s) => s.dropTarget);
   const dragSource = useExplorerStore((s) => s.dragSource);
+  const gitDecoration = useExplorerGitStatus();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const handleRefresh = useCallback(() => {
@@ -206,7 +208,9 @@ export const ExplorerView = ({ onOpenRepository }: ExplorerViewProps) => {
         </div>
       </div>
       <div className={`explorer-tree${dragSource && dropTarget === "__root__" ? " root-drop-target" : ""}`} onContextMenu={handleTreeContextMenu}>
-        <ExplorerTree />
+        <GitDecorationContext.Provider value={gitDecoration}>
+          <ExplorerTree />
+        </GitDecorationContext.Provider>
       </div>
       {contextMenu && (
         <ContextMenu

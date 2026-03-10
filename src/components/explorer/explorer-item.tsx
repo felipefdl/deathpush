@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ask, confirm } from "@tauri-apps/plugin-dialog";
 import type { ExplorerEntry } from "../../lib/git-types";
 import { getFileIconClasses } from "../../lib/icon-themes/get-icon-classes";
@@ -7,6 +7,7 @@ import { useExplorerStore } from "../../stores/explorer-store";
 import { useLayoutStore } from "../../stores/layout-store";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { ContextMenu, type ContextMenuItem } from "../scm/context-menu";
+import { GitDecorationContext } from "./explorer-tree";
 import * as commands from "../../lib/tauri-commands";
 
 const isAlreadyExistsError = (err: unknown): boolean =>
@@ -60,9 +61,12 @@ export const ExplorerItem = ({ entry, depth, onToggleDir, expanded }: ExplorerIt
   const expandDir = useExplorerStore((s) => s.expandDir);
   const clearCache = useExplorerStore((s) => s.clearCache);
   const setError = useRepositoryStore((s) => s.setError);
+  const { fileMap, dirMap } = useContext(GitDecorationContext);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const expandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const decoration = entry.isDirectory ? dirMap.get(entry.path) : fileMap.get(entry.path);
 
   const isSelected = !entry.isDirectory && selectedPath === entry.path;
   const isRenaming = renamingPath === entry.path;
@@ -456,7 +460,14 @@ export const ExplorerItem = ({ entry, depth, onToggleDir, expanded }: ExplorerIt
             spellCheck={false}
           />
         ) : (
-          <span className="explorer-item-name">{entry.name}</span>
+          <span className="explorer-item-name" style={decoration ? { color: decoration.color } : undefined}>
+            {entry.name}
+          </span>
+        )}
+        {decoration && !isRenaming && (
+          <span className="explorer-item-status" style={{ color: decoration.color }}>
+            {decoration.label}
+          </span>
         )}
         {!entry.isDirectory && !isRenaming && (
           <div className="explorer-item-actions">

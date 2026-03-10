@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { createContext, useCallback, useEffect, useMemo, useRef } from "react";
+import type { GitDecorationMaps } from "../../hooks/use-explorer-git-status";
 import { useExplorerStore } from "../../stores/explorer-store";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { ExplorerItem } from "./explorer-item";
 import * as commands from "../../lib/tauri-commands";
+
+const EMPTY_MAPS: GitDecorationMaps = {
+  fileMap: new Map(),
+  dirMap: new Map(),
+};
+
+export const GitDecorationContext = createContext<GitDecorationMaps>(EMPTY_MAPS);
 
 interface ExplorerTreeProps {
   path: string | null;
