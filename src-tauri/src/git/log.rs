@@ -193,3 +193,41 @@ fn read_blob_from_tree_base64(repo: &git2::Repository, tree: &git2::Tree, path: 
   let blob = repo.find_blob(entry.id()).ok()?;
   Some(blob_to_data_uri(blob.content(), path))
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_avatar_url_github_noreply_with_id() {
+    let url = compute_avatar_url("12345+user@users.noreply.github.com");
+    assert_eq!(url, "https://github.com/user.png?size=48");
+  }
+
+  #[test]
+  fn test_avatar_url_github_noreply_without_id() {
+    let url = compute_avatar_url("user@users.noreply.github.com");
+    assert_eq!(url, "https://github.com/user.png?size=48");
+  }
+
+  #[test]
+  fn test_avatar_url_regular_email() {
+    let url = compute_avatar_url("test@example.com");
+    let expected_hash = md5::compute(b"test@example.com");
+    assert_eq!(url, format!("https://www.gravatar.com/avatar/{expected_hash:x}?s=48&d=404"));
+  }
+
+  #[test]
+  fn test_avatar_url_case_insensitive() {
+    let url_upper = compute_avatar_url("Test@Example.COM");
+    let url_lower = compute_avatar_url("test@example.com");
+    assert_eq!(url_upper, url_lower);
+  }
+
+  #[test]
+  fn test_avatar_url_trims_whitespace() {
+    let url_padded = compute_avatar_url("  test@example.com  ");
+    let url_clean = compute_avatar_url("test@example.com");
+    assert_eq!(url_padded, url_clean);
+  }
+}

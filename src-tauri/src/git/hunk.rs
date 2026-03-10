@@ -411,4 +411,119 @@ diff --git a/file.rs b/file.rs
     let result = generate_hunk_patch("file.rs", diff, 5);
     assert!(result.is_err());
   }
+
+  // --- generate_lines_patch tests ---
+
+  const LINES_PATCH_DIFF: &str = "\
+diff --git a/file.txt b/file.txt
+--- a/file.txt
++++ b/file.txt
+@@ -1,5 +1,6 @@
+ context1
+-removed1
+-removed2
++added1
++added2
++added3
+ context2
+";
+
+  #[test]
+  fn test_generate_lines_patch_select_all() {
+    let patch = generate_lines_patch("file.txt", LINES_PATCH_DIFF, 0, 0, 6).unwrap();
+    assert!(patch.contains("-removed1\n"));
+    assert!(patch.contains("-removed2\n"));
+    assert!(patch.contains("+added1\n"));
+    assert!(patch.contains("+added2\n"));
+    assert!(patch.contains("+added3\n"));
+    assert!(patch.contains(" context1\n"));
+    assert!(patch.contains(" context2\n"));
+  }
+
+  #[test]
+  fn test_generate_lines_patch_select_single_add() {
+    // Select only line 3 (added1); other adds omitted, removes become context
+    let patch = generate_lines_patch("file.txt", LINES_PATCH_DIFF, 0, 3, 3).unwrap();
+    assert!(patch.contains("+added1\n"));
+    assert!(!patch.contains("+added2"));
+    assert!(!patch.contains("+added3"));
+    // Out-of-range removes become context
+    assert!(patch.contains(" removed1\n"));
+    assert!(patch.contains(" removed2\n"));
+  }
+
+  #[test]
+  fn test_generate_lines_patch_select_single_remove() {
+    // Select only line 1 (removed1); other removes become context, adds omitted
+    let patch = generate_lines_patch("file.txt", LINES_PATCH_DIFF, 0, 1, 1).unwrap();
+    assert!(patch.contains("-removed1\n"));
+    assert!(patch.contains(" removed2\n")); // out-of-range remove -> context
+    assert!(!patch.contains("+added1"));
+    assert!(!patch.contains("+added2"));
+    assert!(!patch.contains("+added3"));
+  }
+
+  #[test]
+  fn test_generate_lines_patch_out_of_range_adds_omitted() {
+    // Select only removes (lines 1-2); all adds should be omitted entirely
+    let patch = generate_lines_patch("file.txt", LINES_PATCH_DIFF, 0, 1, 2).unwrap();
+    assert!(patch.contains("-removed1\n"));
+    assert!(patch.contains("-removed2\n"));
+    assert!(!patch.contains("+added1"));
+    assert!(!patch.contains("+added2"));
+    assert!(!patch.contains("+added3"));
+  }
+
+  #[test]
+  fn test_generate_lines_patch_out_of_range_removes_become_context() {
+    // Select only adds (lines 3-5); removes should become context (space prefix)
+    let patch = generate_lines_patch("file.txt", LINES_PATCH_DIFF, 0, 3, 5).unwrap();
+    assert!(patch.contains(" removed1\n"));
+    assert!(patch.contains(" removed2\n"));
+    assert!(!patch.contains("-removed1"));
+    assert!(!patch.contains("-removed2"));
+  }
+
+  #[test]
+  fn test_generate_lines_patch_context_lines_unchanged() {
+    // Select only the middle (lines 2-4); context lines still pass through
+    let patch = generate_lines_patch("file.txt", LINES_PATCH_DIFF, 0, 2, 4).unwrap();
+    assert!(patch.contains(" context1\n"));
+    assert!(patch.contains(" context2\n"));
+  }
+
+  #[test]
+  fn test_generate_lines_patch_header_counts() {
+    // Select single add (line 3): old_count = 2 context + 2 removes-as-context = 4, new_count = 4 + 1 add = 5
+    let patch = generate_lines_patch("file.txt", LINES_PATCH_DIFF, 0, 3, 3).unwrap();
+    assert!(patch.contains("@@ -1,4 +1,5 @@"));
+
+    // Select single remove (line 1): old_count = 2 context + 1 remove + 1 remove-as-context = 4, new_count = 2 + 1 = 3
+    let patch = generate_lines_patch("file.txt", LINES_PATCH_DIFF, 0, 1, 1).unwrap();
+    assert!(patch.contains("@@ -1,4 +1,3 @@"));
+  }
+
+  #[test]
+  fn test_generate_lines_patch_synthesizes_header() {
+    let diff_no_header = "\
+@@ -1,5 +1,6 @@
+ context1
+-removed1
+-removed2
++added1
++added2
++added3
+ context2
+";
+    let patch = generate_lines_patch("my/file.txt", diff_no_header, 0, 0, 6).unwrap();
+    assert!(patch.contains("diff --git a/my/file.txt b/my/file.txt"));
+    assert!(patch.contains("--- a/my/file.txt"));
+    assert!(patch.contains("+++ b/my/file.txt"));
+  }
+
+  #[test]
+  fn test_generate_lines_patch_invalid_hunk_index() {
+    let result = generate_lines_patch("file.txt", LINES_PATCH_DIFF, 5, 0, 6);
+    assert!(result.is_err());
+  }
 }
