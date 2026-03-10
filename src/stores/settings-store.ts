@@ -46,6 +46,7 @@ export interface TerminalSettings {
   // Non-xterm
   shellPath: string;
   bellStyle: "off" | "sound" | "visual" | "both";
+  colorSaturation: number;
 }
 
 export interface GitSettings {
@@ -136,6 +137,7 @@ const DEFAULTS: AppSettings = {
     rescaleOverlappingGlyphs: false,
     shellPath: "",
     bellStyle: "off",
+    colorSaturation: 1.42,
   },
   git: {
     blame: true,

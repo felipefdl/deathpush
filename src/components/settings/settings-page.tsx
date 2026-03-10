@@ -327,6 +327,14 @@ const TerminalSection = ({
       checked={settings.rescaleOverlappingGlyphs}
       onChange={(v) => onUpdate({ rescaleOverlappingGlyphs: v })}
     />
+    <NumberField
+      label="Color Saturation"
+      value={settings.colorSaturation}
+      onChange={(v) => onUpdate({ colorSaturation: v })}
+      min={0.5}
+      max={2}
+      step={0.05}
+    />
 
     <div className="settings-subsection-title">Shell</div>
     <ShellPathField value={settings.shellPath} onChange={(v) => onUpdate({ shellPath: v })} />

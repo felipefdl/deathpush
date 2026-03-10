@@ -135,6 +135,17 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
           webglAddon.dispose();
         });
         term.loadAddon(webglAddon);
+
+        // Match native terminal color rendering on P3 displays.
+        // WebKit applies sRGB->P3 color management to WebGL canvases by default,
+        // which desaturates colors compared to native apps like Ghostty.
+        const webglCanvas = container.querySelector(".xterm-screen canvas");
+        if (webglCanvas) {
+          const gl = (webglCanvas as HTMLCanvasElement).getContext("webgl2");
+          if (gl && "drawingBufferColorSpace" in gl) {
+            (gl as WebGL2RenderingContext).drawingBufferColorSpace = "display-p3";
+          }
+        }
       } catch {
         // WebGL not available, fall back to canvas renderer
       }
@@ -337,6 +348,10 @@ export const TerminalInstance = ({ paneId, isActive }: TerminalInstanceProps) =>
     term.options.tabStopWidth = terminalSettings.tabStopWidth;
     term.options.scrollOnUserInput = terminalSettings.scrollOnUserInput;
     term.options.rescaleOverlappingGlyphs = terminalSettings.rescaleOverlappingGlyphs;
+    if (containerRef.current) {
+      const sat = terminalSettings.colorSaturation;
+      containerRef.current.style.filter = sat !== 1 ? `saturate(${sat})` : "";
+    }
     fitAddonRef.current?.fit();
     term.refresh(0, term.rows - 1);
   }, [terminalSettings]);

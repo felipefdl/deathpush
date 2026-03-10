@@ -47,6 +47,7 @@ const DEFAULTS = {
     rescaleOverlappingGlyphs: false,
     shellPath: "",
     bellStyle: "off" as const,
+    colorSaturation: 1.42,
   },
   git: { blame: true },
   projects: { workspaces: [] },

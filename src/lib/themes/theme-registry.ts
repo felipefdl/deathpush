@@ -129,7 +129,9 @@ export const resolveTheme = (entry: ThemeEntry, json: VscodeThemeJson): Resolved
   const defaults = getDefaults(entry.uiTheme);
   const mergedColors = { ...defaults, ...colors };
 
-  // Force terminal background to match editor background
+  // Intentional: force terminal background to match editor background so the UI feels unified.
+  // Do NOT restore terminal.background -- themes often define a darker terminal bg that clashes
+  // with the editor area. The CSS fallback chain handles this correctly via --vscode-editor-background.
   delete mergedColors["terminal.background"];
 
   return {
