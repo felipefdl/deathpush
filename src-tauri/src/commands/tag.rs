@@ -81,3 +81,20 @@ pub async fn push_tag(
   cli.push_tag(&remote, &tag).await?;
   Ok(())
 }
+
+#[tauri::command]
+pub async fn delete_remote_tag(
+  remote: String,
+  name: String,
+  state: State<'_, Mutex<AppRepoState>>,
+  window: WebviewWindow,
+) -> Result<()> {
+  let root = {
+    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
+  };
+  let cli = GitCli::new(&root);
+  cli.delete_remote_tag(&remote, &name).await?;
+  Ok(())
+}

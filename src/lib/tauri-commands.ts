@@ -132,11 +132,20 @@ export const stageHunk = (path: string, hunkIndex: number, staged: boolean): Pro
 export const cloneRepository = (url: string, path: string): Promise<RepositoryStatus> =>
   invoke("clone_repository", { url, path });
 
+export const initRepository = (path: string): Promise<RepositoryStatus> =>
+  invoke("init_repository", { path });
+
+export const mergeBranch = (name: string): Promise<RepositoryStatus> =>
+  invoke("merge_branch", { name });
+
 export const mergeContinue = (): Promise<RepositoryStatus> =>
   invoke("merge_continue");
 
 export const mergeAbort = (): Promise<RepositoryStatus> =>
   invoke("merge_abort");
+
+export const rebaseBranch = (name: string): Promise<RepositoryStatus> =>
+  invoke("rebase_branch", { name });
 
 export const rebaseContinue = (): Promise<RepositoryStatus> =>
   invoke("rebase_continue");
@@ -152,6 +161,36 @@ export const cherryPick = (commitId: string): Promise<RepositoryStatus> =>
 
 export const resetToCommit = (id: string, mode: string): Promise<RepositoryStatus> =>
   invoke("reset_to_commit", { id, mode });
+
+export const renameBranch = (oldName: string, newName: string): Promise<RepositoryStatus> =>
+  invoke("rename_branch", { oldName, newName });
+
+export const deleteRemoteBranch = (remote: string, name: string): Promise<void> =>
+  invoke("delete_remote_branch", { remote, name });
+
+export const deleteRemoteTag = (remote: string, name: string): Promise<void> =>
+  invoke("delete_remote_tag", { remote, name });
+
+export const stashSaveIncludeUntracked = (message?: string): Promise<RepositoryStatus> =>
+  invoke("stash_save_include_untracked", { message: message ?? null });
+
+export const stashSaveStaged = (message?: string): Promise<RepositoryStatus> =>
+  invoke("stash_save_staged", { message: message ?? null });
+
+export const stashShow = (index: number): Promise<FileDiffWithHunks> =>
+  invoke("stash_show", { index });
+
+export const discardHunk = (path: string, hunkIndex: number): Promise<RepositoryStatus> =>
+  invoke("discard_hunk", { path, hunkIndex });
+
+export const stageLines = (
+  path: string,
+  hunkIndex: number,
+  lineStart: number,
+  lineEnd: number,
+  staged: boolean,
+): Promise<RepositoryStatus> =>
+  invoke("stage_lines", { path, hunkIndex, lineStart, lineEnd, staged });
 
 export const getGitConfig = (key: string): Promise<string> =>
   invoke("get_git_config", { key });

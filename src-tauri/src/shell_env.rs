@@ -56,10 +56,7 @@ fn resolve_shell_env() -> std::result::Result<HashMap<String, String>, String> {
     .map_err(|e| format!("failed to spawn shell '{shell}': {e}"))?;
 
   if !output.status.success() {
-    return Err(format!(
-      "shell '{shell}' exited with status {}",
-      output.status
-    ));
+    return Err(format!("shell '{shell}' exited with status {}", output.status));
   }
 
   let env: HashMap<String, String> = output
@@ -77,10 +74,7 @@ fn resolve_shell_env() -> std::result::Result<HashMap<String, String>, String> {
     .collect();
 
   if env.len() < 5 {
-    return Err(format!(
-      "resolved only {} variables, expected at least 5",
-      env.len()
-    ));
+    return Err(format!("resolved only {} variables, expected at least 5", env.len()));
   }
 
   Ok(env)
@@ -88,13 +82,6 @@ fn resolve_shell_env() -> std::result::Result<HashMap<String, String>, String> {
 
 #[cfg(not(windows))]
 fn is_sanitized_prefix(key: &str) -> bool {
-  const PREFIXES: &[&str] = &[
-    "TAURI_",
-    "__TAURI_",
-    "WEBKIT_",
-    "GDK_",
-    "ELECTRON_",
-    "VSCODE_",
-  ];
+  const PREFIXES: &[&str] = &["TAURI_", "__TAURI_", "WEBKIT_", "GDK_", "ELECTRON_", "VSCODE_"];
   PREFIXES.iter().any(|prefix| key.starts_with(prefix))
 }

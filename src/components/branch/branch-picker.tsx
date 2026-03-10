@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { useBranches } from "../../hooks/use-branches";
 import { useTags } from "../../hooks/use-tags";
@@ -12,10 +13,22 @@ interface BranchPickerProps {
 export const BranchPicker = ({ onClose }: BranchPickerProps) => {
   const [search, setSearch] = useState("");
   const [tagsExpanded, setTagsExpanded] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const { branches, tags } = useRepositoryStore();
-  const { loadBranches, switchBranch, createNewBranch } = useBranches();
-  const { loadTags, createTag, removeTag, pushTagToRemote } = useTags();
+  const {
+    loadBranches,
+    switchBranch,
+    createNewBranch,
+    renameBranch,
+    removeBranch,
+    removeRemoteBranch,
+    mergeBranch,
+    rebaseBranch,
+  } = useBranches();
+  const { loadTags, createTag, removeTag, pushTagToRemote, removeRemoteTag } = useTags();
   const inputRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -23,6 +36,13 @@ export const BranchPicker = ({ onClose }: BranchPickerProps) => {
     loadTags();
     inputRef.current?.focus();
   }, [loadBranches, loadTags]);
+
+  useEffect(() => {
+    if (renaming) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [renaming]);
 
   const filtered = branches.filter((b) =>
     b.name.toLowerCase().includes(search.toLowerCase()),
@@ -48,6 +68,57 @@ export const BranchPicker = ({ onClose }: BranchPickerProps) => {
     await createTag(search.trim());
     setSearch("");
   }, [search, createTag]);
+
+  const handleStartRename = useCallback((name: string) => {
+    setRenaming(name);
+    setRenameValue(name);
+  }, []);
+
+  const handleConfirmRename = useCallback(async () => {
+    if (!renaming || !renameValue.trim() || renameValue.trim() === renaming) {
+      setRenaming(null);
+      return;
+    }
+    await renameBranch(renaming, renameValue.trim());
+    setRenaming(null);
+  }, [renaming, renameValue, renameBranch]);
+
+  const handleDeleteBranch = useCallback(async (name: string, force: boolean) => {
+    const confirmed = await confirm(
+      `Are you sure you want to delete branch "${name}"?`,
+      { title: "Delete Branch", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" },
+    );
+    if (!confirmed) return;
+    await removeBranch(name, force);
+  }, [removeBranch]);
+
+  const handleDeleteRemoteBranch = useCallback(async (remote: string, name: string) => {
+    const confirmed = await confirm(
+      `Are you sure you want to delete remote branch "${remote}/${name}"?\n\nThis cannot be undone.`,
+      { title: "Delete Remote Branch", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" },
+    );
+    if (!confirmed) return;
+    await removeRemoteBranch(remote, name);
+  }, [removeRemoteBranch]);
+
+  const handleMerge = useCallback(async (name: string) => {
+    await mergeBranch(name);
+    onClose();
+  }, [mergeBranch, onClose]);
+
+  const handleRebase = useCallback(async (name: string) => {
+    await rebaseBranch(name);
+    onClose();
+  }, [rebaseBranch, onClose]);
+
+  const handleDeleteRemoteTag = useCallback(async (name: string) => {
+    const confirmed = await confirm(
+      `Are you sure you want to delete remote tag "${name}"?\n\nThis cannot be undone.`,
+      { title: "Delete Remote Tag", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" },
+    );
+    if (!confirmed) return;
+    await removeRemoteTag(name);
+  }, [removeRemoteTag]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -82,11 +153,33 @@ export const BranchPicker = ({ onClose }: BranchPickerProps) => {
         />
         <div className="branch-picker-list">
           {filtered.map((branch) => (
-            <BranchItem
-              key={branch.name}
-              branch={branch}
-              onSelect={() => handleSelect(branch.name)}
-            />
+            renaming === branch.name ? (
+              <div key={branch.name} className="branch-item branch-rename-row">
+                <span className="codicon codicon-edit" style={{ marginRight: 6, fontSize: 14 }} />
+                <input
+                  ref={renameInputRef}
+                  className="branch-rename-input"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleConfirmRename();
+                    if (e.key === "Escape") setRenaming(null);
+                  }}
+                  onBlur={handleConfirmRename}
+                />
+              </div>
+            ) : (
+              <BranchItem
+                key={branch.name}
+                branch={branch}
+                onSelect={() => handleSelect(branch.name)}
+                onRename={handleStartRename}
+                onDelete={handleDeleteBranch}
+                onDeleteRemote={handleDeleteRemoteBranch}
+                onMerge={handleMerge}
+                onRebase={handleRebase}
+              />
+            )
           ))}
           {search.trim() && !filtered.some((b) => b.name === search.trim()) && (
             <div className="branch-picker-create" onClick={handleCreate}>
@@ -109,6 +202,7 @@ export const BranchPicker = ({ onClose }: BranchPickerProps) => {
                   tag={tag}
                   onDelete={removeTag}
                   onPush={pushTagToRemote}
+                  onDeleteRemote={handleDeleteRemoteTag}
                 />
               ))}
               {search.trim() && !filteredTags.some((t) => t.name === search.trim()) && (

@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import type { StashEntry } from "../../lib/git-types";
+import { useState, useEffect, useCallback } from "react";
+import type { StashEntry, FileDiffWithHunks } from "../../lib/git-types";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { useStash } from "../../hooks/use-stash";
 import { StashEntryRow } from "./stash-entry";
@@ -25,19 +25,61 @@ interface StashBodyProps {
   onDrop: (index: number) => void;
 }
 
-export const StashBody = ({ stashes, onApply, onPop, onDrop }: StashBodyProps) => (
-  <div className="resource-group-body">
-    {stashes.map((entry) => (
-      <StashEntryRow
-        key={entry.index}
-        entry={entry}
-        onApply={onApply}
-        onPop={onPop}
-        onDrop={onDrop}
-      />
-    ))}
-  </div>
-);
+export const StashBody = ({ stashes, onApply, onPop, onDrop }: StashBodyProps) => {
+  const { showStash } = useStash();
+  const [expandedStash, setExpandedStash] = useState<number | null>(null);
+  const [stashDiff, setStashDiff] = useState<FileDiffWithHunks | null>(null);
+
+  const handleShow = useCallback(async (index: number) => {
+    if (expandedStash === index) {
+      setExpandedStash(null);
+      setStashDiff(null);
+      return;
+    }
+    const result = await showStash(index);
+    if (result) {
+      setStashDiff(result);
+      setExpandedStash(index);
+    }
+  }, [expandedStash, showStash]);
+
+  return (
+    <div className="resource-group-body">
+      {stashes.map((entry) => (
+        <div key={entry.index}>
+          <StashEntryRow
+            entry={entry}
+            onApply={onApply}
+            onPop={onPop}
+            onDrop={onDrop}
+            onShow={handleShow}
+          />
+          {expandedStash === entry.index && stashDiff && (
+            <div className="stash-diff-preview">
+              {stashDiff.hunks.map((hunk, i) => (
+                <div key={i} className="stash-diff-hunk">
+                  <div className="stash-diff-header">{hunk.header}</div>
+                  {hunk.lines.map((line, j) => (
+                    <div
+                      key={j}
+                      className={`stash-diff-line stash-diff-line-${line.lineType}`}
+                    >
+                      {line.lineType === "add" ? "+" : line.lineType === "remove" ? "-" : " "}
+                      {line.content}
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {stashDiff.hunks.length === 0 && (
+                <div className="stash-diff-empty">No diff available</div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
 
 export const StashView = () => {
   const [collapsed, setCollapsed] = useState(false);

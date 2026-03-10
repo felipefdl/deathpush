@@ -24,6 +24,26 @@ export const useStash = () => {
     }
   }, [setStatus, setError, loadStashes]);
 
+  const saveStashIncludeUntracked = useCallback(async (message?: string) => {
+    try {
+      const status = await commands.stashSaveIncludeUntracked(message);
+      setStatus(status);
+      await loadStashes();
+    } catch (err) {
+      setError(String(err));
+    }
+  }, [setStatus, setError, loadStashes]);
+
+  const saveStashStaged = useCallback(async (message?: string) => {
+    try {
+      const status = await commands.stashSaveStaged(message);
+      setStatus(status);
+      await loadStashes();
+    } catch (err) {
+      setError(String(err));
+    }
+  }, [setStatus, setError, loadStashes]);
+
   const applyStash = useCallback(async (index: number) => {
     try {
       const status = await commands.stashApply(index);
@@ -52,5 +72,23 @@ export const useStash = () => {
     }
   }, [setStashes, setError]);
 
-  return { loadStashes, saveStash, applyStash, popStash, dropStash };
+  const showStash = useCallback(async (index: number) => {
+    try {
+      return await commands.stashShow(index);
+    } catch (err) {
+      setError(String(err));
+      return null;
+    }
+  }, [setError]);
+
+  return {
+    loadStashes,
+    saveStash,
+    saveStashIncludeUntracked,
+    saveStashStaged,
+    applyStash,
+    popStash,
+    dropStash,
+    showStash,
+  };
 };

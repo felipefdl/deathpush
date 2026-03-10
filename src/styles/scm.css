@@ -39,6 +39,42 @@
   padding: 4px 0;
 }
 
+.overflow-menu-wide {
+  min-width: 260px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+}
+
+.overflow-menu-picker-header {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.overflow-menu-picker-input {
+  margin: 0 8px 4px;
+  padding: 4px 8px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  outline: none;
+}
+
+.overflow-menu-picker-input:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+.overflow-menu-picker-list {
+  overflow-y: auto;
+  max-height: 240px;
+}
+
 .scm-toolbar-button {
   display: flex;
   align-items: center;
@@ -830,4 +866,48 @@
 
 .resizable-pane-collapsed-area {
   flex-shrink: 0;
+}
+
+/* Stash diff preview */
+.stash-diff-preview {
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--vscode-editor-background);
+  border-top: 1px solid var(--vscode-panel-border);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.stash-diff-hunk {
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.stash-diff-header {
+  padding: 2px 8px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-diffEditor-unchangedRegionBackground, transparent);
+  font-size: 11px;
+}
+
+.stash-diff-line {
+  padding: 0 8px;
+  white-space: pre;
+}
+
+.stash-diff-line-add {
+  background: var(--vscode-diffEditor-insertedLineBackground);
+  color: var(--vscode-editor-foreground);
+}
+
+.stash-diff-line-remove {
+  background: var(--vscode-diffEditor-removedLineBackground);
+  color: var(--vscode-editor-foreground);
+}
+
+.stash-diff-empty {
+  padding: 8px;
+  color: var(--vscode-descriptionForeground);
+  text-align: center;
+  font-size: 12px;
 }

@@ -160,6 +160,87 @@ pub fn generate_hunk_patch(path: &str, diff_output: &str, hunk_index: usize) -> 
   Ok(patch)
 }
 
+pub fn generate_lines_patch(
+  path: &str,
+  diff_output: &str,
+  hunk_index: usize,
+  line_start: usize,
+  line_end: usize,
+) -> Result<String> {
+  let lines: Vec<&str> = diff_output.lines().collect();
+
+  // Extract file header lines (everything before the first @@)
+  let mut file_header: Vec<String> = Vec::new();
+  for line in &lines {
+    if line.starts_with("@@") {
+      break;
+    }
+    file_header.push(line.to_string());
+  }
+
+  let has_diff_header = file_header.iter().any(|l| l.starts_with("diff --git"));
+  if !has_diff_header {
+    file_header.insert(0, format!("diff --git a/{path} b/{path}"));
+    file_header.push(format!("--- a/{path}"));
+    file_header.push(format!("+++ b/{path}"));
+  }
+
+  let hunks = parse_unified_diff(diff_output);
+  let hunk = hunks
+    .get(hunk_index)
+    .ok_or_else(|| Error::Other(format!("Hunk index {} out of range", hunk_index)))?;
+
+  // Build a partial patch with only the selected lines
+  let mut old_count: usize = 0;
+  let mut new_count: usize = 0;
+  let mut patch_lines = Vec::new();
+
+  for (i, diff_line) in hunk.lines.iter().enumerate() {
+    let in_range = i >= line_start && i <= line_end;
+    match diff_line.line_type.as_str() {
+      "add" => {
+        if in_range {
+          patch_lines.push(format!("+{}", diff_line.content));
+          new_count += 1;
+        }
+        // Out-of-range additions are simply omitted
+      }
+      "remove" => {
+        if in_range {
+          patch_lines.push(format!("-{}", diff_line.content));
+          old_count += 1;
+        } else {
+          // Out-of-range removals become context
+          patch_lines.push(format!(" {}", diff_line.content));
+          old_count += 1;
+          new_count += 1;
+        }
+      }
+      _ => {
+        patch_lines.push(format!(" {}", diff_line.content));
+        old_count += 1;
+        new_count += 1;
+      }
+    }
+  }
+
+  let mut patch = String::new();
+  for line in &file_header {
+    patch.push_str(line);
+    patch.push('\n');
+  }
+  patch.push_str(&format!(
+    "@@ -{},{} +{},{} @@\n",
+    hunk.old_start, old_count, hunk.new_start, new_count
+  ));
+  for line in &patch_lines {
+    patch.push_str(line);
+    patch.push('\n');
+  }
+
+  Ok(patch)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

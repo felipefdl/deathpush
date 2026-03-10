@@ -660,6 +660,21 @@ body.vs .linux-title-btn:hover {
   align-items: center;
 }
 
+.branch-rename-row {
+  cursor: default;
+}
+
+.branch-rename-input {
+  flex: 1;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-size: 13px;
+  outline: none;
+}
+
 .tag-item {
   position: relative;
 }

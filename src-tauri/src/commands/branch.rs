@@ -84,3 +84,45 @@ pub async fn delete_branch(
   cli.delete_branch(&name, force).await?;
   Ok(())
 }
+
+#[tauri::command]
+pub async fn rename_branch(
+  old_name: String,
+  new_name: String,
+  state: State<'_, Mutex<AppRepoState>>,
+  window: WebviewWindow,
+) -> Result<RepositoryStatus> {
+  let (label, root) = {
+    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let label = window.label().to_string();
+    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
+    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+  };
+  let cli = GitCli::new(&root);
+  cli.rename_branch(&old_name, &new_name).await?;
+
+  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let win_state = guard.get_mut(&label);
+  let repo = GitRepository::open(&root)?;
+  let status = get_repository_status(&repo)?;
+  update_window_title(&window, &status);
+  win_state.repo = Some(repo);
+  Ok(status)
+}
+
+#[tauri::command]
+pub async fn delete_remote_branch(
+  remote: String,
+  name: String,
+  state: State<'_, Mutex<AppRepoState>>,
+  window: WebviewWindow,
+) -> Result<()> {
+  let root = {
+    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
+  };
+  let cli = GitCli::new(&root);
+  cli.delete_remote_branch(&remote, &name).await?;
+  Ok(())
+}

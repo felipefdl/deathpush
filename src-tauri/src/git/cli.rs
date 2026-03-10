@@ -295,6 +295,71 @@ impl GitCli {
     Ok(())
   }
 
+  pub async fn merge_branch(&self, name: &str) -> Result<()> {
+    self.run(&["merge", name]).await?;
+    Ok(())
+  }
+
+  pub async fn rebase_branch(&self, name: &str) -> Result<()> {
+    self.run(&["rebase", name]).await?;
+    Ok(())
+  }
+
+  pub async fn rename_branch(&self, old_name: &str, new_name: &str) -> Result<()> {
+    self.run(&["branch", "-m", old_name, new_name]).await?;
+    Ok(())
+  }
+
+  pub async fn delete_remote_branch(&self, remote: &str, name: &str) -> Result<()> {
+    self.run(&["push", remote, "--delete", name]).await?;
+    Ok(())
+  }
+
+  pub async fn delete_remote_tag(&self, remote: &str, name: &str) -> Result<()> {
+    self.run(&["push", remote, "--delete", name]).await?;
+    Ok(())
+  }
+
+  pub async fn stash_save_include_untracked(&self, message: Option<&str>) -> Result<()> {
+    match message {
+      Some(msg) => self.run(&["stash", "push", "--include-untracked", "-m", msg]).await?,
+      None => self.run(&["stash", "push", "--include-untracked"]).await?,
+    };
+    Ok(())
+  }
+
+  pub async fn stash_save_staged(&self, message: Option<&str>) -> Result<()> {
+    match message {
+      Some(msg) => self.run(&["stash", "push", "--staged", "-m", msg]).await?,
+      None => self.run(&["stash", "push", "--staged"]).await?,
+    };
+    Ok(())
+  }
+
+  pub async fn stash_show(&self, index: usize) -> Result<String> {
+    self
+      .run(&["stash", "show", "-p", &format!("stash@{{{}}}", index)])
+      .await
+  }
+
+  pub async fn init_repository(path: &std::path::Path) -> Result<()> {
+    let start = Instant::now();
+    let output = async_command("git")
+      .args(["init", &path.to_string_lossy()])
+      .output()
+      .await
+      .map_err(map_git_not_found)?;
+    emit_git_command(
+      &format!("init {}", path.to_string_lossy()),
+      start.elapsed().as_millis() as u64,
+    );
+    if !output.status.success() {
+      let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+      return Err(Error::GitCli(stderr));
+    }
+    Ok(())
+  }
+
   pub async fn get_unified_diff(&self, path: &str, staged: bool) -> Result<String> {
     if staged {
       self.run(&["diff", "--cached", "--", path]).await

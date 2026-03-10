@@ -110,6 +110,13 @@ export const CommitDetail = () => {
             </button>
             <button
               className="commit-copy-btn"
+              onClick={() => copyToClipboard(commit.message)}
+              title="Copy commit message"
+            >
+              <span className="codicon codicon-comment" />
+            </button>
+            <button
+              className="commit-copy-btn"
               onClick={() => copyToClipboard(commit.authorEmail)}
               title="Copy email"
             >

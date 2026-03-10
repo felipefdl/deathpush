@@ -10,10 +10,7 @@ use crate::git::status::get_repository_status;
 use crate::types::RepositoryStatus;
 use crate::util::async_command;
 
-fn get_repo_root(
-  state: &State<'_, Mutex<AppRepoState>>,
-  window: &WebviewWindow,
-) -> Result<std::path::PathBuf> {
+fn get_repo_root(state: &State<'_, Mutex<AppRepoState>>, window: &WebviewWindow) -> Result<std::path::PathBuf> {
   let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
   let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
   win_state.cli_root.clone().ok_or(Error::NoRepository)
@@ -81,11 +78,7 @@ fn generate_copy_name(dest_dir: &Path, original_name: &std::ffi::OsStr) -> std::
   }
 }
 
-fn resolve_dest_child(
-  dest: &Path,
-  name: &std::ffi::OsStr,
-  on_conflict: &str,
-) -> Result<std::path::PathBuf> {
+fn resolve_dest_child(dest: &Path, name: &std::ffi::OsStr, on_conflict: &str) -> Result<std::path::PathBuf> {
   let dest_child = dest.join(name);
   if !dest_child.exists() {
     return Ok(dest_child);
@@ -421,9 +414,7 @@ pub async fn duplicate_entry(
 ) -> Result<String> {
   let root = get_repo_root(&state, &window)?;
   let src = resolve_safe_path(&root, &path)?;
-  let parent = src
-    .parent()
-    .ok_or_else(|| Error::Other("Invalid path".into()))?;
+  let parent = src.parent().ok_or_else(|| Error::Other("Invalid path".into()))?;
   let stem = src
     .file_stem()
     .map(|s| s.to_string_lossy().to_string())

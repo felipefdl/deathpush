@@ -75,12 +75,10 @@ pub async fn list_directory(
   }
 
   // Sort: directories first, then files, both alphabetical (case-insensitive)
-  entries.sort_by(|a, b| {
-    match (a.is_directory, b.is_directory) {
-      (true, false) => std::cmp::Ordering::Less,
-      (false, true) => std::cmp::Ordering::Greater,
-      _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-    }
+  entries.sort_by(|a, b| match (a.is_directory, b.is_directory) {
+    (true, false) => std::cmp::Ordering::Less,
+    (false, true) => std::cmp::Ordering::Greater,
+    _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
   });
 
   Ok(entries)

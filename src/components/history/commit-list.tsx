@@ -99,13 +99,29 @@ export const CommitList = ({ onLoadMore, onSelectCommit }: CommitListProps) => {
     setContextMenu({ x: e.clientX, y: e.clientY, commitId });
   }, []);
 
-  const getContextMenuItems = (commitId: string): ContextMenuItem[] => [
-    { label: "Cherry-pick Commit", icon: "git-commit", action: () => handleCherryPick(commitId) },
-    { label: "", action: () => {}, separator: true },
-    { label: "Reset (Soft)", icon: "history", action: () => handleReset(commitId, "soft") },
-    { label: "Reset (Mixed)", icon: "history", action: () => handleReset(commitId, "mixed") },
-    { label: "Reset (Hard)", icon: "warning", action: () => handleReset(commitId, "hard") },
-  ];
+  const handleCopyCommitId = useCallback((commitId: string) => {
+    navigator.clipboard.writeText(commitId);
+  }, []);
+
+  const handleCopyCommitMessage = useCallback((commitId: string) => {
+    const entry = commitLog.find((e) => e.id === commitId);
+    if (entry) navigator.clipboard.writeText(entry.message);
+  }, [commitLog]);
+
+  const getContextMenuItems = (commitId: string): ContextMenuItem[] => {
+    const entry = commitLog.find((e) => e.id === commitId);
+    const shortId = entry?.shortId ?? commitId.slice(0, 7);
+    return [
+      { label: `Copy Commit ID (${shortId})`, icon: "copy", action: () => handleCopyCommitId(commitId) },
+      { label: "Copy Commit Message", icon: "copy", action: () => handleCopyCommitMessage(commitId) },
+      { label: "", action: () => {}, separator: true },
+      { label: "Cherry-pick Commit", icon: "git-commit", action: () => handleCherryPick(commitId) },
+      { label: "", action: () => {}, separator: true },
+      { label: "Reset (Soft)", icon: "history", action: () => handleReset(commitId, "soft") },
+      { label: "Reset (Mixed)", icon: "history", action: () => handleReset(commitId, "mixed") },
+      { label: "Reset (Hard)", icon: "warning", action: () => handleReset(commitId, "hard") },
+    ];
+  };
 
   if (commitLog.length === 0) {
     return (

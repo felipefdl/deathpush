@@ -40,5 +40,13 @@ export const useTags = () => {
     }
   }, [setError]);
 
-  return { loadTags, createTag, removeTag, pushTagToRemote };
+  const removeRemoteTag = useCallback(async (name: string, remote: string = "origin") => {
+    try {
+      await commands.deleteRemoteTag(remote, name);
+    } catch (err) {
+      setError(String(err));
+    }
+  }, [setError]);
+
+  return { loadTags, createTag, removeTag, pushTagToRemote, removeRemoteTag };
 };
