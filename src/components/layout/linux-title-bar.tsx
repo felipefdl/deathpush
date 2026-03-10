@@ -2,8 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { useRepositoryStore } from "../../stores/repository-store";
-
-const IS_LINUX = !navigator.userAgent.includes("Macintosh") && !navigator.userAgent.includes("Windows");
+import { IS_LINUX } from "../../lib/platform";
 
 interface MenuItem {
   type: "item" | "separator";

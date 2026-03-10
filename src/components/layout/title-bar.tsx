@@ -1,6 +1,5 @@
 import { useRepositoryStore } from "../../stores/repository-store";
-
-const IS_MACOS = navigator.userAgent.includes("Macintosh");
+import { IS_MACOS } from "../../lib/platform";
 
 export const TitleBar = () => {
   const { status } = useRepositoryStore();

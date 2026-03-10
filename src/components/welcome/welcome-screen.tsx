@@ -113,9 +113,9 @@ interface WelcomeScreenProps {
   onSelectProject: (path: string) => void;
 }
 
-const IS_MAC = navigator.platform.toUpperCase().includes("MAC");
-const IS_LINUX = !IS_MAC && !navigator.platform.toUpperCase().includes("WIN");
-const MOD_KEY = IS_MAC ? "\u2318" : "Ctrl+";
+import { IS_MACOS, IS_LINUX } from "../../lib/platform";
+
+const MOD_KEY = IS_MACOS ? "\u2318" : "Ctrl+";
 
 export const WelcomeScreen = ({ onOpenRepository, onCloneRepository, onSelectProject }: WelcomeScreenProps) => {
   const [recents, setRecents] = useState<RecentProject[]>([]);

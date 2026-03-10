@@ -28,6 +28,7 @@ import { useThemeStore } from "./stores/theme-store";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { toggleTerminal } from "./lib/toggle-terminal";
 import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from "./lib/themes/theme-registry";
+import { PLATFORM } from "./lib/platform";
 import "./styles/codicons.css";
 import "./styles/scm.css";
 import "./styles/history.css";
@@ -47,6 +48,10 @@ export const App = () => {
   const [initializing, setInitializing] = useState(true);
 
   useKeyboardShortcuts();
+
+  useEffect(() => {
+    document.documentElement.dataset.platform = PLATFORM;
+  }, []);
 
   useEffect(() => {
     const init = async () => {

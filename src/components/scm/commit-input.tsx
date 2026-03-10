@@ -2,8 +2,7 @@ import { useState, useCallback, useRef, useEffect, type KeyboardEvent } from "re
 import { useRepositoryStore } from "../../stores/repository-store";
 import * as commands from "../../lib/tauri-commands";
 import { Spinner } from "../ui/spinner";
-
-const IS_MAC = navigator.platform.toUpperCase().includes("MAC");
+import { IS_MACOS } from "../../lib/platform";
 
 export const CommitInput = () => {
   const [message, setMessage] = useState("");
@@ -141,7 +140,7 @@ export const CommitInput = () => {
     ? (hasStaged ? "Amend" : hasChanges ? "Amend All" : "Amend")
     : (hasStaged ? "Commit" : hasChanges ? "Commit All" : "Commit");
 
-  const placeholder = `Message (${IS_MAC ? "\u2318" : "Ctrl"}+Enter to commit on "${branch}")`;
+  const placeholder = `Message (${IS_MACOS ? "\u2318" : "Ctrl"}+Enter to commit on "${branch}")`;
 
   return (
     <div className="commit-section">

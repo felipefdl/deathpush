@@ -455,10 +455,11 @@ const SHELL_PRESETS: { value: string; label: string; platforms: string[] }[] = [
   { value: "C:\\Program Files\\Git\\bin\\bash.exe", label: "Git Bash", platforms: ["win"] },
 ];
 
+import { PLATFORM } from "../../lib/platform";
+
 const getPlatform = (): string => {
-  const p = navigator.platform.toUpperCase();
-  if (p.includes("MAC")) return "mac";
-  if (p.includes("WIN")) return "win";
+  if (PLATFORM === "macos") return "mac";
+  if (PLATFORM === "windows") return "win";
   return "linux";
 };
 

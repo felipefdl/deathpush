@@ -244,7 +244,7 @@ summary {
 
 /* Linux title bar */
 .linux-title-bar {
-  height: 36px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -273,7 +273,8 @@ summary {
 }
 
 .linux-title-text {
-  opacity: 0.8;
+  opacity: 0.9;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -283,13 +284,15 @@ summary {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: none;
+  border-radius: 50%;
   background: transparent;
   color: inherit;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 14px;
+  margin: 0 2px;
 }
 
 .linux-title-btn:hover {
@@ -315,16 +318,16 @@ body.vs .linux-title-btn:hover {
 
 .linux-menu-dropdown {
   position: absolute;
-  top: 36px;
+  top: 40px;
   left: 0;
   min-width: 260px;
-  max-height: calc(100vh - 72px);
+  max-height: calc(100vh - 80px);
   overflow-y: auto;
   color: var(--vscode-menu-foreground);
   border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
-  border-radius: var(--radius-lg);
+  border-radius: 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-  padding: 4px 0;
+  padding: 6px;
   z-index: 10000;
 }
 
@@ -333,8 +336,9 @@ body.vs .linux-title-btn:hover {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 6px 16px;
+  padding: 8px 16px;
   border: none;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -717,19 +721,22 @@ body.vs .linux-title-btn:hover {
   min-width: 180px;
   background: var(--vscode-sideBar-background);
   border: 1px solid var(--vscode-panel-border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-  padding: 4px 0;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
 }
 
 .context-menu-item {
   display: flex;
   align-items: center;
   height: 26px;
-  padding: 0 12px;
+  padding: 0 10px;
   cursor: pointer;
   font-size: 13px;
   color: var(--vscode-editor-foreground);
+  border-radius: var(--radius-sm);
 }
 
 .context-menu-item:hover {
@@ -891,4 +898,10 @@ body.vs .linux-title-btn:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Semi-transparent context menu for backdrop blur */
+[data-platform="macos"] .context-menu,
+[data-platform="windows"] .context-menu {
+  background: color-mix(in srgb, var(--vscode-sideBar-background) 80%, transparent);
 }
