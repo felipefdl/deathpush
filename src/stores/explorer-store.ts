@@ -28,6 +28,7 @@ interface ExplorerState {
   creatingIn: CreatingIn | null;
   dragSource: DragSource | null;
   dropTarget: string | null;
+  isFileDirty: boolean;
 
   setSelectedPath: (path: string | null) => void;
   setFileContent: (content: FileContent | null) => void;
@@ -40,6 +41,7 @@ interface ExplorerState {
   setCreatingIn: (state: CreatingIn | null) => void;
   setDragSource: (source: DragSource | null) => void;
   setDropTarget: (target: string | null) => void;
+  setIsFileDirty: (dirty: boolean) => void;
   clearCache: () => void;
 }
 
@@ -54,6 +56,7 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
   creatingIn: null,
   dragSource: null,
   dropTarget: null,
+  isFileDirty: false,
 
   setSelectedPath: (selectedPath) => set({ selectedPath }),
 
@@ -97,6 +100,8 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
 
   setDropTarget: (dropTarget) => set({ dropTarget }),
 
+  setIsFileDirty: (isFileDirty) => set({ isFileDirty }),
+
   clearCache: () =>
     set({
       selectedPath: null,
@@ -109,5 +114,6 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
       creatingIn: null,
       dragSource: null,
       dropTarget: null,
+      isFileDirty: false,
     }),
 }));

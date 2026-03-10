@@ -5,17 +5,26 @@ import { useSettingsStore } from "../../stores/settings-store";
 import { useThemeStore } from "../../stores/theme-store";
 import { useColorScheme } from "../../hooks/use-color-scheme";
 import * as commands from "../../lib/tauri-commands";
+import { writeFile } from "../../lib/tauri-commands";
 import { useRepositoryStore } from "../../stores/repository-store";
 
 export const FileViewer = () => {
   const fileContent = useExplorerStore((s) => s.fileContent);
   const selectedPath = useExplorerStore((s) => s.selectedPath);
+  const isFileDirty = useExplorerStore((s) => s.isFileDirty);
+  const setIsFileDirty = useExplorerStore((s) => s.setIsFileDirty);
   const { settings } = useSettingsStore();
   const { currentTheme } = useThemeStore();
   const setError = useRepositoryStore((s) => s.setError);
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const disposeRef = useRef<(() => void) | null>(null);
+  const knownContentRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    knownContentRef.current = fileContent?.content ?? null;
+    setIsFileDirty(false);
+  }, [fileContent, setIsFileDirty]);
 
   useEffect(() => {
     return () => {
@@ -25,6 +34,33 @@ export const FileViewer = () => {
 
   const handleMount: OnMount = useCallback((editor, monaco) => {
     if (disposeRef.current) disposeRef.current();
+
+    const contentDisposable = editor.onDidChangeModelContent(() => {
+      const current = editor.getValue();
+      if (current === knownContentRef.current) return;
+      setIsFileDirty(true);
+    });
+
+    const saveAction = editor.addAction({
+      id: "deathpush.save",
+      label: "Save File",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+      run: async () => {
+        const state = useExplorerStore.getState();
+        const path = state.selectedPath;
+        const content = state.fileContent;
+        if (!path || !content) return;
+        const newContent = editor.getValue();
+        try {
+          await writeFile(path, newContent);
+          knownContentRef.current = newContent;
+          useExplorerStore.getState().setFileContent({ ...content, content: newContent });
+          setIsFileDirty(false);
+        } catch (e) {
+          useRepositoryStore.getState().setError(String(e));
+        }
+      },
+    });
 
     const chordKT = monaco.KeyMod.chord(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK,
@@ -54,15 +90,15 @@ export const FileViewer = () => {
     });
 
     disposeRef.current = () => {
+      contentDisposable.dispose();
+      saveAction.dispose();
       themeAction.dispose();
       iconThemeAction.dispose();
     };
-  }, []);
+  }, [setIsFileDirty]);
 
   const editorOptions = useMemo(
     () => ({
-      readOnly: true,
-      domReadOnly: true,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
       fontSize: settings.editor.fontSize,
@@ -222,6 +258,7 @@ export const FileViewer = () => {
               {part}
             </span>
           ))}
+          {isFileDirty && <span className="diff-header-dirty"> *</span>}
         </span>
         <div className="diff-header-actions">
           <button className="scm-toolbar-button" onClick={handleRevealInFinder} title="Reveal in Finder">
