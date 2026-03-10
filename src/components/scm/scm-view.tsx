@@ -192,6 +192,7 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
       result.push({
         id: "sub-repos",
         defaultRatio: 0.3,
+        defaultCollapsed: true,
         header: (collapsed, onToggle) => (
           <SubReposHeader collapsed={collapsed} onToggle={onToggle} count={subRepos.length} />
         ),

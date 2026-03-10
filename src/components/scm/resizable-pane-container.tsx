@@ -5,6 +5,7 @@ import { useLayoutStore } from "../../stores/layout-store";
 interface PaneDefinition {
   id: string;
   defaultRatio?: number;
+  defaultCollapsed?: boolean;
   header: (collapsed: boolean, onToggle: () => void) => ReactNode;
   body: () => ReactNode;
 }
@@ -32,8 +33,19 @@ export const ResizablePaneContainer = ({ panes }: { panes: PaneDefinition[] }) =
     startRatioBelow: number;
   } | null>(null);
 
+  const seenPanesRef = useRef<Set<string>>(new Set());
   const isCollapsed = (id: string) => collapsedPanes.includes(id);
   const getRatio = (id: string) => paneRatios[id]?.heightRatio ?? 1;
+
+  // Auto-collapse panes with defaultCollapsed on first appearance
+  useEffect(() => {
+    for (const pane of panes) {
+      if (pane.defaultCollapsed && !seenPanesRef.current.has(pane.id) && !collapsedPanes.includes(pane.id)) {
+        togglePaneCollapsed(pane.id);
+      }
+      seenPanesRef.current.add(pane.id);
+    }
+  }, [panes, collapsedPanes, togglePaneCollapsed]);
 
   // Sync pane ratios when panes change
   useEffect(() => {

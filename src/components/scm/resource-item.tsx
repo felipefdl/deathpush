@@ -14,9 +14,10 @@ interface ResourceItemProps {
   file: FileEntry;
   groupKind: ResourceGroupKind;
   focused?: boolean;
+  treeDepth?: number;
 }
 
-export const ResourceItem = ({ file, groupKind, focused }: ResourceItemProps) => {
+export const ResourceItem = ({ file, groupKind, focused, treeDepth }: ResourceItemProps) => {
   const {
     selectedFile, setStatus, setError, selectedFiles, toggleFileSelection,
     clearFileSelection, startOperation, endOperation, isDiffDirty,
@@ -294,8 +295,12 @@ export const ResourceItem = ({ file, groupKind, focused }: ResourceItemProps) =>
         className={className}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        style={{ color }}
+        style={{
+          color,
+          ...(treeDepth !== undefined && { paddingLeft: 12 + (treeDepth + 1) * 12 }),
+        }}
       >
+        {treeDepth !== undefined && <span className="tree-indent-spacer" />}
         <span className={`resource-item-icon ${getFileIconClasses(file.path, "file")}`} />
         <span className={`resource-item-name${isDeleted ? " resource-item-deleted" : ""}`}>
           {fileName}

@@ -301,6 +301,12 @@
   transition: transform 0.1s ease;
 }
 
+.tree-indent-spacer {
+  width: 14px;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
 .resource-group-chevron.collapsed {
   transform: rotate(-90deg);
 }

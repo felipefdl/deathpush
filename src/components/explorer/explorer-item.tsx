@@ -443,8 +443,10 @@ export const ExplorerItem = ({ entry, depth, onToggleDir, expanded }: ExplorerIt
         onContextMenu={handleContextMenu}
         onMouseDown={handleMouseDown}
       >
-        {entry.isDirectory && (
+        {entry.isDirectory ? (
           <span className={`codicon codicon-chevron-down resource-group-chevron${expanded ? "" : " collapsed"}`} />
+        ) : (
+          <span className="tree-indent-spacer" />
         )}
         <span className={`resource-item-icon ${iconClasses}`} />
         {isRenaming ? (

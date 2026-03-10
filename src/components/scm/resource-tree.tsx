@@ -67,7 +67,7 @@ const TreeFolder = ({ node, groupKind, depth }: TreeFolderProps) => {
             <TreeFolder key={child.fullPath} node={child} groupKind={groupKind} depth={node.name ? depth + 1 : depth} />
           ))}
           {sortedFiles.map((file) => (
-            <ResourceItem key={file.path} file={file} groupKind={groupKind} />
+            <ResourceItem key={file.path} file={file} groupKind={groupKind} treeDepth={node.name ? depth + 1 : depth} />
           ))}
         </>
       )}
