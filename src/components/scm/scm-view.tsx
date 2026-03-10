@@ -1,5 +1,6 @@
 import { useMemo, useCallback, useEffect } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
+import type { FileEntry } from "../../lib/git-types";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { useLayoutStore } from "../../stores/layout-store";
 import { useColorScheme } from "../../hooks/use-color-scheme";
@@ -88,16 +89,39 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
     }
   }, [setStatus, setError, startOperation, endOperation]);
 
-  const handleDiscardAll = useCallback(async (paths: string[], count: number) => {
-    const confirmed = await confirm(
-      `Are you sure you want to discard all ${count} change(s)?\n\nThis action is irreversible.`,
-      { title: "Discard All Changes", kind: "warning", okLabel: "Discard All", cancelLabel: "Cancel" },
-    );
+  const handleDiscardAll = useCallback(async (files: FileEntry[]) => {
+    const trackedPaths = files.filter((f) => f.status !== "untracked").map((f) => f.path);
+    const untrackedPaths = files.filter((f) => f.status === "untracked").map((f) => f.path);
+
+    let msg: string;
+    let title: string;
+    let okLabel: string;
+    if (trackedPaths.length > 0 && untrackedPaths.length > 0) {
+      msg = `Are you sure you want to discard ${trackedPaths.length} change(s) and DELETE ${untrackedPaths.length} untracked file(s)?\n\nTracked changes are irreversible. Untracked files can be restored from the Trash.`;
+      title = "Discard All Changes";
+      okLabel = "Discard & Delete";
+    } else if (untrackedPaths.length > 0) {
+      msg = `Are you sure you want to DELETE ${untrackedPaths.length} untracked file(s)?\n\nYou can restore them from the Trash.`;
+      title = "Delete Untracked Files";
+      okLabel = "Move to Trash";
+    } else {
+      msg = `Are you sure you want to discard all ${trackedPaths.length} change(s)?\n\nThis action is irreversible.`;
+      title = "Discard All Changes";
+      okLabel = "Discard All";
+    }
+
+    const confirmed = await confirm(msg, { title, kind: "warning", okLabel, cancelLabel: "Cancel" });
     if (!confirmed) return;
     startOperation("discard");
     try {
-      const s = await commands.discardChanges(paths);
-      setStatus(s);
+      let s;
+      if (trackedPaths.length > 0) {
+        s = await commands.discardChanges(trackedPaths);
+      }
+      if (untrackedPaths.length > 0) {
+        s = await commands.deleteFiles(untrackedPaths);
+      }
+      if (s) setStatus(s);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -125,7 +149,7 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
             isIndex={isIndex}
             onStageAll={() => handleStageAll(paths)}
             onUnstageAll={handleUnstageAll}
-            onDiscardAll={() => handleDiscardAll(paths, files.length)}
+            onDiscardAll={() => handleDiscardAll(files)}
           />
         ),
         body: () => (

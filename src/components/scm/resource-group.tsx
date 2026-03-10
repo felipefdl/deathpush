@@ -119,16 +119,38 @@ export const ResourceGroupView = ({ group, filter, flatIndexOffset = 0 }: Resour
   }, [setStatus, setError, startOperation, endOperation]);
 
   const handleDiscardAll = useCallback(async () => {
-    const confirmed = await confirm(
-      `Are you sure you want to discard all ${filteredFiles.length} change(s)?\n\nThis action is irreversible.`,
-      { title: "Discard All Changes", kind: "warning", okLabel: "Discard All", cancelLabel: "Cancel" },
-    );
+    const trackedFiles = filteredFiles.filter((f) => f.status !== "untracked");
+    const untrackedFiles = filteredFiles.filter((f) => f.status === "untracked");
+
+    let msg: string;
+    let title: string;
+    let okLabel: string;
+    if (trackedFiles.length > 0 && untrackedFiles.length > 0) {
+      msg = `Are you sure you want to discard ${trackedFiles.length} change(s) and DELETE ${untrackedFiles.length} untracked file(s)?\n\nTracked changes are irreversible. Untracked files can be restored from the Trash.`;
+      title = "Discard All Changes";
+      okLabel = "Discard & Delete";
+    } else if (untrackedFiles.length > 0) {
+      msg = `Are you sure you want to DELETE ${untrackedFiles.length} untracked file(s)?\n\nYou can restore them from the Trash.`;
+      title = "Delete Untracked Files";
+      okLabel = "Move to Trash";
+    } else {
+      msg = `Are you sure you want to discard all ${trackedFiles.length} change(s)?\n\nThis action is irreversible.`;
+      title = "Discard All Changes";
+      okLabel = "Discard All";
+    }
+
+    const confirmed = await confirm(msg, { title, kind: "warning", okLabel, cancelLabel: "Cancel" });
     if (!confirmed) return;
     startOperation("discard");
     try {
-      const paths = filteredFiles.map((f) => f.path);
-      const status = await commands.discardChanges(paths);
-      setStatus(status);
+      let status;
+      if (trackedFiles.length > 0) {
+        status = await commands.discardChanges(trackedFiles.map((f) => f.path));
+      }
+      if (untrackedFiles.length > 0) {
+        status = await commands.deleteFiles(untrackedFiles.map((f) => f.path));
+      }
+      if (status) setStatus(status);
     } catch (err) {
       setError(String(err));
     } finally {

@@ -622,6 +622,7 @@ pub fn run() {
       file_ops::add_to_gitignore,
       file_ops::write_file,
       file_ops::delete_file,
+      file_ops::delete_files,
       file_ops::rename_entry,
       file_ops::create_directory,
       file_ops::copy_entries,

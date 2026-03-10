@@ -238,6 +238,40 @@ pub async fn delete_file(
 }
 
 #[tauri::command]
+pub async fn delete_files(
+  paths: Vec<String>,
+  state: State<'_, Mutex<AppRepoState>>,
+  window: WebviewWindow,
+) -> Result<RepositoryStatus> {
+  let (label, root) = {
+    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let label = window.label().to_string();
+    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
+    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+  };
+  let canon_root = root
+    .canonicalize()
+    .map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
+  for rel_path in &paths {
+    let full_path = root
+      .join(rel_path)
+      .canonicalize()
+      .map_err(|e| Error::Other(format!("Cannot resolve file path: {}", e)))?;
+    if !full_path.starts_with(&canon_root) {
+      return Err(Error::Other("Path traversal denied".into()));
+    }
+    trash::delete(&full_path).map_err(|e| Error::Other(e.to_string()))?;
+  }
+
+  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let win_state = guard.get_mut(&label);
+  let repo = GitRepository::open(&root)?;
+  let status = get_repository_status(&repo)?;
+  win_state.repo = Some(repo);
+  Ok(status)
+}
+
+#[tauri::command]
 pub async fn add_to_gitignore(
   pattern: String,
   state: State<'_, Mutex<AppRepoState>>,

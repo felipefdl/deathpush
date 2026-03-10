@@ -109,20 +109,57 @@ export const ResourceItem = ({ file, groupKind, focused }: ResourceItemProps) =>
       ? getSelectedPaths("unstaged")
       : [file.path];
     if (paths.length === 0) paths.push(file.path);
-    const msg = paths.length > 1
-      ? `Are you sure you want to discard changes in ${paths.length} file(s)?\n\nThis action is irreversible.`
-      : `Are you sure you want to discard changes in "${file.path.split("/").pop()}"?\n\nThis action is irreversible.`;
-    const confirmed = await confirm(msg, {
-      title: "Discard Changes",
-      kind: "warning",
-      okLabel: "Discard",
-      cancelLabel: "Cancel",
-    });
+
+    // Partition into tracked vs untracked
+    const groups = useRepositoryStore.getState().status?.groups ?? [];
+    const untrackedSet = new Set<string>();
+    for (const g of groups) {
+      if (g.kind === "untracked") {
+        for (const f of g.files) untrackedSet.add(f.path);
+      } else {
+        for (const f of g.files) {
+          if (f.status === "untracked") untrackedSet.add(f.path);
+        }
+      }
+    }
+    const trackedPaths = paths.filter((p) => !untrackedSet.has(p));
+    const untrackedPaths = paths.filter((p) => untrackedSet.has(p));
+
+    // Show appropriate dialog
+    let msg: string;
+    let title: string;
+    let okLabel: string;
+    if (trackedPaths.length > 0 && untrackedPaths.length > 0) {
+      msg = `Are you sure you want to discard changes in ${trackedPaths.length} tracked file(s) and DELETE ${untrackedPaths.length} untracked file(s)?\n\nTracked changes are irreversible. Untracked files can be restored from the Trash.`;
+      title = "Discard Changes";
+      okLabel = "Discard & Delete";
+    } else if (untrackedPaths.length > 0) {
+      const names = untrackedPaths.map((p) => p.split("/").pop()).join(", ");
+      msg = untrackedPaths.length === 1
+        ? `Are you sure you want to DELETE the following untracked file: '${names}'?\n\nYou can restore this file from the Trash.`
+        : `Are you sure you want to DELETE ${untrackedPaths.length} untracked file(s)?\n\nYou can restore them from the Trash.`;
+      title = "Delete Untracked File";
+      okLabel = "Move to Trash";
+    } else {
+      msg = paths.length > 1
+        ? `Are you sure you want to discard changes in ${paths.length} file(s)?\n\nThis action is irreversible.`
+        : `Are you sure you want to discard changes in "${file.path.split("/").pop()}"?\n\nThis action is irreversible.`;
+      title = "Discard Changes";
+      okLabel = "Discard";
+    }
+    const confirmed = await confirm(msg, { title, kind: "warning", okLabel, cancelLabel: "Cancel" });
     if (!confirmed) return;
+
     startOperation("discard");
     try {
-      const status = await commands.discardChanges(paths);
-      setStatus(status);
+      let status;
+      if (trackedPaths.length > 0) {
+        status = await commands.discardChanges(trackedPaths);
+      }
+      if (untrackedPaths.length > 0) {
+        status = await commands.deleteFiles(untrackedPaths);
+      }
+      if (status) setStatus(status);
       clearFileSelection();
     } catch (err) {
       setError(String(err));
@@ -217,7 +254,9 @@ export const ResourceItem = ({ file, groupKind, focused }: ResourceItemProps) =>
       { label: "", action: () => {}, separator: true },
       { label: "Stage Changes", icon: "add", action: () => handleStage() },
     ];
-    if (file.status !== "untracked") {
+    if (file.status === "untracked") {
+      items.push({ label: "Delete", icon: "trash", action: () => handleDiscard() });
+    } else {
       items.push({ label: "Discard Changes", icon: "discard", action: () => handleDiscard() });
     }
     items.push(
@@ -226,7 +265,7 @@ export const ResourceItem = ({ file, groupKind, focused }: ResourceItemProps) =>
       { label: "Copy Relative Path", icon: "copy", action: handleCopyRelativePath },
       { label: "Reveal in Finder", icon: "folder-opened", action: handleRevealInFinder },
     );
-    if (!isDeleted) {
+    if (!isDeleted && file.status !== "untracked") {
       items.push(
         { label: "", action: () => {}, separator: true },
         { label: "Move to Trash", icon: "trash", action: handleDeleteFile },
@@ -271,11 +310,9 @@ export const ResourceItem = ({ file, groupKind, focused }: ResourceItemProps) =>
             </button>
           ) : (
             <>
-              {file.status !== "untracked" && (
-                <button className="inline-action" onClick={(e) => handleDiscard(e)} title="Discard Changes">
-                  <span className="codicon codicon-discard" />
-                </button>
-              )}
+              <button className="inline-action" onClick={(e) => handleDiscard(e)} title={file.status === "untracked" ? "Delete" : "Discard Changes"}>
+                <span className={`codicon codicon-${file.status === "untracked" ? "trash" : "discard"}`} />
+              </button>
               <button className="inline-action" onClick={(e) => handleStage(e)} title="Stage Changes">
                 <span className="codicon codicon-add" />
               </button>

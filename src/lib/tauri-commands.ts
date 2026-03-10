@@ -111,6 +111,9 @@ export const writeFile = (path: string, content: string): Promise<void> =>
 export const deleteFile = (path: string): Promise<RepositoryStatus> =>
   invoke("delete_file", { path });
 
+export const deleteFiles = (paths: string[]): Promise<RepositoryStatus> =>
+  invoke("delete_files", { paths });
+
 export const openInEditor = (path: string): Promise<void> =>
   invoke("open_in_editor", { path });
 
