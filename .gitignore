@@ -32,6 +32,7 @@ npm-debug.log*
 
 # Playwright MCP
 .playwright-mcp/
+.superpowers/
 
 # Website
 website/node_modules/
