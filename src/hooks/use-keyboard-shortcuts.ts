@@ -153,6 +153,100 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
+      // Explorer shortcuts: only when explorer sidebar is active and focus is within explorer-view
+      const inExplorer =
+        useLayoutStore.getState().sidebarView === "explorer" &&
+        !isInput &&
+        !!document.activeElement?.closest(".explorer-view");
+
+      if (inExplorer) {
+        const explorer = useExplorerStore.getState();
+        const selectedPath = explorer.selectedPath;
+
+        // F2 or Enter: start rename
+        if ((e.key === "F2" || e.key === "Enter") && selectedPath) {
+          e.preventDefault();
+          explorer.setRenamingPath(selectedPath);
+          return;
+        }
+
+        // Delete / Cmd+Backspace: move to trash
+        if ((e.key === "Delete" || (isMod && e.key === "Backspace")) && selectedPath) {
+          e.preventDefault();
+          const fileName = selectedPath.split("/").pop() ?? selectedPath;
+          confirm(
+            `Are you sure you want to delete "${fileName}"?\n\nThis will move it to the trash.`,
+            { title: "Delete", kind: "warning", okLabel: "Move to Trash", cancelLabel: "Cancel" },
+          ).then((confirmed) => {
+            if (!confirmed) return;
+            commands.deleteFile(selectedPath).then((status) => {
+              setStatus(status);
+              explorer.setSelectedPath(null);
+              explorer.setFileContent(null);
+              explorer.clearCache();
+            }).catch((err) => setError(String(err)));
+          });
+          return;
+        }
+
+        // Cmd+C: copy
+        if (isMod && e.key === "c" && selectedPath) {
+          e.preventDefault();
+          // Determine if directory from cache
+          const rootEntries = explorer.directoryCache.get("__root__");
+          const findEntry = (entries: typeof rootEntries, path: string): boolean => {
+            if (!entries) return false;
+            for (const entry of entries) {
+              if (entry.path === path) return entry.isDirectory;
+              if (entry.isDirectory && path.startsWith(entry.path + "/")) {
+                const children = explorer.directoryCache.get(entry.path);
+                if (children) return findEntry(children, path);
+              }
+            }
+            return false;
+          };
+          const isDir = findEntry(rootEntries, selectedPath);
+          explorer.setClipboardEntry({ path: selectedPath, isDirectory: isDir, operation: "copy" });
+          return;
+        }
+
+        // Cmd+X: cut
+        if (isMod && e.key === "x" && selectedPath) {
+          e.preventDefault();
+          const rootEntries = explorer.directoryCache.get("__root__");
+          const findEntry = (entries: typeof rootEntries, path: string): boolean => {
+            if (!entries) return false;
+            for (const entry of entries) {
+              if (entry.path === path) return entry.isDirectory;
+              if (entry.isDirectory && path.startsWith(entry.path + "/")) {
+                const children = explorer.directoryCache.get(entry.path);
+                if (children) return findEntry(children, path);
+              }
+            }
+            return false;
+          };
+          const isDir = findEntry(rootEntries, selectedPath);
+          explorer.setClipboardEntry({ path: selectedPath, isDirectory: isDir, operation: "cut" });
+          return;
+        }
+
+        // Cmd+V: paste
+        if (isMod && e.key === "v" && explorer.clipboardEntry) {
+          e.preventDefault();
+          const clip = explorer.clipboardEntry;
+          // Paste into selected folder, or root
+          const targetDir = selectedPath ?? "";
+          const pasteOp = clip.operation === "copy"
+            ? commands.copyEntries([clip.path], targetDir)
+            : commands.moveEntries([clip.path], targetDir);
+          pasteOp.then(() => {
+            if (clip.operation === "cut") explorer.setClipboardEntry(null);
+            explorer.clearCache();
+          }).catch((err) => setError(String(err)));
+          return;
+        }
+      }
+
       // Skip navigation keys when focus is in an input
       if (isInput) return;
 

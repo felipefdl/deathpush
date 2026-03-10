@@ -179,6 +179,64 @@
   opacity: 1;
 }
 
+/* Inline rename input */
+.explorer-item-rename-input {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: 2px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: 13px;
+  outline: none;
+}
+
+/* Ghost row for new file/folder */
+.explorer-create-row {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding-right: 8px;
+  font-size: 13px;
+}
+
+/* Drag source */
+.explorer-item.dragging {
+  opacity: 0.4;
+}
+
+/* Prevent text selection and set grab cursor during drag */
+.explorer-tree:has(.explorer-item.dragging) {
+  user-select: none;
+  cursor: grabbing;
+}
+
+.explorer-tree:has(.explorer-item.dragging) .explorer-item {
+  cursor: grabbing;
+}
+
+/* Drop target */
+.explorer-item.drop-target {
+  background: var(--vscode-list-dropBackground, rgba(255, 255, 255, 0.06));
+  outline: 1px dashed var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* Root drop target (empty area of tree) */
+.explorer-tree.root-drop-target {
+  outline: 1px dashed var(--vscode-focusBorder);
+  outline-offset: -1px;
+  background: var(--vscode-list-dropBackground, rgba(255, 255, 255, 0.06));
+}
+
+/* Cut visual */
+.explorer-item.cut {
+  opacity: 0.5;
+}
+
 /* File viewer header */
 .file-viewer-header {
   display: flex;

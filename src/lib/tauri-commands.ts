@@ -205,3 +205,23 @@ export const listDirectory = (path: string | null): Promise<ExplorerEntry[]> =>
 
 export const readFileContent = (path: string): Promise<FileContent> =>
   invoke("read_file_content", { path });
+
+export const renameEntry = (oldPath: string, newName: string): Promise<void> =>
+  invoke("rename_entry", { oldPath, newName });
+
+export const createDirectory = (path: string): Promise<void> =>
+  invoke("create_directory", { path });
+
+export type ConflictResolution = "error" | "replace" | "keep-both";
+
+export const copyEntries = (sources: string[], destinationDir: string, onConflict?: ConflictResolution): Promise<void> =>
+  invoke("copy_entries", { sources, destinationDir, onConflict: onConflict ?? null });
+
+export const moveEntries = (sources: string[], destinationDir: string, onConflict?: ConflictResolution): Promise<void> =>
+  invoke("move_entries", { sources, destinationDir, onConflict: onConflict ?? null });
+
+export const duplicateEntry = (path: string): Promise<string> =>
+  invoke("duplicate_entry", { path });
+
+export const importFiles = (sources: string[], destinationDir: string, onConflict?: ConflictResolution): Promise<void> =>
+  invoke("import_files", { sources, destinationDir, onConflict: onConflict ?? null });
