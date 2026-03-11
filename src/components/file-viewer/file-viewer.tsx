@@ -20,6 +20,7 @@ export const FileViewer = () => {
   const isDark = colorScheme === "dark";
   const disposeRef = useRef<(() => void) | null>(null);
   const knownContentRef = useRef<string | null>(null);
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
 
   useEffect(() => {
     knownContentRef.current = fileContent?.content ?? null;
@@ -32,7 +33,25 @@ export const FileViewer = () => {
     };
   }, []);
 
+  // Jump to line when revealLine is set (e.g. from Quick Open content search)
+  // Wait until fileContent matches selectedPath so Monaco has the correct content loaded.
+  const revealLine = useExplorerStore((s) => s.revealLine);
+  useEffect(() => {
+    if (!revealLine || !editorRef.current) return;
+    if (!fileContent || fileContent.path !== selectedPath) return;
+    // Defer to let Monaco finish updating its model after the value prop change
+    requestAnimationFrame(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      editor.revealLineInCenter(revealLine);
+      editor.setPosition({ lineNumber: revealLine, column: 1 });
+      editor.focus();
+      useExplorerStore.getState().setRevealLine(null);
+    });
+  }, [revealLine, fileContent, selectedPath]);
+
   const handleMount: OnMount = useCallback((editor, monaco) => {
+    editorRef.current = editor;
     if (disposeRef.current) disposeRef.current();
 
     const contentDisposable = editor.onDidChangeModelContent(() => {

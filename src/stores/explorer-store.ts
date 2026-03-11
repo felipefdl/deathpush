@@ -29,9 +29,11 @@ interface ExplorerState {
   dragSource: DragSource | null;
   dropTarget: string | null;
   isFileDirty: boolean;
+  revealLine: number | null;
 
   setSelectedPath: (path: string | null) => void;
   setFileContent: (content: FileContent | null) => void;
+  setRevealLine: (line: number | null) => void;
   setFileFilter: (filter: string) => void;
   toggleDir: (path: string) => void;
   expandDir: (path: string) => void;
@@ -57,10 +59,13 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
   dragSource: null,
   dropTarget: null,
   isFileDirty: false,
+  revealLine: null,
 
   setSelectedPath: (selectedPath) => set({ selectedPath }),
 
   setFileContent: (fileContent) => set({ fileContent }),
+
+  setRevealLine: (revealLine) => set({ revealLine }),
 
   setFileFilter: (fileFilter) => set({ fileFilter }),
 
@@ -115,5 +120,6 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
       dragSource: null,
       dropTarget: null,
       isFileDirty: false,
+      revealLine: null,
     }),
 }));

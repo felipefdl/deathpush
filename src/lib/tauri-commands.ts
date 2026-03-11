@@ -4,11 +4,13 @@ import type {
   CommitDetail,
   CommitDiffContent,
   CommitEntry,
+  ContentSearchResult,
   DiffContent,
   ExplorerEntry,
   FileBlame,
   FileContent,
   FileDiffWithHunks,
+  FuzzyFileResult,
   LastCommitInfo,
   RepositoryStatus,
   StashEntry,
@@ -291,3 +293,9 @@ export const duplicateEntry = (path: string): Promise<string> =>
 
 export const importFiles = (sources: string[], destinationDir: string, onConflict?: ConflictResolution): Promise<void> =>
   invoke("import_files", { sources, destinationDir, onConflict: onConflict ?? null });
+
+export const fuzzyFindFiles = (query: string, maxResults: number): Promise<FuzzyFileResult[]> =>
+  invoke("fuzzy_find_files", { query, maxResults });
+
+export const searchFileContents = (query: string, maxResults: number): Promise<ContentSearchResult[]> =>
+  invoke("search_file_contents", { query, maxResults });

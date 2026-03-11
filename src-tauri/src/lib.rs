@@ -666,6 +666,8 @@ pub fn run() {
       tag::delete_remote_tag,
       explorer::list_directory,
       explorer::read_file_content,
+      explorer::fuzzy_find_files,
+      explorer::search_file_contents,
       file_ops::open_in_editor,
       file_ops::reveal_in_file_manager,
       file_ops::add_to_gitignore,

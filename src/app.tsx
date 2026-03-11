@@ -14,6 +14,7 @@ import { SidebarView } from "./components/layout/sidebar-view";
 import { TerminalPanel } from "./components/terminal/terminal-panel";
 import { ThemePicker } from "./components/theme/theme-picker";
 import { IconThemePicker } from "./components/theme/icon-theme-picker";
+import { QuickOpen } from "./components/quick-open/quick-open";
 import { WelcomeScreen } from "./components/welcome/welcome-screen";
 import { LinuxTitleBar } from "./components/layout/linux-title-bar";
 import { confirm, message } from "@tauri-apps/plugin-dialog";
@@ -45,6 +46,7 @@ export const App = () => {
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [showIconThemePicker, setShowIconThemePicker] = useState(false);
   const [showLicensesModal, setShowLicensesModal] = useState(false);
+  const [showQuickOpen, setShowQuickOpen] = useState(false);
   const [initializing, setInitializing] = useState(true);
 
   useKeyboardShortcuts();
@@ -289,6 +291,17 @@ export const App = () => {
     return () => window.removeEventListener("deathpush:open-icon-theme-picker", handler);
   }, []);
 
+  // Listen for quick open shortcut (only when a repo is open)
+  useEffect(() => {
+    const handler = () => {
+      if (useRepositoryStore.getState().status) {
+        setShowQuickOpen(true);
+      }
+    };
+    window.addEventListener("deathpush:open-quick-open", handler);
+    return () => window.removeEventListener("deathpush:open-quick-open", handler);
+  }, []);
+
   // Apply UI font settings reactively
   const uiSettings = useSettingsStore((s) => s.settings.ui);
   useEffect(() => {
@@ -355,6 +368,7 @@ export const App = () => {
       {showCloneDialog && <CloneDialog onClose={() => setShowCloneDialog(false)} />}
       {showThemePicker && <ThemePicker onClose={() => setShowThemePicker(false)} />}
       {showIconThemePicker && <IconThemePicker onClose={() => setShowIconThemePicker(false)} />}
+      {showQuickOpen && <QuickOpen onClose={() => setShowQuickOpen(false)} />}
       {showLicensesModal && <LicensesModal onClose={() => setShowLicensesModal(false)} />}
     </div>
   );

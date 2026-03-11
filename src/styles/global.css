@@ -900,6 +900,130 @@ body.vs .linux-title-btn:hover {
   white-space: nowrap;
 }
 
+/* Quick Open */
+.quick-open-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  padding-top: 60px;
+}
+
+.quick-open {
+  width: 600px;
+  max-height: 440px;
+  background: var(--vscode-sideBar-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  align-self: flex-start;
+}
+
+.quick-open-input {
+  width: 100%;
+  height: 32px;
+  padding: 4px 8px;
+  border: none;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  outline: none;
+}
+
+.quick-open-list {
+  overflow-y: auto;
+  max-height: 400px;
+}
+
+.quick-open-item {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 8px;
+  cursor: pointer;
+  font-size: 13px;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.quick-open-item.active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.quick-open-item-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  background-size: 16px;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.quick-open-item-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+.quick-open-item-path {
+  font-size: 12px;
+  opacity: 0.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.quick-open-item-content {
+  font-size: 12px;
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.quick-open-highlight {
+  color: var(--vscode-list-highlightForeground);
+}
+
+.quick-open-item.active .quick-open-highlight {
+  color: var(--vscode-list-focusHighlightForeground, var(--vscode-list-highlightForeground));
+}
+
+.quick-open-item-line {
+  flex-shrink: 0;
+  font-weight: bold;
+  opacity: 0.7;
+}
+
+.quick-open-goto-line {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.quick-open-goto-line b {
+  color: var(--vscode-foreground);
+}
+
+.quick-open-empty {
+  padding: 8px 12px;
+  font-size: 13px;
+  opacity: 0.6;
+}
+
 /* Semi-transparent context menu for backdrop blur */
 [data-platform="macos"] .context-menu,
 [data-platform="windows"] .context-menu {

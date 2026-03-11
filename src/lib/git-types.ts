@@ -163,3 +163,16 @@ export interface FileContent {
   language: string | null;
   fileType: string;
 }
+
+export interface FuzzyFileResult {
+  path: string;
+  score: number;
+  matchPositions: number[];
+}
+
+export interface ContentSearchResult {
+  path: string;
+  lineNumber: number;
+  column: number;
+  lineContent: string;
+}

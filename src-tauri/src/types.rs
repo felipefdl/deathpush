@@ -229,6 +229,23 @@ pub struct FileContent {
   pub file_type: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FuzzyFileResult {
+  pub path: String,
+  pub score: u32,
+  pub match_positions: Vec<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentSearchResult {
+  pub path: String,
+  pub line_number: usize,
+  pub column: usize,
+  pub line_content: String,
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

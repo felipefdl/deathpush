@@ -51,6 +51,13 @@ export const useKeyboardShortcuts = () => {
 
       chordK = false;
 
+      // Quick Open: Cmd+P
+      if (isMod && e.key === "p" && !e.shiftKey) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("deathpush:open-quick-open"));
+        return;
+      }
+
       // Zoom: Cmd/Ctrl + =/- /0 (must be before isInput check)
       if (isMod && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
