@@ -218,6 +218,11 @@ export const App = () => {
           setError(String(err));
         }
       }),
+      appWindow.listen("menu:quick-open", () => {
+        if (useRepositoryStore.getState().status) {
+          setShowQuickOpen(true);
+        }
+      }),
       appWindow.listen("menu:open-source-licenses", () => {
         setShowLicensesModal(true);
       }),

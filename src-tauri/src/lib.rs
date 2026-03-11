@@ -183,7 +183,10 @@ fn window_close(window: tauri::WebviewWindow) -> Result<(), error::Error> {
 }
 
 #[tauri::command]
-fn window_confirm_close(window: tauri::WebviewWindow, state: tauri::State<'_, ConfirmedCloseWindows>) -> Result<(), error::Error> {
+fn window_confirm_close(
+  window: tauri::WebviewWindow,
+  state: tauri::State<'_, ConfirmedCloseWindows>,
+) -> Result<(), error::Error> {
   let mut set = state.0.lock().map_err(|e| error::Error::Other(e.to_string()))?;
   set.insert(window.label().to_string());
   drop(set);
@@ -280,6 +283,9 @@ pub fn run() {
       let history_item = MenuItemBuilder::with_id("view-history", "History")
         .accelerator("CmdOrCtrl+2")
         .build(app)?;
+      let quick_open_item = MenuItemBuilder::with_id("quick-open", "Quick Open...")
+        .accelerator("CmdOrCtrl+P")
+        .build(app)?;
       let toggle_diff_item = MenuItemBuilder::with_id("toggle-diff", "Toggle Diff Mode")
         .accelerator("CmdOrCtrl+Shift+P")
         .build(app)?;
@@ -358,6 +364,8 @@ pub fn run() {
       // View
       #[allow(unused_mut)]
       let mut view_builder = SubmenuBuilder::new(app, "View")
+        .item(&quick_open_item)
+        .separator()
         .item(&changes_item)
         .item(&history_item)
         .separator()
@@ -454,6 +462,7 @@ pub fn run() {
         new_terminal_item.clone(),
         kill_terminal_item.clone(),
         toggle_terminal_item.clone(),
+        quick_open_item.clone(),
       ];
       for item in &repo_items {
         let _ = item.set_enabled(false);
@@ -518,6 +527,7 @@ pub fn run() {
             || id == git_stash_item.id()
             || id == git_stash_pop_item.id()
             || id == git_undo_commit_item.id()
+            || id == quick_open_item.id()
             || id == licenses_item.id()
           {
             let _ = window.emit_to(window.label(), &format!("menu:{}", id.0), ());

@@ -180,19 +180,12 @@ pub fn discover_repositories(
   // BFS: find nested directories that contain a `.git` (sub-repos)
   while let Some(dir) = queue.pop_front() {
     if dir.join(".git").exists() {
-      let rel = dir
-        .strip_prefix(cli_root)
-        .unwrap_or(&dir)
-        .to_string_lossy()
-        .to_string();
+      let rel = dir.strip_prefix(cli_root).unwrap_or(&dir).to_string_lossy().to_string();
       let name = dir
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-      repos.push(DiscoveredRepo {
-        path: rel,
-        name,
-      });
+      repos.push(DiscoveredRepo { path: rel, name });
       // Don't recurse into sub-repos
       continue;
     }
@@ -227,10 +220,7 @@ pub struct WorktreeInfo {
 }
 
 #[tauri::command]
-pub fn detect_worktrees(
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<Vec<WorktreeInfo>> {
+pub fn detect_worktrees(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<Vec<WorktreeInfo>> {
   let label = window.label().to_string();
   let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
   let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
@@ -246,10 +236,13 @@ pub fn detect_worktrees(
       .file_name()
       .map(|n| n.to_string_lossy().to_string())
       .unwrap_or_default();
-    let branch = repo
-      .head()
-      .ok()
-      .and_then(|h| if h.is_branch() { h.shorthand().map(|s| s.to_string()) } else { None });
+    let branch = repo.head().ok().and_then(|h| {
+      if h.is_branch() {
+        h.shorthand().map(|s| s.to_string())
+      } else {
+        None
+      }
+    });
     result.push(WorktreeInfo {
       path: workdir.to_string_lossy().to_string(),
       name,
@@ -264,13 +257,15 @@ pub fn detect_worktrees(
     for wt_name in worktrees.iter().flatten() {
       if let Ok(wt) = repo.find_worktree(wt_name) {
         let wt_path = wt.path().to_path_buf();
-        let branch = git2::Repository::open(&wt_path)
-          .ok()
-          .and_then(|r| {
-            r.head()
-              .ok()
-              .and_then(|h| if h.is_branch() { h.shorthand().map(|s| s.to_string()) } else { None })
-          });
+        let branch = git2::Repository::open(&wt_path).ok().and_then(|r| {
+          r.head().ok().and_then(|h| {
+            if h.is_branch() {
+              h.shorthand().map(|s| s.to_string())
+            } else {
+              None
+            }
+          })
+        });
         let name = wt_path
           .file_name()
           .map(|n| n.to_string_lossy().to_string())
@@ -293,9 +288,12 @@ pub fn detect_worktrees(
 #[tauri::command]
 pub fn get_repo_branch(path: String) -> Result<Option<String>> {
   let repo = git2::Repository::discover(&path)?;
-  let branch = repo
-    .head()
-    .ok()
-    .and_then(|h| if h.is_branch() { h.shorthand().map(|s| s.to_string()) } else { None });
+  let branch = repo.head().ok().and_then(|h| {
+    if h.is_branch() {
+      h.shorthand().map(|s| s.to_string())
+    } else {
+      None
+    }
+  });
   Ok(branch)
 }

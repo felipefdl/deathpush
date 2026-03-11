@@ -8,6 +8,7 @@ import { useLayoutStore } from "../../stores/layout-store";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { ContextMenu, type ContextMenuItem } from "../scm/context-menu";
 import { GitDecorationContext } from "./explorer-tree";
+import { addRecentFile } from "../../lib/recent-files";
 import * as commands from "../../lib/tauri-commands";
 
 const isAlreadyExistsError = (err: unknown): boolean =>
@@ -98,7 +99,11 @@ export const ExplorerItem = ({ entry, depth, onToggleDir, expanded }: ExplorerIt
     }
     setSelectedPath(entry.path);
     useLayoutStore.getState().setMainView("file");
-    commands.readFileContent(entry.path).then(setFileContent).catch((err) => setError(String(err)));
+    commands.readFileContent(entry.path).then((content) => {
+      setFileContent(content);
+      const root = useRepositoryStore.getState().status?.root;
+      if (root) addRecentFile(root, entry.path);
+    }).catch((err) => setError(String(err)));
   }, [entry.path, entry.isDirectory, onToggleDir, setSelectedPath, setFileContent, setError, isRenaming]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {

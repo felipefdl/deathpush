@@ -214,7 +214,10 @@ mod tests {
   fn test_avatar_url_regular_email() {
     let url = compute_avatar_url("test@example.com");
     let expected_hash = md5::compute(b"test@example.com");
-    assert_eq!(url, format!("https://www.gravatar.com/avatar/{expected_hash:x}?s=48&d=404"));
+    assert_eq!(
+      url,
+      format!("https://www.gravatar.com/avatar/{expected_hash:x}?s=48&d=404")
+    );
   }
 
   #[test]

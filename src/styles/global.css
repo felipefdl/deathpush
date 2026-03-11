@@ -939,6 +939,18 @@ body.vs .linux-title-btn:hover {
   outline: none;
 }
 
+.quick-open-loading-bar {
+  height: 2px;
+  background: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+  animation: quick-open-loading-slide 1.5s ease-in-out infinite;
+}
+
+@keyframes quick-open-loading-slide {
+  0% { width: 0; margin-left: 0; }
+  50% { width: 60%; margin-left: 20%; }
+  100% { width: 0; margin-left: 100%; }
+}
+
 .quick-open-list {
   overflow-y: auto;
   max-height: 400px;
@@ -1016,6 +1028,13 @@ body.vs .linux-title-btn:hover {
 
 .quick-open-goto-line b {
   color: var(--vscode-foreground);
+}
+
+.quick-open-section-label {
+  padding: 4px 8px 2px;
+  font-size: 11px;
+  opacity: 0.5;
+  user-select: none;
 }
 
 .quick-open-empty {

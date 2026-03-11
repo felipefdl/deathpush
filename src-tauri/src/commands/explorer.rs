@@ -209,7 +209,13 @@ pub async fn fuzzy_find_files(
   }
 
   let mut matcher = Matcher::new(Config::DEFAULT.match_paths());
-  let atom = Atom::new(&query, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy, false);
+  let atom = Atom::new(
+    &query,
+    CaseMatching::Ignore,
+    Normalization::Smart,
+    AtomKind::Fuzzy,
+    false,
+  );
 
   let mut scored: Vec<FuzzyFileResult> = Vec::new();
   let mut buf = Vec::new();
@@ -250,7 +256,19 @@ pub async fn search_file_contents(
   };
 
   let output = async_command("git")
-    .args(["grep", "-n", "--column", "-I", "-F", "--no-recurse-submodules", "--untracked", "-e", &query, "--", "."])
+    .args([
+      "grep",
+      "-n",
+      "--column",
+      "-I",
+      "-F",
+      "--no-recurse-submodules",
+      "--untracked",
+      "-e",
+      &query,
+      "--",
+      ".",
+    ])
     .current_dir(&root)
     .output()
     .await

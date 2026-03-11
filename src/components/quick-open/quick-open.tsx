@@ -1,13 +1,36 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useExplorerStore } from "../../stores/explorer-store";
 import { useLayoutStore } from "../../stores/layout-store";
+import { useRepositoryStore } from "../../stores/repository-store";
 import { getFileIconClasses } from "../../lib/icon-themes/get-icon-classes";
+import { getRecentFiles, addRecentFile } from "../../lib/recent-files";
 import * as commands from "../../lib/tauri-commands";
 import type { FuzzyFileResult, ContentSearchResult } from "../../lib/git-types";
 
 interface QuickOpenProps {
   onClose: () => void;
 }
+
+const HighlightedContent = ({ text, query }: { text: string; query: string }) => {
+  if (!query) return <>{text}</>;
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let idx = lowerText.indexOf(lowerQuery, lastIndex);
+  while (idx !== -1) {
+    if (idx > lastIndex) parts.push(text.slice(lastIndex, idx));
+    parts.push(
+      <span key={idx} className="quick-open-highlight">
+        {text.slice(idx, idx + query.length)}
+      </span>,
+    );
+    lastIndex = idx + query.length;
+    idx = lowerText.indexOf(lowerQuery, lastIndex);
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return <>{parts}</>;
+};
 
 const HighlightedName = ({ name, positions }: { name: string; positions: Set<number> }) => {
   const parts: React.ReactNode[] = [];
@@ -35,6 +58,9 @@ export const QuickOpen = ({ onClose }: QuickOpenProps) => {
   const listRef = useRef<HTMLDivElement>(null);
   const isKeyboardNavRef = useRef(false);
 
+  const repoRoot = useRepositoryStore((s) => s.status?.root) ?? "";
+  const [recentPaths, setRecentPaths] = useState<string[]>([]);
+
   const isContentMode = search.startsWith("#");
   const isGoToLineOnly = /^:(\d+)$/.test(search);
 
@@ -51,11 +77,19 @@ export const QuickOpen = ({ onClose }: QuickOpenProps) => {
     return { fileQuery: search, goToLine: undefined };
   })();
 
-  // Load initial file list
+  // Load initial file list and recent files
   useEffect(() => {
-    commands.fuzzyFindFiles("", 100).then(setFileResults).catch(() => {});
+    setLoading(true);
+    commands
+      .fuzzyFindFiles("", 100)
+      .then(setFileResults)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+    if (repoRoot) {
+      setRecentPaths(getRecentFiles(repoRoot).map((f) => f.path));
+    }
     inputRef.current?.focus();
-  }, []);
+  }, [repoRoot]);
 
   // Debounced search
   useEffect(() => {
@@ -78,6 +112,7 @@ export const QuickOpen = ({ onClose }: QuickOpenProps) => {
       }, 300);
       return () => clearTimeout(timer);
     } else {
+      setLoading(true);
       const timer = setTimeout(() => {
         commands
           .fuzzyFindFiles(fileQuery, 100)
@@ -85,7 +120,8 @@ export const QuickOpen = ({ onClose }: QuickOpenProps) => {
             setFileResults(results);
             setActiveIndex(0);
           })
-          .catch(() => setFileResults([]));
+          .catch(() => setFileResults([]))
+          .finally(() => setLoading(false));
       }, 100);
       return () => clearTimeout(timer);
     }
@@ -110,13 +146,14 @@ export const QuickOpen = ({ onClose }: QuickOpenProps) => {
         .readFileContent(path)
         .then((result) => {
           explorer.setFileContent(result);
+          if (repoRoot) addRecentFile(repoRoot, path);
         })
         .catch(() => {});
       layout.setSidebarView("explorer");
       layout.setMainView("file");
       onClose();
     },
-    [onClose],
+    [onClose, repoRoot],
   );
 
   const goToCurrentFileLine = useCallback(
@@ -132,7 +169,27 @@ export const QuickOpen = ({ onClose }: QuickOpenProps) => {
     [onClose],
   );
 
-  const totalItems = isContentMode ? contentResults.length : fileResults.length;
+  // When search is empty, show recent files first, then the rest
+  const { orderedFiles, recentCount } = useMemo(() => {
+    if (isContentMode || fileQuery) {
+      return { orderedFiles: fileResults, recentCount: 0 };
+    }
+    const recentSet = new Set(recentPaths);
+    const recent: FuzzyFileResult[] = [];
+    const rest: FuzzyFileResult[] = [];
+    for (const r of fileResults) {
+      if (recentSet.has(r.path)) {
+        recent.push(r);
+      } else {
+        rest.push(r);
+      }
+    }
+    // Sort recent by their order in recentPaths
+    recent.sort((a, b) => recentPaths.indexOf(a.path) - recentPaths.indexOf(b.path));
+    return { orderedFiles: [...recent, ...rest], recentCount: recent.length };
+  }, [fileResults, recentPaths, isContentMode, fileQuery]);
+
+  const totalItems = isContentMode ? contentResults.length : orderedFiles.length;
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -154,8 +211,8 @@ export const QuickOpen = ({ onClose }: QuickOpenProps) => {
             selectFile(r.path, r.lineNumber);
           }
         } else {
-          if (activeIndex >= 0 && activeIndex < fileResults.length) {
-            selectFile(fileResults[activeIndex].path, goToLine);
+          if (activeIndex >= 0 && activeIndex < orderedFiles.length) {
+            selectFile(orderedFiles[activeIndex].path, goToLine);
           }
         }
       } else if (e.key === "Escape") {
@@ -163,7 +220,7 @@ export const QuickOpen = ({ onClose }: QuickOpenProps) => {
         onClose();
       }
     },
-    [totalItems, activeIndex, isContentMode, isGoToLineOnly, contentResults, fileResults, selectFile, goToCurrentFileLine, onClose, goToLine],
+    [totalItems, activeIndex, isContentMode, isGoToLineOnly, contentResults, orderedFiles, selectFile, goToCurrentFileLine, onClose, goToLine],
   );
 
   const getFileName = (path: string) => {
@@ -193,6 +250,7 @@ export const QuickOpen = ({ onClose }: QuickOpenProps) => {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        {loading && <div className="quick-open-loading-bar" />}
         <div className="quick-open-list" ref={listRef} onMouseMove={() => { isKeyboardNavRef.current = false; }}>
           {isGoToLineOnly ? (
             <div className="quick-open-goto-line">
@@ -212,7 +270,10 @@ export const QuickOpen = ({ onClose }: QuickOpenProps) => {
                 >
                   <span className={`quick-open-item-icon ${getFileIconClasses(result.path, "file")}`} />
                   <span className="quick-open-item-name">{getFileName(result.path)}:<b>{result.lineNumber}</b></span>
-                  <span className="quick-open-item-content">{result.lineContent.trim()}</span>
+                  {getDirPath(result.path) && <span className="quick-open-item-path">{getDirPath(result.path)}</span>}
+                  <span className="quick-open-item-content">
+                    <HighlightedContent text={result.lineContent.trim()} query={search.slice(1)} />
+                  </span>
                 </div>
               ))
             ) : (
@@ -220,8 +281,8 @@ export const QuickOpen = ({ onClose }: QuickOpenProps) => {
                 {loading ? "Searching..." : search.length > 1 ? "No results" : "Type to search file contents"}
               </div>
             )
-          ) : fileResults.length > 0 ? (
-            fileResults.map((result, i) => {
+          ) : orderedFiles.length > 0 ? (
+            orderedFiles.map((result, i) => {
               const fileName = getFileName(result.path);
               const dirPath = getDirPath(result.path);
               // Map match positions to filename-relative indices
@@ -229,21 +290,25 @@ export const QuickOpen = ({ onClose }: QuickOpenProps) => {
               const namePositions = new Set(
                 result.matchPositions.filter((p) => p >= nameStart).map((p) => p - nameStart),
               );
+              const sectionLabel =
+                !fileQuery && recentCount > 0 && (i === 0 ? "recently opened" : i === recentCount ? "files" : null);
               return (
-                <div
-                  key={result.path}
-                  data-quick-open-item
-                  className={`quick-open-item${i === activeIndex ? " active" : ""}`}
-                  onMouseEnter={() => { if (!isKeyboardNavRef.current) setActiveIndex(i); }}
-                  onClick={() => selectFile(result.path, goToLine)}
-                >
-                  <span className={`quick-open-item-icon ${getFileIconClasses(result.path, "file")}`} />
-                  <span className="quick-open-item-name">
-                    <HighlightedName name={fileName} positions={namePositions} />
-                  </span>
-                  {goToLine && <span className="quick-open-item-line">:{goToLine}</span>}
-                  {dirPath && <span className="quick-open-item-path">{dirPath}</span>}
-                </div>
+                <React.Fragment key={result.path}>
+                  {sectionLabel && <div className="quick-open-section-label">{sectionLabel}</div>}
+                  <div
+                    data-quick-open-item
+                    className={`quick-open-item${i === activeIndex ? " active" : ""}`}
+                    onMouseEnter={() => { if (!isKeyboardNavRef.current) setActiveIndex(i); }}
+                    onClick={() => selectFile(result.path, goToLine)}
+                  >
+                    <span className={`quick-open-item-icon ${getFileIconClasses(result.path, "file")}`} />
+                    <span className="quick-open-item-name">
+                      <HighlightedName name={fileName} positions={namePositions} />
+                    </span>
+                    {goToLine && <span className="quick-open-item-line">:{goToLine}</span>}
+                    {dirPath && <span className="quick-open-item-path">{dirPath}</span>}
+                  </div>
+                </React.Fragment>
               );
             })
           ) : (
