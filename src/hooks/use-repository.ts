@@ -10,12 +10,21 @@ export const useRepository = () => {
     startOperation("open-repo");
     setError(null);
     try {
-      const status = await commands.openRepository(path);
-      setStatus(status);
-      addRecentProject(status.root);
+      // Phase 1: fast open -- returns basic metadata with empty file groups
+      const basicStatus = await commands.openRepository(path);
+      setStatus(basicStatus);
+      addRecentProject(basicStatus.root);
+      endOperation("open-repo");
+
+      // Phase 2: background full status -- populates file lists
+      try {
+        const fullStatus = await commands.getStatus();
+        setStatus(fullStatus);
+      } catch {
+        // Non-critical: file watcher will trigger a refresh eventually
+      }
     } catch (err) {
       setError(String(err));
-    } finally {
       endOperation("open-repo");
     }
   }, [setStatus, startOperation, endOperation, setError]);

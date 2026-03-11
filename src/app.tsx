@@ -250,6 +250,17 @@ export const App = () => {
         setError(event.payload);
       }),
     );
+    listeners.push(
+      appWindow.listen("window:close-requested", async () => {
+        const confirmed = await confirm(
+          "Are you sure you want to close this window?",
+          { title: "Close Window", kind: "warning", okLabel: "Close", cancelLabel: "Cancel" },
+        );
+        if (confirmed) {
+          await commands.windowConfirmClose();
+        }
+      }),
+    );
     return () => { listeners.forEach((p) => p.then((fn) => fn())); };
   }, [handleOpenRepository, startOperation, endOperation, setError, setStatus, saveStash, popStash]);
 

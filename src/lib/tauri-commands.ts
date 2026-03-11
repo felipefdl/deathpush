@@ -263,6 +263,9 @@ export const setRepoMenuEnabled = (enabled: boolean): Promise<void> =>
 export const setNativeTheme = (dark: boolean): Promise<void> =>
   invoke("set_native_theme", { dark });
 
+export const windowConfirmClose = (): Promise<void> =>
+  invoke("window_confirm_close");
+
 export const listDirectory = (path: string | null): Promise<ExplorerEntry[]> =>
   invoke("list_directory", { path });
 

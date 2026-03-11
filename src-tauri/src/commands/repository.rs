@@ -7,8 +7,8 @@ use tauri::{Emitter, State, WebviewWindow};
 
 use crate::commands::update_window_title;
 use crate::error::{Error, Result};
+use crate::git::repo_state::detect_operation_state;
 use crate::git::repository::GitRepository;
-use crate::git::status::get_repository_status;
 use crate::git::watcher::{self, WatcherState};
 use crate::types::{ProjectInfo, RepositoryStatus};
 
@@ -51,7 +51,19 @@ pub fn open_repository(
   let label = window.label().to_string();
   let repo = GitRepository::open(&PathBuf::from(&path))?;
   let repo_root = repo.root().to_path_buf();
-  let status = get_repository_status(&repo)?;
+
+  // Build a fast status without scanning the working tree (groups are empty).
+  // The frontend will follow up with get_status() to populate file lists.
+  let (ahead, behind) = repo.ahead_behind();
+  let status = RepositoryStatus {
+    root: repo.root().to_string_lossy().to_string(),
+    head_branch: repo.head_branch(),
+    head_commit: repo.head_commit_id(),
+    ahead,
+    behind,
+    groups: vec![],
+    operation_state: detect_operation_state(repo.root()),
+  };
 
   // Stop old watcher for this window, start new one
   {

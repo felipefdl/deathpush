@@ -6,7 +6,7 @@ mod shell_env;
 mod types;
 mod util;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -24,6 +24,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WindowEvent};
 struct RepoMenuItems(Vec<MenuItem<tauri::Wry>>);
 struct RepoWindowFlags(Mutex<HashMap<String, bool>>);
 struct LastFocusedWindow(Mutex<Option<String>>);
+struct ConfirmedCloseWindows(Mutex<HashSet<String>>);
 
 use tauri_plugin_deep_link::DeepLinkExt;
 
@@ -178,6 +179,14 @@ fn window_maximize(window: tauri::WebviewWindow) -> Result<(), error::Error> {
 
 #[tauri::command]
 fn window_close(window: tauri::WebviewWindow) -> Result<(), error::Error> {
+  window.close().map_err(|e| error::Error::Other(e.to_string()))
+}
+
+#[tauri::command]
+fn window_confirm_close(window: tauri::WebviewWindow, state: tauri::State<'_, ConfirmedCloseWindows>) -> Result<(), error::Error> {
+  let mut set = state.0.lock().map_err(|e| error::Error::Other(e.to_string()))?;
+  set.insert(window.label().to_string());
+  drop(set);
   window.close().map_err(|e| error::Error::Other(e.to_string()))
 }
 
@@ -452,6 +461,7 @@ pub fn run() {
       app.manage(RepoMenuItems(repo_items));
       app.manage(RepoWindowFlags(Mutex::new(HashMap::new())));
       app.manage(LastFocusedWindow(Mutex::new(None)));
+      app.manage(ConfirmedCloseWindows(Mutex::new(HashSet::new())));
 
       #[cfg(target_os = "linux")]
       for window in app.webview_windows().values() {
@@ -534,6 +544,20 @@ pub fn run() {
         // Catch external changes missed by file watcher (network FS, etc.)
         let _ = window.emit("repository-changed", ());
       }
+      if let WindowEvent::CloseRequested { api, .. } = event {
+        let app_handle = window.app_handle();
+        let confirmed = app_handle
+          .try_state::<ConfirmedCloseWindows>()
+          .and_then(|state| {
+            let mut set = state.0.lock().ok()?;
+            Some(set.remove(window.label()))
+          })
+          .unwrap_or(false);
+        if !confirmed {
+          api.prevent_close();
+          let _ = window.emit("window:close-requested", ());
+        }
+      }
       if let WindowEvent::Destroyed = event {
         let label = window.label().to_string();
         let app_handle = window.app_handle();
@@ -563,6 +587,13 @@ pub fn run() {
         if let Some(state) = app_handle.try_state::<pty::TerminalState>() {
           if let Ok(mut guard) = state.lock() {
             guard.retain(|_, session| session.window_label != label);
+          }
+        }
+
+        // Clean up confirmed close set
+        if let Some(state) = app_handle.try_state::<ConfirmedCloseWindows>() {
+          if let Ok(mut set) = state.0.lock() {
+            set.remove(&label);
           }
         }
 
@@ -678,6 +709,7 @@ pub fn run() {
       window_minimize,
       window_maximize,
       window_close,
+      window_confirm_close,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
