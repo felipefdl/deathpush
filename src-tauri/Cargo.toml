@@ -1,6 +1,6 @@
 [package]
 name = "deathpush"
-version = "0.2.0"
+version = "0.2.1"
 description = "A desktop Git client inspired by VS Code Source Control"
 authors = ["felipefdl"]
 license = "Apache-2.0"
