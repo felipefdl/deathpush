@@ -88,7 +88,8 @@ struct RepositoryView: View {
 
 								TerminalPanelView()
 									.frame(maxWidth: .infinity)
-									.frame(height: tab.showTerminal ? termHeight : 0)
+									.frame(height: termHeight)
+									.frame(height: tab.showTerminal ? termHeight : 0, alignment: .top)
 									.clipped()
 									.allowsHitTesting(tab.showTerminal)
 							}
