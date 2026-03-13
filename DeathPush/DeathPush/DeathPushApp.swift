@@ -214,7 +214,9 @@ struct DeathPushMenuCommands: Commands {
 			Divider()
 
 			Button("Find in Terminal") {
-				guard let sessionId = tabState?.terminalService.activeSessionId else { return }
+				guard let state = tabState,
+					  state.showTerminal,
+					  let sessionId = state.terminalService.activeSessionId else { return }
 				NotificationCenter.default.post(
 					name: .findInTerminal,
 					object: nil,
@@ -222,7 +224,7 @@ struct DeathPushMenuCommands: Commands {
 				)
 			}
 			.keyboardShortcut("f", modifiers: .command)
-			.disabled(tabState?.terminalService.activeSessionId == nil)
+			.disabled(tabState?.showTerminal != true || tabState?.terminalService.activeSessionId == nil)
 
 			Divider()
 
