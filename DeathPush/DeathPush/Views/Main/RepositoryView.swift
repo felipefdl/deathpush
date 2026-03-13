@@ -169,9 +169,7 @@ struct RepositoryView: View {
 	private var detailContent: some View {
 		switch tabState.sidebarSelection {
 		case .changes:
-			if let stashIndex = tabState.selectedStashIndex {
-				StashDiffView(stashIndex: stashIndex)
-			} else if let path = tabState.selectedFilePath {
+			if let path = tabState.selectedFilePath {
 				DiffDetailView(path: path)
 			} else {
 				EmptyStateView(
