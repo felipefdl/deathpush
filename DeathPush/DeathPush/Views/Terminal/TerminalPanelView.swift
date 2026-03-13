@@ -97,6 +97,7 @@ struct TerminalPanelView: View {
 			if terminalService.sessions.isEmpty {
 				spawnSession()
 			}
+			terminalService.startPolling()
 		}
 	}
 
@@ -131,6 +132,9 @@ struct SwiftTermContainerView: NSViewRepresentable {
 			execName: "-" + (shell as NSString).lastPathComponent,
 			currentDirectory: session.workingDirectory
 		)
+
+		session.shellPid = terminalView.process.shellPid
+		session.shellName = (shell as NSString).lastPathComponent
 
 		context.coordinator.lastAppliedThemeName = themeService.currentThemeName
 		return terminalView
@@ -198,6 +202,7 @@ struct SwiftTermContainerView: NSViewRepresentable {
 
 		nonisolated func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
 			Task { @MainActor in
+				session.titleSetByEscape = Date()
 				session.title = title.isEmpty ? "zsh" : title
 			}
 		}
