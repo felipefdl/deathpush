@@ -1239,6 +1239,32 @@ fileprivate struct FfiConverterSequenceTypeWorktreeInfo: FfiConverterRustBuffer 
         return seq
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
+    public static func write(_ value: [String: String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterString.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: String] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: String]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterString.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
 public func createSession(sessionId: String)  {try! rustCall() {
     uniffi_deathpush_ffi_fn_func_create_session(
         FfiConverterString.lower(sessionId),$0
@@ -1250,6 +1276,12 @@ public func destroySession(sessionId: String)  {try! rustCall() {
         FfiConverterString.lower(sessionId),$0
     )
 }
+}
+public func getResolvedEnvironment() -> [String: String]  {
+    return try!  FfiConverterDictionaryStringString.lift(try! rustCall() {
+    uniffi_deathpush_ffi_fn_func_get_resolved_environment($0
+    )
+})
 }
 public func initialize()  {try! rustCall() {
     uniffi_deathpush_ffi_fn_func_initialize($0
@@ -1937,6 +1969,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_deathpush_ffi_checksum_func_destroy_session() != 47319) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_deathpush_ffi_checksum_func_get_resolved_environment() != 3929) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_deathpush_ffi_checksum_func_initialize() != 13977) {

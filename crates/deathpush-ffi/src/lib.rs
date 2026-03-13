@@ -42,6 +42,11 @@ pub fn register_event_listener(listener: Box<dyn EventListener>) {
 }
 
 #[uniffi::export]
+pub fn get_resolved_environment() -> std::collections::HashMap<String, String> {
+  deathpush_core::shell_env::get().cloned().unwrap_or_default()
+}
+
+#[uniffi::export]
 pub fn create_session(session_id: String) {
   let mgr = manager();
   if let Ok(mut sessions) = mgr.sessions.lock() {

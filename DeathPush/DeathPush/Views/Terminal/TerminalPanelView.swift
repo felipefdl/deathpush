@@ -121,15 +121,27 @@ struct SwiftTermContainerView: NSViewRepresentable {
 		terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 		applyThemeColors(to: terminalView)
 
-		// Start shell process
+		// Start shell process with the full resolved environment
 		let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-		let env = Terminal.getEnvironmentVariables(termName: "xterm-256color")
+		let shellName = (shell as NSString).lastPathComponent
+
+		let resolvedEnv = getResolvedEnvironment()
+		let env: [String]
+		if resolvedEnv.isEmpty {
+			env = Terminal.getEnvironmentVariables(termName: "xterm-256color")
+		} else {
+			var vars = resolvedEnv
+			vars["TERM"] = "xterm-256color"
+			env = vars.map { "\($0.key)=\($0.value)" }
+		}
+
+		let shellArgs: [String] = (shellName == "zsh" || shellName == "bash") ? ["--login"] : []
 
 		terminalView.startProcess(
 			executable: shell,
-			args: [],
+			args: shellArgs,
 			environment: env,
-			execName: "-" + (shell as NSString).lastPathComponent,
+			execName: "-" + shellName,
 			currentDirectory: session.workingDirectory
 		)
 
