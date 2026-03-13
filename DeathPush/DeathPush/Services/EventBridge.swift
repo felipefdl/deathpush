@@ -1,7 +1,11 @@
 import Foundation
 
 final class EventBridge: EventListener, @unchecked Sendable {
-	init() {}
+	private let gitOutputService: GitOutputService
+
+	init(gitOutputService: GitOutputService) {
+		self.gitOutputService = gitOutputService
+	}
 
 	nonisolated func onRepositoryChanged(sessionId: String) {
 		Task { @MainActor in
@@ -16,7 +20,10 @@ final class EventBridge: EventListener, @unchecked Sendable {
 	}
 
 	nonisolated func onGitCommand(command: String, durationMs: UInt64, timestamp: String) {
-		// Will be used for git output panel later
+		let service = gitOutputService
+		Task { @MainActor in
+			service.append(command: command, durationMs: durationMs, timestamp: timestamp)
+		}
 	}
 
 	nonisolated func onWatcherError(sessionId: String, message: String) {

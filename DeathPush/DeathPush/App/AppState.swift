@@ -16,6 +16,7 @@ struct WorkspaceEntry: Codable, Equatable, Identifiable {
 final class AppState {
 	let themeService = ThemeService()
 	let iconThemeService = IconThemeService()
+	let gitOutputService = GitOutputService()
 	var recentProjects: [ProjectInfo] = []
 
 	// Workspace

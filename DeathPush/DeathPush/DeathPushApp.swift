@@ -23,7 +23,7 @@ struct DeathPushApp: App {
 				.environment(appState)
 				.preferredColorScheme(appState.themeService.colorScheme)
 				.onAppear {
-					let bridge = EventBridge()
+					let bridge = EventBridge(gitOutputService: appState.gitOutputService)
 					registerEventListener(listener: bridge)
 				}
 				.onOpenURL { url in

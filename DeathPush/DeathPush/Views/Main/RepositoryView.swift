@@ -16,6 +16,7 @@ struct RepositoryView: View {
 	@Environment(TabState.self) private var tabState
 	@State private var showRecentsPopover = false
 	@State private var showWorkspacePopover = false
+	@State private var showGitOutput = false
 	@AppStorage("git.autoFetch") private var autoFetch = true
 	@AppStorage("git.autoFetchInterval") private var autoFetchInterval = 300
 
@@ -104,6 +105,17 @@ struct RepositoryView: View {
 				}
 
 				ToolbarItem(placement: .primaryAction) {
+					Button(action: { showGitOutput.toggle() }) {
+						Image(systemName: "text.line.last.and.arrowtriangle.forward")
+					}
+					.help("Git Output")
+					.popover(isPresented: $showGitOutput) {
+						GitOutputPopoverView()
+							.frame(width: 400, height: 350)
+					}
+				}
+
+				ToolbarItem(placement: .primaryAction) {
 					Button(action: { tab.showTerminal.toggle() }) {
 						Image(systemName: "apple.terminal.fill")
 					}
@@ -157,7 +169,9 @@ struct RepositoryView: View {
 	private var detailContent: some View {
 		switch tabState.sidebarSelection {
 		case .changes:
-			if let path = tabState.selectedFilePath {
+			if let stashIndex = tabState.selectedStashIndex {
+				StashDiffView(stashIndex: stashIndex)
+			} else if let path = tabState.selectedFilePath {
 				DiffDetailView(path: path)
 			} else {
 				EmptyStateView(
