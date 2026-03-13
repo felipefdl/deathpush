@@ -70,6 +70,14 @@ pub fn refresh_status(session_id: &str) -> deathpush_core::error::Result<Reposit
   Ok(status)
 }
 
+// Helper: create a GitCli with the global event sink attached.
+pub fn make_cli(root: &std::path::Path) -> deathpush_core::git::cli::GitCli {
+  match get_event_sink() {
+    Some(sink) => deathpush_core::git::cli::GitCli::with_event_sink(root, sink),
+    None => deathpush_core::git::cli::GitCli::new(root),
+  }
+}
+
 // Helper: get the event sink, if registered.
 pub fn get_event_sink() -> Option<Arc<dyn EventSink>> {
   manager()

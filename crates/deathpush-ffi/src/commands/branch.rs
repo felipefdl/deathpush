@@ -1,11 +1,11 @@
 use deathpush_core::error::Error;
 use deathpush_core::git::branch as git_branch;
-use deathpush_core::git::cli::GitCli;
+
 use deathpush_core::git::repository::GitRepository;
 use deathpush_core::git::status::get_repository_status;
 use deathpush_core::types::{BranchEntry, RepositoryStatus};
 
-use crate::session::{get_root, manager};
+use crate::session::{make_cli, get_root, manager};
 
 #[uniffi::export]
 pub fn list_branches(session_id: String) -> Result<Vec<BranchEntry>, Error> {
@@ -19,7 +19,7 @@ pub fn list_branches(session_id: String) -> Result<Vec<BranchEntry>, Error> {
 #[uniffi::export]
 pub fn checkout_branch(session_id: String, name: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.checkout_branch(&name))?;
 
   let repo = GitRepository::open(&root)?;
@@ -40,7 +40,7 @@ pub fn create_branch(
   start_point: Option<String>,
 ) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.create_branch(&name, start_point.as_deref()))?;
 
   let repo = GitRepository::open(&root)?;
@@ -57,7 +57,7 @@ pub fn create_branch(
 #[uniffi::export]
 pub fn delete_branch(session_id: String, name: String, force: bool) -> Result<(), Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.delete_branch(&name, force))?;
   Ok(())
 }
@@ -65,7 +65,7 @@ pub fn delete_branch(session_id: String, name: String, force: bool) -> Result<()
 #[uniffi::export]
 pub fn rename_branch(session_id: String, old_name: String, new_name: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.rename_branch(&old_name, &new_name))?;
 
   let repo = GitRepository::open(&root)?;
@@ -82,7 +82,7 @@ pub fn rename_branch(session_id: String, old_name: String, new_name: String) -> 
 #[uniffi::export]
 pub fn delete_remote_branch(session_id: String, remote: String, name: String) -> Result<(), Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.delete_remote_branch(&remote, &name))?;
   Ok(())
 }

@@ -1,14 +1,14 @@
 use deathpush_core::error::Error;
-use deathpush_core::git::cli::GitCli;
+
 use deathpush_core::git::hunk;
 use deathpush_core::types::{FileDiffWithHunks, RepositoryStatus};
 
-use crate::session::{get_root, manager, refresh_status};
+use crate::session::{make_cli, get_root, manager, refresh_status};
 
 #[uniffi::export]
 pub fn stage_files(session_id: String, paths: Vec<String>) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.stage_files(&paths))?;
   refresh_status(&session_id)
 }
@@ -16,7 +16,7 @@ pub fn stage_files(session_id: String, paths: Vec<String>) -> Result<RepositoryS
 #[uniffi::export]
 pub fn stage_all(session_id: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.stage_all())?;
   refresh_status(&session_id)
 }
@@ -24,7 +24,7 @@ pub fn stage_all(session_id: String) -> Result<RepositoryStatus, Error> {
 #[uniffi::export]
 pub fn unstage_files(session_id: String, paths: Vec<String>) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.unstage_files(&paths))?;
   refresh_status(&session_id)
 }
@@ -32,7 +32,7 @@ pub fn unstage_files(session_id: String, paths: Vec<String>) -> Result<Repositor
 #[uniffi::export]
 pub fn unstage_all(session_id: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.unstage_all())?;
   refresh_status(&session_id)
 }
@@ -40,7 +40,7 @@ pub fn unstage_all(session_id: String) -> Result<RepositoryStatus, Error> {
 #[uniffi::export]
 pub fn discard_changes(session_id: String, paths: Vec<String>) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.discard_changes(&paths))?;
   refresh_status(&session_id)
 }
@@ -48,7 +48,7 @@ pub fn discard_changes(session_id: String, paths: Vec<String>) -> Result<Reposit
 #[uniffi::export]
 pub fn get_file_hunks(session_id: String, path: String, staged: bool) -> Result<FileDiffWithHunks, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   let diff_output = manager().runtime.block_on(cli.get_unified_diff(&path, staged))?;
   let hunks = hunk::parse_unified_diff(&diff_output);
   Ok(FileDiffWithHunks { path, hunks })
@@ -62,7 +62,7 @@ pub fn stage_hunk(
   staged: bool,
 ) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   let rt = &manager().runtime;
 
   let diff_output = rt.block_on(cli.get_unified_diff(&path, staged))?;
@@ -80,7 +80,7 @@ pub fn stage_hunk(
 #[uniffi::export]
 pub fn discard_hunk(session_id: String, path: String, hunk_index: u32) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   let rt = &manager().runtime;
 
   let diff_output = rt.block_on(cli.get_unified_diff(&path, false))?;
@@ -100,7 +100,7 @@ pub fn stage_lines(
   staged: bool,
 ) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   let rt = &manager().runtime;
 
   let diff_output = rt.block_on(cli.get_unified_diff(&path, staged))?;

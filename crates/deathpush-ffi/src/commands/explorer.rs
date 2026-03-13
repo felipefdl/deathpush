@@ -5,12 +5,12 @@ use nucleo_matcher::pattern::{Atom, AtomKind, CaseMatching, Normalization};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 
 use deathpush_core::error::Error;
-use deathpush_core::git::cli::GitCli;
+
 use deathpush_core::git::diff::{blob_to_data_uri, detect_language, is_image_file};
 use deathpush_core::types::{ContentSearchResult, ExplorerEntry, FileContent, FuzzyFileResult};
 use deathpush_core::util::async_command;
 
-use crate::session::{get_root, manager};
+use crate::session::{make_cli, get_root, manager};
 
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024; // 5MB
 const BINARY_CHECK_SIZE: usize = 8192;
@@ -150,7 +150,7 @@ pub fn fuzzy_find_files(session_id: String, query: String, max_results: u32) -> 
   let root = get_root(&session_id)?;
   let max = max_results as usize;
 
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   let output = manager()
     .runtime
     .block_on(cli.run(&["ls-files", "--cached", "--others", "--exclude-standard"]))?;

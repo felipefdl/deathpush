@@ -7,7 +7,7 @@ use deathpush_core::git::status::get_repository_status;
 use deathpush_core::git::watcher;
 use deathpush_core::types::RepositoryStatus;
 
-use crate::session::{get_event_sink, get_root, manager, refresh_status};
+use crate::session::{get_event_sink, get_root, make_cli, manager, refresh_status};
 
 #[uniffi::export]
 pub fn clone_repository(session_id: String, url: String, path: String) -> Result<RepositoryStatus, Error> {
@@ -71,7 +71,7 @@ pub fn init_repository(session_id: String, path: String) -> Result<RepositorySta
 #[uniffi::export]
 pub fn merge_branch(session_id: String, name: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.merge_branch(&name))?;
 
   let repo = GitRepository::open(&root)?;
@@ -88,7 +88,7 @@ pub fn merge_branch(session_id: String, name: String) -> Result<RepositoryStatus
 #[uniffi::export]
 pub fn merge_continue(session_id: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.merge_continue())?;
   refresh_status(&session_id)
 }
@@ -96,7 +96,7 @@ pub fn merge_continue(session_id: String) -> Result<RepositoryStatus, Error> {
 #[uniffi::export]
 pub fn merge_abort(session_id: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.merge_abort())?;
   refresh_status(&session_id)
 }
@@ -104,7 +104,7 @@ pub fn merge_abort(session_id: String) -> Result<RepositoryStatus, Error> {
 #[uniffi::export]
 pub fn rebase_branch(session_id: String, name: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.rebase_branch(&name))?;
 
   let repo = GitRepository::open(&root)?;
@@ -121,7 +121,7 @@ pub fn rebase_branch(session_id: String, name: String) -> Result<RepositoryStatu
 #[uniffi::export]
 pub fn rebase_continue(session_id: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.rebase_continue())?;
   refresh_status(&session_id)
 }
@@ -129,7 +129,7 @@ pub fn rebase_continue(session_id: String) -> Result<RepositoryStatus, Error> {
 #[uniffi::export]
 pub fn rebase_abort(session_id: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.rebase_abort())?;
   refresh_status(&session_id)
 }
@@ -137,7 +137,7 @@ pub fn rebase_abort(session_id: String) -> Result<RepositoryStatus, Error> {
 #[uniffi::export]
 pub fn rebase_skip(session_id: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.rebase_skip())?;
   refresh_status(&session_id)
 }
@@ -145,7 +145,7 @@ pub fn rebase_skip(session_id: String) -> Result<RepositoryStatus, Error> {
 #[uniffi::export]
 pub fn cherry_pick(session_id: String, commit_id: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.cherry_pick(&commit_id))?;
   refresh_status(&session_id)
 }
@@ -153,7 +153,7 @@ pub fn cherry_pick(session_id: String, commit_id: String) -> Result<RepositorySt
 #[uniffi::export]
 pub fn reset_to_commit(session_id: String, id: String, mode: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.reset_to_commit(&id, &mode))?;
   refresh_status(&session_id)
 }

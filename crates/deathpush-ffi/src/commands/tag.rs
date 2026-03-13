@@ -1,10 +1,10 @@
 use deathpush_core::error::Error;
-use deathpush_core::git::cli::GitCli;
+
 use deathpush_core::git::repository::GitRepository;
 use deathpush_core::git::tag as git_tag;
 use deathpush_core::types::TagEntry;
 
-use crate::session::{get_root, manager};
+use crate::session::{make_cli, get_root, manager};
 
 #[uniffi::export]
 pub fn list_tags(session_id: String) -> Result<Vec<TagEntry>, Error> {
@@ -23,7 +23,7 @@ pub fn create_tag(
   target: Option<String>,
 ) -> Result<Vec<TagEntry>, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager()
     .runtime
     .block_on(cli.create_tag(&name, message.as_deref(), target.as_deref()))?;
@@ -42,7 +42,7 @@ pub fn create_tag(
 #[uniffi::export]
 pub fn delete_tag(session_id: String, name: String) -> Result<Vec<TagEntry>, Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.delete_tag(&name))?;
 
   let repo = GitRepository::open(&root)?;
@@ -59,7 +59,7 @@ pub fn delete_tag(session_id: String, name: String) -> Result<Vec<TagEntry>, Err
 #[uniffi::export]
 pub fn push_tag(session_id: String, remote: String, tag: String) -> Result<(), Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.push_tag(&remote, &tag))?;
   Ok(())
 }
@@ -67,7 +67,7 @@ pub fn push_tag(session_id: String, remote: String, tag: String) -> Result<(), E
 #[uniffi::export]
 pub fn delete_remote_tag(session_id: String, remote: String, name: String) -> Result<(), Error> {
   let root = get_root(&session_id)?;
-  let cli = GitCli::new(&root);
+  let cli = make_cli(&root);
   manager().runtime.block_on(cli.delete_remote_tag(&remote, &name))?;
   Ok(())
 }
