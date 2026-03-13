@@ -73,6 +73,7 @@ extension Notification.Name {
 	static let openRepositoryDeepLink = Notification.Name("deathpush.openRepositoryDeepLink")
 	static let cloneRepository = Notification.Name("deathpush.cloneRepository")
 	static let newTerminalSession = Notification.Name("deathpush.newTerminalSession")
+	static let findInTerminal = Notification.Name("deathpush.findInTerminal")
 }
 
 struct DeathPushMenuCommands: Commands {
@@ -209,6 +210,19 @@ struct DeathPushMenuCommands: Commands {
 				tabState?.showTerminal.toggle()
 			}
 			.keyboardShortcut("j", modifiers: .command)
+
+			Divider()
+
+			Button("Find in Terminal") {
+				guard let sessionId = tabState?.terminalService.activeSessionId else { return }
+				NotificationCenter.default.post(
+					name: .findInTerminal,
+					object: nil,
+					userInfo: ["sessionId": sessionId]
+				)
+			}
+			.keyboardShortcut("f", modifiers: .command)
+			.disabled(tabState?.terminalService.activeSessionId == nil)
 
 			Divider()
 

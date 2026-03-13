@@ -114,6 +114,7 @@ struct SwiftTermContainerView: NSViewRepresentable {
 	func makeNSView(context: Context) -> LocalProcessTerminalView {
 		let terminalView = LocalProcessTerminalView(frame: .zero)
 		terminalView.processDelegate = context.coordinator
+		context.coordinator.terminalView = terminalView
 
 		// Configure appearance
 		terminalView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
@@ -161,9 +162,36 @@ struct SwiftTermContainerView: NSViewRepresentable {
 	class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
 		let session: TerminalSession
 		var lastAppliedThemeName: String?
+		weak var terminalView: LocalProcessTerminalView?
+
+		private var findObserver: NSObjectProtocol?
 
 		init(session: TerminalSession) {
 			self.session = session
+			super.init()
+			findObserver = NotificationCenter.default.addObserver(
+				forName: .findInTerminal,
+				object: nil,
+				queue: .main
+			) { [weak self] notification in
+				guard let self,
+					  let sessionId = notification.userInfo?["sessionId"] as? UUID,
+					  sessionId == self.session.id else { return }
+				self.showFindBar()
+			}
+		}
+
+		deinit {
+			if let findObserver {
+				NotificationCenter.default.removeObserver(findObserver)
+			}
+		}
+
+		func showFindBar() {
+			guard let terminalView else { return }
+			let item = NSMenuItem()
+			item.tag = Int(NSFindPanelAction.showFindPanel.rawValue)
+			terminalView.performFindPanelAction(item)
 		}
 
 		nonisolated func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
