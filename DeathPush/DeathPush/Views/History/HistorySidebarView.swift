@@ -168,18 +168,9 @@ struct CommitSidebarRow: View {
 	}
 
 	private var avatar: some View {
-		AsyncImage(url: URL(string: commit.avatarUrl)) { phase in
-			switch phase {
-			case .success(let image):
-				image
-					.resizable()
-					.aspectRatio(contentMode: .fill)
-			default:
-				initialsFallback
-			}
-		}
-		.frame(width: 24, height: 24)
-		.clipShape(Circle())
+		CachedAvatarView(url: commit.avatarUrl, fallback: initialsFallback)
+			.frame(width: 24, height: 24)
+			.clipShape(Circle())
 	}
 
 	private var initialsFallback: some View {
@@ -242,13 +233,6 @@ struct CommitSidebarRow: View {
 	}
 
 	private func formatDate(_ dateStr: String) -> String {
-		let formatter = ISO8601DateFormatter()
-		formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-		guard let date = formatter.date(from: dateStr) ?? ISO8601DateFormatter().date(from: dateStr) else {
-			return dateStr
-		}
-		let relative = RelativeDateTimeFormatter()
-		relative.unitsStyle = .abbreviated
-		return relative.localizedString(for: date, relativeTo: Date())
+		DateFormatters.relativeString(from: dateStr)
 	}
 }

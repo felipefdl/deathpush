@@ -229,14 +229,7 @@ struct HistoryDetailView: View {
 	// MARK: - Helpers
 
 	private func formatDate(_ dateStr: String) -> String {
-		let formatter = ISO8601DateFormatter()
-		formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-		guard let date = formatter.date(from: dateStr) ?? ISO8601DateFormatter().date(from: dateStr) else {
-			return dateStr
-		}
-		let relative = RelativeDateTimeFormatter()
-		relative.unitsStyle = .abbreviated
-		return relative.localizedString(for: date, relativeTo: Date())
+		DateFormatters.relativeString(from: dateStr)
 	}
 
 	private func fileStatusLetter(_ status: String) -> String {

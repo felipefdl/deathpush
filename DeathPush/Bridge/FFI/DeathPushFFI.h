@@ -306,6 +306,12 @@ void uniffi_deathpush_ffi_fn_func_create_session(RustBuffer session_id, RustCall
 void uniffi_deathpush_ffi_fn_func_destroy_session(RustBuffer session_id, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_GET_RESOLVED_ENVIRONMENT
+#define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_GET_RESOLVED_ENVIRONMENT
+RustBuffer uniffi_deathpush_ffi_fn_func_get_resolved_environment(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_INITIALIZE
 #define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_INITIALIZE
 void uniffi_deathpush_ffi_fn_func_initialize(RustCallStatus *_Nonnull out_status
@@ -991,6 +997,12 @@ uint16_t uniffi_deathpush_ffi_checksum_func_create_session(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_DESTROY_SESSION
 #define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_DESTROY_SESSION
 uint16_t uniffi_deathpush_ffi_checksum_func_destroy_session(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_GET_RESOLVED_ENVIRONMENT
+#define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_GET_RESOLVED_ENVIRONMENT
+uint16_t uniffi_deathpush_ffi_checksum_func_get_resolved_environment(void
     
 );
 #endif

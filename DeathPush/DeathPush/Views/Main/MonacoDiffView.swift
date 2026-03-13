@@ -10,6 +10,13 @@ struct MonacoDiffView: NSViewRepresentable {
 	var onLineSelection: ((Int, Int, Int, Int) -> Void)?
 	var onLineSelectionCleared: (() -> Void)?
 
+	@AppStorage("editor.fontFamily") private var fontFamily = "SF Mono"
+	@AppStorage("editor.fontSize") private var fontSize = 13.0
+	@AppStorage("editor.lineHeight") private var lineHeight = 20.0
+	@AppStorage("editor.tabSize") private var tabSize = 2
+	@AppStorage("editor.wordWrap") private var wordWrap = false
+	@AppStorage("editor.renderWhitespace") private var renderWhitespace = false
+
 	func makeNSView(context: Context) -> WKWebView {
 		let config = WKWebViewConfiguration()
 		config.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -51,10 +58,18 @@ struct MonacoDiffView: NSViewRepresentable {
 		context.coordinator.pendingHunkMetaJSON = hunkMetaJSON
 		context.coordinator.onLineSelection = onLineSelection
 		context.coordinator.onLineSelectionCleared = onLineSelectionCleared
+		context.coordinator.pendingEditorOptions = editorOptionsJSON()
 
 		if context.coordinator.isReady {
 			context.coordinator.applyPendingUpdates(webView: webView)
 		}
+	}
+
+	private func editorOptionsJSON() -> String {
+		let wrap = wordWrap ? "\"on\"" : "\"off\""
+		let ws = renderWhitespace ? "\"all\"" : "\"none\""
+		let family = fontFamily.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+		return "{\"fontFamily\":\"\(family), Menlo, Monaco, monospace\",\"fontSize\":\(Int(fontSize)),\"lineHeight\":\(Int(lineHeight)),\"tabSize\":\(tabSize),\"wordWrap\":\(wrap),\"renderWhitespace\":\(ws)}"
 	}
 
 	func makeCoordinator() -> Coordinator {
@@ -71,11 +86,13 @@ struct MonacoDiffView: NSViewRepresentable {
 		var pendingContentVersion: Int = 0
 		var onLineSelection: ((Int, Int, Int, Int) -> Void)?
 		var onLineSelectionCleared: (() -> Void)?
+		var pendingEditorOptions: String?
 		private var lastAppliedDiffPath: String?
 		private var lastAppliedDiffMode: DiffMode?
 		private var lastAppliedThemeJSON: String?
 		private var lastAppliedContentVersion: Int = 0
 		private var lastAppliedHunkMetaJSON: String?
+		private var lastAppliedEditorOptions: String?
 
 		func applyPendingUpdates(webView: WKWebView) {
 			// Apply theme BEFORE content to minimize flicker
@@ -111,6 +128,12 @@ struct MonacoDiffView: NSViewRepresentable {
 				webView.evaluateJavaScript("setDiffMode('\(mode.rawValue)')")
 				lastAppliedDiffMode = mode
 				pendingDiffMode = nil
+			}
+
+			if let opts = pendingEditorOptions, opts != lastAppliedEditorOptions {
+				webView.evaluateJavaScript("setEditorOptions(\(opts))")
+				lastAppliedEditorOptions = opts
+				pendingEditorOptions = nil
 			}
 		}
 

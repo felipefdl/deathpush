@@ -6,6 +6,13 @@ struct MonacoEditorView: NSViewRepresentable {
   var themeJSON: String?
   var goToLine: Int?
 
+  @AppStorage("editor.fontFamily") private var fontFamily = "SF Mono"
+  @AppStorage("editor.fontSize") private var fontSize = 13.0
+  @AppStorage("editor.lineHeight") private var lineHeight = 20.0
+  @AppStorage("editor.tabSize") private var tabSize = 2
+  @AppStorage("editor.wordWrap") private var wordWrap = false
+  @AppStorage("editor.renderWhitespace") private var renderWhitespace = false
+
   func makeNSView(context: Context) -> WKWebView {
     let config = WKWebViewConfiguration()
     config.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -35,10 +42,18 @@ struct MonacoEditorView: NSViewRepresentable {
     context.coordinator.pendingThemeJSON = themeJSON
     context.coordinator.pendingContent = fileContent
     context.coordinator.pendingGoToLine = goToLine
+    context.coordinator.pendingEditorOptions = editorOptionsJSON()
 
     if context.coordinator.isReady {
       context.coordinator.applyPendingUpdates(webView: webView)
     }
+  }
+
+  private func editorOptionsJSON() -> String {
+    let wrap = wordWrap ? "\"on\"" : "\"off\""
+    let ws = renderWhitespace ? "\"all\"" : "\"none\""
+    let family = fontFamily.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    return "{\"fontFamily\":\"\(family), Menlo, Monaco, monospace\",\"fontSize\":\(Int(fontSize)),\"lineHeight\":\(Int(lineHeight)),\"tabSize\":\(tabSize),\"wordWrap\":\(wrap),\"renderWhitespace\":\(ws)}"
   }
 
   func makeCoordinator() -> Coordinator {
@@ -51,9 +66,11 @@ struct MonacoEditorView: NSViewRepresentable {
     var pendingContent: FileContent?
     var pendingThemeJSON: String?
     var pendingGoToLine: Int?
+    var pendingEditorOptions: String?
     private var lastAppliedPath: String?
     private var lastAppliedThemeJSON: String?
     private var lastAppliedGoToLine: Int?
+    private var lastAppliedEditorOptions: String?
 
     func applyPendingUpdates(webView: WKWebView) {
       // Apply theme BEFORE content to minimize flicker
@@ -77,6 +94,12 @@ struct MonacoEditorView: NSViewRepresentable {
         webView.evaluateJavaScript("revealLine(\(line))")
         lastAppliedGoToLine = line
         pendingGoToLine = nil
+      }
+
+      if let opts = pendingEditorOptions, opts != lastAppliedEditorOptions {
+        webView.evaluateJavaScript("setEditorOptions(\(opts))")
+        lastAppliedEditorOptions = opts
+        pendingEditorOptions = nil
       }
     }
 

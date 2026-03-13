@@ -1,8 +1,30 @@
 import SwiftUI
+import UserNotifications
 
-final class DeathPushAppDelegate: NSObject, NSApplicationDelegate {
+final class DeathPushAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
 	func applicationDidFinishLaunching(_ notification: Notification) {
 		NSWindow.allowsAutomaticWindowTabbing = true
+		let center = UNUserNotificationCenter.current()
+		center.delegate = self
+		center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+	}
+
+	func userNotificationCenter(
+		_ center: UNUserNotificationCenter,
+		didReceive response: UNNotificationResponse,
+		withCompletionHandler completionHandler: @escaping () -> Void
+	) {
+		let userInfo = response.notification.request.content.userInfo
+		if let sessionIdString = userInfo["sessionId"] as? String,
+		   let sessionId = UUID(uuidString: sessionIdString) {
+			NSApp.activate(ignoringOtherApps: true)
+			NotificationCenter.default.post(
+				name: .focusTerminalSession,
+				object: nil,
+				userInfo: ["sessionId": sessionId]
+			)
+		}
+		completionHandler()
 	}
 }
 
@@ -74,6 +96,8 @@ extension Notification.Name {
 	static let cloneRepository = Notification.Name("deathpush.cloneRepository")
 	static let newTerminalSession = Notification.Name("deathpush.newTerminalSession")
 	static let findInTerminal = Notification.Name("deathpush.findInTerminal")
+	static let focusTerminalSession = Notification.Name("deathpush.focusTerminalSession")
+	static let terminalSessionExited = Notification.Name("deathpush.terminalSessionExited")
 }
 
 struct DeathPushMenuCommands: Commands {
@@ -216,7 +240,7 @@ struct DeathPushMenuCommands: Commands {
 			Button("Find in Terminal") {
 				guard let state = tabState,
 					  state.showTerminal,
-					  let sessionId = state.terminalService.activeSessionId else { return }
+					  let sessionId = state.terminalService.focusedSessionId else { return }
 				NotificationCenter.default.post(
 					name: .findInTerminal,
 					object: nil,
@@ -224,17 +248,17 @@ struct DeathPushMenuCommands: Commands {
 				)
 			}
 			.keyboardShortcut("f", modifiers: .command)
-			.disabled(tabState?.showTerminal != true || tabState?.terminalService.activeSessionId == nil)
+			.disabled(tabState?.showTerminal != true || tabState?.terminalService.focusedSessionId == nil)
 
 			Divider()
 
 			Button("Kill Terminal") {
-				if let id = tabState?.terminalService.activeSessionId {
+				if let id = tabState?.terminalService.focusedSessionId {
 					tabState?.terminalService.killSession(id)
 				}
 			}
 			.keyboardShortcut("w", modifiers: [.command, .shift])
-			.disabled(tabState?.terminalService.activeSessionId == nil)
+			.disabled(tabState?.terminalService.focusedSessionId == nil)
 		}
 	}
 }

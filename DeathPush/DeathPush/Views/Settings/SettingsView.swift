@@ -1,4 +1,50 @@
+import AppKit
 import SwiftUI
+import UserNotifications
+
+private let monospaceFontFamilies: [String] = {
+  let fontManager = NSFontManager.shared
+  let allFamilies = fontManager.availableFontFamilies
+  let nameHints = ["Mono", "Code", "Courier", "Consol", "Nerd Font", "Terminal"]
+  var result = allFamilies.filter { family in
+    let lowerFamily = family.lowercased()
+    if nameHints.contains(where: { lowerFamily.contains($0.lowercased()) }) {
+      return true
+    }
+    guard let members = fontManager.availableMembers(ofFontFamily: family),
+          let firstMember = members.first,
+          let postscriptName = firstMember[0] as? String,
+          let font = NSFont(name: postscriptName, size: 13) else { return false }
+    let traits = fontManager.traits(of: font)
+    return traits.contains(.fixedPitchFontMask)
+  }
+  // SF Mono is a system font not listed in availableFontFamilies
+  if !result.contains("SF Mono") {
+    result.append("SF Mono")
+  }
+  return result.sorted()
+}()
+
+struct MonospaceFontPicker: View {
+  @Binding var selection: String
+
+  private var families: [String] {
+    if monospaceFontFamilies.contains(selection) {
+      return monospaceFontFamilies
+    }
+    return (monospaceFontFamilies + [selection]).sorted()
+  }
+
+  var body: some View {
+    Picker("Font Family", selection: $selection) {
+      ForEach(families, id: \.self) { family in
+        Text(family)
+          .font(.custom(family, size: 13))
+          .tag(family)
+      }
+    }
+  }
+}
 
 struct SettingsView: View {
   var body: some View {
@@ -8,6 +54,9 @@ struct SettingsView: View {
 
       EditorSettingsTab()
         .tabItem { Label("Editor", systemImage: "pencil") }
+
+      TerminalSettingsTab()
+        .tabItem { Label("Terminal", systemImage: "terminal") }
 
       GitSettingsTab()
         .tabItem { Label("Git", systemImage: "arrow.triangle.branch") }
@@ -49,13 +98,7 @@ struct EditorSettingsTab: View {
   var body: some View {
     Form {
       Section("Font") {
-        HStack {
-          Text("Font Family")
-          Spacer()
-          TextField("", text: $fontFamily)
-            .frame(width: 200)
-            .textFieldStyle(.roundedBorder)
-        }
+        MonospaceFontPicker(selection: $fontFamily)
         HStack {
           Text("Font Size")
           Spacer()
@@ -81,6 +124,74 @@ struct EditorSettingsTab: View {
     .formStyle(.grouped)
     .padding()
   }
+}
+
+struct TerminalSettingsTab: View {
+  @AppStorage("terminal.fontFamily") private var fontFamily = "SF Mono"
+  @AppStorage("terminal.fontSize") private var fontSize = 13.0
+  @AppStorage("terminal.cursorStyle") private var cursorStyle = "block"
+  @AppStorage("terminal.cursorBlink") private var cursorBlink = true
+  @AppStorage("terminal.optionAsMeta") private var optionAsMeta = false
+  @AppStorage("terminal.mouseReporting") private var mouseReporting = true
+  @AppStorage("terminal.scrollback") private var scrollback = 5000
+  @AppStorage("terminal.boldAsBright") private var boldAsBright = true
+  @AppStorage("terminal.bellNotification") private var bellNotification = true
+  @AppStorage("terminal.processNotification") private var processNotification = true
+
+  var body: some View {
+    Form {
+      Section("Font") {
+        MonospaceFontPicker(selection: $fontFamily)
+        HStack {
+          Text("Font Size")
+          Spacer()
+          Stepper("\(Int(fontSize))pt", value: $fontSize, in: 8...32)
+        }
+      }
+
+      Section("Cursor") {
+        Picker("Style", selection: $cursorStyle) {
+          Text("Block").tag("block")
+          Text("Underline").tag("underline")
+          Text("Bar").tag("bar")
+        }
+        Toggle("Blink", isOn: $cursorBlink)
+      }
+
+      Section("Behavior") {
+        Toggle("Option as Meta Key", isOn: $optionAsMeta)
+        Toggle("Mouse Reporting", isOn: $mouseReporting)
+        Stepper("Scrollback: \(scrollback) lines", value: $scrollback, in: 100...100_000, step: 500)
+        Text("Scrollback changes apply to new terminal sessions.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
+      Section("Rendering") {
+        Toggle("Bold Text as Bright Colors", isOn: $boldAsBright)
+      }
+
+      Section("Notifications") {
+        Toggle("Bell Notification", isOn: $bellNotification)
+          .onChange(of: bellNotification) { _, enabled in
+            if enabled { requestNotificationPermission() }
+          }
+        Toggle("Process Completion", isOn: $processNotification)
+          .onChange(of: processNotification) { _, enabled in
+            if enabled { requestNotificationPermission() }
+          }
+        Text("Notifications are sent when the app is in the background.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+    }
+    .formStyle(.grouped)
+    .padding()
+  }
+}
+
+private func requestNotificationPermission() {
+  UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
 }
 
 struct GitSettingsTab: View {

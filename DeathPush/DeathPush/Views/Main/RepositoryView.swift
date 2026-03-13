@@ -168,37 +168,48 @@ struct RepositoryView: View {
 
 	@ViewBuilder
 	private var detailContent: some View {
-		switch tabState.sidebarSelection {
-		case .changes:
-			if let path = tabState.selectedFilePath {
-				DiffDetailView(path: path)
-			} else {
-				EmptyStateView(
-					title: "Select a file",
-					subtitle: "Choose a changed file from the sidebar to view its diff.",
-					systemImage: "doc.text"
-				)
+		ZStack {
+			Group {
+				if let path = tabState.selectedFilePath {
+					DiffDetailView(path: path)
+				} else {
+					EmptyStateView(
+						title: "Select a file",
+						subtitle: "Choose a changed file from the sidebar to view its diff.",
+						systemImage: "doc.text"
+					)
+				}
 			}
-		case .history:
-			if let commitId = tabState.selectedCommitId {
-				HistoryDetailView(commitId: commitId)
-			} else {
-				EmptyStateView(
-					title: "Select a commit",
-					subtitle: "Choose a commit from the sidebar to view its details.",
-					systemImage: "clock.arrow.circlepath"
-				)
+			.opacity(tabState.sidebarSelection == .changes ? 1 : 0)
+			.allowsHitTesting(tabState.sidebarSelection == .changes)
+
+			Group {
+				if let commitId = tabState.selectedCommitId {
+					HistoryDetailView(commitId: commitId)
+				} else {
+					EmptyStateView(
+						title: "Select a commit",
+						subtitle: "Choose a commit from the sidebar to view its details.",
+						systemImage: "clock.arrow.circlepath"
+					)
+				}
 			}
-		case .explorer:
-			if let path = tabState.explorerSelectedPath {
-				ExplorerDetailView(path: path, goToLine: tabState.goToLine)
-			} else {
-				EmptyStateView(
-					title: "File Explorer",
-					subtitle: "Select a file from the explorer to view its contents.",
-					systemImage: "folder"
-				)
+			.opacity(tabState.sidebarSelection == .history ? 1 : 0)
+			.allowsHitTesting(tabState.sidebarSelection == .history)
+
+			Group {
+				if let path = tabState.explorerSelectedPath {
+					ExplorerDetailView(path: path, goToLine: tabState.goToLine)
+				} else {
+					EmptyStateView(
+						title: "File Explorer",
+						subtitle: "Select a file from the explorer to view its contents.",
+						systemImage: "folder"
+					)
+				}
 			}
+			.opacity(tabState.sidebarSelection == .explorer ? 1 : 0)
+			.allowsHitTesting(tabState.sidebarSelection == .explorer)
 		}
 	}
 }

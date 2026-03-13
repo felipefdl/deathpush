@@ -111,18 +111,26 @@ struct CommitInputView: View {
 	}
 
 	private func handleCommitAndPush() {
-		guard canCommit else { return }
-		try? repoService?.commitChanges(message: message, amend: amendMode)
-		try? repoService?.pushRemote()
+		guard canCommit, let service = repoService else { return }
+		Task {
+			await service.performOperation("Pushing...") {
+				try service.commitChanges(message: self.message, amend: self.amendMode)
+				try service.pushRemote()
+			}
+		}
 		message = ""
 		amendMode = false
 	}
 
 	private func handleCommitAndSync() {
-		guard canCommit else { return }
-		try? repoService?.commitChanges(message: message, amend: amendMode)
-		try? repoService?.pullRemote()
-		try? repoService?.pushRemote()
+		guard canCommit, let service = repoService else { return }
+		Task {
+			await service.performOperation("Syncing...") {
+				try service.commitChanges(message: self.message, amend: self.amendMode)
+				try service.pullRemote()
+				try service.pushRemote()
+			}
+		}
 		message = ""
 		amendMode = false
 	}

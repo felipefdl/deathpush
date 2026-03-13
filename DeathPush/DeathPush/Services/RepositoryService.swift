@@ -2,7 +2,7 @@ import Foundation
 
 @Observable
 final class RepositoryService {
-  var status: RepositoryStatus?
+  private(set) var status: RepositoryStatus?
   var branches: [BranchEntry] = []
   var stashes: [StashEntry] = []
   var tags: [TagEntry] = []
@@ -16,34 +16,17 @@ final class RepositoryService {
 
   let sessionId: String
 
-  var repoName: String {
-    guard let root = status?.root else { return "DeathPush" }
-    return URL(fileURLWithPath: root).lastPathComponent
-  }
+  // Phase 4: Granular stored properties -- views only re-evaluate when their specific field changes
+  private(set) var repoName: String = "DeathPush"
+  private(set) var currentBranch: String?
+  private(set) var ahead: UInt32 = 0
+  private(set) var behind: UInt32 = 0
+  private(set) var operationState: RepoOperationState = .clean
+  private(set) var totalChanges: Int = 0
+  private(set) var resourceGroups: [ResourceGroup] = []
 
-  var currentBranch: String? {
-    status?.headBranch
-  }
-
-  var ahead: UInt32 {
-    status?.ahead ?? 0
-  }
-
-  var behind: UInt32 {
-    status?.behind ?? 0
-  }
-
-  var operationState: RepoOperationState {
-    status?.operationState ?? .clean
-  }
-
-  var totalChanges: Int {
-    status?.groups.reduce(0) { $0 + $1.files.count } ?? 0
-  }
-
-  var resourceGroups: [ResourceGroup] {
-    status?.groups ?? []
-  }
+  // Phase 3: Cached git status map -- rebuilt only when status changes
+  private(set) var gitStatusByPath: [String: FileStatus] = [:]
 
   init() {
     sessionId = UUID().uuidString
@@ -52,6 +35,45 @@ final class RepositoryService {
 
   func destroy() {
     destroySession(sessionId: sessionId)
+  }
+
+  // Phase 4: Selective update from status -- only mutate fields that actually changed
+  private func updateFromStatus(_ newStatus: RepositoryStatus?) {
+    status = newStatus
+
+    let branch = newStatus?.headBranch
+    if currentBranch != branch { currentBranch = branch }
+
+    let a = newStatus?.ahead ?? 0
+    if ahead != a { ahead = a }
+
+    let b = newStatus?.behind ?? 0
+    if behind != b { behind = b }
+
+    let op = newStatus?.operationState ?? .clean
+    if operationState != op { operationState = op }
+
+    let groups = newStatus?.groups ?? []
+    resourceGroups = groups
+    totalChanges = groups.reduce(0) { $0 + $1.files.count }
+
+    if let root = newStatus?.root {
+      let name = URL(fileURLWithPath: root).lastPathComponent
+      if repoName != name { repoName = name }
+    }
+
+    rebuildGitStatusMap()
+  }
+
+  // Phase 3: Rebuild cached git status map
+  private func rebuildGitStatusMap() {
+    var map: [String: FileStatus] = [:]
+    for group in resourceGroups {
+      for file in group.files {
+        map[file.path] = file.status
+      }
+    }
+    gitStatusByPath = map
   }
 
   @MainActor
@@ -73,50 +95,50 @@ final class RepositoryService {
   @discardableResult
   func open(path: String) throws -> RepositoryStatus {
     let result = try openRepository(sessionId: sessionId, path: path)
-    status = result
+    updateFromStatus(result)
     return result
   }
 
   @discardableResult
   func initRepo(path: String) throws -> RepositoryStatus {
     let result = try initRepository(sessionId: sessionId, path: path)
-    status = result
+    updateFromStatus(result)
     return result
   }
 
   @discardableResult
   func clone(url: String, path: String) throws -> RepositoryStatus {
     let result = try cloneRepository(sessionId: sessionId, url: url, path: path)
-    status = result
+    updateFromStatus(result)
     return result
   }
 
   // MARK: - Status
 
   func refreshStatus() throws {
-    status = try getStatus(sessionId: sessionId)
+    updateFromStatus(try getStatus(sessionId: sessionId))
   }
 
   // MARK: - Staging
 
   func stageFiles(_ paths: [String]) throws {
-    status = try DeathPush.stageFiles(sessionId: sessionId, paths: paths)
+    updateFromStatus(try DeathPush.stageFiles(sessionId: sessionId, paths: paths))
   }
 
   func unstageFiles(_ paths: [String]) throws {
-    status = try DeathPush.unstageFiles(sessionId: sessionId, paths: paths)
+    updateFromStatus(try DeathPush.unstageFiles(sessionId: sessionId, paths: paths))
   }
 
   func stageAllFiles() throws {
-    status = try stageAll(sessionId: sessionId)
+    updateFromStatus(try stageAll(sessionId: sessionId))
   }
 
   func unstageAllFiles() throws {
-    status = try unstageAll(sessionId: sessionId)
+    updateFromStatus(try unstageAll(sessionId: sessionId))
   }
 
   func discardFileChanges(_ paths: [String]) throws {
-    status = try discardChanges(sessionId: sessionId, paths: paths)
+    updateFromStatus(try discardChanges(sessionId: sessionId, paths: paths))
   }
 
   // MARK: - Hunk Staging
@@ -126,21 +148,21 @@ final class RepositoryService {
   }
 
   func stageHunkAtIndex(path: String, hunkIndex: UInt32, staged: Bool) throws {
-    status = try stageHunk(sessionId: sessionId, path: path, hunkIndex: hunkIndex, staged: staged)
+    updateFromStatus(try stageHunk(sessionId: sessionId, path: path, hunkIndex: hunkIndex, staged: staged))
   }
 
   func discardHunkAtIndex(path: String, hunkIndex: UInt32) throws {
-    status = try discardHunk(sessionId: sessionId, path: path, hunkIndex: hunkIndex)
+    updateFromStatus(try discardHunk(sessionId: sessionId, path: path, hunkIndex: hunkIndex))
   }
 
   // MARK: - Commit
 
   func commitChanges(message: String, amend: Bool = false) throws {
-    status = try commit(sessionId: sessionId, message: message, amend: amend)
+    updateFromStatus(try commit(sessionId: sessionId, message: message, amend: amend))
   }
 
   func undoCommit() throws {
-    status = try undoLastCommit(sessionId: sessionId)
+    updateFromStatus(try undoLastCommit(sessionId: sessionId))
   }
 
   func lastCommitMessage() throws -> String {
@@ -154,11 +176,11 @@ final class RepositoryService {
   }
 
   func switchBranch(name: String) throws {
-    status = try checkoutBranch(sessionId: sessionId, name: name)
+    updateFromStatus(try checkoutBranch(sessionId: sessionId, name: name))
   }
 
   func createNewBranch(name: String, startPoint: String? = nil) throws {
-    status = try createBranch(sessionId: sessionId, name: name, startPoint: startPoint)
+    updateFromStatus(try createBranch(sessionId: sessionId, name: name, startPoint: startPoint))
   }
 
   func removeBranch(name: String, force: Bool = false) throws {
@@ -166,7 +188,7 @@ final class RepositoryService {
   }
 
   func renameBranchTo(oldName: String, newName: String) throws {
-    status = try renameBranch(sessionId: sessionId, oldName: oldName, newName: newName)
+    updateFromStatus(try renameBranch(sessionId: sessionId, oldName: oldName, newName: newName))
   }
 
   func removeRemoteBranch(remote: String = "origin", name: String) throws {
@@ -176,45 +198,45 @@ final class RepositoryService {
   // MARK: - Remote
 
   func fetchRemote(remote: String = "origin", prune: Bool = false) throws {
-    status = try fetch(sessionId: sessionId, remote: remote, prune: prune)
+    updateFromStatus(try fetch(sessionId: sessionId, remote: remote, prune: prune))
   }
 
   func pullRemote(remote: String = "origin", branch: String = "", rebase: Bool = false) throws {
-    status = try pull(sessionId: sessionId, remote: remote, branch: branch, rebase: rebase)
+    updateFromStatus(try pull(sessionId: sessionId, remote: remote, branch: branch, rebase: rebase))
   }
 
   func pushRemote(remote: String = "origin", branch: String = "", force: Bool = false) throws {
-    status = try push(sessionId: sessionId, remote: remote, branch: branch, force: force)
+    updateFromStatus(try push(sessionId: sessionId, remote: remote, branch: branch, force: force))
   }
 
   // MARK: - Merge/Rebase
 
   func mergeBranchInto(name: String) throws {
-    status = try mergeBranch(sessionId: sessionId, name: name)
+    updateFromStatus(try mergeBranch(sessionId: sessionId, name: name))
   }
 
   func abortMerge() throws {
-    status = try mergeAbort(sessionId: sessionId)
+    updateFromStatus(try mergeAbort(sessionId: sessionId))
   }
 
   func continueMerge() throws {
-    status = try mergeContinue(sessionId: sessionId)
+    updateFromStatus(try mergeContinue(sessionId: sessionId))
   }
 
   func rebaseBranchOnto(name: String) throws {
-    status = try rebaseBranch(sessionId: sessionId, name: name)
+    updateFromStatus(try rebaseBranch(sessionId: sessionId, name: name))
   }
 
   func abortRebase() throws {
-    status = try rebaseAbort(sessionId: sessionId)
+    updateFromStatus(try rebaseAbort(sessionId: sessionId))
   }
 
   func continueRebase() throws {
-    status = try rebaseContinue(sessionId: sessionId)
+    updateFromStatus(try rebaseContinue(sessionId: sessionId))
   }
 
   func skipRebase() throws {
-    status = try rebaseSkip(sessionId: sessionId)
+    updateFromStatus(try rebaseSkip(sessionId: sessionId))
   }
 
   // MARK: - Stash
@@ -224,23 +246,23 @@ final class RepositoryService {
   }
 
   func saveStash(message: String? = nil) throws {
-    status = try stashSave(sessionId: sessionId, message: message)
+    updateFromStatus(try stashSave(sessionId: sessionId, message: message))
   }
 
   func saveStashIncludeUntracked(message: String? = nil) throws {
-    status = try stashSaveIncludeUntracked(sessionId: sessionId, message: message)
+    updateFromStatus(try stashSaveIncludeUntracked(sessionId: sessionId, message: message))
   }
 
   func saveStashStagedOnly(message: String? = nil) throws {
-    status = try stashSaveStaged(sessionId: sessionId, message: message)
+    updateFromStatus(try stashSaveStaged(sessionId: sessionId, message: message))
   }
 
   func applyStash(index: UInt32) throws {
-    status = try stashApply(sessionId: sessionId, index: index)
+    updateFromStatus(try stashApply(sessionId: sessionId, index: index))
   }
 
   func popStash(index: UInt32) throws {
-    status = try stashPop(sessionId: sessionId, index: index)
+    updateFromStatus(try stashPop(sessionId: sessionId, index: index))
   }
 
   func dropStash(index: UInt32) throws {
@@ -310,17 +332,17 @@ final class RepositoryService {
   // MARK: - Cherry Pick & Reset
 
   func cherryPickCommit(commitId: String) throws {
-    status = try cherryPick(sessionId: sessionId, commitId: commitId)
+    updateFromStatus(try cherryPick(sessionId: sessionId, commitId: commitId))
   }
 
   func resetToCommitId(_ commitId: String, mode: String = "mixed") throws {
-    status = try resetToCommit(sessionId: sessionId, id: commitId, mode: mode)
+    updateFromStatus(try resetToCommit(sessionId: sessionId, id: commitId, mode: mode))
   }
 
   // MARK: - Line-Level Staging
 
   func stageLinesInHunk(path: String, hunkIndex: UInt32, lineStart: UInt32, lineEnd: UInt32, staged: Bool) throws {
-    status = try stageLines(sessionId: sessionId, path: path, hunkIndex: hunkIndex, lineStart: lineStart, lineEnd: lineEnd, staged: staged)
+    updateFromStatus(try stageLines(sessionId: sessionId, path: path, hunkIndex: hunkIndex, lineStart: lineStart, lineEnd: lineEnd, staged: staged))
   }
 
   // MARK: - Worktrees
@@ -346,16 +368,6 @@ final class RepositoryService {
     cache.totalCostLimit = 50 * 1024 * 1024 // ~50MB
     return cache
   }()
-
-  var gitStatusByPath: [String: FileStatus] {
-    var map: [String: FileStatus] = [:]
-    for group in resourceGroups {
-      for file in group.files {
-        map[file.path] = file.status
-      }
-    }
-    return map
-  }
 
   func listExplorerDirectory(path: String?) throws -> [ExplorerEntry] {
     let entries = try listDirectory(sessionId: sessionId, path: path)
@@ -400,7 +412,7 @@ final class RepositoryService {
   }
 
   func deleteExplorerEntry(path: String) throws {
-    status = try deleteFile(sessionId: sessionId, path: path)
+    updateFromStatus(try deleteFile(sessionId: sessionId, path: path))
     invalidateExplorerCache()
     refreshExplorerExpandedPaths()
   }
@@ -431,13 +443,13 @@ final class RepositoryService {
   }
 
   func addExplorerEntryToGitignore(pattern: String) throws {
-    status = try addToGitignore(sessionId: sessionId, pattern: pattern)
+    updateFromStatus(try addToGitignore(sessionId: sessionId, pattern: pattern))
     invalidateExplorerCache()
     refreshExplorerExpandedPaths()
   }
 
   func deleteExplorerEntries(paths: [String]) throws {
-    status = try deleteFiles(sessionId: sessionId, paths: paths)
+    updateFromStatus(try deleteFiles(sessionId: sessionId, paths: paths))
     invalidateExplorerCache()
     refreshExplorerExpandedPaths()
   }
