@@ -46,7 +46,7 @@ final class TerminalService {
 
   func startPolling() {
     pollingTask?.cancel()
-    pollingTask = Task { [weak self] in
+    pollingTask = Task { @MainActor [weak self] in
       while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(2))
         guard !Task.isCancelled, let self else { break }
