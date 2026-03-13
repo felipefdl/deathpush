@@ -209,6 +209,16 @@ struct DeathPushMenuCommands: Commands {
 				tabState?.showTerminal.toggle()
 			}
 			.keyboardShortcut("j", modifiers: .command)
+
+			Divider()
+
+			Button("Kill Terminal") {
+				if let id = tabState?.terminalService.activeSessionId {
+					tabState?.terminalService.killSession(id)
+				}
+			}
+			.keyboardShortcut("w", modifiers: [.command, .shift])
+			.disabled(tabState?.terminalService.activeSessionId == nil)
 		}
 	}
 }
