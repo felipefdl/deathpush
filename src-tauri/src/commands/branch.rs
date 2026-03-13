@@ -13,7 +13,7 @@ use crate::types::{BranchEntry, RepositoryStatus};
 
 #[tauri::command]
 pub fn list_branches(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<Vec<BranchEntry>> {
-  let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
   let repo = win_state.repo.as_ref().ok_or(Error::NoRepository)?;
   git_branch::list_branches(repo)
@@ -26,7 +26,7 @@ pub async fn checkout_branch(
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
@@ -34,7 +34,7 @@ pub async fn checkout_branch(
   let cli = GitCli::new(&root);
   cli.checkout_branch(&name).await?;
 
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   let win_state = guard.get_mut(&label);
   let repo = GitRepository::open(&root)?;
   let status = get_repository_status(&repo)?;
@@ -51,7 +51,7 @@ pub async fn create_branch(
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
@@ -59,7 +59,7 @@ pub async fn create_branch(
   let cli = GitCli::new(&root);
   cli.create_branch(&name, from.as_deref()).await?;
 
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   let win_state = guard.get_mut(&label);
   let repo = GitRepository::open(&root)?;
   let status = get_repository_status(&repo)?;
@@ -76,7 +76,7 @@ pub async fn delete_branch(
   window: WebviewWindow,
 ) -> Result<()> {
   let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
     win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
@@ -93,7 +93,7 @@ pub async fn rename_branch(
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
@@ -101,7 +101,7 @@ pub async fn rename_branch(
   let cli = GitCli::new(&root);
   cli.rename_branch(&old_name, &new_name).await?;
 
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   let win_state = guard.get_mut(&label);
   let repo = GitRepository::open(&root)?;
   let status = get_repository_status(&repo)?;
@@ -118,7 +118,7 @@ pub async fn delete_remote_branch(
   window: WebviewWindow,
 ) -> Result<()> {
   let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
     win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };

@@ -18,6 +18,14 @@ npm-debug.log*
 .vscode/
 .idea/
 .DS_Store
+
+# Xcode
+*.xcuserstate
+xcuserdata/
+DerivedData/
+*.dSYM
+*.dSYM.zip
+*.ipa
 *.suo
 *.ntvs*
 *.njsproj

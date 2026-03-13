@@ -7,19 +7,58 @@ mod types;
 mod util;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use commands::repository::{AppRepoState, CliPaths};
 use commands::{
   blame, branch, cli, commit, config, explorer, file_ops, lifecycle, log, remote, repository, staging, stash, status,
   tag, terminal,
 };
+use deathpush_core::events::EventSink;
 use git::watcher::WatcherState;
 use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder};
 use tauri::webview::WebviewWindowBuilder;
 use tauri::window::Color;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WindowEvent};
+
+static SHARED_EVENT_SINK: OnceLock<Arc<dyn EventSink>> = OnceLock::new();
+
+pub fn get_event_sink() -> Option<Arc<dyn EventSink>> {
+  SHARED_EVENT_SINK.get().cloned()
+}
+
+struct TauriEventSink {
+  app_handle: AppHandle,
+}
+
+impl EventSink for TauriEventSink {
+  fn emit_git_command(&self, command: &str, duration_ms: u64, timestamp: &str) {
+    #[derive(serde::Serialize, Clone)]
+    struct GitCommandEvent {
+      command: String,
+      duration_ms: u64,
+      timestamp: String,
+    }
+    let _ = self.app_handle.emit("git:command", GitCommandEvent {
+      command: command.to_string(),
+      duration_ms,
+      timestamp: timestamp.to_string(),
+    });
+  }
+
+  fn emit_repository_changed(&self, session_id: &str) {
+    if let Some(w) = self.app_handle.get_webview_window(session_id) {
+      let _ = w.emit("repository-changed", ());
+    }
+  }
+
+  fn emit_watcher_error(&self, session_id: &str, message: &str) {
+    if let Some(w) = self.app_handle.get_webview_window(session_id) {
+      let _ = w.emit("watcher-error", message);
+    }
+  }
+}
 
 struct RepoMenuItems(Vec<MenuItem<tauri::Wry>>);
 struct RepoWindowFlags(Mutex<HashMap<String, bool>>);
@@ -74,7 +113,7 @@ fn create_window(app_handle: &AppHandle) -> Result<tauri::WebviewWindow, tauri::
 
 #[tauri::command]
 fn new_window(app: AppHandle, path: Option<String>) -> Result<(), error::Error> {
-  let window = create_window(&app).map_err(|e| error::Error::Other(e.to_string()))?;
+  let window = create_window(&app).map_err(|e| error::Error::other(e.to_string()))?;
   if let Some(p) = path {
     if let Some(state) = app.try_state::<CliPaths>() {
       if let Ok(mut map) = state.paths.lock() {
@@ -89,7 +128,7 @@ fn new_window(app: AppHandle, path: Option<String>) -> Result<(), error::Error> 
 fn set_repo_menu_enabled(app: AppHandle, window: tauri::WebviewWindow, enabled: bool) -> Result<(), error::Error> {
   let flags = app.state::<RepoWindowFlags>();
   {
-    let mut map = flags.0.lock().map_err(|e| error::Error::Other(e.to_string()))?;
+    let mut map = flags.0.lock().map_err(|e| error::Error::other(e.to_string()))?;
     map.insert(window.label().to_string(), enabled);
   }
   // Only enable menu items if the focused window has a repo
@@ -98,7 +137,7 @@ fn set_repo_menu_enabled(app: AppHandle, window: tauri::WebviewWindow, enabled: 
     for item in &items.0 {
       item
         .set_enabled(enabled)
-        .map_err(|e| error::Error::Other(e.to_string()))?;
+        .map_err(|e| error::Error::other(e.to_string()))?;
     }
   }
   Ok(())
@@ -152,7 +191,7 @@ fn set_native_theme(app: AppHandle, dark: bool) -> Result<(), error::Error> {
     for window in app.webview_windows().values() {
       window
         .set_theme(theme)
-        .map_err(|e| error::Error::Other(e.to_string()))?;
+        .map_err(|e| error::Error::other(e.to_string()))?;
     }
     Ok(())
   }
@@ -165,21 +204,21 @@ fn quit_app(app: AppHandle) {
 
 #[tauri::command]
 fn window_minimize(window: tauri::WebviewWindow) -> Result<(), error::Error> {
-  window.minimize().map_err(|e| error::Error::Other(e.to_string()))
+  window.minimize().map_err(|e| error::Error::other(e.to_string()))
 }
 
 #[tauri::command]
 fn window_maximize(window: tauri::WebviewWindow) -> Result<(), error::Error> {
   if window.is_maximized().unwrap_or(false) {
-    window.unmaximize().map_err(|e| error::Error::Other(e.to_string()))
+    window.unmaximize().map_err(|e| error::Error::other(e.to_string()))
   } else {
-    window.maximize().map_err(|e| error::Error::Other(e.to_string()))
+    window.maximize().map_err(|e| error::Error::other(e.to_string()))
   }
 }
 
 #[tauri::command]
 fn window_close(window: tauri::WebviewWindow) -> Result<(), error::Error> {
-  window.close().map_err(|e| error::Error::Other(e.to_string()))
+  window.close().map_err(|e| error::Error::other(e.to_string()))
 }
 
 #[tauri::command]
@@ -187,10 +226,10 @@ fn window_confirm_close(
   window: tauri::WebviewWindow,
   state: tauri::State<'_, ConfirmedCloseWindows>,
 ) -> Result<(), error::Error> {
-  let mut set = state.0.lock().map_err(|e| error::Error::Other(e.to_string()))?;
+  let mut set = state.0.lock().map_err(|e| error::Error::other(e.to_string()))?;
   set.insert(window.label().to_string());
   drop(set);
-  window.close().map_err(|e| error::Error::Other(e.to_string()))
+  window.close().map_err(|e| error::Error::other(e.to_string()))
 }
 
 #[cfg(target_os = "linux")]
@@ -261,7 +300,7 @@ pub fn run() {
         }
       });
 
-      git::cli::set_app_handle(app.handle().clone());
+      let _ = SHARED_EVENT_SINK.set(Arc::new(TauriEventSink { app_handle: app.handle().clone() }));
 
       let settings_item = MenuItemBuilder::with_id("preferences", "Settings...")
         .accelerator("CmdOrCtrl+,")
@@ -596,7 +635,7 @@ pub fn run() {
         // Clean up terminal sessions for this window
         if let Some(state) = app_handle.try_state::<pty::TerminalState>() {
           if let Ok(mut guard) = state.lock() {
-            guard.retain(|_, session| session.window_label != label);
+            guard.retain(|_, session| session.session_label != label);
           }
         }
 

@@ -23,7 +23,7 @@ pub async fn list_directory(
   window: WebviewWindow,
 ) -> Result<Vec<ExplorerEntry>> {
   let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
     win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
@@ -95,7 +95,7 @@ pub async fn read_file_content(
   window: WebviewWindow,
 ) -> Result<FileContent> {
   let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
     win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
@@ -103,18 +103,18 @@ pub async fn read_file_content(
   // Path traversal protection
   let canon_root = root
     .canonicalize()
-    .map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
+    .map_err(|e| Error::other(format!("Cannot resolve repository root: {}", e)))?;
   let target = root.join(&path);
   let canon_target = target
     .canonicalize()
-    .map_err(|e| Error::Other(format!("Cannot resolve file path: {}", e)))?;
+    .map_err(|e| Error::other(format!("Cannot resolve file path: {}", e)))?;
   if !canon_target.starts_with(&canon_root) {
-    return Err(Error::Other("Path traversal denied".into()));
+    return Err(Error::other("Path traversal denied"));
   }
 
   // Check file exists
   if !canon_target.is_file() {
-    return Err(Error::Other("File not found".into()));
+    return Err(Error::other("File not found"));
   }
 
   // Size check
@@ -182,7 +182,7 @@ pub async fn fuzzy_find_files(
   window: WebviewWindow,
 ) -> Result<Vec<FuzzyFileResult>> {
   let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
     win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
@@ -227,7 +227,7 @@ pub async fn fuzzy_find_files(
       scored.push(FuzzyFileResult {
         path: file_path.to_string(),
         score: score as u32,
-        match_positions: indices.iter().map(|&i| i as usize).collect(),
+        match_positions: indices.to_vec(),
       });
     }
     buf.clear();
@@ -250,7 +250,7 @@ pub async fn search_file_contents(
   }
 
   let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
     win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
@@ -272,7 +272,7 @@ pub async fn search_file_contents(
     .current_dir(&root)
     .output()
     .await
-    .map_err(|e| Error::Other(e.to_string()))?;
+    .map_err(|e| Error::other(e.to_string()))?;
 
   // git grep exits 1 when no matches found -- not an error
   if !output.status.success() {
@@ -281,7 +281,7 @@ pub async fn search_file_contents(
       return Ok(vec![]);
     }
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    return Err(Error::GitCli(stderr));
+    return Err(Error::git_cli(stderr));
   }
 
   let stdout = String::from_utf8_lossy(&output.stdout);
@@ -301,10 +301,10 @@ pub async fn search_file_contents(
     let Some((col_str, content)) = rest.split_once(':') else {
       continue;
     };
-    let Ok(line_number) = line_num_str.parse::<usize>() else {
+    let Ok(line_number) = line_num_str.parse::<u32>() else {
       continue;
     };
-    let Ok(column) = col_str.parse::<usize>() else {
+    let Ok(column) = col_str.parse::<u32>() else {
       continue;
     };
     results.push(ContentSearchResult {

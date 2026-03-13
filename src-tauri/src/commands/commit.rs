@@ -17,7 +17,7 @@ pub async fn commit(
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
@@ -25,7 +25,7 @@ pub async fn commit(
   let cli = GitCli::new(&root);
   cli.commit(&message, amend).await?;
 
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   let win_state = guard.get_mut(&label);
   let repo = GitRepository::open(&root)?;
   let status = get_repository_status(&repo)?;

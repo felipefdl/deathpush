@@ -16,28 +16,28 @@ pub async fn stage_files(
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
   };
   let cli = GitCli::new(&root);
   cli.stage_files(&paths).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   refresh_status(&mut guard, &label)
 }
 
 #[tauri::command]
 pub async fn stage_all(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
   };
   let cli = GitCli::new(&root);
   cli.stage_all().await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   refresh_status(&mut guard, &label)
 }
 
@@ -48,28 +48,28 @@ pub async fn unstage_files(
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
   };
   let cli = GitCli::new(&root);
   cli.unstage_files(&paths).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   refresh_status(&mut guard, &label)
 }
 
 #[tauri::command]
 pub async fn unstage_all(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
   };
   let cli = GitCli::new(&root);
   cli.unstage_all().await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   refresh_status(&mut guard, &label)
 }
 
@@ -80,14 +80,14 @@ pub async fn discard_changes(
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
   };
   let cli = GitCli::new(&root);
   cli.discard_changes(&paths).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   refresh_status(&mut guard, &label)
 }
 
@@ -99,7 +99,7 @@ pub async fn get_file_hunks(
   window: WebviewWindow,
 ) -> Result<FileDiffWithHunks> {
   let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
     win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
@@ -118,7 +118,7 @@ pub async fn stage_hunk(
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
@@ -133,7 +133,7 @@ pub async fn stage_hunk(
     cli.apply_patch(&patch, true, false).await?;
   }
 
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   refresh_status(&mut guard, &label)
 }
 
@@ -145,7 +145,7 @@ pub async fn discard_hunk(
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
@@ -157,7 +157,7 @@ pub async fn discard_hunk(
   // Apply the patch in reverse to the working tree (not cached)
   cli.apply_patch(&patch, false, true).await?;
 
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   refresh_status(&mut guard, &label)
 }
 
@@ -172,7 +172,7 @@ pub async fn stage_lines(
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
@@ -187,6 +187,6 @@ pub async fn stage_lines(
     cli.apply_patch(&patch, true, false).await?;
   }
 
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   refresh_status(&mut guard, &label)
 }

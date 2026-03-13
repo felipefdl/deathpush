@@ -4,8 +4,8 @@ version = "0.2.1"
 description = "A desktop Git client inspired by VS Code Source Control"
 authors = ["felipefdl"]
 license = "Apache-2.0"
-edition = "2024"
-rust-version = "1.85.0"
+edition.workspace = true
+rust-version.workspace = true
 
 [features]
 devtools = ["tauri/devtools"]
@@ -18,24 +18,25 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+deathpush-core = { path = "../crates/deathpush-core" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
-chrono = "0.4"
-git2 = { version = "0.20", features = ["vendored-openssl"] }
-notify = "7"
-notify-debouncer-mini = "0.5"
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-portable-pty = "0.9"
-thiserror = "2"
-tracing = "0.1"
-trash = "5"
-nucleo-matcher = "0.3"
+chrono = { workspace = true }
+git2 = { workspace = true }
+notify = { workspace = true }
+notify-debouncer-mini = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+portable-pty = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+trash = { workspace = true }
+nucleo-matcher = { workspace = true }
 tracing-subscriber = "0.3"
-base64 = "0.22"
-md5 = "0.7"
+base64 = { workspace = true }
+md5 = { workspace = true }
 tauri-plugin-deep-link = "2"
 tauri-plugin-window-state = "2"
 url = "2"

@@ -1,0 +1,23 @@
+[workspace]
+members = ["crates/deathpush-core", "crates/deathpush-ffi", "src-tauri"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85.0"
+
+[workspace.dependencies]
+git2 = { version = "0.20", features = ["vendored-openssl", "vendored-libgit2"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+chrono = "0.4"
+notify = "7"
+notify-debouncer-mini = "0.5"
+nucleo-matcher = "0.3"
+trash = "5"
+portable-pty = "0.9"
+base64 = "0.22"
+md5 = "0.7"

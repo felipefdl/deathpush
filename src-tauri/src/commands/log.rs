@@ -14,7 +14,7 @@ pub fn get_commit_log(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<Vec<CommitEntry>> {
-  let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
   let repo = win_state.repo.as_ref().ok_or(Error::NoRepository)?;
   log::get_commit_log(repo, skip, limit)
@@ -26,7 +26,7 @@ pub fn get_commit_detail(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<CommitDetail> {
-  let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
   let repo = win_state.repo.as_ref().ok_or(Error::NoRepository)?;
   log::get_commit_detail(repo, &id)
@@ -39,7 +39,7 @@ pub fn get_commit_file_diff(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<CommitDiffContent> {
-  let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
   let repo = win_state.repo.as_ref().ok_or(Error::NoRepository)?;
   log::get_commit_file_diff(repo, &commit_id, &path)

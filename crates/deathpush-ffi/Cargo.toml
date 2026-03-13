@@ -1,0 +1,23 @@
+[package]
+name = "deathpush-ffi"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+name = "deathpush_ffi"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
+[dependencies]
+deathpush-core = { path = "../deathpush-core" }
+uniffi = { version = "0.31", features = ["cli"] }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+git2 = { workspace = true }
+trash = { workspace = true }
+nucleo-matcher = { workspace = true }

@@ -14,7 +14,7 @@ pub async fn get_file_blame(
   window: WebviewWindow,
 ) -> Result<FileBlame> {
   let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
     win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
@@ -30,7 +30,7 @@ pub async fn get_file_log(
   window: WebviewWindow,
 ) -> Result<Vec<CommitEntry>> {
   let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
     win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
@@ -43,7 +43,7 @@ pub async fn get_last_commit_info(
   window: WebviewWindow,
 ) -> Result<LastCommitInfo> {
   let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
     win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };

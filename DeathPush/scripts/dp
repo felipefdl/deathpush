@@ -1,0 +1,22 @@
+#!/bin/bash
+# DeathPush CLI launcher (native macOS app)
+# Opens a repository in DeathPush via deep link URL scheme.
+
+set -euo pipefail
+
+TARGET="${1:-.}"
+
+# Convert relative paths to absolute
+if [[ "$TARGET" != /* ]]; then
+  TARGET="$(cd "$TARGET" 2>/dev/null && pwd)" || {
+    echo "Error: Directory '$1' does not exist" >&2
+    exit 1
+  }
+fi
+
+# Verify it looks like a git repository
+if [ ! -d "$TARGET/.git" ] && ! git -C "$TARGET" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "Warning: '$TARGET' does not appear to be a Git repository" >&2
+fi
+
+open "deathpush://$TARGET"

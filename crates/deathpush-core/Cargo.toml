@@ -1,0 +1,25 @@
+[package]
+name = "deathpush-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+git2 = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+notify = { workspace = true }
+notify-debouncer-mini = { workspace = true }
+nucleo-matcher = { workspace = true }
+trash = { workspace = true }
+portable-pty = { workspace = true }
+base64 = { workspace = true }
+md5 = { workspace = true }
+uniffi = "0.31"
+
+[dev-dependencies]
+tempfile = "3"

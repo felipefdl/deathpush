@@ -10,7 +10,7 @@ use crate::types::{DiffContent, RepositoryStatus};
 
 #[tauri::command]
 pub fn get_status(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
-  let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
   let repo = win_state.repo.as_ref().ok_or(Error::NoRepository)?;
   get_repository_status(repo)
@@ -23,7 +23,7 @@ pub fn get_file_diff(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<DiffContent> {
-  let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
   let repo = win_state.repo.as_ref().ok_or(Error::NoRepository)?;
   diff::get_file_diff(repo, &path, staged)

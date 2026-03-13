@@ -7,6 +7,7 @@ use tauri::{Emitter, State, WebviewWindow};
 
 use crate::commands::update_window_title;
 use crate::error::{Error, Result};
+use crate::get_event_sink;
 use crate::git::repo_state::detect_operation_state;
 use crate::git::repository::GitRepository;
 use crate::git::watcher::{self, WatcherState};
@@ -59,28 +60,30 @@ pub fn open_repository(
     root: repo.root().to_string_lossy().to_string(),
     head_branch: repo.head_branch(),
     head_commit: repo.head_commit_id(),
-    ahead,
-    behind,
+    ahead: ahead as u32,
+    behind: behind as u32,
     groups: vec![],
     operation_state: detect_operation_state(repo.root()),
   };
 
   // Stop old watcher for this window, start new one
   {
-    let mut watchers = watcher_state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let mut watchers = watcher_state.lock().map_err(|e| Error::other(e.to_string()))?;
     watchers.remove(&label);
   }
-  if let Err(err) = watcher::start_watcher(&window, &repo_root, &watcher_state) {
-    tracing::warn!("failed to start watcher: {:?}", err);
-    let _ = window.emit(
-      "watcher:error",
-      format!("File watching unavailable: {}. Changes won't auto-refresh.", err),
-    );
+  if let Some(sink) = get_event_sink() {
+    if let Err(err) = watcher::start_watcher(&label, sink, &repo_root, &watcher_state) {
+      tracing::warn!("failed to start watcher: {:?}", err);
+      let _ = window.emit(
+        "watcher:error",
+        format!("File watching unavailable: {}. Changes won't auto-refresh.", err),
+      );
+    }
   }
 
   update_window_title(&window, &status);
 
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   let win_state = guard.get_mut(&label);
   win_state.cli_root = Some(repo_root);
   win_state.repo = Some(repo);
@@ -97,7 +100,7 @@ pub fn get_initial_path(state: State<'_, CliPaths>, window: WebviewWindow) -> Op
 pub fn scan_projects_directory(path: String, depth: u32) -> Result<Vec<ProjectInfo>> {
   let root = PathBuf::from(&path);
   if !root.is_dir() {
-    return Err(Error::Other(format!("Not a directory: {}", path)));
+    return Err(Error::other(format!("Not a directory: {}", path)));
   }
 
   let mut projects = Vec::new();
@@ -155,7 +158,7 @@ pub fn discover_repositories(
   window: WebviewWindow,
 ) -> Result<Vec<DiscoveredRepo>> {
   let label = window.label().to_string();
-  let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
   let cli_root = win_state.cli_root.as_ref().ok_or(Error::NoRepository)?;
 
@@ -222,7 +225,7 @@ pub struct WorktreeInfo {
 #[tauri::command]
 pub fn detect_worktrees(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<Vec<WorktreeInfo>> {
   let label = window.label().to_string();
-  let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
   let cli_root = win_state.cli_root.as_ref().ok_or(Error::NoRepository)?;
 

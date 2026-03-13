@@ -79,7 +79,7 @@ pub async fn install_cli(app: AppHandle) -> Result<(), Error> {
   let resource_dir = app
     .path()
     .resource_dir()
-    .map_err(|e| Error::Other(format!("Failed to resolve resource dir: {e}")))?;
+    .map_err(|e| Error::other(format!("Failed to resolve resource dir: {e}")))?;
 
   if cfg!(target_os = "windows") {
     install_windows(&resource_dir)
@@ -106,7 +106,7 @@ fn install_unix(resource_dir: &Path) -> Result<(), Error> {
   let script_path = resource_dir.join("resources/bin/dp");
 
   if !script_path.exists() {
-    return Err(Error::Other(format!(
+    return Err(Error::other(format!(
       "CLI script not found at {}",
       script_path.display()
     )));
@@ -116,11 +116,11 @@ fn install_unix(resource_dir: &Path) -> Result<(), Error> {
   {
     use std::os::unix::fs::PermissionsExt;
     let mut perms = std::fs::metadata(&script_path)
-      .map_err(|e| Error::Other(format!("Failed to read script metadata: {e}")))?
+      .map_err(|e| Error::other(format!("Failed to read script metadata: {e}")))?
       .permissions();
     perms.set_mode(0o755);
     std::fs::set_permissions(&script_path, perms)
-      .map_err(|e| Error::Other(format!("Failed to set script permissions: {e}")))?;
+      .map_err(|e| Error::other(format!("Failed to set script permissions: {e}")))?;
   }
 
   let dir = install_dir();
@@ -133,7 +133,7 @@ fn install_unix(resource_dir: &Path) -> Result<(), Error> {
 
 #[cfg(not(unix))]
 fn install_unix(_resource_dir: &Path) -> Result<(), Error> {
-  Err(Error::Other("Unix install not supported on this platform".into()))
+  Err(Error::other("Unix install not supported on this platform"))
 }
 
 #[cfg(unix)]
@@ -148,7 +148,7 @@ fn uninstall_unix() -> Result<(), Error> {
 
 #[cfg(not(unix))]
 fn uninstall_unix() -> Result<(), Error> {
-  Err(Error::Other("Unix uninstall not supported on this platform".into()))
+  Err(Error::other("Unix uninstall not supported on this platform"))
 }
 
 #[cfg(unix)]
@@ -158,10 +158,10 @@ fn create_symlinks(script_path: &Path, dir: &Path) -> Result<(), Error> {
     let link = dir.join(name);
     if link.exists() || link.symlink_metadata().is_ok() {
       std::fs::remove_file(&link)
-        .map_err(|e| Error::Other(format!("Failed to remove existing {}: {e}", link.display())))?;
+        .map_err(|e| Error::other(format!("Failed to remove existing {}: {e}", link.display())))?;
     }
     std::os::unix::fs::symlink(&*script_str, &link)
-      .map_err(|e| Error::Other(format!("Failed to create symlink {}: {e}", link.display())))?;
+      .map_err(|e| Error::other(format!("Failed to create symlink {}: {e}", link.display())))?;
   }
   Ok(())
 }
@@ -171,7 +171,7 @@ fn remove_symlinks(dir: &Path) -> Result<(), Error> {
   for name in SYMLINK_NAMES {
     let link = dir.join(name);
     if link.exists() || link.symlink_metadata().is_ok() {
-      std::fs::remove_file(&link).map_err(|e| Error::Other(format!("Failed to remove {}: {e}", link.display())))?;
+      std::fs::remove_file(&link).map_err(|e| Error::other(format!("Failed to remove {}: {e}", link.display())))?;
     }
   }
   Ok(())
@@ -221,14 +221,14 @@ fn run_osascript_sudo(shell_cmd: &str, description: &str) -> Result<(), Error> {
   let output = std::process::Command::new("osascript")
     .args(["-e", &script])
     .output()
-    .map_err(|e| Error::Other(format!("Failed to {description}: {e}")))?;
+    .map_err(|e| Error::other(format!("Failed to {description}: {e}")))?;
 
   if !output.status.success() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     if stderr.contains("User canceled") || stderr.contains("-128") {
-      return Err(Error::Other("Authorization cancelled".into()));
+      return Err(Error::other("Authorization cancelled"));
     }
-    return Err(Error::Other(format!("Failed to {description}: {stderr}")));
+    return Err(Error::other(format!("Failed to {description}: {stderr}")));
   }
 
   Ok(())
@@ -239,14 +239,14 @@ fn run_pkexec_sudo(shell_cmd: &str, description: &str) -> Result<(), Error> {
   let output = std::process::Command::new("pkexec")
     .args(["sh", "-c", shell_cmd])
     .output()
-    .map_err(|e| Error::Other(format!("Failed to {description}: {e}")))?;
+    .map_err(|e| Error::other(format!("Failed to {description}: {e}")))?;
 
   if !output.status.success() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     if stderr.contains("dismissed") || stderr.contains("Not authorized") {
-      return Err(Error::Other("Authorization cancelled".into()));
+      return Err(Error::other("Authorization cancelled"));
     }
-    return Err(Error::Other(format!("Failed to {description}: {stderr}")));
+    return Err(Error::other(format!("Failed to {description}: {stderr}")));
   }
 
   Ok(())
@@ -261,20 +261,20 @@ fn install_windows(resource_dir: &Path) -> Result<(), Error> {
   let script_path = resource_dir.join("resources/bin/dp.cmd");
 
   if !script_path.exists() {
-    return Err(Error::Other(format!(
+    return Err(Error::other(format!(
       "CLI script not found at {}",
       script_path.display()
     )));
   }
 
   let dir = install_dir();
-  std::fs::create_dir_all(&dir).map_err(|e| Error::Other(format!("Failed to create {}: {e}", dir.display())))?;
+  std::fs::create_dir_all(&dir).map_err(|e| Error::other(format!("Failed to create {}: {e}", dir.display())))?;
 
   // Copy the .cmd script as dp.cmd and deathpush.cmd
   for name in SYMLINK_NAMES {
     let dest = dir.join(format!("{name}.cmd"));
     std::fs::copy(&script_path, &dest)
-      .map_err(|e| Error::Other(format!("Failed to copy to {}: {e}", dest.display())))?;
+      .map_err(|e| Error::other(format!("Failed to copy to {}: {e}", dest.display())))?;
   }
 
   // Add to user PATH if not already present
@@ -285,7 +285,7 @@ fn install_windows(resource_dir: &Path) -> Result<(), Error> {
 
 #[cfg(not(target_os = "windows"))]
 fn install_windows(_resource_dir: &Path) -> Result<(), Error> {
-  Err(Error::Other("Windows install not supported on this platform".into()))
+  Err(Error::other("Windows install not supported on this platform"))
 }
 
 #[cfg(target_os = "windows")]
@@ -295,7 +295,7 @@ fn uninstall_windows() -> Result<(), Error> {
   for name in SYMLINK_NAMES {
     let path = dir.join(format!("{name}.cmd"));
     if path.exists() {
-      std::fs::remove_file(&path).map_err(|e| Error::Other(format!("Failed to remove {}: {e}", path.display())))?;
+      std::fs::remove_file(&path).map_err(|e| Error::other(format!("Failed to remove {}: {e}", path.display())))?;
     }
   }
 
@@ -311,7 +311,7 @@ fn uninstall_windows() -> Result<(), Error> {
 
 #[cfg(not(target_os = "windows"))]
 fn uninstall_windows() -> Result<(), Error> {
-  Err(Error::Other("Windows uninstall not supported on this platform".into()))
+  Err(Error::other("Windows uninstall not supported on this platform"))
 }
 
 #[cfg(target_os = "windows")]
@@ -322,7 +322,7 @@ fn add_to_user_path(dir: &Path) -> Result<(), Error> {
   let hkcu = RegKey::predef(HKEY_CURRENT_USER);
   let env = hkcu
     .open_subkey_with_flags(r"Environment", KEY_READ | KEY_WRITE)
-    .map_err(|e| Error::Other(format!("Failed to open registry: {e}")))?;
+    .map_err(|e| Error::other(format!("Failed to open registry: {e}")))?;
 
   let current_path: String = env.get_value("Path").unwrap_or_default();
   let dir_str = dir.to_string_lossy();
@@ -339,7 +339,7 @@ fn add_to_user_path(dir: &Path) -> Result<(), Error> {
 
   env
     .set_value("Path", &new_path)
-    .map_err(|e| Error::Other(format!("Failed to update PATH: {e}")))?;
+    .map_err(|e| Error::other(format!("Failed to update PATH: {e}")))?;
 
   // Broadcast WM_SETTINGCHANGE so running shells pick up the change
   broadcast_environment_change();
@@ -355,7 +355,7 @@ fn remove_from_user_path(dir: &Path) -> Result<(), Error> {
   let hkcu = RegKey::predef(HKEY_CURRENT_USER);
   let env = hkcu
     .open_subkey_with_flags(r"Environment", KEY_READ | KEY_WRITE)
-    .map_err(|e| Error::Other(format!("Failed to open registry: {e}")))?;
+    .map_err(|e| Error::other(format!("Failed to open registry: {e}")))?;
 
   let current_path: String = env.get_value("Path").unwrap_or_default();
   let dir_str = dir.to_string_lossy();
@@ -368,7 +368,7 @@ fn remove_from_user_path(dir: &Path) -> Result<(), Error> {
 
   env
     .set_value("Path", &new_path)
-    .map_err(|e| Error::Other(format!("Failed to update PATH: {e}")))?;
+    .map_err(|e| Error::other(format!("Failed to update PATH: {e}")))?;
 
   broadcast_environment_change();
 

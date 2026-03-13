@@ -1,0 +1,4 @@
+[bindings.swift]
+module_name = "DeathPushCore"
+ffi_module_name = "DeathPushFFI"
+generate_immutable_records = true

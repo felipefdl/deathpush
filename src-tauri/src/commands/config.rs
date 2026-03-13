@@ -7,7 +7,7 @@ pub async fn get_git_config(key: String) -> Result<String, Error> {
     .args(["config", "--global", "--get", &key])
     .output()
     .await
-    .map_err(|e| Error::Other(format!("Failed to run git config: {e}")))?;
+    .map_err(|e| Error::other(format!("Failed to run git config: {e}")))?;
 
   if !output.status.success() {
     return Ok(String::new());
@@ -22,11 +22,11 @@ pub async fn set_git_config(key: String, value: String) -> Result<(), Error> {
     .args(["config", "--global", &key, &value])
     .output()
     .await
-    .map_err(|e| Error::Other(format!("Failed to run git config: {e}")))?;
+    .map_err(|e| Error::other(format!("Failed to run git config: {e}")))?;
 
   if !output.status.success() {
     let stderr = String::from_utf8_lossy(&output.stderr);
-    return Err(Error::Other(format!("git config failed: {stderr}")));
+    return Err(Error::other(format!("git config failed: {stderr}")));
   }
 
   Ok(())

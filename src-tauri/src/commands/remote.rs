@@ -17,14 +17,14 @@ pub async fn push(
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
   };
   let cli = GitCli::new(&root);
   cli.push(&remote, &branch, force).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   refresh_status(&mut guard, &label)
 }
 
@@ -37,14 +37,14 @@ pub async fn pull(
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
   };
   let cli = GitCli::new(&root);
   cli.pull(&remote, &branch, rebase).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   refresh_status(&mut guard, &label)
 }
 
@@ -56,13 +56,13 @@ pub async fn fetch(
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
     let label = window.label().to_string();
     let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
     (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
   };
   let cli = GitCli::new(&root);
   cli.fetch(&remote, prune).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+  let mut guard = state.lock().map_err(|e| Error::other(e.to_string()))?;
   refresh_status(&mut guard, &label)
 }
