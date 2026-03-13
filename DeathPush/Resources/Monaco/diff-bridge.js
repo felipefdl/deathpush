@@ -347,4 +347,58 @@
       originalEditable: false,
     });
   };
+
+  // Line-level staging support
+  let hunkMeta = [];
+  let selectionDisposable = null;
+
+  window.enableLineStaging = function (hunks) {
+    hunkMeta = hunks || [];
+    if (!diffEditor) return;
+
+    var modifiedEditor = diffEditor.getModifiedEditor();
+
+    // Allow selection on modified side while keeping it non-editable
+    modifiedEditor.updateOptions({ readOnly: false });
+    diffEditor.updateOptions({ originalEditable: false });
+
+    if (selectionDisposable) selectionDisposable.dispose();
+    selectionDisposable = modifiedEditor.onDidChangeCursorSelection(function () {
+      var sel = modifiedEditor.getSelection();
+      if (!sel || (sel.startLineNumber === sel.endLineNumber && sel.startColumn === sel.endColumn)) {
+        sendToSwift("lineSelectionCleared", {});
+        return;
+      }
+
+      var startLine = sel.startLineNumber;
+      var endLine = sel.endColumn === 1 ? sel.endLineNumber - 1 : sel.endLineNumber;
+
+      // Find which hunk this selection falls in
+      for (var i = 0; i < hunkMeta.length; i++) {
+        var h = hunkMeta[i];
+        if (startLine >= h.modifiedStartLine && endLine <= h.modifiedEndLine) {
+          sendToSwift("lineSelection", {
+            hunkIndex: h.hunkIndex,
+            startLine: startLine - h.modifiedStartLine,
+            endLine: endLine - h.modifiedStartLine,
+            editorStartLine: startLine,
+            editorEndLine: endLine,
+          });
+          return;
+        }
+      }
+      sendToSwift("lineSelectionCleared", {});
+    });
+  };
+
+  window.disableLineStaging = function () {
+    hunkMeta = [];
+    if (selectionDisposable) {
+      selectionDisposable.dispose();
+      selectionDisposable = null;
+    }
+    if (diffEditor) {
+      diffEditor.updateOptions({ readOnly: true, originalEditable: false });
+    }
+  };
 })();

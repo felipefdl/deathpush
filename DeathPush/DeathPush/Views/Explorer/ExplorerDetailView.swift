@@ -18,7 +18,11 @@ struct ExplorerDetailView: View {
 
       Divider()
 
-      if let error = errorMessage, fileContent == nil {
+      if tabState.explorerShowBlame {
+        BlameView(path: path)
+      } else if tabState.explorerShowFileHistory {
+        FileHistoryView(path: path)
+      } else if let error = errorMessage, fileContent == nil {
         ContentUnavailableView(
           "Error Loading File",
           systemImage: "exclamationmark.triangle",
@@ -56,6 +60,8 @@ struct ExplorerDetailView: View {
       }
     }
     .onChange(of: path, initial: true) { _, newPath in
+      tabState.explorerShowBlame = false
+      tabState.explorerShowFileHistory = false
       loadFile(for: newPath)
     }
   }
@@ -75,8 +81,11 @@ struct ExplorerDetailView: View {
 struct ExplorerDetailHeader: View {
   let path: String
   let repoService: RepositoryService?
+  @Environment(TabState.self) private var tabState
 
   var body: some View {
+    @Bindable var tabState = tabState
+
     GlassEffectContainer(spacing: 8) {
       HStack {
         HStack(spacing: 4) {
@@ -89,6 +98,9 @@ struct ExplorerDetailHeader: View {
         }
 
         Spacer()
+
+        blameButton
+        fileHistoryButton
 
         Button(action: {
           try? openInEditor(sessionId: repoService?.sessionId ?? "", path: path)
@@ -110,6 +122,50 @@ struct ExplorerDetailHeader: View {
       }
       .padding(.horizontal, 12)
       .padding(.vertical, 6)
+    }
+  }
+
+  @ViewBuilder
+  private var blameButton: some View {
+    if tabState.explorerShowBlame {
+      Button(action: { tabState.explorerShowBlame = false }) {
+        Image(systemName: "person.text.rectangle")
+      }
+      .buttonStyle(.glassProminent)
+      .controlSize(.small)
+      .help("Git Blame")
+    } else {
+      Button(action: {
+        tabState.explorerShowBlame = true
+        tabState.explorerShowFileHistory = false
+      }) {
+        Image(systemName: "person.text.rectangle")
+      }
+      .buttonStyle(.glass)
+      .controlSize(.small)
+      .help("Git Blame")
+    }
+  }
+
+  @ViewBuilder
+  private var fileHistoryButton: some View {
+    if tabState.explorerShowFileHistory {
+      Button(action: { tabState.explorerShowFileHistory = false }) {
+        Image(systemName: "clock.arrow.circlepath")
+      }
+      .buttonStyle(.glassProminent)
+      .controlSize(.small)
+      .help("File History")
+    } else {
+      Button(action: {
+        tabState.explorerShowFileHistory = true
+        tabState.explorerShowBlame = false
+      }) {
+        Image(systemName: "clock.arrow.circlepath")
+      }
+      .buttonStyle(.glass)
+      .controlSize(.small)
+      .help("File History")
     }
   }
 }

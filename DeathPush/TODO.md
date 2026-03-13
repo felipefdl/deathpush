@@ -12,20 +12,20 @@ Remaining work prioritized by user workflow impact.
 
 ## P0 -- Broken / Blocks Trust
 
-- [ ] `open_repository()` returns `groups: vec![]` -- Rust side should call `get_repository_status()` instead of building empty status
-- [ ] Loading spinners for long FFI operations (fetch, pull, push, clone)
-- [ ] Error toasts instead of modal alerts
+- [x] `open_repository()` returns `groups: vec![]` -- Rust side now calls `get_repository_status()`
+- [x] Loading spinners for long FFI operations (fetch, pull, push, clone) -- `performOperation` with operation name
+- [x] Error toasts instead of modal alerts -- auto-dismissing Liquid Glass toast
 
 ---
 
 ## P1 -- Core Git Workflow Gaps
 
-- [ ] Line-level staging UI (`stage_lines` wrapper ready, needs diff view selection in Monaco)
-- [ ] Stash diff viewer UI (show stash contents in Monaco, `showStash()` wrapper ready)
-- [ ] Blame view: gutter annotations showing author/date per line (`blameFile()` wrapper ready)
-- [ ] Blame view: click to navigate to commit
-- [ ] Blame view: per-file history sidebar (`fileLog()` wrapper ready)
-- [ ] Confirm dialog before discarding unsaved changes on window close
+- [x] Line-level staging UI -- Monaco line selection + floating action bar in diff view
+- [x] Stash diff viewer UI -- `StashDiffView` with reconstructed original/modified in Monaco
+- [x] Blame view: gutter annotations showing author/date per line -- native SwiftUI `BlameView`
+- [x] Blame view: click to navigate to commit
+- [x] Blame view: per-file history sidebar -- `FileHistoryView` with pagination
+- [x] Confirm dialog before discarding unsaved changes on window close -- `WindowCloseGuard`
 
 ---
 
@@ -93,6 +93,18 @@ Remaining work prioritized by user workflow impact.
 - [x] Branches: create, delete (force), rename, delete remote, merge, rebase
 - [x] Settings: git config, theme picker, projects scanner, auto-fetch interval
 - [x] Terminal: SwiftTerm with glass tab bar
+
+### P0 (completed)
+- [x] `open_repository()` fix -- Rust side now calls `get_repository_status()`
+- [x] Loading spinners for long FFI ops -- `performOperation` with operation name in toolbar pill
+- [x] Error toasts -- auto-dismissing Liquid Glass toast replacing modal alerts
+
+### P1 (completed)
+- [x] Line-level staging UI -- Monaco line selection + floating action bar
+- [x] Stash diff viewer -- `StashDiffView` with reconstructed original/modified
+- [x] Blame view with gutter annotations + click to navigate to commit
+- [x] Per-file history sidebar with pagination
+- [x] Window close confirmation for uncommitted changes
 
 ### App-Level
 - [x] Multi-window with per-tab state

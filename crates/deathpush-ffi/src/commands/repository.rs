@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use deathpush_core::error::Error;
-use deathpush_core::git::repo_state::detect_operation_state;
 use deathpush_core::git::repository::GitRepository;
+use deathpush_core::git::status::get_repository_status;
 use deathpush_core::git::watcher;
 use deathpush_core::types::{ProjectInfo, RepositoryStatus};
 
@@ -29,15 +29,20 @@ pub fn open_repository(session_id: String, path: String) -> Result<RepositorySta
   let repo = GitRepository::open(&PathBuf::from(&path))?;
   let repo_root = repo.root().to_path_buf();
 
-  let (ahead, behind) = repo.ahead_behind();
-  let status = RepositoryStatus {
-    root: repo.root().to_string_lossy().to_string(),
-    head_branch: repo.head_branch(),
-    head_commit: repo.head_commit_id(),
-    ahead: ahead as u32,
-    behind: behind as u32,
-    groups: vec![],
-    operation_state: detect_operation_state(repo.root()),
+  // Store session first so get_repository_status can access the repo
+  {
+    let mut sessions = mgr.sessions.lock().map_err(|e| Error::other(e.to_string()))?;
+    let state = sessions.entry(session_id.clone()).or_default();
+    state.cli_root = Some(repo_root.clone());
+    state.repo = Some(repo);
+  }
+
+  // Build full status including file change groups
+  let status = {
+    let sessions = mgr.sessions.lock().map_err(|e| Error::other(e.to_string()))?;
+    let state = sessions.get(&session_id).ok_or(Error::NoRepository)?;
+    let repo = state.repo.as_ref().ok_or(Error::NoRepository)?;
+    get_repository_status(repo)?
   };
 
   // Stop old watcher for this session, start new one
@@ -50,11 +55,6 @@ pub fn open_repository(session_id: String, path: String) -> Result<RepositorySta
       tracing::warn!("failed to start watcher: {:?}", err);
     }
   }
-
-  let mut sessions = mgr.sessions.lock().map_err(|e| Error::other(e.to_string()))?;
-  let state = sessions.entry(session_id).or_default();
-  state.cli_root = Some(repo_root);
-  state.repo = Some(repo);
 
   Ok(status)
 }

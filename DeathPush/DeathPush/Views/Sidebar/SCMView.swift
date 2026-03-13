@@ -122,9 +122,15 @@ struct SCMView: View {
 										.font(.system(size: 11, design: .monospaced))
 										.foregroundStyle(.tertiary)
 								}
+								.contentShape(Rectangle())
+								.onTapGesture { tabState.selectStash(stash.index) }
 								.listRowSeparator(.hidden)
 								.listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
 								.contextMenu {
+									Button("View Diff") {
+										tabState.selectStash(stash.index)
+									}
+									Divider()
 									Button("Apply") { try? repoService?.applyStash(index: stash.index) }
 									Button("Pop") { try? repoService?.popStash(index: stash.index) }
 									Divider()
@@ -359,8 +365,13 @@ struct SCMView: View {
 
 		if ahead > 0 || behind > 0 {
 			Button {
-				try? repoService?.pullRemote()
-				try? repoService?.pushRemote()
+				guard let service = repoService else { return }
+				Task {
+					await service.performOperation("Syncing...") {
+						try service.pullRemote()
+						try service.pushRemote()
+					}
+				}
 			} label: {
 				Image(systemName: "arrow.triangle.2.circlepath")
 					.frame(maxWidth: .infinity)
@@ -368,9 +379,15 @@ struct SCMView: View {
 			.buttonStyle(.borderless)
 			.controlSize(.small)
 			.help("Sync: \(behind)\u{2193} \(ahead)\u{2191}")
+			.disabled(repoService?.isLoading == true)
 		} else {
 			Button {
-				try? repoService?.fetchRemote()
+				guard let service = repoService else { return }
+				Task {
+					await service.performOperation("Fetching...") {
+						try service.fetchRemote()
+					}
+				}
 			} label: {
 				Image(systemName: "icloud.and.arrow.down")
 					.frame(maxWidth: .infinity)
@@ -378,6 +395,7 @@ struct SCMView: View {
 			.buttonStyle(.borderless)
 			.controlSize(.small)
 			.help("Fetch")
+			.disabled(repoService?.isLoading == true)
 		}
 	}
 
@@ -390,14 +408,34 @@ struct SCMView: View {
 
 			Divider()
 
-			Button("Pull") { try? repoService?.pullRemote() }
-			Button("Pull (Rebase)") { try? repoService?.pullRemote(rebase: true) }
-			Button("Push") { try? repoService?.pushRemote() }
-			Button("Push (Force)") { try? repoService?.pushRemote(force: true) }
-			Button("Fetch") { try? repoService?.fetchRemote() }
+			Button("Pull") {
+				guard let service = repoService else { return }
+				Task { await service.performOperation("Pulling...") { try service.pullRemote() } }
+			}
+			Button("Pull (Rebase)") {
+				guard let service = repoService else { return }
+				Task { await service.performOperation("Pulling...") { try service.pullRemote(rebase: true) } }
+			}
+			Button("Push") {
+				guard let service = repoService else { return }
+				Task { await service.performOperation("Pushing...") { try service.pushRemote() } }
+			}
+			Button("Push (Force)") {
+				guard let service = repoService else { return }
+				Task { await service.performOperation("Pushing...") { try service.pushRemote(force: true) } }
+			}
+			Button("Fetch") {
+				guard let service = repoService else { return }
+				Task { await service.performOperation("Fetching...") { try service.fetchRemote() } }
+			}
 			Button("Sync") {
-				try? repoService?.pullRemote()
-				try? repoService?.pushRemote()
+				guard let service = repoService else { return }
+				Task {
+					await service.performOperation("Syncing...") {
+						try service.pullRemote()
+						try service.pushRemote()
+					}
+				}
 			}
 
 			Divider()

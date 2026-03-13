@@ -11,6 +11,7 @@ final class TabState: Identifiable {
 	var selectedFilePath: String?
 	var explorerSelectedPath: String?
 	var selectedCommitId: String?
+	var selectedStashIndex: UInt32?
 
 	// UI toggles
 	var showQuickOpen = false
@@ -18,6 +19,8 @@ final class TabState: Identifiable {
 	var showTerminal = false
 	var terminalFraction: CGFloat = 0.35
 	var goToLine: Int?
+	var explorerShowBlame = false
+	var explorerShowFileHistory = false
 
 	// Lifecycle state
 	var isLoading = false
@@ -96,6 +99,16 @@ final class TabState: Identifiable {
 		}
 
 		isLoading = false
+	}
+
+	func selectFile(_ path: String) {
+		selectedFilePath = path
+		selectedStashIndex = nil
+	}
+
+	func selectStash(_ index: UInt32) {
+		selectedStashIndex = index
+		selectedFilePath = nil
 	}
 
 	func cleanup() {

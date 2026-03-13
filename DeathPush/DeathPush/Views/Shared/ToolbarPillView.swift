@@ -68,7 +68,7 @@ struct ToolbarPillView: View {
 						HStack(spacing: 4) {
 							ProgressView()
 								.controlSize(.mini)
-							Text("Loading...")
+							Text(repoService.operationName ?? "Loading...")
 						}
 					} else if repoService.operationState != .clean {
 						HStack(spacing: 4) {

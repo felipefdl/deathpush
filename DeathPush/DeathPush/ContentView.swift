@@ -3,6 +3,7 @@ import SwiftUI
 struct WindowContentView: View {
 	@Environment(AppState.self) private var appState
 	@State private var tabState = TabState()
+	@State private var toastMessage: String?
 
 	var body: some View {
 		Group {
@@ -14,10 +15,30 @@ struct WindowContentView: View {
 		}
 		.environment(tabState)
 		.background(WindowTabbingConfigurator())
-		.alert("Error", isPresented: hasError) {
-			Button("OK") { tabState.errorMessage = nil }
-		} message: {
-			Text(tabState.errorMessage ?? "")
+		.background(WindowCloseGuard(hasUnsavedChanges: {
+			guard let groups = tabState.repoService?.resourceGroups else { return false }
+			return groups.contains { !$0.files.isEmpty }
+		}))
+		.overlay(alignment: .top) {
+			if let message = toastMessage {
+				ErrorToastView(message: message) {
+					toastMessage = nil
+				}
+				.transition(.move(edge: .top).combined(with: .opacity))
+				.padding(.top, 8)
+			}
+		}
+		.onChange(of: tabState.errorMessage) { _, newValue in
+			if let error = newValue {
+				toastMessage = error
+				tabState.errorMessage = nil
+			}
+		}
+		.onChange(of: tabState.repoService?.operationError) { _, newValue in
+			if let error = newValue {
+				toastMessage = error
+				tabState.repoService?.operationError = nil
+			}
 		}
 		.navigationTitle(tabState.repoService != nil ? tabState.repoName : "DeathPush")
 		.focusedSceneValue(\.activeTabState, tabState)
@@ -28,13 +49,6 @@ struct WindowContentView: View {
 			guard let path = notification.userInfo?["path"] as? String else { return }
 			Task { await tabState.openRepository(path: path, appState: appState) }
 		}
-	}
-
-	private var hasError: Binding<Bool> {
-		Binding(
-			get: { tabState.errorMessage != nil },
-			set: { if !$0 { tabState.errorMessage = nil } }
-		)
 	}
 }
 
@@ -48,4 +62,57 @@ private struct WindowTabbingConfigurator: NSViewRepresentable {
 	}
 
 	func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private struct WindowCloseGuard: NSViewRepresentable {
+	let hasUnsavedChanges: () -> Bool
+
+	func makeNSView(context: Context) -> NSView {
+		let view = NSView()
+		DispatchQueue.main.async {
+			guard let window = view.window else { return }
+			context.coordinator.originalDelegate = window.delegate
+			window.delegate = context.coordinator
+		}
+		return view
+	}
+
+	func updateNSView(_ nsView: NSView, context: Context) {
+		context.coordinator.hasUnsavedChanges = hasUnsavedChanges
+	}
+
+	func makeCoordinator() -> Coordinator {
+		Coordinator()
+	}
+
+	class Coordinator: NSObject, NSWindowDelegate {
+		weak var originalDelegate: (any NSWindowDelegate)?
+		var hasUnsavedChanges: (() -> Bool)?
+
+		func windowShouldClose(_ sender: NSWindow) -> Bool {
+			guard hasUnsavedChanges?() == true else { return true }
+
+			let alert = NSAlert()
+			alert.messageText = "You have uncommitted changes"
+			alert.informativeText = "Closing this window will not discard your changes, but you may lose track of them."
+			alert.alertStyle = .warning
+			alert.addButton(withTitle: "Close Anyway")
+			alert.addButton(withTitle: "Cancel")
+
+			let response = alert.runModal()
+			return response == .alertFirstButtonReturn
+		}
+
+		func windowWillClose(_ notification: Notification) {
+			originalDelegate?.windowWillClose?(notification)
+		}
+
+		func windowDidBecomeKey(_ notification: Notification) {
+			originalDelegate?.windowDidBecomeKey?(notification)
+		}
+
+		func windowDidResignKey(_ notification: Notification) {
+			originalDelegate?.windowDidResignKey?(notification)
+		}
+	}
 }

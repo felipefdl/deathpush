@@ -11,6 +11,8 @@ final class RepositoryService {
   var nestedRepos: [DiscoveredRepo] = []
   var error: String?
   var isLoading = false
+  var operationError: String?
+  var operationName: String?
 
   let sessionId: String
 
@@ -50,6 +52,20 @@ final class RepositoryService {
 
   func destroy() {
     destroySession(sessionId: sessionId)
+  }
+
+  @MainActor
+  func performOperation(_ name: String, _ work: @escaping () throws -> Void) async {
+    isLoading = true
+    operationName = name
+    operationError = nil
+    do {
+      try work()
+    } catch {
+      operationError = error.localizedDescription
+    }
+    isLoading = false
+    operationName = nil
   }
 
   // MARK: - Repository Lifecycle
