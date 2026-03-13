@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-@Observable
+@MainActor @Observable
 final class TerminalSession: Identifiable {
   let id = UUID()
   var title = "zsh"
@@ -15,7 +15,7 @@ final class TerminalSession: Identifiable {
   }
 }
 
-@Observable
+@MainActor @Observable
 final class TerminalService {
   var sessions: [TerminalSession] = []
   var activeSessionId: UUID?
@@ -33,6 +33,9 @@ final class TerminalService {
     if activeSessionId == id {
       activeSessionId = sessions.last?.id
     }
+    if sessions.isEmpty {
+      stopPolling()
+    }
   }
 
   func killAllSessions() {
@@ -49,13 +52,13 @@ final class TerminalService {
         guard !Task.isCancelled, let self else { break }
         guard let session = self.sessions.first(where: { $0.id == self.activeSessionId }),
               session.shellPid > 0 else { continue }
-        let pid = session.shellPid
-        let shell = session.shellName
-        let name = await Task.detached { Self.foregroundProcessName(shellPid: pid, shellName: shell) }.value
         // Only update if escape sequence hasn't set title in last 3 seconds
         if let escapeDate = session.titleSetByEscape, Date().timeIntervalSince(escapeDate) < 3 {
           continue
         }
+        let pid = session.shellPid
+        let shell = session.shellName
+        let name = await Task.detached { Self.foregroundProcessName(shellPid: pid, shellName: shell) }.value
         if session.title != name {
           session.title = name
         }
@@ -68,7 +71,7 @@ final class TerminalService {
     pollingTask = nil
   }
 
-  static func foregroundProcessName(shellPid: pid_t, shellName: String) -> String {
+  nonisolated static func foregroundProcessName(shellPid: pid_t, shellName: String) -> String {
     let pgrepProc = Process()
     pgrepProc.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
     pgrepProc.arguments = ["-P", String(shellPid)]
