@@ -151,6 +151,30 @@ The Rust crate is built as a static library (`libdeathpush_ffi.a`) via an Xcode 
 - Private key stored in macOS Keychain (local) or SPARKLE_PRIVATE_KEY secret (CI)
 - Sign releases with: `scripts/sparkle-sign.sh build/DeathPush.dmg`
 
+## Releasing
+
+Run `just release X.Y.Z` to bump versions, commit, tag, and push. This triggers the publish workflow which builds, signs, notarizes, and creates a draft GitHub release.
+
+After the publish workflow succeeds, publish the draft release with generated release notes using this format:
+
+```
+<one-liner describing the release at a high level>
+
+## What changed
+
+- <user-facing features and major changes>
+
+## Fixes
+
+- <bug fixes>
+
+## Infrastructure
+
+- <CI, tooling, build system changes>
+```
+
+Skip any section that has no entries. Populate from the commit log between the previous tag and the new one.
+
 ## Development
 
 ```sh
