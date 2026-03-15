@@ -46,7 +46,9 @@ struct MergeBannerView: View {
 							switch operationState {
 							case .merging: try? repoService?.continueMerge()
 							case .rebasing: try? repoService?.continueRebase()
-							default: break
+							case .cherryPicking: try? repoService?.continueCherryPick()
+							case .reverting: try? repoService?.continueRevert()
+							case .clean: break
 							}
 						}
 					}
@@ -59,7 +61,9 @@ struct MergeBannerView: View {
 							switch operationState {
 							case .merging: try? repoService?.abortMerge()
 							case .rebasing: try? repoService?.abortRebase()
-							default: break
+							case .cherryPicking: try? repoService?.abortCherryPick()
+							case .reverting: try? repoService?.abortRevert()
+							case .clean: break
 							}
 						}
 					}

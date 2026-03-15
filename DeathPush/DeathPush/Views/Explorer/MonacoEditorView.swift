@@ -5,6 +5,10 @@ struct MonacoEditorView: NSViewRepresentable {
   let fileContent: FileContent?
   var themeJSON: String?
   var goToLine: Int?
+  var onCursorChanged: ((Int) -> Void)?
+  var isEditable: Bool = false
+  var onContentChanged: (() -> Void)?
+  var onSave: ((String) -> Void)?
 
   @AppStorage("editor.fontFamily") private var fontFamily = "SF Mono"
   @AppStorage("editor.fontSize") private var fontSize = 13.0
@@ -29,6 +33,7 @@ struct MonacoEditorView: NSViewRepresentable {
       webView.loadFileURL(editorURL, allowingReadAccessTo: editorURL.deletingLastPathComponent())
     }
 
+    handler.coordinator = context.coordinator
     handler.onReady = { [weak webView] in
       guard let webView else { return }
       context.coordinator.isReady = true
@@ -57,12 +62,21 @@ struct MonacoEditorView: NSViewRepresentable {
   }
 
   func makeCoordinator() -> Coordinator {
-    Coordinator()
+    let coordinator = Coordinator()
+    coordinator.onCursorChanged = onCursorChanged
+    coordinator.onContentChanged = onContentChanged
+    coordinator.onSave = onSave
+    coordinator.isEditable = isEditable
+    return coordinator
   }
 
   class Coordinator {
     weak var webView: WKWebView?
     var isReady = false
+    var isEditable = false
+    var onCursorChanged: ((Int) -> Void)?
+    var onContentChanged: (() -> Void)?
+    var onSave: ((String) -> Void)?
     var pendingContent: FileContent?
     var pendingThemeJSON: String?
     var pendingGoToLine: Int?
@@ -101,6 +115,10 @@ struct MonacoEditorView: NSViewRepresentable {
         lastAppliedEditorOptions = opts
         pendingEditorOptions = nil
       }
+
+      if isEditable {
+        webView.evaluateJavaScript("setEditable(true)")
+      }
     }
 
     private func encodeFileContent(_ content: FileContent) -> String {
@@ -123,6 +141,7 @@ struct MonacoEditorView: NSViewRepresentable {
 
 private class EditorBridgeMessageHandler: NSObject, WKScriptMessageHandler {
   var onReady: (() -> Void)?
+  weak var coordinator: MonacoEditorView.Coordinator?
 
   func userContentController(
     _ userContentController: WKUserContentController,
@@ -135,6 +154,22 @@ private class EditorBridgeMessageHandler: NSObject, WKScriptMessageHandler {
     case "ready":
       Task { @MainActor in
         onReady?()
+      }
+    case "cursorChanged":
+      if let line = body["line"] as? Int {
+        Task { @MainActor in
+          coordinator?.onCursorChanged?(line)
+        }
+      }
+    case "contentChanged":
+      Task { @MainActor in
+        coordinator?.onContentChanged?()
+      }
+    case "save":
+      if let content = body["content"] as? String {
+        Task { @MainActor in
+          coordinator?.onSave?(content)
+        }
       }
     default:
       break

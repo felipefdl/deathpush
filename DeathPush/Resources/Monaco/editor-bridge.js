@@ -280,6 +280,23 @@
       automaticLayout: true,
     });
 
+    editor.onDidChangeCursorPosition(function(e) {
+      sendToSwift("cursorChanged", { line: e.position.lineNumber });
+    });
+
+    editor.onDidChangeModelContent(function() {
+      sendToSwift("contentChanged", {});
+    });
+
+    editor.addAction({
+      id: "deathpush.save",
+      label: "Save File",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+      run: function(ed) {
+        sendToSwift("save", { content: ed.getValue() });
+      }
+    });
+
     sendToSwift("ready", {});
   });
 

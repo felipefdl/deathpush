@@ -4,6 +4,11 @@ struct ExplorerContextMenus {
   let repoService: RepositoryService?
   let onNewFile: (String) -> Void
   let onNewFolder: (String) -> Void
+  let explorerClipboard: ExplorerClipboard?
+  let onCopy: ([String]) -> Void
+  let onCut: ([String]) -> Void
+  let onPaste: (String) -> Void
+  let onImport: (String) -> Void
 
   @ViewBuilder
   func fileMenu(entry: ExplorerEntry) -> some View {
@@ -11,6 +16,17 @@ struct ExplorerContextMenus {
 
     Button("New File...") { onNewFile(parentDir) }
     Button("New Folder...") { onNewFolder(parentDir) }
+
+    Divider()
+
+    Button("Copy") { onCopy([entry.path]) }
+    Button("Cut") { onCut([entry.path]) }
+    if explorerClipboard != nil {
+      Button("Paste") {
+        let pasteDir = entry.path.components(separatedBy: "/").dropLast().joined(separator: "/")
+        onPaste(pasteDir)
+      }
+    }
 
     Divider()
 
@@ -63,6 +79,18 @@ struct ExplorerContextMenus {
   func folderMenu(entry: ExplorerEntry) -> some View {
     Button("New File...") { onNewFile(entry.path) }
     Button("New Folder...") { onNewFolder(entry.path) }
+
+    Divider()
+
+    Button("Copy") { onCopy([entry.path]) }
+    Button("Cut") { onCut([entry.path]) }
+    if explorerClipboard != nil {
+      Button("Paste") { onPaste(entry.path) }
+    }
+
+    Divider()
+
+    Button("Import Files...") { onImport(entry.path) }
 
     Divider()
 

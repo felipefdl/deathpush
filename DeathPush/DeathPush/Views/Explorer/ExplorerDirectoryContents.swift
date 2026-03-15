@@ -6,6 +6,7 @@ struct ExplorerDirectoryContents: View {
   let filterText: String
   let repoService: RepositoryService?
   let contextMenus: ExplorerContextMenus
+  @Environment(TabState.self) private var tabState
 
   private var cacheKey: String {
     directoryPath ?? "__root__"
@@ -32,7 +33,8 @@ struct ExplorerDirectoryContents: View {
           entry: entry,
           depth: 0,
           repoService: repoService,
-          contextMenus: contextMenus
+          contextMenus: contextMenus,
+          isCut: tabState.explorerClipboard?.operation == .cut && tabState.explorerClipboard?.paths.contains(entry.path) == true
         )
       } else {
         ExplorerFileRow(
@@ -40,6 +42,7 @@ struct ExplorerDirectoryContents: View {
           depth: 0,
           isSelected: selectedPath == entry.path,
           gitStatus: gitStatusByPath[entry.path],
+          isCut: tabState.explorerClipboard?.operation == .cut && tabState.explorerClipboard?.paths.contains(entry.path) == true,
           onSelect: { selectedPath = entry.path }
         )
         .contextMenu {

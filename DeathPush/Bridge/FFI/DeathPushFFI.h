@@ -468,6 +468,16 @@ void uniffi_deathpush_ffi_fn_func_write_file(RustBuffer session_id, RustBuffer p
 RustBuffer uniffi_deathpush_ffi_fn_func_cherry_pick(RustBuffer session_id, RustBuffer commit_id, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_CHERRY_PICK_ABORT
+#define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_CHERRY_PICK_ABORT
+RustBuffer uniffi_deathpush_ffi_fn_func_cherry_pick_abort(RustBuffer session_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_CHERRY_PICK_CONTINUE
+#define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_CHERRY_PICK_CONTINUE
+RustBuffer uniffi_deathpush_ffi_fn_func_cherry_pick_continue(RustBuffer session_id, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_CLONE_REPOSITORY
 #define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_CLONE_REPOSITORY
 RustBuffer uniffi_deathpush_ffi_fn_func_clone_repository(RustBuffer session_id, RustBuffer url, RustBuffer path, RustCallStatus *_Nonnull out_status
@@ -516,6 +526,21 @@ RustBuffer uniffi_deathpush_ffi_fn_func_rebase_skip(RustBuffer session_id, RustC
 #ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_RESET_TO_COMMIT
 #define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_RESET_TO_COMMIT
 RustBuffer uniffi_deathpush_ffi_fn_func_reset_to_commit(RustBuffer session_id, RustBuffer id, RustBuffer mode, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_REVERT_ABORT
+#define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_REVERT_ABORT
+RustBuffer uniffi_deathpush_ffi_fn_func_revert_abort(RustBuffer session_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_REVERT_COMMIT
+#define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_REVERT_COMMIT
+RustBuffer uniffi_deathpush_ffi_fn_func_revert_commit(RustBuffer session_id, RustBuffer commit_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_REVERT_CONTINUE
+#define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_REVERT_CONTINUE
+RustBuffer uniffi_deathpush_ffi_fn_func_revert_continue(RustBuffer session_id, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_FN_FUNC_GET_COMMIT_DETAIL
@@ -1192,6 +1217,18 @@ uint16_t uniffi_deathpush_ffi_checksum_func_cherry_pick(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_CHERRY_PICK_ABORT
+#define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_CHERRY_PICK_ABORT
+uint16_t uniffi_deathpush_ffi_checksum_func_cherry_pick_abort(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_CHERRY_PICK_CONTINUE
+#define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_CHERRY_PICK_CONTINUE
+uint16_t uniffi_deathpush_ffi_checksum_func_cherry_pick_continue(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_CLONE_REPOSITORY
 #define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_CLONE_REPOSITORY
 uint16_t uniffi_deathpush_ffi_checksum_func_clone_repository(void
@@ -1249,6 +1286,24 @@ uint16_t uniffi_deathpush_ffi_checksum_func_rebase_skip(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_RESET_TO_COMMIT
 #define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_RESET_TO_COMMIT
 uint16_t uniffi_deathpush_ffi_checksum_func_reset_to_commit(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_REVERT_ABORT
+#define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_REVERT_ABORT
+uint16_t uniffi_deathpush_ffi_checksum_func_revert_abort(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_REVERT_COMMIT
+#define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_REVERT_COMMIT
+uint16_t uniffi_deathpush_ffi_checksum_func_revert_commit(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_REVERT_CONTINUE
+#define UNIFFI_FFIDEF_UNIFFI_DEATHPUSH_FFI_CHECKSUM_FUNC_REVERT_CONTINUE
+uint16_t uniffi_deathpush_ffi_checksum_func_revert_continue(void
     
 );
 #endif

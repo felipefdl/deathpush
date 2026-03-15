@@ -3,6 +3,7 @@ import SwiftUI
 struct StatusBarView: View {
 	@Environment(TabState.self) private var tabState
 	@State private var showBranchPicker = false
+	@AppStorage("git.inlineBlame") private var inlineBlame = true
 
 	private var repoService: RepositoryService? {
 		tabState.repoService
@@ -37,6 +38,15 @@ struct StatusBarView: View {
 				.popover(isPresented: $showBranchPicker) {
 					BranchPickerView()
 						.frame(width: 350, height: 400)
+				}
+
+				if inlineBlame, let blame = tabState.currentLineBlame {
+					Divider()
+						.frame(height: 12)
+					Text(blame)
+						.font(.caption)
+						.foregroundStyle(.tertiary)
+						.lineLimit(1)
 				}
 
 				Spacer()

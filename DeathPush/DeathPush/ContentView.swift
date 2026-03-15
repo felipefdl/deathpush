@@ -15,9 +15,8 @@ struct WindowContentView: View {
 		}
 		.environment(tabState)
 		.background(WindowTabbingConfigurator())
-		.background(WindowCloseGuard(hasUnsavedChanges: {
-			guard let groups = tabState.repoService?.resourceGroups else { return false }
-			return groups.contains { !$0.files.isEmpty }
+		.background(WindowCloseGuard(shouldWarn: {
+			!tabState.terminalService.sessions.isEmpty
 		}))
 		.overlay(alignment: .top) {
 			if let message = toastMessage {
@@ -65,7 +64,7 @@ private struct WindowTabbingConfigurator: NSViewRepresentable {
 }
 
 private struct WindowCloseGuard: NSViewRepresentable {
-	let hasUnsavedChanges: () -> Bool
+	let shouldWarn: () -> Bool
 
 	func makeNSView(context: Context) -> NSView {
 		let view = NSView()
@@ -78,7 +77,7 @@ private struct WindowCloseGuard: NSViewRepresentable {
 	}
 
 	func updateNSView(_ nsView: NSView, context: Context) {
-		context.coordinator.hasUnsavedChanges = hasUnsavedChanges
+		context.coordinator.shouldWarn = shouldWarn
 	}
 
 	func makeCoordinator() -> Coordinator {
@@ -87,16 +86,16 @@ private struct WindowCloseGuard: NSViewRepresentable {
 
 	class Coordinator: NSObject, NSWindowDelegate {
 		weak var originalDelegate: (any NSWindowDelegate)?
-		var hasUnsavedChanges: (() -> Bool)?
+		var shouldWarn: (() -> Bool)?
 
 		func windowShouldClose(_ sender: NSWindow) -> Bool {
-			guard hasUnsavedChanges?() == true else { return true }
+			guard shouldWarn?() == true else { return true }
 
 			let alert = NSAlert()
-			alert.messageText = "You have uncommitted changes"
-			alert.informativeText = "Closing this window will not discard your changes, but you may lose track of them."
+			alert.messageText = "Close window?"
+			alert.informativeText = "There are active terminal sessions. Closing will terminate them."
 			alert.alertStyle = .warning
-			alert.addButton(withTitle: "Close Anyway")
+			alert.addButton(withTitle: "Close")
 			alert.addButton(withTitle: "Cancel")
 
 			let response = alert.runModal()

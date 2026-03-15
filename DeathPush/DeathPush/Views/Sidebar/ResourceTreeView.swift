@@ -114,7 +114,7 @@ private func flattenSCMTree(folders: [SCMTreeNode], files: [FileEntry], depth: I
 struct ResourceTreeView: View {
 	let files: [FileEntry]
 	let groupKind: ResourceGroupKind
-	@Binding var selectedFilePath: String?
+	@Binding var selectedFilePaths: Set<String>
 	let contextMenuBuilder: (FileEntry) -> AnyView
 	@State private var expandedFolders: Set<String> = []
 
@@ -135,9 +135,9 @@ struct ResourceTreeView: View {
 				ResourceItemView(
 					file: file,
 					depth: item.depth,
-					isSelected: selectedFilePath == file.path,
+					isSelected: selectedFilePaths.contains(file.path),
 					showDirectoryPath: false,
-					onSelect: { selectedFilePath = file.path }
+					onSelect: { selectedFilePaths = [file.path] }
 				)
 				.tag(file.path)
 				.contextMenu {

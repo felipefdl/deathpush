@@ -14,8 +14,8 @@ private struct AutoFetchKey: Equatable {
 struct RepositoryView: View {
 	@Environment(AppState.self) private var appState
 	@Environment(TabState.self) private var tabState
-	@State private var showRecentsPopover = false
-	@State private var showWorkspacePopover = false
+	@State private var showRecentsSheet = false
+	@State private var showWorkspaceSheet = false
 	@State private var showGitOutput = false
 	@AppStorage("git.autoFetch") private var autoFetch = true
 	@AppStorage("git.autoFetchInterval") private var autoFetchInterval = 300
@@ -33,23 +33,10 @@ struct RepositoryView: View {
 					.toolbar(removing: .sidebarToggle)
 					.toolbar {
 						ToolbarItem(placement: .automatic) {
-							Button(action: { showRecentsPopover.toggle() }) {
-								Text("Recents")
-							}
-							.popover(isPresented: $showRecentsPopover) {
-								RecentsPopoverView()
-									.frame(width: 320, height: 400)
-							}
+							Button("Recents") { showRecentsSheet = true }
 						}
-
 						ToolbarItem(placement: .automatic) {
-							Button(action: { showWorkspacePopover.toggle() }) {
-								Text("Workspace")
-							}
-							.popover(isPresented: $showWorkspacePopover) {
-								WorkspacePopoverView()
-									.frame(width: 320, height: 400)
-							}
+							Button("Workspace") { showWorkspaceSheet = true }
 						}
 					}
 			} detail: {
@@ -130,6 +117,14 @@ struct RepositoryView: View {
 				}
 			}
 		}
+		.sheet(isPresented: $showRecentsSheet) {
+			RecentsPopoverView()
+				.frame(width: 320, height: 400)
+		}
+		.sheet(isPresented: $showWorkspaceSheet) {
+			WorkspacePopoverView()
+				.frame(width: 320, height: 400)
+		}
 		.sheet(isPresented: $tab.showQuickOpen) {
 			QuickOpenView { path, line in
 				tab.showQuickOpen = false
@@ -138,7 +133,7 @@ struct RepositoryView: View {
 					tab.explorerSelectedPath = path
 					tab.goToLine = line
 				} else {
-					tab.selectedFilePath = path
+					tab.selectedFilePaths = [path]
 				}
 			}
 		}
@@ -147,6 +142,8 @@ struct RepositoryView: View {
 		}
 		.focusedSceneValue(\.showQuickOpen, $tab.showQuickOpen)
 		.focusedSceneValue(\.showThemePicker, $tab.showThemePicker)
+		.focusedSceneValue(\.showRecents, $showRecentsSheet)
+		.focusedSceneValue(\.showWorkspace, $showWorkspaceSheet)
 		.focusedSceneValue(\.sidebarSelection, $tab.sidebarSelection)
 		.navigationTitle(repoService?.repoName ?? "DeathPush")
 		.onAppear {
@@ -170,7 +167,7 @@ struct RepositoryView: View {
 	private var detailContent: some View {
 		ZStack {
 			Group {
-				if let path = tabState.selectedFilePath {
+				if let path = tabState.primarySelectedFilePath {
 					DiffDetailView(path: path)
 				} else {
 					EmptyStateView(

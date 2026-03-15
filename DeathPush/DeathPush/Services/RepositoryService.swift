@@ -335,6 +335,26 @@ final class RepositoryService {
     updateFromStatus(try cherryPick(sessionId: sessionId, commitId: commitId))
   }
 
+  func continueCherryPick() throws {
+    updateFromStatus(try cherryPickContinue(sessionId: sessionId))
+  }
+
+  func abortCherryPick() throws {
+    updateFromStatus(try cherryPickAbort(sessionId: sessionId))
+  }
+
+  func revertCommit(commitId: String) throws {
+    updateFromStatus(try DeathPush.revertCommit(sessionId: sessionId, commitId: commitId))
+  }
+
+  func continueRevert() throws {
+    updateFromStatus(try DeathPush.revertContinue(sessionId: sessionId))
+  }
+
+  func abortRevert() throws {
+    updateFromStatus(try DeathPush.revertAbort(sessionId: sessionId))
+  }
+
   func resetToCommitId(_ commitId: String, mode: String = "mixed") throws {
     updateFromStatus(try resetToCommit(sessionId: sessionId, id: commitId, mode: mode))
   }
@@ -346,6 +366,12 @@ final class RepositoryService {
   }
 
   // MARK: - Worktrees
+
+  var worktrees: [WorktreeInfo] = []
+
+  func refreshWorktrees() {
+    worktrees = (try? detectWorktrees(sessionId: sessionId)) ?? []
+  }
 
   func listWorktrees() throws -> [WorktreeInfo] {
     try detectWorktrees(sessionId: sessionId)

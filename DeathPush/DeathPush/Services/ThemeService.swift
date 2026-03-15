@@ -4,10 +4,33 @@ import SwiftUI
 
 @Observable
 final class ThemeService {
-  var currentThemeName: String {
+  var currentThemeName: String
+
+  var preferredDarkTheme: String {
     didSet {
-      UserDefaults.standard.set(currentThemeName, forKey: "theme.current")
+      UserDefaults.standard.set(preferredDarkTheme, forKey: "theme.preferredDark")
+      if !currentIsLight { applyThemeFromPreference() }
     }
+  }
+
+  var preferredLightTheme: String {
+    didSet {
+      UserDefaults.standard.set(preferredLightTheme, forKey: "theme.preferredLight")
+      if currentIsLight { applyThemeFromPreference() }
+    }
+  }
+
+  private var currentIsLight: Bool {
+    if let app = NSApp {
+      return app.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) != .darkAqua
+    }
+    return UserDefaults.standard.string(forKey: "AppleInterfaceStyle") != "Dark"
+  }
+
+  private func applyThemeFromPreference() {
+    let name = currentIsLight ? preferredLightTheme : preferredDarkTheme
+    currentThemeName = name
+    loadTheme(name)
   }
 
   var themeData: [String: Any]?
@@ -65,8 +88,8 @@ final class ThemeService {
   }
 
   static let availableThemes: [ThemeEntry] = [
-    ThemeEntry(name: "deathayu-dark", displayName: "Ayu Dark (Death)", isLight: false, kind: .dark),
-    ThemeEntry(name: "deathayu-light", displayName: "Ayu Light (Death)", isLight: true, kind: .light),
+    ThemeEntry(name: "warm-burnout-dark", displayName: "Warm Burnout Dark", isLight: false, kind: .dark),
+    ThemeEntry(name: "warm-burnout-light", displayName: "Warm Burnout Light", isLight: true, kind: .light),
     ThemeEntry(name: "dark_modern", displayName: "Dark Modern", isLight: false, kind: .dark),
     ThemeEntry(name: "dark_plus", displayName: "Dark+", isLight: false, kind: .dark),
     ThemeEntry(name: "dark_vs", displayName: "Dark (Visual Studio)", isLight: false, kind: .dark),
@@ -98,13 +121,51 @@ final class ThemeService {
   ]
 
   init() {
-    self.currentThemeName = UserDefaults.standard.string(forKey: "theme.current") ?? "deathayu-dark"
-    loadTheme(currentThemeName)
+    let darkPref = UserDefaults.standard.string(forKey: "theme.preferredDark") ?? "warm-burnout-dark"
+    let lightPref = UserDefaults.standard.string(forKey: "theme.preferredLight") ?? "warm-burnout-light"
+    self.preferredDarkTheme = darkPref
+    self.preferredLightTheme = lightPref
+
+    let isDark: Bool
+    if let app = NSApp {
+      isDark = app.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    } else {
+      // NSApp not yet available during early init; fall back to UserDefaults
+      isDark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+    }
+    let themeName = isDark ? darkPref : lightPref
+    self.currentThemeName = themeName
+    loadTheme(themeName)
+  }
+
+  func startAppearanceObservation() {
+    DistributedNotificationCenter.default().addObserver(
+      forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      Task { @MainActor in
+        guard let self else { return }
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let themeName = isDark ? self.preferredDarkTheme : self.preferredLightTheme
+        if self.currentThemeName != themeName {
+          self.currentThemeName = themeName
+          self.loadTheme(themeName)
+        }
+      }
+    }
   }
 
   func applyTheme(_ name: String) {
     currentThemeName = name
     loadTheme(name)
+
+    let entry = Self.availableThemes.first { $0.name == name }
+    if entry?.isLight == true {
+      preferredLightTheme = name
+    } else {
+      preferredDarkTheme = name
+    }
   }
 
   // MARK: - Theme Loading & Include Resolution

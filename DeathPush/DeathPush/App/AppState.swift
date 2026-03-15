@@ -31,6 +31,7 @@ final class AppState {
 		loadRecentProjects()
 		loadWorkspaces()
 		scanWorkspaces()
+		themeService.startAppearanceObservation()
 	}
 
 	// MARK: - Recent Projects

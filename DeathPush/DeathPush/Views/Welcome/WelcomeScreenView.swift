@@ -168,11 +168,6 @@ struct WelcomeScreenView: View {
 						Label("Clone Repository", systemImage: "square.and.arrow.down")
 					}
 					.buttonStyle(.glass)
-
-					Button(action: initRepositoryPicker) {
-						Label("New Repository", systemImage: "plus")
-					}
-					.buttonStyle(.glass)
 				}
 			}
 			.padding(.top, 24)
@@ -211,6 +206,9 @@ struct WelcomeScreenView: View {
 					.padding(24)
 					.glassEffect(.regular)
 			}
+		}
+		.onReceive(NotificationCenter.default.publisher(for: .cloneRepository)) { _ in
+			showCloneSheet = true
 		}
 		.onChange(of: recentFilter) { recentIndex = nil }
 		.onChange(of: workspaceFilter) { workspaceIndex = nil }
@@ -470,20 +468,6 @@ struct WelcomeScreenView: View {
 
 		if panel.runModal() == .OK, let url = panel.url {
 			openProject(url.path(percentEncoded: false))
-		}
-	}
-
-	private func initRepositoryPicker() {
-		let panel = NSOpenPanel()
-		panel.canChooseFiles = false
-		panel.canChooseDirectories = true
-		panel.allowsMultipleSelection = false
-		panel.canCreateDirectories = true
-		panel.message = "Select a directory for the new repository"
-		panel.prompt = "Create"
-
-		if panel.runModal() == .OK, let url = panel.url {
-			Task { await tabState.initRepository(path: url.path(percentEncoded: false), appState: appState) }
 		}
 	}
 

@@ -144,8 +144,15 @@ Uses SwiftTerm's `LocalProcessTerminalView` (NSViewRepresentable).
 
 - Shell process spawned via `startProcess(executable:args:environment:execName:currentDirectory:)`
 - Environment from `Terminal.getEnvironmentVariables(termName:)` returns `[String]` (array of `KEY=VALUE`), not a dictionary
-- Tab management is view-local (`@State private var sessions: [TerminalSession]`)
-- Glass tab bar with `GlassEffectContainer` for session switching
+- Tab management via `TerminalService` (`@Observable`, manages groups and split nodes)
+- Glass tab bar with `GlassEffectContainer` for group switching
+- Terminal splits via `TerminalSplitView` (recursive tree of `TerminalSplitNode`)
+
+### Terminal Environment: TERM_PROGRAM is Forbidden
+
+**Never set `TERM_PROGRAM` in the terminal environment.** Also strip `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, and any `GHOSTTY_*` vars from the resolved shell environment before spawning the shell process.
+
+TUI apps (Claude Code, etc.) detect recognized terminals via `TERM_PROGRAM` and activate rendering features (Unicode width tables, escape sequences) that SwiftTerm does not support. This causes garbled text ("double lines") in their output. This applies to ALL recognized values -- `ghostty`, `iTerm.app`, `Apple_Terminal`, etc. The only safe option is to not expose any terminal identity.
 
 ## Deep Linking & CLI
 

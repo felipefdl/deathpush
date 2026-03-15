@@ -1529,6 +1529,20 @@ public func cherryPick(sessionId: String, commitId: String)throws  -> Repository
     )
 })
 }
+public func cherryPickAbort(sessionId: String)throws  -> RepositoryStatus  {
+    return try  FfiConverterTypeRepositoryStatus_lift(try rustCallWithError(FfiConverterTypeError_lift) {
+    uniffi_deathpush_ffi_fn_func_cherry_pick_abort(
+        FfiConverterString.lower(sessionId),$0
+    )
+})
+}
+public func cherryPickContinue(sessionId: String)throws  -> RepositoryStatus  {
+    return try  FfiConverterTypeRepositoryStatus_lift(try rustCallWithError(FfiConverterTypeError_lift) {
+    uniffi_deathpush_ffi_fn_func_cherry_pick_continue(
+        FfiConverterString.lower(sessionId),$0
+    )
+})
+}
 public func cloneRepository(sessionId: String, url: String, path: String)throws  -> RepositoryStatus  {
     return try  FfiConverterTypeRepositoryStatus_lift(try rustCallWithError(FfiConverterTypeError_lift) {
     uniffi_deathpush_ffi_fn_func_clone_repository(
@@ -1603,6 +1617,28 @@ public func resetToCommit(sessionId: String, id: String, mode: String)throws  ->
         FfiConverterString.lower(sessionId),
         FfiConverterString.lower(id),
         FfiConverterString.lower(mode),$0
+    )
+})
+}
+public func revertAbort(sessionId: String)throws  -> RepositoryStatus  {
+    return try  FfiConverterTypeRepositoryStatus_lift(try rustCallWithError(FfiConverterTypeError_lift) {
+    uniffi_deathpush_ffi_fn_func_revert_abort(
+        FfiConverterString.lower(sessionId),$0
+    )
+})
+}
+public func revertCommit(sessionId: String, commitId: String)throws  -> RepositoryStatus  {
+    return try  FfiConverterTypeRepositoryStatus_lift(try rustCallWithError(FfiConverterTypeError_lift) {
+    uniffi_deathpush_ffi_fn_func_revert_commit(
+        FfiConverterString.lower(sessionId),
+        FfiConverterString.lower(commitId),$0
+    )
+})
+}
+public func revertContinue(sessionId: String)throws  -> RepositoryStatus  {
+    return try  FfiConverterTypeRepositoryStatus_lift(try rustCallWithError(FfiConverterTypeError_lift) {
+    uniffi_deathpush_ffi_fn_func_revert_continue(
+        FfiConverterString.lower(sessionId),$0
     )
 })
 }
@@ -2067,6 +2103,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_deathpush_ffi_checksum_func_cherry_pick() != 47834) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_deathpush_ffi_checksum_func_cherry_pick_abort() != 13113) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_deathpush_ffi_checksum_func_cherry_pick_continue() != 20962) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_deathpush_ffi_checksum_func_clone_repository() != 23790) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2095,6 +2137,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_deathpush_ffi_checksum_func_reset_to_commit() != 22138) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_deathpush_ffi_checksum_func_revert_abort() != 10882) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_deathpush_ffi_checksum_func_revert_commit() != 51514) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_deathpush_ffi_checksum_func_revert_continue() != 34210) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_deathpush_ffi_checksum_func_get_commit_detail() != 55345) {

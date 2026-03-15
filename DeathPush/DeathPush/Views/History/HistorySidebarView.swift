@@ -68,6 +68,9 @@ struct HistorySidebarView: View {
 						Button("Cherry Pick") {
 							try? repoService?.cherryPickCommit(commitId: entry.id)
 						}
+						Button("Revert Commit") {
+							try? repoService?.revertCommit(commitId: entry.id)
+						}
 						Button("Reset to Commit...") {
 							resetCommitId = entry.id
 							resetCommitMessage = entry.message.components(separatedBy: "\n").first ?? entry.message

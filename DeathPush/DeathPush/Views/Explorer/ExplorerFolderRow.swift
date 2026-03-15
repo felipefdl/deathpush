@@ -5,6 +5,7 @@ struct ExplorerFolderRow: View {
 	let depth: Int
 	let repoService: RepositoryService?
 	let contextMenus: ExplorerContextMenus
+	let isCut: Bool
 
 	private var isExpanded: Bool {
 		repoService?.explorerExpandedPaths.contains(entry.path) ?? false
@@ -53,6 +54,14 @@ struct ExplorerFolderRow: View {
 		.listRowInsets(EdgeInsets(top: 1, leading: 4, bottom: 1, trailing: 8))
 		.contextMenu {
 			contextMenus.folderMenu(entry: entry)
+		}
+		.opacity(isCut ? 0.5 : 1.0)
+		.draggable(entry.path) {}
+		.dropDestination(for: String.self) { droppedPaths, _ in
+			for path in droppedPaths {
+				try? repoService?.moveExplorerEntries(sources: [path], destinationDir: entry.path, onConflict: "keepBoth")
+			}
+			return true
 		}
 	}
 }

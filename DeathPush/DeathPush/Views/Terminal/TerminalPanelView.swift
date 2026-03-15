@@ -27,6 +27,11 @@ struct TerminalPanelView: View {
 							}
 							.buttonStyle(.glassProminent)
 							.controlSize(.small)
+							.overlay {
+								if terminalService.groupHasBell(group) {
+									SiriGlowBorder()
+								}
+							}
 							.contextMenu {
 								Button("Kill Terminal") { terminalService.killGroup(at: index) }
 							}
@@ -51,7 +56,7 @@ struct TerminalPanelView: View {
 							.buttonStyle(.glass)
 							.controlSize(.small)
 							.overlay {
-								if tabState.showTerminal, terminalService.groupHasBell(group) {
+								if terminalService.groupHasBell(group) {
 									SiriGlowBorder()
 								}
 							}
@@ -200,14 +205,16 @@ private struct SiriGlowBorder: View {
 }
 
 private class NotifyingTerminalView: LocalProcessTerminalView {
-	var onBell: (() -> Bool)?
+	var onBell: (() -> Void)?
 	var contextMenuProvider: (() -> NSMenu)?
 
 	override func bell(source: Terminal) {
-		let handled = onBell?() ?? false
-		if !handled {
-			super.bell(source: source)
+		// bell() is called from SwiftTerm's processing queue.
+		// Dispatch the @MainActor mutation, then fall through to system bell.
+		DispatchQueue.main.async { [weak self] in
+			self?.onBell?()
 		}
+		super.bell(source: source)
 	}
 
 	override func menu(for event: NSEvent) -> NSMenu? {
@@ -238,7 +245,7 @@ struct SwiftTermContainerView: NSViewRepresentable {
 		let terminalView = NotifyingTerminalView(frame: .zero)
 		let coordinator = context.coordinator
 		terminalView.onBell = { [weak coordinator] in
-			coordinator?.handleBell() ?? false
+			coordinator?.handleBell()
 		}
 		terminalView.contextMenuProvider = { [weak coordinator] in
 			coordinator?.buildContextMenu() ?? NSMenu()
@@ -246,18 +253,12 @@ struct SwiftTermContainerView: NSViewRepresentable {
 		terminalView.processDelegate = context.coordinator
 		context.coordinator.terminalView = terminalView
 
-		// Replace terminal with custom scrollback before starting process
-		let options = TerminalOptions(
-			cols: terminalView.terminal.cols,
-			rows: terminalView.terminal.rows,
-			cursorStyle: resolveCursorStyle(),
-			scrollback: scrollback
-		)
-		terminalView.terminal = Terminal(delegate: terminalView, options: options)
+		// Configure scrollback and cursor on the existing terminal instance
+		terminalView.terminal.changeHistorySize(scrollback)
+		terminalView.terminal.options.cursorStyle = resolveCursorStyle()
 
 		// Register OSC 9 handler for desktop notifications (used by Claude Code, iTerm2 protocol)
-		// OSC 9;4 is progress -- skip those. Plain OSC 9;message is a notification.
-		terminalView.terminal.registerOscHandler(code: 9) { [weak coordinator] data in
+		terminalView.terminal.registerOscHandler(code: 9) { [weak coordinator] (data: ArraySlice<UInt8>) in
 			guard let text = String(bytes: data, encoding: .utf8) else { return }
 			if text.hasPrefix("4;") { return }
 			coordinator?.handleOscNotification(text)
@@ -272,24 +273,27 @@ struct SwiftTermContainerView: NSViewRepresentable {
 		terminalView.allowMouseReporting = mouseReporting
 		terminalView.useBrightColors = boldAsBright
 
-		// Start shell process with the full resolved environment
+		// Start shell process with the full resolved environment.
+		// TERM_PROGRAM and related vars are stripped: Claude Code and other TUI apps
+		// detect recognized terminals (iTerm2, Ghostty, etc.) and activate rendering
+		// features (Unicode width tables, escape sequences) that SwiftTerm doesn't support.
 		let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
 		let shellName = (shell as NSString).lastPathComponent
 
 		let resolvedEnv = getResolvedEnvironment()
 		let env: [String]
 		if resolvedEnv.isEmpty {
-			var vars: [String: String] = [:]
-			for item in Terminal.getEnvironmentVariables(termName: "xterm-256color") {
-				let parts = item.split(separator: "=", maxSplits: 1)
-				if parts.count == 2 { vars[String(parts[0])] = String(parts[1]) }
-			}
-			vars["TERM_PROGRAM"] = "ghostty"
-			env = vars.map { "\($0.key)=\($0.value)" }
+			env = Terminal.getEnvironmentVariables(termName: "xterm-256color")
 		} else {
 			var vars = resolvedEnv
 			vars["TERM"] = "xterm-256color"
-			vars["TERM_PROGRAM"] = "ghostty"
+			// Strip terminal identity vars that cause TUI apps to use
+			// rendering features SwiftTerm doesn't support
+			vars.removeValue(forKey: "TERM_PROGRAM")
+			vars.removeValue(forKey: "TERM_PROGRAM_VERSION")
+			for key in vars.keys where key.hasPrefix("GHOSTTY_") {
+				vars.removeValue(forKey: key)
+			}
 			env = vars.map { "\($0.key)=\($0.value)" }
 		}
 
@@ -474,25 +478,29 @@ struct SwiftTermContainerView: NSViewRepresentable {
 			terminalView.performFindPanelAction(item)
 		}
 
-		func handleBell() -> Bool {
-			session.hasBell = true
-			guard bellNotification else { return false }
-			guard !NSApp.isActive || !isActiveSession else { return false }
-			sendNotification(
-				title: "Terminal",
-				body: "\(session.title) needs attention"
-			)
-			return true
-		}
-
-		func handleOscNotification(_ message: String) {
+		func handleBell() {
 			session.hasBell = true
 			guard bellNotification else { return }
 			guard !NSApp.isActive || !isActiveSession else { return }
 			sendNotification(
-				title: session.title,
-				body: message
+				title: "Terminal",
+				body: "\(session.title) needs attention"
 			)
+		}
+
+		func handleOscNotification(_ message: String) {
+			// Called from SwiftTerm's processing queue via OSC handler.
+			// Dispatch @MainActor mutations to the main thread.
+			DispatchQueue.main.async { [weak self] in
+				guard let self else { return }
+				self.session.hasBell = true
+				guard self.bellNotification else { return }
+				guard !NSApp.isActive || !self.isActiveSession else { return }
+				self.sendNotification(
+					title: self.session.title,
+					body: message
+				)
+			}
 		}
 
 		func handleFocus() {

@@ -7,6 +7,10 @@ struct ExplorerDetailView: View {
   @Environment(TabState.self) private var tabState
   @State private var fileContent: FileContent?
   @State private var errorMessage: String?
+  @State private var isDirty = false
+  @State private var showSaveConfirm = false
+  @State private var pendingNavigationPath: String?
+  @AppStorage("git.inlineBlame") private var inlineBlame = true
 
   private var repoService: RepositoryService? {
     tabState.repoService
@@ -14,7 +18,7 @@ struct ExplorerDetailView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      ExplorerDetailHeader(path: path, repoService: repoService)
+      ExplorerDetailHeader(path: path, repoService: repoService, isDirty: isDirty)
 
       Divider()
 
@@ -31,8 +35,22 @@ struct ExplorerDetailView: View {
       } else if let content = fileContent {
         switch content.fileType {
         case "text":
-          MonacoEditorView(fileContent: content, themeJSON: appState.themeService.themeDataJSON, goToLine: goToLine)
-            .background(Color(nsColor: appState.themeService.color(forKey: "editor.background") ?? .black))
+          MonacoEditorView(
+            fileContent: content,
+            themeJSON: appState.themeService.themeDataJSON,
+            goToLine: goToLine,
+            onCursorChanged: { line in
+              tabState.currentEditorCursorLine = line
+            },
+            isEditable: true,
+            onContentChanged: {
+              isDirty = true
+            },
+            onSave: { newContent in
+              saveFile(content: newContent)
+            }
+          )
+          .background(Color(nsColor: appState.themeService.color(forKey: "editor.background") ?? .black))
         case "image":
           ExplorerImageView(dataURI: content.content)
         case "binary":
@@ -60,10 +78,36 @@ struct ExplorerDetailView: View {
       }
     }
     .onChange(of: path, initial: true) { _, newPath in
-      tabState.explorerShowBlame = false
-      tabState.explorerShowFileHistory = false
-      loadFile(for: newPath)
+      if isDirty {
+        pendingNavigationPath = newPath
+        showSaveConfirm = true
+      } else {
+        navigateToFile(newPath)
+      }
     }
+    .confirmationDialog("Save changes?", isPresented: $showSaveConfirm, titleVisibility: .visible) {
+      Button("Discard") {
+        isDirty = false
+        if let pending = pendingNavigationPath {
+          navigateToFile(pending)
+          pendingNavigationPath = nil
+        }
+      }
+      Button("Cancel", role: .cancel) {
+        pendingNavigationPath = nil
+      }
+    } message: {
+      Text("You have unsaved changes. Do you want to discard them?")
+    }
+  }
+
+  private func navigateToFile(_ filePath: String) {
+    tabState.explorerShowBlame = false
+    tabState.explorerShowFileHistory = false
+    tabState.currentEditorCursorLine = nil
+    tabState.currentFileBlame = nil
+    isDirty = false
+    loadFile(for: filePath)
   }
 
   private func loadFile(for filePath: String) {
@@ -71,9 +115,21 @@ struct ExplorerDetailView: View {
 
     do {
       fileContent = try repoService?.readExplorerFile(path: filePath)
+      if inlineBlame {
+        tabState.currentFileBlame = try? repoService?.blameFile(path: filePath)
+      }
     } catch {
       errorMessage = error.localizedDescription
       fileContent = nil
+    }
+  }
+
+  private func saveFile(content: String) {
+    do {
+      try writeFile(sessionId: repoService?.sessionId ?? "", path: path, content: content)
+      isDirty = false
+    } catch {
+      errorMessage = error.localizedDescription
     }
   }
 }
@@ -81,6 +137,7 @@ struct ExplorerDetailView: View {
 struct ExplorerDetailHeader: View {
   let path: String
   let repoService: RepositoryService?
+  var isDirty = false
   @Environment(TabState.self) private var tabState
 
   var body: some View {
@@ -95,6 +152,11 @@ struct ExplorerDetailHeader: View {
             .font(.callout)
             .lineLimit(1)
             .truncationMode(.middle)
+          if isDirty {
+            Circle()
+              .fill(.orange)
+              .frame(width: 6, height: 6)
+          }
         }
 
         Spacer()

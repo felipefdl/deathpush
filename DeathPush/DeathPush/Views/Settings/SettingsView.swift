@@ -68,14 +68,31 @@ struct SettingsView: View {
 struct AppearanceSettingsTab: View {
   @Environment(AppState.self) private var appState
 
+  private var darkThemes: [ThemeService.ThemeEntry] {
+    ThemeService.availableThemes.filter { !$0.isLight }
+  }
+
+  private var lightThemes: [ThemeService.ThemeEntry] {
+    ThemeService.availableThemes.filter { $0.isLight }
+  }
+
   var body: some View {
     Form {
       Section("Theme") {
-        Picker("Color Theme", selection: Binding(
-          get: { appState.themeService.currentThemeName },
-          set: { appState.themeService.applyTheme($0) }
+        Picker("Dark Theme", selection: Binding(
+          get: { appState.themeService.preferredDarkTheme },
+          set: { appState.themeService.preferredDarkTheme = $0 }
         )) {
-          ForEach(ThemeService.availableThemes, id: \.name) { theme in
+          ForEach(darkThemes, id: \.name) { theme in
+            Text(theme.displayName).tag(theme.name)
+          }
+        }
+
+        Picker("Light Theme", selection: Binding(
+          get: { appState.themeService.preferredLightTheme },
+          set: { appState.themeService.preferredLightTheme = $0 }
+        )) {
+          ForEach(lightThemes, id: \.name) { theme in
             Text(theme.displayName).tag(theme.name)
           }
         }
@@ -198,6 +215,7 @@ struct GitSettingsTab: View {
   @AppStorage("git.autoFetch") private var autoFetch = true
   @AppStorage("git.autoFetchInterval") private var autoFetchInterval = 300
   @AppStorage("git.confirmDiscard") private var confirmDiscard = true
+  @AppStorage("git.inlineBlame") private var inlineBlame = true
 
   @State private var userName = ""
   @State private var userEmail = ""
@@ -232,6 +250,10 @@ struct GitSettingsTab: View {
 
       Section("Safety") {
         Toggle("Confirm Before Discard", isOn: $confirmDiscard)
+      }
+
+      Section("Blame") {
+        Toggle("Inline Blame in Status Bar", isOn: $inlineBlame)
       }
     }
     .formStyle(.grouped)

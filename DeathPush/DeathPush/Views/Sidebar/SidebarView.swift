@@ -45,7 +45,7 @@ struct SidebarView: View {
 			// Content
 			switch tab.sidebarSelection {
 			case .changes:
-				SCMView(selectedFilePath: $tab.selectedFilePath)
+				SCMView(selectedFilePaths: $tab.selectedFilePaths)
 			case .history:
 				HistorySidebarView(selectedCommitId: $tab.selectedCommitId)
 			case .explorer:

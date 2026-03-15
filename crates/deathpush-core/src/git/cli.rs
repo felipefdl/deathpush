@@ -279,6 +279,31 @@ impl GitCli {
     Ok(())
   }
 
+  pub async fn cherry_pick_continue(&self) -> Result<()> {
+    self.run(&["cherry-pick", "--continue"]).await?;
+    Ok(())
+  }
+
+  pub async fn cherry_pick_abort(&self) -> Result<()> {
+    self.run(&["cherry-pick", "--abort"]).await?;
+    Ok(())
+  }
+
+  pub async fn revert_commit(&self, commit_id: &str) -> Result<()> {
+    self.run(&["revert", commit_id]).await?;
+    Ok(())
+  }
+
+  pub async fn revert_continue(&self) -> Result<()> {
+    self.run(&["revert", "--continue"]).await?;
+    Ok(())
+  }
+
+  pub async fn revert_abort(&self) -> Result<()> {
+    self.run(&["revert", "--abort"]).await?;
+    Ok(())
+  }
+
   pub async fn reset_to_commit(&self, commit_id: &str, mode: &str) -> Result<()> {
     let flag = match mode {
       "hard" => "--hard",

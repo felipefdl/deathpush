@@ -55,6 +55,10 @@ struct ExplorerTreeView: View {
     }
   }
 
+  private func isCut(_ path: String) -> Bool {
+    tabState.explorerClipboard?.operation == .cut && tabState.explorerClipboard?.paths.contains(path) == true
+  }
+
   private var contextMenus: ExplorerContextMenus {
     ExplorerContextMenus(
       repoService: repoService,
@@ -65,8 +69,43 @@ struct ExplorerTreeView: View {
       onNewFolder: { parentPath in
         creationMode = .newFolder(parentPath: parentPath)
         creationName = ""
+      },
+      explorerClipboard: tabState.explorerClipboard,
+      onCopy: { paths in
+        tabState.explorerClipboard = ExplorerClipboard(paths: paths, operation: .copy)
+      },
+      onCut: { paths in
+        tabState.explorerClipboard = ExplorerClipboard(paths: paths, operation: .cut)
+      },
+      onPaste: { destinationDir in
+        handlePaste(destinationDir: destinationDir)
+      },
+      onImport: { destinationDir in
+        handleImport(destinationDir: destinationDir)
       }
     )
+  }
+
+  private func handlePaste(destinationDir: String) {
+    guard let clipboard = tabState.explorerClipboard else { return }
+    switch clipboard.operation {
+    case .copy:
+      try? repoService?.copyExplorerEntries(sources: clipboard.paths, destinationDir: destinationDir, onConflict: "keepBoth")
+    case .cut:
+      try? repoService?.moveExplorerEntries(sources: clipboard.paths, destinationDir: destinationDir, onConflict: "keepBoth")
+      tabState.explorerClipboard = nil
+    }
+  }
+
+  private func handleImport(destinationDir: String) {
+    let panel = NSOpenPanel()
+    panel.allowsMultipleSelection = true
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    if panel.runModal() == .OK {
+      let sources = panel.urls.map(\.path)
+      try? repoService?.importExplorerFiles(sources: sources, destinationDir: destinationDir, onConflict: "keepBoth")
+    }
   }
 
   var body: some View {
@@ -87,31 +126,34 @@ struct ExplorerTreeView: View {
 
       List(selection: $selectedFilePath) {
         ForEach(flatItems, id: \.entry.path) { item in
-          if item.entry.isDirectory {
-            ExplorerFolderRow(
-              entry: item.entry,
-              depth: item.depth,
-              repoService: repoService,
-              contextMenus: contextMenus
-            )
-          } else {
-            ExplorerFileRow(
-              entry: item.entry,
-              depth: item.depth,
-              isSelected: selectedFilePath == item.entry.path,
-              gitStatus: gitStatusByPath[item.entry.path],
-              onSelect: { selectedFilePath = item.entry.path }
-            )
-            .contextMenu {
-              contextMenus.fileMenu(entry: item.entry)
-            }
-          }
+          explorerRow(item: item)
         }
       }
       .listStyle(.plain)
       .scrollEdgeEffectStyle(.soft, for: .top)
+      .onKeyPress(keys: [.init("c")]) { press in
+        guard press.modifiers == .command else { return .ignored }
+        if let path = selectedFilePath {
+          tabState.explorerClipboard = ExplorerClipboard(paths: [path], operation: .copy)
+        }
+        return .handled
+      }
+      .onKeyPress(keys: [.init("x")]) { press in
+        guard press.modifiers == .command else { return .ignored }
+        if let path = selectedFilePath {
+          tabState.explorerClipboard = ExplorerClipboard(paths: [path], operation: .cut)
+        }
+        return .handled
+      }
+      .onKeyPress(keys: [.init("v")]) { press in
+        guard press.modifiers == .command else { return .ignored }
+        if let path = selectedFilePath {
+          let parentDir = path.components(separatedBy: "/").dropLast().joined(separator: "/")
+          handlePaste(destinationDir: parentDir)
+        }
+        return .handled
+      }
       .contextMenu {
-        // Root-level context menu
         Button("New File...") {
           let root = repoService?.status?.root ?? ""
           creationMode = .newFile(parentPath: root)
@@ -133,6 +175,31 @@ struct ExplorerTreeView: View {
         repoService: repoService,
         onDismiss: { creationMode = nil }
       )
+    }
+  }
+
+  @ViewBuilder
+  private func explorerRow(item: FlatExplorerItem) -> some View {
+    if item.entry.isDirectory {
+      ExplorerFolderRow(
+        entry: item.entry,
+        depth: item.depth,
+        repoService: repoService,
+        contextMenus: contextMenus,
+        isCut: isCut(item.entry.path)
+      )
+    } else {
+      ExplorerFileRow(
+        entry: item.entry,
+        depth: item.depth,
+        isSelected: selectedFilePath == item.entry.path,
+        gitStatus: gitStatusByPath[item.entry.path],
+        isCut: isCut(item.entry.path),
+        onSelect: { selectedFilePath = item.entry.path }
+      )
+      .contextMenu {
+        contextMenus.fileMenu(entry: item.entry)
+      }
     }
   }
 

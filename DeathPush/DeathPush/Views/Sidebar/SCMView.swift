@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SCMView: View {
 	@Environment(TabState.self) private var tabState
-	@Binding var selectedFilePath: String?
+	@Binding var selectedFilePaths: Set<String>
 	@State private var showDiscardAllConfirm = false
 	@State private var showStashDialog = false
 	@State private var stashMessage = ""
@@ -24,6 +24,7 @@ struct SCMView: View {
 	@AppStorage("scm.collapsed.stashes") private var stashesCollapsed = false
 	@AppStorage("scm.collapsed.tags") private var tagsCollapsed = false
 	@AppStorage("scm.collapsed.nestedRepos") private var nestedReposCollapsed = true
+	@AppStorage("scm.collapsed.worktrees") private var worktreesCollapsed = true
 
 	private func isCollapsed(for kind: ResourceGroupKind) -> Binding<Bool> {
 		switch kind {
@@ -62,7 +63,7 @@ struct SCMView: View {
 
 			Divider()
 
-			List(selection: $selectedFilePath) {
+			List(selection: $selectedFilePaths) {
 				if filteredGroups.isEmpty && filterText.isEmpty {
 					ContentUnavailableView(
 						"No Changes",
@@ -83,7 +84,7 @@ struct SCMView: View {
 									ResourceTreeView(
 										files: group.files,
 										groupKind: group.kind,
-										selectedFilePath: $selectedFilePath,
+										selectedFilePaths: $selectedFilePaths,
 										contextMenuBuilder: { file in
 											AnyView(fileContextMenu(file: file, group: group))
 										}
@@ -92,8 +93,8 @@ struct SCMView: View {
 									ForEach(group.files, id: \.path) { file in
 										ResourceItemView(
 											file: file,
-											isSelected: selectedFilePath == file.path,
-											onSelect: { selectedFilePath = file.path }
+											isSelected: selectedFilePaths.contains(file.path),
+											onSelect: { selectedFilePaths = [file.path] }
 										)
 										.tag(file.path)
 										.contextMenu {
@@ -203,9 +204,37 @@ struct SCMView: View {
 						nestedReposSectionHeader(count: repos.count)
 					}
 				}
+
+				// Worktrees section
+				if let wts = repoService?.worktrees, wts.count > 1 {
+					Section {
+						if !worktreesCollapsed {
+							ForEach(wts, id: \.path) { wt in
+								WorktreeRow(worktree: wt)
+									.listRowSeparator(.hidden)
+									.listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
+									.onTapGesture {
+										Task {
+											await tabState.openRepository(path: wt.path, appState: _appState)
+										}
+									}
+							}
+						}
+					} header: {
+						worktreesSectionHeader(count: wts.count)
+					}
+				}
 			}
 			.listStyle(.plain)
 			.scrollEdgeEffectStyle(.soft, for: .top)
+			.onKeyPress(.space) {
+				toggleStageForSelection()
+				return .handled
+			}
+			.onKeyPress(.delete) {
+				discardSelection()
+				return .handled
+			}
 			.sheet(isPresented: $showStashDialog) {
 				VStack(spacing: 12) {
 					Text("Stash Changes")
@@ -310,6 +339,7 @@ struct SCMView: View {
 		}
 		.task {
 			repoService?.refreshNestedRepos()
+			repoService?.refreshWorktrees()
 		}
 	}
 
@@ -697,24 +727,62 @@ struct SCMView: View {
 		}
 	}
 
+	@ViewBuilder
+	private func worktreesSectionHeader(count: Int) -> some View {
+		GlassEffectContainer(spacing: 4) {
+			HStack {
+				Button {
+					withAnimation(.easeInOut(duration: 0.15)) {
+						worktreesCollapsed.toggle()
+					}
+				} label: {
+					HStack(spacing: 4) {
+						Image(systemName: "chevron.right")
+							.font(.caption2)
+							.rotationEffect(.degrees(worktreesCollapsed ? 0 : 90))
+
+						Text("Worktrees")
+							.font(.caption.bold())
+							.foregroundStyle(.secondary)
+
+						Text("\(count)")
+							.font(.caption)
+							.glassEffect(.regular)
+					}
+					.contentShape(Rectangle())
+				}
+				.buttonStyle(.plain)
+
+				Spacer()
+			}
+		}
+	}
+
 	// MARK: - Context Menu
+
+	private var selectedPathsArray: [String] {
+		Array(selectedFilePaths)
+	}
 
 	@ViewBuilder
 	private func fileContextMenu(file: FileEntry, group: ResourceGroup) -> some View {
+		let paths = selectedFilePaths.count > 1 ? selectedPathsArray : [file.path]
+		let label = selectedFilePaths.count > 1 ? " (\(selectedFilePaths.count) files)" : ""
+
 		if group.kind == .workingTree || group.kind == .untracked {
-			Button("Stage") {
-				try? repoService?.stageFiles([file.path])
+			Button("Stage\(label)") {
+				try? repoService?.stageFiles(paths)
 			}
 		}
 		if group.kind == .index {
-			Button("Unstage") {
-				try? repoService?.unstageFiles([file.path])
+			Button("Unstage\(label)") {
+				try? repoService?.unstageFiles(paths)
 			}
 		}
 		if group.kind == .workingTree {
 			Divider()
-			Button("Discard Changes", role: .destructive) {
-				try? repoService?.discardFileChanges([file.path])
+			Button("Discard Changes\(label)", role: .destructive) {
+				try? repoService?.discardFileChanges(paths)
 			}
 		}
 		Divider()
@@ -728,5 +796,27 @@ struct SCMView: View {
 			NSPasteboard.general.clearContents()
 			NSPasteboard.general.setString(file.path, forType: .string)
 		}
+	}
+
+	// MARK: - Keyboard Actions
+
+	private func toggleStageForSelection() {
+		guard !selectedFilePaths.isEmpty else { return }
+		let indexPaths = Set(groups.filter { $0.kind == .index }.flatMap(\.files).map(\.path))
+		let selectedArray = Array(selectedFilePaths)
+
+		if selectedArray.allSatisfy({ indexPaths.contains($0) }) {
+			try? repoService?.unstageFiles(selectedArray)
+		} else {
+			try? repoService?.stageFiles(selectedArray)
+		}
+	}
+
+	private func discardSelection() {
+		guard !selectedFilePaths.isEmpty else { return }
+		let workingPaths = Set(groups.filter { $0.kind == .workingTree }.flatMap(\.files).map(\.path))
+		let toDiscard = Array(selectedFilePaths.filter { workingPaths.contains($0) })
+		guard !toDiscard.isEmpty else { return }
+		try? repoService?.discardFileChanges(toDiscard)
 	}
 }

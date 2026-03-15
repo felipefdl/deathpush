@@ -5,6 +5,7 @@ struct ExplorerFileRow: View {
 	let depth: Int
 	let isSelected: Bool
 	let gitStatus: FileStatus?
+	let isCut: Bool
 	let onSelect: () -> Void
 
 	var body: some View {
@@ -38,6 +39,8 @@ struct ExplorerFileRow: View {
 		.listRowSeparator(.hidden)
 		.listRowInsets(EdgeInsets(top: 1, leading: 4, bottom: 1, trailing: 8))
 		.listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+		.opacity(isCut ? 0.5 : 1.0)
+		.draggable(entry.path) {}
 	}
 
 	private var gitStatusColor: Color {

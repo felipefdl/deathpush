@@ -36,6 +36,10 @@ struct QuickOpenView: View {
               if let result = contentResults[safe: selectedIndex] {
                 onSelect(result.path, Int(result.lineNumber))
               }
+            } else if parsedQuery.search.isEmpty {
+              if let recentFile = tabState.recentFiles[safe: selectedIndex] {
+                onSelect(recentFile.path, nil)
+              }
             } else {
               if let result = results[safe: selectedIndex] {
                 onSelect(result.path, parsedQuery.line)
@@ -76,7 +80,9 @@ struct QuickOpenView: View {
 
   @ViewBuilder
   private var fileResultsList: some View {
-    if results.isEmpty && !parsedQuery.search.isEmpty {
+    if parsedQuery.search.isEmpty {
+      recentFilesList
+    } else if results.isEmpty {
       ContentUnavailableView.search(text: parsedQuery.search)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     } else {
@@ -93,6 +99,30 @@ struct QuickOpenView: View {
           }
           Spacer()
           Text(parentPath(of: result.path))
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+        }
+        .tag(index)
+      }
+      .listStyle(.plain)
+      .scrollEdgeEffectStyle(.soft, for: .top)
+    }
+  }
+
+  @ViewBuilder
+  private var recentFilesList: some View {
+    if tabState.recentFiles.isEmpty {
+      ContentUnavailableView("No Recent Files", systemImage: "clock")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else {
+      List(Array(tabState.recentFiles.enumerated()), id: \.element.path, selection: $selectedIndex) { index, recentFile in
+        HStack {
+          FileIconView(fileName: URL(fileURLWithPath: recentFile.path).lastPathComponent)
+          Text(URL(fileURLWithPath: recentFile.path).lastPathComponent)
+            .font(.body.monospaced())
+            .lineLimit(1)
+          Spacer()
+          Text(parentPath(of: recentFile.path))
             .font(.caption)
             .foregroundStyle(.tertiary)
         }

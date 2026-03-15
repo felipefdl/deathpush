@@ -151,6 +151,46 @@ pub fn cherry_pick(session_id: String, commit_id: String) -> Result<RepositorySt
 }
 
 #[uniffi::export]
+pub fn cherry_pick_continue(session_id: String) -> Result<RepositoryStatus, Error> {
+  let root = get_root(&session_id)?;
+  let cli = make_cli(&root);
+  manager().runtime.block_on(cli.cherry_pick_continue())?;
+  refresh_status(&session_id)
+}
+
+#[uniffi::export]
+pub fn cherry_pick_abort(session_id: String) -> Result<RepositoryStatus, Error> {
+  let root = get_root(&session_id)?;
+  let cli = make_cli(&root);
+  manager().runtime.block_on(cli.cherry_pick_abort())?;
+  refresh_status(&session_id)
+}
+
+#[uniffi::export]
+pub fn revert_commit(session_id: String, commit_id: String) -> Result<RepositoryStatus, Error> {
+  let root = get_root(&session_id)?;
+  let cli = make_cli(&root);
+  manager().runtime.block_on(cli.revert_commit(&commit_id))?;
+  refresh_status(&session_id)
+}
+
+#[uniffi::export]
+pub fn revert_continue(session_id: String) -> Result<RepositoryStatus, Error> {
+  let root = get_root(&session_id)?;
+  let cli = make_cli(&root);
+  manager().runtime.block_on(cli.revert_continue())?;
+  refresh_status(&session_id)
+}
+
+#[uniffi::export]
+pub fn revert_abort(session_id: String) -> Result<RepositoryStatus, Error> {
+  let root = get_root(&session_id)?;
+  let cli = make_cli(&root);
+  manager().runtime.block_on(cli.revert_abort())?;
+  refresh_status(&session_id)
+}
+
+#[uniffi::export]
 pub fn reset_to_commit(session_id: String, id: String, mode: String) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
   let cli = make_cli(&root);
