@@ -1,14 +1,8 @@
-# Dependencies
-node_modules/
-
 # Build output
-dist/
-dist-ssr/
 target/
 
 # Logs
 *.log
-npm-debug.log*
 
 # Environment
 *.local
@@ -31,9 +25,6 @@ DerivedData/
 *.njsproj
 *.sln
 *.sw?
-
-# VS Code reference (large)
-.temp-vscode/
 
 # Claude Code
 .claude/

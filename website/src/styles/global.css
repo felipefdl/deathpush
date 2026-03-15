@@ -10,9 +10,11 @@
   --color-text: #f5f5f5;
   --color-text-secondary: #999999;
   --color-text-muted: #666666;
-  --color-accent: #dc2626;
-  --color-accent-hover: #ef4444;
-  --color-accent-glow: rgba(220, 38, 38, 0.15);
+  --color-accent: #E8D9BD;
+  --color-accent-hover: #F0E4CD;
+  --color-accent-glow: rgba(232, 217, 189, 0.15);
+  --color-accent-dark: #B09978;
+  --color-accent-text: #1a1a1a;
   --color-white: #ffffff;
 
   /* Spacing */

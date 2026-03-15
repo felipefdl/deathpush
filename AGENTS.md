@@ -2,11 +2,11 @@
 
 ## Project Overview
 
-DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, React + TypeScript frontend) that replicates the VS Code Source Control UX. It provides staging, committing, diffing, branch management, push/pull, stash, tags, commit history, hunk staging, merge/rebase detection, clone, cherry-pick, reset, git blame, integrated terminal, settings, multi-window support, CLI tool (`dp`/`deathpush`), auto-update, and a welcome/project picker screen in a lightweight native app.
+DeathPush is a native macOS Git client built with Swift/SwiftUI and a Rust core (via UniFFI). It replicates the VS Code Source Control workflow with staging, committing, diffing, branch management, push/pull, stash, tags, commit history, hunk staging, merge/rebase detection, clone, cherry-pick, reset, git blame, integrated terminal, settings, multi-tab support, CLI tool (`dp`/`deathpush`), auto-update (Sparkle), and a welcome/project picker screen.
 
 ## Brand & Voice
 
-- DeathPush (or "dp" for short) is a dark humor brand name, intentionally edgy -- similar to Liquid Death. It is not offensive, it is branding.
+- DeathPush (or "dp" for short) is a dark humor brand name, intentionally edgy, similar to Liquid Death. It is not offensive, it is branding.
 - Dark humor in copy, UI text, and documentation is intentional and must be preserved as-is.
 - Agents must NOT sanitize, tone-police, soften, or rewrite text for "marketing purposes" or politeness.
 - This is a git client, not a sensitivity project. Respect the developer audience.
@@ -15,16 +15,13 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 
 | Component | Technology |
 |-----------|-----------|
-| Frontend | React 19 + TypeScript |
-| Backend | Rust (Tauri v2) |
-| State | Zustand |
-| Diff viewer | Monaco Editor (@monaco-editor/react) |
-| Terminal | xterm.js + portable-pty (Rust) |
-| Icons | VS Code Codicon font (@vscode/codicons) |
-| Package manager | npm |
-| Linter | oxlint |
-| Formatter | oxfmt (TS), rustfmt (Rust) |
-| Tests | Vitest (jsdom) |
+| UI | SwiftUI (macOS 15+) |
+| Backend | Rust via UniFFI (deathpush-core, deathpush-ffi) |
+| Diff viewer | Monaco Editor in WKWebView |
+| Terminal | SwiftTerm (native) |
+| Auto-update | Sparkle 2.9+ (EdDSA signed) |
+| Icons | Material file icons (SVG via icon themes) |
+| Package manager | Swift Package Manager (Xcode) + Cargo (Rust) |
 | Task runner | justfile |
 
 ## Architecture
@@ -35,152 +32,68 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - **Write ops** (add, commit, push, pull, checkout, fetch, stash, cherry-pick, reset, clone): git CLI via `tokio::process::Command` for hook execution, GPG signing, credential helpers, SSH config, and LFS support
 - **Blame/file-log ops**: git CLI via `tokio::process::Command` (porcelain blame, follow log)
 
-### Multi-Window
+### Multi-Tab
 
-- Each window has its own `RepoState` (git2 repo handle + CLI root path) stored in `AppRepoState` keyed by window label
-- Each window has its own FS watcher (`WatcherState`) and terminal sessions (`TerminalState`)
-- Window cleanup on destroy removes repo state, watcher, and terminal sessions
+- Each tab has its own `TabState` (observable, holds all per-repo state)
+- `TabRegistry` manages tab lifecycle, keyed by native macOS tab identity
+- `AppState` holds shared services (ThemeService, IconThemeService, GitOutputService)
 - CLI argument support: `deathpush /path/to/repo` opens directly
+- Deep link support: `deathpush://` URL scheme
 
-### Backend (src-tauri/src/)
+### Rust Core (crates/)
 
-- `error.rs` -- Error type via thiserror with Serialize impl
-- `types.rs` -- Serde DTOs shared with frontend (FileStatus, ResourceGroup, RepositoryStatus, DiffContent, BranchEntry, CommitEntry, CommitDetail, StashEntry, TagEntry, DiffHunk, FileDiffWithHunks, RepoOperationState, BlameLineGroup, FileBlame, LastCommitInfo, ProjectInfo, CliInstallStatus)
-- `pty.rs` -- PTY session management via portable-pty (spawn shell, read/write, resize, per-window sessions)
-- `git/repository.rs` -- git2::Repository wrapper (open, head, ahead/behind)
-- `git/status.rs` -- git2 status flags -> resource groups + operation state detection
-- `git/diff.rs` -- Blob reads via git2 for Monaco diff (HEAD, index, working tree)
-- `git/branch.rs` -- Branch listing via git2 with ahead/behind counts
-- `git/log.rs` -- Commit history via git2 revwalk (sorted by time)
-- `git/tag.rs` -- Tag listing via git2
-- `git/hunk.rs` -- Parse unified diff into hunks, generate partial patches
-- `git/repo_state.rs` -- Detect merge/rebase/cherry-pick/revert in progress via `.git/` sentinels
-- `git/blame.rs` -- Git blame (porcelain), file log (--follow), last commit info via CLI
-- `git/cli.rs` -- Async git CLI runner for all write ops
-- `git/watcher.rs` -- FS watcher (notify + debouncer, 500ms) emitting Tauri events, per-window
-- `commands/` -- Thin Tauri command handlers (repository, status, staging, commit, branch, remote, log, stash, tag, file_ops, lifecycle, terminal, blame, config, cli)
-- `lib.rs` -- App builder with managed state (AppRepoState, TerminalState, WatcherState), native menu system, multi-window support, 61 commands registered
+- `deathpush-core` -- Git operations, types, PTY management, file watcher (no platform dependency)
+- `deathpush-ffi` -- UniFFI bindings exposing the core to Swift
 
-### Frontend (src/)
+The Rust crate is built as a static library (`libdeathpush_ffi.a`) via an Xcode build phase (`scripts/build-rust.sh`). Swift bindings are generated by UniFFI (`scripts/generate-bindings.sh`).
 
-- `stores/repository-store.ts` -- Zustand store (status, files, diff, branches, stashes, tags, commitLog, operations, fileFilter, focusedIndex, amendMode, fileHunks, terminalGroups)
-- `stores/layout-store.ts` -- Zustand store for layout (sidebarWidth, terminalVisible, terminalHeight, mainView, diffMode, viewMode, panelTab, collapsedPanes, terminalMaximized) with per-project localStorage persistence
-- `stores/theme-store.ts` -- Zustand store for color theme (currentTheme, setTheme)
-- `stores/icon-theme-store.ts` -- Zustand store for file icon theme (currentIconTheme, setIconTheme)
-- `stores/settings-store.ts` -- Zustand store for app settings (UI, editor, terminal, git, projects) with localStorage persistence
-- `lib/tauri-commands.ts` -- Typed invoke() wrappers for all 61 Tauri commands
-- `lib/git-types.ts` -- TypeScript types matching Rust DTOs (including BlameLineGroup, FileBlame, LastCommitInfo)
-- `lib/flat-file-list.ts` -- Flatten resource groups into indexed file list for keyboard nav
-- `lib/format-date.ts` -- Relative date formatting
-- `lib/status-colors.ts` -- FileStatus -> CSS variable color
-- `lib/status-icons.ts` -- FileStatus -> single letter label
-- `lib/constants.ts` -- App constants (APP_NAME, DEFAULT_REMOTE)
-- `lib/recent-projects.ts` -- Recent project history (localStorage, max 20)
-- `lib/toggle-terminal.ts` -- Terminal toggle logic
-- `lib/workspace-tree.ts` -- Build tree structure from scanned projects for welcome screen
-- `lib/author-utils.ts` -- Author initials extraction + deterministic avatar color hashing
-- `lib/diff-options.ts` -- Monaco diff editor options builder from settings
-- `lib/monaco-setup.ts` -- Monaco worker registration, custom language registration, diagnostics suppression
-- `lib/updater.ts` -- Tauri auto-update check + download wrapper
-- `lib/languages/` -- Custom Monaco language definitions (toml, justfile, dotenv)
-- `lib/themes/` -- Color theme infrastructure (types, registry, defaults, apply-theme, json/)
-- `lib/icon-themes/` -- File icon theme infrastructure (types, registry, apply, get-icon-classes, generate-icon-css)
-- `hooks/` -- use-repository, use-git-status, use-diff, use-branches, use-keyboard-shortcuts, use-tauri-event, use-commit-log, use-stash, use-tags, use-resize-observer, use-color-scheme
-- `components/scm/` -- SCM view, commit input (with amend/undo), resource groups (list + tree), resource item, resource tree, file filter, stash view, stash entry, action button, context menu, merge banner, overflow menu, SCM toolbar, resizable pane container
-- `components/diff/` -- Monaco DiffEditor with inline/side-by-side + hunk view, diff header, image diff, empty state
-- `components/history/` -- Commit history (commit-list with cherry-pick/reset context menu, commit-detail, commit-file-tree, history-view)
-- `components/branch/` -- Branch picker with search, create, branch item, and tags section (tag-item)
-- `components/terminal/` -- Terminal panel, terminal instance (xterm.js), terminal group view, terminal search bar, git output panel
-- `components/layout/` -- App layout, main panel (Changes/History/Settings tabs), status bar, title bar (macOS overlay), clone dialog
-- `components/settings/` -- Settings page (UI, editor, terminal, git, projects configuration)
-- `components/welcome/` -- Welcome screen with recent projects and project directory scanner
-- `components/theme/` -- Theme picker, icon theme picker (VS Code command palette style)
-- `components/shared/` -- Workspace config modal (multi-workspace directory configuration)
-- `components/ui/` -- Spinner
-- `styles/global.css` -- Base styles + theme picker CSS (no hardcoded colors; all set by JS via applyTheme)
-- `styles/scm.css` -- SCM, merge banner, clone dialog, stash, filter, keyboard focus styles
-- `styles/history.css` -- Commit history styles
-- `styles/terminal.css` -- Terminal panel styles
-- `styles/welcome.css` -- Welcome screen styles
-- `styles/settings.css` -- Settings page styles
-- `styles/codicons.css` -- VS Code Codicon font styles
+### Swift App (DeathPush/DeathPush/)
 
-### Tauri Commands (API Surface - 61 total)
+**App layer:**
+- `DeathPushApp.swift` -- App entry point, window group, commands, Sparkle updater
+- `ContentView.swift` -- Root view, tab routing
+- `App/AppState.swift` -- Shared app state (services, theme, icons)
+- `App/TabState.swift` -- Per-tab state (repo, files, diff, branches, stashes, tags, commit log, terminal, settings)
+- `App/TabRegistry.swift` -- Tab lifecycle management
+- `App/DateFormatters.swift` -- Relative date formatting
 
-| Command | Returns | Method |
-|---------|---------|--------|
-| `open_repository(path)` | RepositoryStatus | git2 + watcher |
-| `get_initial_path()` | String? | CLI args |
-| `scan_projects_directory(path, depth)` | Vec\<ProjectInfo\> | filesystem |
-| `get_status()` | RepositoryStatus | git2 |
-| `get_file_diff(path, staged)` | DiffContent | git2 |
-| `stage_files(paths)` | RepositoryStatus | CLI |
-| `stage_all()` | RepositoryStatus | CLI |
-| `unstage_files(paths)` | RepositoryStatus | CLI |
-| `unstage_all()` | RepositoryStatus | CLI |
-| `discard_changes(paths)` | RepositoryStatus | CLI |
-| `commit(message, amend)` | RepositoryStatus | CLI |
-| `list_branches()` | Vec\<BranchEntry\> | git2 |
-| `checkout_branch(name)` | RepositoryStatus | CLI |
-| `create_branch(name, from)` | RepositoryStatus | CLI |
-| `delete_branch(name, force)` | () | CLI |
-| `push(remote, branch, force)` | () | CLI |
-| `pull(remote, branch, rebase)` | () | CLI |
-| `fetch(remote, prune)` | () | CLI |
-| `get_commit_log(skip, limit)` | Vec\<CommitEntry\> | git2 |
-| `get_commit_detail(id)` | CommitDetail | git2 |
-| `get_commit_file_diff(commit_id, path)` | CommitDiffContent | git2 |
-| `get_last_commit_message()` | String | CLI |
-| `undo_last_commit()` | RepositoryStatus | CLI |
-| `stash_save(message?)` | RepositoryStatus | CLI |
-| `stash_list()` | Vec\<StashEntry\> | CLI |
-| `stash_apply(index)` | RepositoryStatus | CLI |
-| `stash_pop(index)` | RepositoryStatus | CLI |
-| `stash_drop(index)` | Vec\<StashEntry\> | CLI |
-| `list_tags()` | Vec\<TagEntry\> | git2 |
-| `create_tag(name, message?, commit?)` | Vec\<TagEntry\> | CLI |
-| `delete_tag(name)` | Vec\<TagEntry\> | CLI |
-| `push_tag(remote, tag)` | () | CLI |
-| `open_in_editor(path)` | () | platform |
-| `reveal_in_file_manager(path)` | () | platform |
-| `add_to_gitignore(pattern)` | RepositoryStatus | filesystem |
-| `write_file(path, content)` | () | filesystem |
-| `delete_file(path)` | RepositoryStatus | filesystem |
-| `get_file_hunks(path, staged)` | FileDiffWithHunks | CLI + parse |
-| `stage_hunk(path, hunk_index, staged)` | RepositoryStatus | CLI apply |
-| `clone_repository(url, path)` | RepositoryStatus | CLI |
-| `merge_continue()` | RepositoryStatus | CLI |
-| `merge_abort()` | RepositoryStatus | CLI |
-| `rebase_continue()` | RepositoryStatus | CLI |
-| `rebase_abort()` | RepositoryStatus | CLI |
-| `rebase_skip()` | RepositoryStatus | CLI |
-| `cherry_pick(commit_id)` | RepositoryStatus | CLI |
-| `reset_to_commit(id, mode)` | RepositoryStatus | CLI |
-| `terminal_spawn(cols, rows)` | SpawnResult | PTY |
-| `terminal_write(id, data)` | () | PTY |
-| `terminal_resize(id, cols, rows)` | () | PTY |
-| `terminal_kill(id)` | () | PTY |
-| `terminal_foreground_process(id)` | String | process |
-| `get_git_config(key)` | String | CLI |
-| `set_git_config(key, value)` | () | CLI |
-| `get_file_blame(path)` | FileBlame | CLI |
-| `get_file_log(path, skip, limit)` | Vec\<CommitEntry\> | CLI |
-| `get_last_commit_info()` | LastCommitInfo | CLI |
-| `check_cli_installed()` | CliInstallStatus | filesystem |
-| `install_cli()` | () | filesystem + elevated |
-| `uninstall_cli()` | () | filesystem + elevated |
-| `new_window()` | () | Tauri |
+**Services:**
+- `Services/RepositoryService.swift` -- Wraps UniFFI calls to the Rust core
+- `Services/TerminalService.swift` -- SwiftTerm PTY session management
+- `Services/ThemeService.swift` -- VS Code-compatible color theme loading + application
+- `Services/IconThemeService.swift` -- Material file icon theme resolution
+- `Services/GitOutputService.swift` -- Git command output log
+- `Services/EventBridge.swift` -- UniFFI callback -> Swift event forwarding
+- `Services/AppUpdater.swift` -- Sparkle SPUStandardUpdaterController wrapper
+- `Services/CLIInstaller.swift` -- dp/deathpush CLI symlink management
 
-### Tauri Events
+**Views:**
+- `Views/Main/` -- RepositoryView (main layout), MonacoDiffView (WKWebView diff), DiffDetailView
+- `Views/Sidebar/` -- SidebarView, SCMView, CommitInputView, ResourceItemView, ResourceTreeView, BranchPickerSheet, StashDiffView, NestedReposSection, WorktreeRow
+- `Views/Explorer/` -- ExplorerTreeView, ExplorerDetailView, ExplorerFileRow, ExplorerFolderRow, ExplorerContextMenus, ExplorerDirectoryContents, MonacoEditorView, BlameView, FileHistoryView
+- `Views/History/` -- HistorySidebarView, HistoryDetailView, CachedAvatarView
+- `Views/Terminal/` -- TerminalPanelView, TerminalSplitView, TerminalSplitNode, TerminalColors
+- `Views/QuickOpen/` -- QuickOpenView (Cmd+P fuzzy finder)
+- `Views/ThemePicker/` -- ThemePickerView (Cmd+Shift+T)
+- `Views/Settings/` -- SettingsView, LicensesView
+- `Views/Welcome/` -- WelcomeScreenView, WorkspaceConfigSheet
+- `Views/Shared/` -- StatusBarView, ToolbarPillView, DeathPushToolbar, EmptyStateView, ErrorToastView, FileIconView, GitOutputPopoverView, ImageDiffView, MergeBannerView, RepoSwitcherPopovers
 
-- `repository-changed` -- FS watcher -> frontend auto-refresh (per-window)
-- `terminal:data` -- PTY output -> frontend (per-session, includes id)
-- `terminal:exit` -- Terminal session exited (per-session)
-- `menu:*` -- Native menu events forwarded to frontend (e.g. `menu:preferences`, `menu:open-repo`, `menu:toggle-terminal`)
+**Bridge:**
+- `Bridge/Generated/` -- UniFFI-generated Swift bindings (auto-generated, do not edit)
 
-### Native Menu
+### Scripts (DeathPush/scripts/)
 
-DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, Toggle Diff Mode), Git (Pull, Push, Fetch, Stage/Unstage All, Stash, Undo Commit), Terminal (New, Kill, Toggle), Window, Help.
+- `build-rust.sh` -- Xcode build phase: compile Rust FFI crate
+- `generate-bindings.sh` -- Xcode build phase: generate UniFFI Swift bindings
+- `bundle-monaco.sh` -- Bundle Monaco Editor assets for WKWebView
+- `copy-monaco.sh` -- Copy Monaco to app resources
+- `copy-icon-themes.sh` -- Copy icon theme assets to app resources
+- `create-dmg.sh` -- Create distributable DMG
+- `notarize.sh` -- Notarize with Apple
+- `sparkle-sign.sh` -- Sign DMG with Sparkle EdDSA key + generate appcast.xml
+- `install-cli.sh` -- Install dp/deathpush CLI symlinks
+- `dp` -- CLI launcher script
 
 ## Conventions
 
@@ -188,118 +101,66 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 
 - Edition 2024, minimum 1.85.0
 - Run clippy with `-D warnings`
-- rustfmt config in `rustfmt.toml`: `max_width = 120`, `tab_spaces = 2`
+- rustfmt config: `max_width = 120`, `tab_spaces = 2`
 - Use `thiserror` for error types
 - Use `tracing` for logging (not `println!` or `log`)
 - Async with tokio for CLI operations
 - All DTOs use `#[serde(rename_all = "camelCase")]`
-- Write ops return updated `RepositoryStatus` to keep frontend in sync
 
-### TypeScript
+### Swift
 
-- Strict mode, no `any`
-- Double quotes, semicolons always, trailing commas ES5
-- Line width: 120 characters
-- `const` over `let`, never `var`
-- camelCase for functions/variables, PascalCase for types/components
-- SCREAMING_SNAKE_CASE for constants
-- kebab-case for files and directories
-- Named exports only (no default exports)
-
-### File Organization
-
-- `src-tauri/src/commands/` -- Tauri command handlers (thin, delegate to git/ or pty)
-- `src-tauri/src/git/` -- Git operations (git2 reads, CLI writes, blame)
-- `src-tauri/src/pty.rs` -- PTY session management (portable-pty)
-- `src/components/` -- React components organized by feature (scm/, diff/, branch/, history/, terminal/, layout/, settings/, welcome/, theme/, shared/, ui/)
-- `src/hooks/` -- Custom React hooks
-- `src/stores/` -- Zustand stores (repository, layout, theme, icon-theme, settings)
-- `src/lib/` -- Utilities, types, constants
-- `src/lib/themes/` -- Color theme infrastructure
-- `src/lib/icon-themes/` -- File icon theme infrastructure
-- `src/styles/` -- CSS (global.css, scm.css, history.css, terminal.css, welcome.css, settings.css, codicons.css)
+- SwiftUI with `@Observable` macro (not ObservableObject)
+- `@AppStorage` for persisted user preferences
+- UserDefaults for per-repo state (recent files, layout)
+- Tab-scoped state in `TabState`, shared state in `AppState`
+- `@Environment` for dependency injection of services
 
 ### Git Operations Pattern
 
 - Read ops (status, diff, branches, log, tags): use git2 crate directly for speed
 - Write ops (add, commit, push, pull, checkout, stash, etc.): spawn git CLI via tokio::process::Command
 - Blame/file-log: spawn git CLI (porcelain blame, follow log)
-- Always reopen git2::Repository and refresh status after write operations
-- Use Mutex<AppRepoState> managed state to share per-window repo handles across commands
-
-### Testing
-
-- Vitest with jsdom environment
-- TZ=UTC for all tests
-- Test files: `src/**/*.test.{ts,tsx}`
-- Exclude `.temp-vscode/` from test discovery
-
-### Discard Operations
-
-- Always show a native confirm dialog before discarding changes (destructive, irreversible)
-- Uses `confirm()` from `@tauri-apps/plugin-dialog`
+- Always refresh status after write operations
+- Git output from CLI commands is logged to GitOutputService
 
 ### Themes
 
-- Theme system uses VS Code's native JSON format (`src/lib/themes/json/`)
+- Theme system uses VS Code JSON format
 - All bundled themes come from VS Code built-in extensions or MIT-licensed community projects
-- When adding new themes, always verify the source license permits redistribution (MIT, Apache-2.0, ISC, BSD, or similar permissive license) -- never bundle themes with restrictive or unclear licenses
-- VS Code built-in themes ship under the VS Code MIT license and can always be used
-- CSS variables are set dynamically by `applyTheme()` at startup (no hardcoded colors in `:root`)
-- Color key conversion: `editor.background` -> `--vscode-editor-background` (dots become hyphens, prefix `--vscode-`)
-- Monaco themes registered via `defineTheme()` with `tokenColors` from the JSON
-- Terminal theme extracted from resolved theme `colors` at runtime via `getTerminalTheme()`
-- Theme picker opens via Cmd+K Cmd+T chord or status bar icon
+- When adding new themes, verify the source license permits redistribution (MIT, Apache-2.0, ISC, BSD, or similar permissive license)
+- Theme picker opens via Cmd+Shift+T
+- Terminal ANSI colors extracted from the active theme
+
+### Settings Persistence
+
+- `@AppStorage` keys: `editor.fontFamily`, `editor.fontSize`, `editor.lineHeight`, `editor.tabSize`, `editor.wordWrap`, `editor.renderWhitespace`, `editor.diffMode`
+- Default font: SF Mono (system font, not bundled)
+- MonacoEditorView and MonacoDiffView push settings via `setEditorOptions()` JS call
+- TerminalPanelView applies font via `NSFont(name:size:)` with monospacedSystemFont fallback
 
 ### CLI Tool
 
-- DeathPush installs `dp` and `deathpush` symlinks (or `.cmd` scripts on Windows) to `/usr/local/bin`
-- Install/uninstall managed via `commands/cli.rs` with elevated permissions when needed
+- DeathPush installs `dp` and `deathpush` symlinks to `/usr/local/bin`
+- Install/uninstall managed via CLIInstaller service
 - CLI opens DeathPush with the given repo path: `dp /path/to/repo`
 
-### Monaco Setup
+### Auto-Update (Sparkle)
 
-- Monaco workers configured in `lib/monaco-setup.ts` (no CDN, all local)
-- Custom languages registered: TOML, Justfile, dotenv
-- All diagnostics (TS, JS, JSON, CSS, HTML) suppressed -- diff viewer only
-
-### Icon Themes
-
-- File icon themes use VS Code icon theme JSON format (`src/lib/icon-themes/`)
-- Icon theme registry resolves theme definitions into CSS classes
-- `applyIconTheme()` generates and injects CSS for file/folder icons
-- Icon theme picker available alongside color theme picker
-- Icon theme persisted in localStorage
-
-### Settings
-
-- App settings stored in localStorage under `deathpush:settings`
-- Sections: UI (font, sidebar position), Editor (font, tab size, word wrap, minimap, whitespace), Terminal (font, cursor), Git (blame toggle), Projects (directory, scan depth)
-- Settings page accessible via Cmd+, or DeathPush menu
-
-### Layout Persistence
-
-- Layout state (sidebar width, terminal visibility/height, diff mode, view mode, panel tab, collapsed panes) persisted per-project in localStorage
-- Key format: `deathpush:layout:{base64(root)}`
-- Transient views (settings, terminal, output) reset to "changes" on reload
-
-## VS Code Reference
-
-The `.temp-vscode/` directory contains VS Code source for reference. Key files:
-- `extensions/git/src/repository.ts` -- Status classification logic (lines 2914-2964)
-- `extensions/git/src/git.ts` -- Git CLI wrapper model
-- `extensions/git/src/commands.ts` -- All git commands
-- `src/vs/workbench/contrib/scm/browser/scmViewPane.ts` -- SCM tree rendering
-- `src/vs/workbench/contrib/scm/browser/media/scm.css` -- SCM styles
+- EdDSA key configured in Info.plist (SUPublicEDKey)
+- Appcast feed: SUFeedURL in Info.plist (GitHub Releases)
+- Private key stored in macOS Keychain (local) or SPARKLE_PRIVATE_KEY secret (CI)
+- Sign releases with: `scripts/sparkle-sign.sh build/DeathPush.dmg`
 
 ## Development
 
 ```sh
-just dev          # Start Tauri dev server
-just build        # Production build
-just lint         # Run oxlint + clippy
-just fmt          # Format with rustfmt
-just check        # Type check (cargo check)
-just test         # Run vitest
-just test-watch   # Run vitest in watch mode
+just build-rust   # Build Rust FFI crate
+just lint         # Run clippy on all crates
+just fmt          # Format Rust code
+just check        # Check Rust code compiles
+just test         # Run Rust tests
+just dmg          # Create distributable DMG
+just release X.Y.Z  # Tag and push a release
 ```
+
+Build the Swift app via Xcode (Cmd+B) or `xcodebuild -project DeathPush/DeathPush.xcodeproj -scheme DeathPush`.

@@ -128,6 +128,7 @@ struct RepositoryView: View {
 		.sheet(isPresented: $tab.showQuickOpen) {
 			QuickOpenView { path, line in
 				tab.showQuickOpen = false
+				tab.addRecentFile(path: path)
 				if line != nil {
 					tab.sidebarSelection = .explorer
 					tab.explorerSelectedPath = path

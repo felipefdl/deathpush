@@ -3,23 +3,15 @@
     <p class="hero-brand">DeathPush</p>
     <h1 class="text-hero hero-title">Murder the Noise<br />Ship the Code</h1>
     <p class="text-subheading hero-sub">
-      A standalone desktop Git client that replicates the VS Code Source Control UX.<br class="hide-mobile" />
-      Beautiful diffs, clean staging, zero bloat.
+      Your AI agent writes the code. You keep eyes on every change.<br class="hide-mobile" />
+      A Git GUI that sits next to your terminal, not instead of it.
     </p>
     <div class="cta-group">
-      <a href="#download" class="btn btn-primary">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="7 10 12 15 17 10" />
-          <line x1="12" y1="15" x2="12" y2="3" />
-        </svg>
-        Download
-      </a>
       <a
         href="https://github.com/felipefdl/deathpush"
         target="_blank"
         rel="noopener noreferrer"
-        class="btn btn-secondary"
+        class="btn btn-primary"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
@@ -34,16 +26,6 @@
             <span class="dot red"></span>
             <span class="dot yellow"></span>
             <span class="dot green"></span>
-          </div>
-          <div class="titlebar-win">
-            <span class="win-btn"><svg width="16" height="16" viewBox="0 0 16 16"><line x1="4" y1="8" x2="12" y2="8" stroke="#999" stroke-width="1.4"/></svg></span>
-            <span class="win-btn"><svg width="16" height="16" viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" stroke="#999" stroke-width="1.4" fill="none"/></svg></span>
-            <span class="win-btn win-close"><svg width="16" height="16" viewBox="0 0 16 16"><line x1="4" y1="4" x2="12" y2="12" stroke="#999" stroke-width="1.4"/><line x1="12" y1="4" x2="4" y2="12" stroke="#999" stroke-width="1.4"/></svg></span>
-          </div>
-          <div class="titlebar-linux">
-            <span class="linux-btn linux-min"></span>
-            <span class="linux-btn linux-max"></span>
-            <span class="linux-btn linux-close"></span>
           </div>
           <span class="titlebar-text">DeathPush - main</span>
         </div>
@@ -96,20 +78,6 @@
   </div>
 </section>
 
-<script is:inline>
-  (function () {
-    var ua = navigator.userAgent;
-    var os = /Mac|iPhone|iPad/.test(ua) ? "mac" : /Win/.test(ua) ? "win" : "linux";
-    var el = document.getElementById("mockup-window");
-    el.setAttribute("data-os", os);
-    //var cycle = ["mac", "win", "linux"];
-    //var i = cycle.indexOf(os);
-    //el.addEventListener("click", function () {
-    //  i = (i + 1) % cycle.length;
-    //  el.setAttribute("data-os", cycle[i]);
-    //});
-  })();
-</script>
 
 <style>
   .hero {
@@ -179,18 +147,6 @@
     gap: var(--space-lg);
   }
 
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    padding: var(--space-xs) var(--space-md);
-    font-size: var(--text-sm);
-    font-weight: 500;
-    color: var(--color-accent);
-    background: var(--color-accent-glow);
-    border: 1px solid rgba(220, 38, 38, 0.25);
-    border-radius: var(--radius-full);
-  }
-
   .hero-brand {
     font-size: var(--text-sm);
     font-weight: 600;
@@ -237,25 +193,14 @@
   }
 
   .btn-primary {
-    color: var(--color-white);
-    background: var(--color-accent);
+    color: var(--color-accent-text);
+    background: linear-gradient(to bottom, var(--color-accent), var(--color-accent-dark));
     box-shadow: 0 0 20px var(--color-accent-glow);
   }
 
   .btn-primary:hover {
     background: var(--color-accent-hover);
-    box-shadow: 0 0 30px rgba(220, 38, 38, 0.3);
-  }
-
-  .btn-secondary {
-    color: var(--color-text);
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-  }
-
-  .btn-secondary:hover {
-    background: var(--color-bg-elevated);
-    border-color: var(--color-border-hover);
+    box-shadow: 0 0 30px rgba(232, 217, 189, 0.3);
   }
 
   /* Mockup */
@@ -284,7 +229,7 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     overflow: hidden;
-    box-shadow: 0 0 60px rgba(220, 38, 38, 0.06), 0 20px 60px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 60px rgba(232, 217, 189, 0.06), 0 20px 60px rgba(0, 0, 0, 0.5);
     animation: mockup-float 6s ease-in-out infinite;
   }
 
@@ -322,80 +267,6 @@
   .dot.yellow { background: #febc2e; }
   .dot.green { background: #28c840; }
 
-  /* Windows buttons */
-  .titlebar-win {
-    display: none;
-    align-items: center;
-    margin-left: auto;
-    order: 2;
-  }
-
-  .win-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 24px;
-  }
-
-
-  /* Linux buttons (GNOME-style) */
-  .titlebar-linux {
-    display: none;
-    align-items: center;
-    gap: 8px;
-    margin-left: auto;
-    order: 2;
-  }
-
-  .linux-btn {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: #333;
-    border: 1px solid #444;
-    position: relative;
-  }
-
-  .linux-close::before,
-  .linux-close::after {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 8px;
-    height: 1.5px;
-    background: #999;
-    border-radius: 1px;
-  }
-
-  .linux-close::before { transform: translate(-50%, -50%) rotate(45deg); }
-  .linux-close::after { transform: translate(-50%, -50%) rotate(-45deg); }
-
-  .linux-max::before {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 7px;
-    height: 7px;
-    border: 1.5px solid #999;
-    border-radius: 1px;
-    transform: translate(-50%, -50%);
-  }
-
-  .linux-min::before {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 8px;
-    height: 1.5px;
-    background: #999;
-    border-radius: 1px;
-    transform: translate(-50%, -50%);
-  }
-
   .titlebar-text {
     position: absolute;
     left: 0;
@@ -405,23 +276,6 @@
     color: var(--color-text-muted);
     pointer-events: none;
   }
-
-  /* OS-specific visibility */
-  .titlebar-mac { display: flex; }
-  .titlebar-win { display: none; }
-  .titlebar-linux { display: none; }
-
-  [data-os="mac"] .titlebar-mac { display: flex; }
-  [data-os="mac"] .titlebar-win { display: none; }
-  [data-os="mac"] .titlebar-linux { display: none; }
-
-  [data-os="win"] .titlebar-mac { display: none; }
-  [data-os="win"] .titlebar-win { display: flex; }
-  [data-os="win"] .titlebar-linux { display: none; }
-
-  [data-os="linux"] .titlebar-mac { display: none; }
-  [data-os="linux"] .titlebar-win { display: none; }
-  [data-os="linux"] .titlebar-linux { display: flex; }
 
   .mockup-body {
     display: flex;
@@ -495,7 +349,7 @@
   }
 
   .file-dot.green { background: #28c840; }
-  .file-dot.red { background: var(--color-accent); }
+  .file-dot.red { background: #e5c07b; }
 
   .badge-m, .badge-a, .badge-u {
     font-size: 8px;

@@ -6,4 +6,4 @@ GitHub: https://github.com/felipefdl
 /* SITE */
 Standards: HTML5, CSS3
 Software: Astro, TypeScript
-Built with: Rust, Tauri, React, Monaco Editor
+Built with: Swift, Rust, Monaco Editor

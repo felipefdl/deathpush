@@ -1,6 +1,6 @@
 # DeathPush macOS Native App
 
-Native macOS 26 (Tahoe) Git client built with SwiftUI and Liquid Glass. Shares a Rust backend with the Tauri v2 app via UniFFI.
+Native macOS Git client built with SwiftUI. Uses a Rust backend via UniFFI for git operations.
 
 ## Architecture
 

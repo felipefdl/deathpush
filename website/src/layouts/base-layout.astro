@@ -6,7 +6,7 @@ interface Props {
 
 const {
   title = "DeathPush — Murder the Noise. Ship the Code.",
-  description = "A standalone desktop Git client that replicates the VS Code Source Control UX. Beautiful diffs, clean staging, zero bloat.",
+  description = "A Git GUI for terminal power users. Review diffs, stage changes, and manage branches without opening an IDE.",
 } = Astro.props;
 
 const ogImage = new URL("/og.png", Astro.site);
@@ -18,8 +18,7 @@ const jsonLdSoftware = JSON.stringify({
   name: "DeathPush",
   description,
   applicationCategory: "DeveloperApplication",
-  operatingSystem: "macOS, Windows, Linux",
-  softwareVersion: "0.1.0",
+  operatingSystem: "macOS",
   author: {
     "@type": "Person",
     name: "Felipe Lima",
@@ -36,7 +35,7 @@ const jsonLdSoftware = JSON.stringify({
     priceCurrency: "USD",
   },
   featureList: [
-    "VS Code Source Control UX",
+    "Visual staging and diffs",
     "Monaco-powered diffs",
     "Branch management",
     "Image diffs",
@@ -45,7 +44,7 @@ const jsonLdSoftware = JSON.stringify({
     "Stash, tags, cherry-pick",
     "Multi-window support",
     "Theme support",
-    "Built with Rust and Tauri",
+    "Built with Swift and Rust",
   ],
 });
 
@@ -79,7 +78,7 @@ const jsonLdWebsite = JSON.stringify({
     <!-- Meta -->
     <meta name="theme-color" content="#0a0a0a" />
     <meta name="author" content="Felipe Lima" />
-    <meta name="keywords" content="git client, desktop git client, vs code git, source control, git gui, git diff viewer, git staging, tauri, rust, open source git client, git blame, git history" />
+    <meta name="keywords" content="git client, desktop git client, vs code git, source control, git gui, git diff viewer, git staging, swift, rust, macos git client, open source git client, git blame, git history" />
     <meta name="application-name" content="DeathPush" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
 

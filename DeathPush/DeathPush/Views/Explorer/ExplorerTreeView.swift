@@ -131,6 +131,12 @@ struct ExplorerTreeView: View {
       }
       .listStyle(.plain)
       .scrollEdgeEffectStyle(.soft, for: .top)
+      .onChange(of: selectedFilePath) { _, newPath in
+        guard let path = newPath else { return }
+        if flatItems.contains(where: { $0.entry.path == path && !$0.entry.isDirectory }) {
+          tabState.addRecentFile(path: path)
+        }
+      }
       .onKeyPress(keys: [.init("c")]) { press in
         guard press.modifiers == .command else { return .ignored }
         if let path = selectedFilePath {

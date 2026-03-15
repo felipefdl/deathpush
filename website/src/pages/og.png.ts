@@ -111,7 +111,7 @@ export const GET: APIRoute = async () => {
                       lineHeight: 1.5,
                     },
                     children:
-                      "A standalone desktop Git client with the VS Code Source Control UX. Beautiful diffs, clean staging, zero bloat.",
+                      "A Git GUI for terminal power users. Review diffs, stage changes, and manage branches without opening an IDE.",
                   },
                 },
               ],
@@ -230,7 +230,7 @@ export const GET: APIRoute = async () => {
                                         width: "6px",
                                         height: "6px",
                                         borderRadius: "50%",
-                                        backgroundColor: "#dc2626",
+                                        backgroundColor: "#E8D9BD",
                                       },
                                     },
                                   },

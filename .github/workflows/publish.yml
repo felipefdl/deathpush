@@ -8,133 +8,112 @@ permissions:
   contents: write
 
 jobs:
-  publish-tauri:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            args: "--target universal-apple-darwin"
-          - platform: ubuntu-22.04
-            args: ""
-          - platform: ubuntu-22.04-arm
-            args: ""
-          - platform: windows-latest
-            args: ""
-          - platform: windows-11-arm
-            args: "--target aarch64-pc-windows-msvc"
-    runs-on: ${{ matrix.platform }}
+  build:
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.platform == 'windows-11-arm' && 'aarch64-pc-windows-msvc' || '' }}
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: "./src-tauri -> target"
-      - name: Install Linux deps
-        if: startsWith(matrix.platform, 'ubuntu')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
-      - run: npm ci
+
       - name: Import Apple Developer Certificate
-        if: matrix.platform == 'macos-latest'
         uses: apple-actions/import-codesign-certs@v3
         with:
           p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
           p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      - name: Verify codesigning identity
-        if: matrix.platform == 'macos-latest'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./crates -> target"
+
+      - name: Resolve Xcode packages
+        run: xcodebuild -resolvePackageDependencies -project DeathPush/DeathPush.xcodeproj
+
+      - name: Build archive
         run: |
-          security find-identity -v -p codesigning
-          security find-identity -p codesigning
-      - name: Write Apple API key for notarization
-        if: matrix.platform == 'macos-latest'
+          xcodebuild archive \
+            -project DeathPush/DeathPush.xcodeproj \
+            -scheme DeathPush \
+            -configuration Release \
+            -archivePath DeathPush/build/DeathPush.xcarchive \
+            CODE_SIGN_IDENTITY="${{ secrets.APPLE_SIGNING_IDENTITY }}" \
+            CODE_SIGN_STYLE=Manual
+
+      - name: Export app from archive
+        run: |
+          cat > /tmp/export-options.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>developer-id</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>${{ secrets.APPLE_SIGNING_IDENTITY }}</string>
+          </dict>
+          </plist>
+          PLIST
+
+          xcodebuild -exportArchive \
+            -archivePath DeathPush/build/DeathPush.xcarchive \
+            -exportPath DeathPush/build \
+            -exportOptionsPlist /tmp/export-options.plist
+
+      - name: Create DMG
+        run: |
+          brew install create-dmg
+          DeathPush/scripts/create-dmg.sh
+
+      - name: Sign DMG
+        run: |
+          codesign --force --sign "${{ secrets.APPLE_SIGNING_IDENTITY }}" \
+            --options runtime \
+            DeathPush/build/DeathPush.dmg
+
+      - name: Write Apple API key
         run: |
           mkdir -p ~/private_keys
           echo "${{ secrets.APPLE_API_KEY_CONTENT }}" > ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PATH: ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
-        with:
-          tagName: v__VERSION__
-          releaseName: "DeathPush v__VERSION__"
-          releaseBody: ""
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
 
-  updater-json:
-    needs: publish-tauri
-    runs-on: ubuntu-latest
-    steps:
-      - name: Generate latest.json
+      - name: Notarize DMG
+        run: |
+          xcrun notarytool submit DeathPush/build/DeathPush.dmg \
+            --key ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8 \
+            --key-id "${{ secrets.APPLE_API_KEY }}" \
+            --issuer "${{ secrets.APPLE_API_ISSUER }}" \
+            --wait
+
+          xcrun stapler staple DeathPush/build/DeathPush.dmg
+
+      - name: Sparkle sign and generate appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          SPARKLE_BIN=$(find ~/Library/Developer/Xcode/DerivedData -path "*/artifacts/sparkle/Sparkle/bin" -type d | head -1)
+
+          echo "$SPARKLE_PRIVATE_KEY" | "$SPARKLE_BIN/sign_update" --ed-key-file - DeathPush/build/DeathPush.dmg
+
+          DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/"
+          echo "$SPARKLE_PRIVATE_KEY" | "$SPARKLE_BIN/generate_appcast" \
+            --ed-key-file - \
+            --download-url-prefix "$DOWNLOAD_URL" \
+            DeathPush/build
+
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-
           TAG="${GITHUB_REF_NAME}"
           VERSION="${TAG#v}"
-          BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
-          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
 
-          JSON=$(jq -n \
-            --arg version "$VERSION" \
-            --arg pub_date "$PUB_DATE" \
-            '{version: $version, notes: "", pub_date: $pub_date, platforms: {}}')
-
-          declare -A ASSET_MAP=(
-            ["_aarch64.AppImage"]="linux-aarch64 linux-aarch64-appimage"
-            ["_amd64.AppImage"]="linux-x86_64 linux-x86_64-appimage"
-            ["_arm64.deb"]="linux-aarch64-deb"
-            ["_amd64.deb"]="linux-x86_64-deb"
-            ["-1.aarch64.rpm"]="linux-aarch64-rpm"
-            ["-1.x86_64.rpm"]="linux-x86_64-rpm"
-            ["_arm64_en-US.msi"]="windows-aarch64 windows-aarch64-msi"
-            ["_x64_en-US.msi"]="windows-x86_64 windows-x86_64-msi"
-            ["_arm64-setup.exe"]="windows-aarch64-nsis"
-            ["_x64-setup.exe"]="windows-x86_64-nsis"
-            ["_universal.app.tar.gz"]="darwin-aarch64 darwin-x86_64 darwin-aarch64-app darwin-x86_64-app"
-          )
-
-          sig_assets=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --json assets --jq '.assets[].name | select(endswith(".sig"))')
-
-          for sig_asset in $sig_assets; do
-            base_asset="${sig_asset%.sig}"
-            sig_content=$(gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-              -p "$sig_asset" -O -)
-
-            for pattern in "${!ASSET_MAP[@]}"; do
-              if [[ "$base_asset" == *"$pattern" ]]; then
-                url="${BASE_URL}/${base_asset}"
-                for platform in ${ASSET_MAP[$pattern]}; do
-                  JSON=$(echo "$JSON" | jq \
-                    --arg platform "$platform" \
-                    --arg signature "$sig_content" \
-                    --arg url "$url" \
-                    '.platforms[$platform] = {signature: $signature, url: $url}')
-                done
-                break
-              fi
-            done
-          done
-
-          echo "$JSON" | jq . > latest.json
-          echo "Generated latest.json with platforms:"
-          jq -r '.platforms | keys[]' latest.json
-
-          # Remove stale latest.json if present, then upload
-          gh release delete-asset "$TAG" --repo "$GITHUB_REPOSITORY" latest.json --yes 2>/dev/null || true
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" latest.json
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "DeathPush v${VERSION}" \
+            --draft \
+            --generate-notes \
+            DeathPush/build/DeathPush.dmg \
+            DeathPush/build/appcast.xml

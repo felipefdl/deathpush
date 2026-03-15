@@ -1,15 +1,15 @@
 # DeathPush - Full Documentation
 
-> A standalone desktop Git client that replicates the VS Code Source Control UX. Beautiful diffs, clean staging, zero bloat.
+> A Git GUI for terminal power users. Review diffs, stage changes, and manage branches without opening an IDE. Built for Claude Code, Codex, and Vim workflows.
 
 ## About
 
-DeathPush is an open-source desktop Git client built with Rust and Tauri. It provides a familiar VS Code-style source control interface as a standalone application, designed for developers who want a fast, native Git GUI without the overhead of Electron-based alternatives.
+DeathPush is an open-source Git GUI built with Swift and Rust for macOS. It gives terminal-first developers (Claude Code, Codex, Vim) a fast way to review diffs, stage changes, and manage branches without loading a full IDE.
 
 ## Features
 
-### Source Control Interface
-- Replicates the VS Code Source Control panel as a standalone desktop experience
+### Visual Staging & Diffs
+- Visual staging interface for reviewing what changed without opening an IDE
 - Inline diff toggles for quick review of changes
 - File-level staging and unstaging with single click
 - Chunk-level (hunk) staging for granular control over what gets committed
@@ -80,47 +80,36 @@ DeathPush is an open-source desktop Git client built with Rust and Tauri. It pro
 4. Launch DeathPush from Applications
 - Supports both Apple Silicon (M1/M2/M3/M4) and Intel Macs
 
-### Windows
-1. Download the latest `.msi` installer from the [releases page](https://github.com/felipefdl/deathpush/releases/latest)
-2. Run the installer
-3. Launch DeathPush from the Start Menu
-- Requires Windows 10 or later
-
-### Linux
-1. Download the `.AppImage` or `.deb` package from the [releases page](https://github.com/felipefdl/deathpush/releases/latest)
-2. For AppImage: `chmod +x DeathPush.AppImage && ./DeathPush.AppImage`
-3. For .deb: `sudo dpkg -i deathpush_*.deb`
 
 ## Build from Source
 
 ### Prerequisites
+- Xcode 16 or later
 - Rust 1.85.0 or later
-- Node.js 18 or later
 - Git
 
 ### Steps
 ```bash
 git clone https://github.com/felipefdl/deathpush.git
 cd deathpush
-npm install
-npm run tauri build
+cargo build --release
 ```
 
-The built application will be in `src-tauri/target/release/`.
+Open `DeathPush/DeathPush.xcodeproj` in Xcode and build.
 
 ## Architecture
 
 DeathPush uses a layered architecture:
 
-- **Frontend**: TypeScript + React with Monaco editor integration
-- **Backend**: Rust with Tauri framework
+- **UI**: Native SwiftUI with Monaco editor integration via WKWebView
+- **Core**: Rust library linked via FFI
 - **Git Operations**: Native git2 library bindings via Rust
 - **Terminal**: PTY-based terminal emulation
-- **IPC**: Tauri command system for frontend-backend communication
+- **IPC**: Swift-Rust FFI bridge
 
 ### Key Design Decisions
-- Native Rust backend for performance and memory efficiency
-- Tauri instead of Electron for smaller binary size and lower resource usage
+- Native Swift UI for macOS-native look and feel
+- Rust core for performance-critical git operations
 - Monaco editor for VS Code-quality diff viewing
 - PTY-based terminal for full shell compatibility
 
@@ -144,9 +133,9 @@ DeathPush uses a layered architecture:
 
 ## Technical Details
 
-- Stack: Rust (backend), TypeScript + React (frontend), Tauri (framework)
+- Stack: Swift (UI), Rust (core)
 - License: Apache-2.0
-- Platforms: macOS (Apple Silicon & Intel), Windows 10+, Linux (AppImage & .deb)
+- Platforms: macOS (Apple Silicon & Intel)
 - Version: 0.1.0
 - Author: Felipe Lima
 

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/deathpush-core", "crates/deathpush-ffi", "src-tauri"]
+members = ["crates/deathpush-core", "crates/deathpush-ffi"]
 resolver = "2"
 
 [workspace.package]

@@ -1,6 +1,4 @@
-# DeathPush Native (Swift) -- TODO
-
-Feature parity tracker between the Tauri version and the native macOS rewrite.
+# DeathPush (Native macOS) -- TODO
 
 ## Legend
 
@@ -90,11 +88,11 @@ Feature parity tracker between the Tauri version and the native macOS rewrite.
 - [x] Content search (#query mode, git grep)
 - [x] Go to line (file:line syntax)
 - [x] Keyboard navigation
-- [ ] Recent files shown when search is empty
+- [x] Recent files shown when search is empty
 
 ## Terminal
 
-- [x] Full terminal emulator (SwiftTerm, native -- upgrade over xterm.js)
+- [x] Full terminal emulator (SwiftTerm, native)
 - [x] Multiple terminal tabs/groups
 - [x] Split panes (horizontal + vertical, 4 directions)
 - [x] Terminal search / find
@@ -118,7 +116,7 @@ Feature parity tracker between the Tauri version and the native macOS rewrite.
 - [x] Dark/light/high-contrast support
 - [x] Terminal colors extracted from theme
 - [ ] Preferred dark/light theme (auto-switch on system appearance change)
-- [ ] Icon theme picker (separate picker UI, Cmd+K Cmd+I in Tauri)
+- [ ] Icon theme picker (separate picker UI)
 
 ## Settings
 
@@ -126,7 +124,7 @@ Feature parity tracker between the Tauri version and the native macOS rewrite.
 - [x] Editor tab (font, size, line height, tab size, word wrap, whitespace, diff mode)
 - [x] Terminal tab (font, cursor, blink, option-as-meta, mouse, scrollback, bold-as-bright, bell, process notifications)
 - [x] Git tab (user.name, user.email, auto-fetch toggle + interval, confirm-before-discard)
-- [ ] Projects tab (workspace directory management -- exists in Welcome screen but not in Settings)
+- [ ] Projects tab (workspace directory management)
 - [ ] Sidebar position (left/right toggle)
 
 ## UI / Layout
@@ -150,7 +148,7 @@ Feature parity tracker between the Tauri version and the native macOS rewrite.
 - [ ] Multi-file selection in SCM (Ctrl/Cmd-click)
 - [ ] Keyboard navigation in SCM (Arrow keys, Space to stage/unstage, Enter to open diff)
 - [ ] SCM overflow menu (...) with additional actions
-- [ ] Window close confirmation for uncommitted changes (WindowCloseGuard exists but verify)
+- [ ] Window close confirmation for uncommitted changes
 
 ## History View
 
@@ -173,31 +171,16 @@ Feature parity tracker between the Tauri version and the native macOS rewrite.
 - [x] Clone dialog
 - [x] Native macOS notifications
 - [x] Auto-fetch on configurable interval
-- [~] Auto-update (Sparkle stub exists, not integrated)
+- [x] Auto-update (Sparkle configured, EdDSA key + appcast pipeline)
 - [~] Worktree detection (backend exists, no UI)
 - [ ] Open Source Licenses modal (Help > Licenses)
 - [ ] Native menu: full File/Edit/View/Git/Terminal/Help structure (partially done via .commands)
 
-## Not Applicable (Tauri-specific)
+---
 
-These features from the Tauri version are not needed or are replaced by native equivalents:
+## Ship It
 
-- Linux/Windows support (native macOS only)
-- Custom title bar (uses native macOS title bar)
-- Zoom level (Cmd+=/Cmd+-) -- not applicable for native views
-- xterm.js terminal -- replaced by SwiftTerm (upgrade)
-- localStorage persistence -- replaced by @AppStorage / UserDefaults
-- Tauri webview events -- replaced by UniFFI callbacks + Combine
-
-## Native-Only Features (not in Tauri)
-
-Features the Swift version has that Tauri doesn't:
-
-- [x] Native macOS tabs (NSWindow tabbing)
-- [x] SwiftTerm native terminal (better performance than xterm.js)
-- [x] OSC 9 terminal notifications
-- [x] Process completion notifications
-- [x] Commit + Push / Commit + Sync one-click workflows
-- [x] Confirm before discard setting
-- [x] Auto-fetch with configurable interval
-- [x] Repo switcher toolbar popovers
+- [x] Sparkle auto-update (EdDSA key configured, appcast pipeline ready)
+- [x] Appcast.xml generation for Sparkle
+- [x] CI/CD pipeline (GitHub Actions: build, sign, notarize, release)
+- [ ] App icon images in Assets.xcassets (sizes defined, images missing)

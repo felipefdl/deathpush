@@ -195,7 +195,7 @@ final class ThemeService {
     var mergedColors = defaults
     mergedColors.merge(resolvedColors) { _, new in new }
 
-    // Force terminal background to match editor background (same as Tauri)
+    // Force terminal background to match editor background
     mergedColors.removeValue(forKey: "terminal.background")
 
     let resolved: [String: Any] = [
@@ -280,7 +280,7 @@ final class ThemeService {
     return []
   }
 
-  // MARK: - Default Color Fallbacks (matches Tauri defaults.ts)
+  // MARK: - Default Color Fallbacks
 
   private static let defaultDarkColors: [String: String] = [
     "editor.background": "#1E1E1E",

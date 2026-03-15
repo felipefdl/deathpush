@@ -1,34 +1,40 @@
 default:
   @just --list
 
-dev:
-  npm run tauri dev -- --features devtools
+# Build Rust FFI crate (release)
+build-rust:
+  cargo build --manifest-path crates/deathpush-ffi/Cargo.toml --release --target aarch64-apple-darwin
 
-build:
-  npm run tauri build
-
+# Run clippy on all crates
 lint:
-  npx oxlint src/
-  cd src-tauri && cargo clippy -- -D warnings
+  cargo clippy --workspace -- -D warnings
 
+# Format Rust code
 fmt:
-  cd src-tauri && cargo fmt
+  cargo fmt --all
 
+# Check Rust code compiles
 check:
-  cd src-tauri && cargo check
+  cargo check --workspace
 
+# Run Rust tests
 test:
-  npx vitest run
-  cd src-tauri && cargo test
+  cargo test --workspace
 
-test-watch:
-  npx vitest
+# Create distributable DMG (requires built .app in DeathPush/build/)
+dmg:
+  DeathPush/scripts/create-dmg.sh
 
+# Notarize a build artifact
+notarize path:
+  DeathPush/scripts/notarize.sh {{path}}
+
+# Sign DMG with Sparkle and generate appcast
+sparkle-sign path download_url_prefix="":
+  DeathPush/scripts/sparkle-sign.sh {{path}} {{download_url_prefix}}
+
+# Tag and push a release
 release version:
-  sed -i '' 's/"version": "[^"]*"/"version": "{{version}}"/' package.json
-  sed -i '' 's/"version": "[^"]*"/"version": "{{version}}"/' src-tauri/tauri.conf.json
-  sed -i '' 's/^version = "[^"]*"/version = "{{version}}"/' src-tauri/Cargo.toml
-  cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
   git add -A && git commit -m "release: v{{version}}"
   git tag "v{{version}}"
   git push origin main --tags
