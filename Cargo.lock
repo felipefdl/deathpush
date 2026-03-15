@@ -235,7 +235,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "deathpush-core"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "base64",
  "chrono",
@@ -257,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "deathpush-ffi"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "deathpush-core",
  "git2",
