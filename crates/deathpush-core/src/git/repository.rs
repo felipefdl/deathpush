@@ -14,7 +14,9 @@ impl GitRepository {
     let repo = Repository::discover(path)?;
     let root = repo
       .workdir()
-      .ok_or_else(|| Error::Other { message: "bare repository not supported".into() })?
+      .ok_or_else(|| Error::Other {
+        message: "bare repository not supported".into(),
+      })?
       .to_path_buf();
     Ok(Self { repo, root })
   }

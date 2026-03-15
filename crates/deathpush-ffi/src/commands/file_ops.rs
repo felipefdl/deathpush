@@ -117,9 +117,7 @@ pub fn write_file(session_id: String, path: String, content: String) -> Result<(
   let canon_parent = parent
     .canonicalize()
     .map_err(|e| Error::other(format!("Cannot resolve path: {}", e)))?;
-  let file_name = target
-    .file_name()
-    .ok_or_else(|| Error::other("Invalid file name"))?;
+  let file_name = target.file_name().ok_or_else(|| Error::other("Invalid file name"))?;
   let full_path = canon_parent.join(file_name);
   if !canon_parent.starts_with(&canon_root) {
     return Err(Error::other("Path traversal denied"));
@@ -294,9 +292,7 @@ pub fn copy_entries(
   let conflict = on_conflict.as_deref().unwrap_or("error");
   for src_rel in &sources {
     let src = resolve_safe_path(&root, src_rel)?;
-    let name = src
-      .file_name()
-      .ok_or_else(|| Error::other("Invalid source path"))?;
+    let name = src.file_name().ok_or_else(|| Error::other("Invalid source path"))?;
     let dest_child = resolve_dest_child(&dest, name, conflict)?;
     if src.is_dir() {
       copy_dir_recursive(&src, &dest_child)?;
@@ -322,9 +318,7 @@ pub fn move_entries(
   let conflict = on_conflict.as_deref().unwrap_or("error");
   for src_rel in &sources {
     let src = resolve_safe_path(&root, src_rel)?;
-    let name = src
-      .file_name()
-      .ok_or_else(|| Error::other("Invalid source path"))?;
+    let name = src.file_name().ok_or_else(|| Error::other("Invalid source path"))?;
     let dest_child = resolve_dest_child(&dest, name, conflict)?;
     if std::fs::rename(&src, &dest_child).is_err() {
       if src.is_dir() {
@@ -410,9 +404,7 @@ pub fn import_files(
     if !src.exists() {
       return Err(Error::other(format!("Source not found: {}", src_path)));
     }
-    let name = src
-      .file_name()
-      .ok_or_else(|| Error::other("Invalid source path"))?;
+    let name = src.file_name().ok_or_else(|| Error::other("Invalid source path"))?;
     let dest_child = resolve_dest_child(&dest, name, conflict)?;
     if src.is_dir() {
       copy_dir_recursive(src, &dest_child)?;

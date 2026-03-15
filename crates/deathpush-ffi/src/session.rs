@@ -40,7 +40,9 @@ pub fn init_manager(runtime: tokio::runtime::Runtime) {
 }
 
 pub fn manager() -> &'static SessionManager {
-  SESSION_MANAGER.get().expect("SessionManager not initialized -- call initialize() first")
+  SESSION_MANAGER
+    .get()
+    .expect("SessionManager not initialized -- call initialize() first")
 }
 
 // Helper: get the cli_root for a session, cloned.
@@ -49,7 +51,9 @@ pub fn get_root(session_id: &str) -> deathpush_core::error::Result<PathBuf> {
     .sessions
     .lock()
     .map_err(|e| deathpush_core::error::Error::other(e.to_string()))?;
-  let state = sessions.get(session_id).ok_or(deathpush_core::error::Error::NoRepository)?;
+  let state = sessions
+    .get(session_id)
+    .ok_or(deathpush_core::error::Error::NoRepository)?;
   state.cli_root.clone().ok_or(deathpush_core::error::Error::NoRepository)
 }
 
@@ -80,18 +84,10 @@ pub fn make_cli(root: &std::path::Path) -> deathpush_core::git::cli::GitCli {
 
 // Helper: get the event sink, if registered.
 pub fn get_event_sink() -> Option<Arc<dyn EventSink>> {
-  manager()
-    .event_sink
-    .lock()
-    .ok()
-    .and_then(|guard| guard.clone())
+  manager().event_sink.lock().ok().and_then(|guard| guard.clone())
 }
 
 // Helper: get the event listener Arc, if registered.
 pub fn get_event_listener() -> Option<Arc<dyn EventListener>> {
-  manager()
-    .event_listener
-    .lock()
-    .ok()
-    .and_then(|guard| guard.clone())
+  manager().event_listener.lock().ok().and_then(|guard| guard.clone())
 }

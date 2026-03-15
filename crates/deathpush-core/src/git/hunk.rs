@@ -124,9 +124,9 @@ pub fn generate_hunk_patch(path: &str, diff_output: &str, hunk_index: usize) -> 
 
   // Find the target hunk
   let hunks = parse_unified_diff(diff_output);
-  let hunk = hunks
-    .get(hunk_index)
-    .ok_or_else(|| Error::Other { message: format!("Hunk index {} out of range", hunk_index) })?;
+  let hunk = hunks.get(hunk_index).ok_or_else(|| Error::Other {
+    message: format!("Hunk index {} out of range", hunk_index),
+  })?;
 
   // Build the patch
   let mut patch = String::new();
@@ -186,9 +186,9 @@ pub fn generate_lines_patch(
   }
 
   let hunks = parse_unified_diff(diff_output);
-  let hunk = hunks
-    .get(hunk_index)
-    .ok_or_else(|| Error::Other { message: format!("Hunk index {} out of range", hunk_index) })?;
+  let hunk = hunks.get(hunk_index).ok_or_else(|| Error::Other {
+    message: format!("Hunk index {} out of range", hunk_index),
+  })?;
 
   // Build a partial patch with only the selected lines
   let mut old_count: u32 = 0;

@@ -41,11 +41,15 @@ impl Serialize for Error {
 
 impl Error {
   pub fn other(message: impl Into<String>) -> Self {
-    Error::Other { message: message.into() }
+    Error::Other {
+      message: message.into(),
+    }
   }
 
   pub fn git_cli(message: impl Into<String>) -> Self {
-    Error::GitCli { message: message.into() }
+    Error::GitCli {
+      message: message.into(),
+    }
   }
 }
 
@@ -69,7 +73,9 @@ mod tests {
 
   #[test]
   fn other_display() {
-    let err = Error::Other { message: "custom".into() };
+    let err = Error::Other {
+      message: "custom".into(),
+    };
     assert_eq!(err.to_string(), "custom");
   }
 

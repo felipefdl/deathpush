@@ -9,9 +9,13 @@ use crate::util::async_command;
 
 fn map_git_not_found(err: std::io::Error) -> Error {
   if err.kind() == std::io::ErrorKind::NotFound {
-    Error::Other { message: "Git is not installed. Please install git and try again.".into() }
+    Error::Other {
+      message: "Git is not installed. Please install git and try again.".into(),
+    }
   } else {
-    Error::Io { message: err.to_string() }
+    Error::Io {
+      message: err.to_string(),
+    }
   }
 }
 
@@ -185,7 +189,10 @@ impl GitCli {
       .enumerate()
       .map(|(i, line)| {
         let message = line.split_once('|').map(|(_, msg)| msg).unwrap_or(line).to_string();
-        StashEntry { index: i as u32, message }
+        StashEntry {
+          index: i as u32,
+          message,
+        }
       })
       .collect();
     Ok(entries)
@@ -419,7 +426,9 @@ impl GitCli {
     let output = child.wait_with_output().await?;
     emit_git_command(&self.event_sink, &args_str, start.elapsed().as_millis() as u64);
     if !output.status.success() {
-      return Err(Error::GitCli { message: String::from_utf8_lossy(&output.stderr).to_string() });
+      return Err(Error::GitCli {
+        message: String::from_utf8_lossy(&output.stderr).to_string(),
+      });
     }
     Ok(())
   }

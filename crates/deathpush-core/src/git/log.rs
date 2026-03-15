@@ -46,7 +46,9 @@ pub fn get_commit_log(repo: &GitRepository, skip: usize, limit: usize) -> Result
 
 pub fn get_commit_detail(repo: &GitRepository, commit_id: &str) -> Result<CommitDetail> {
   let r = repo.inner();
-  let oid = Oid::from_str(commit_id).map_err(|e| Error::Other { message: format!("invalid commit id: {}", e) })?;
+  let oid = Oid::from_str(commit_id).map_err(|e| Error::Other {
+    message: format!("invalid commit id: {}", e),
+  })?;
   let commit = r.find_commit(oid)?;
   let entry = commit_to_entry(&commit);
 
@@ -103,7 +105,9 @@ pub fn get_commit_detail(repo: &GitRepository, commit_id: &str) -> Result<Commit
 
 pub fn get_commit_file_diff(repo: &GitRepository, commit_id: &str, path: &str) -> Result<CommitDiffContent> {
   let r = repo.inner();
-  let oid = Oid::from_str(commit_id).map_err(|e| Error::Other { message: format!("invalid commit id: {}", e) })?;
+  let oid = Oid::from_str(commit_id).map_err(|e| Error::Other {
+    message: format!("invalid commit id: {}", e),
+  })?;
   let commit = r.find_commit(oid)?;
   let tree = commit.tree()?;
 

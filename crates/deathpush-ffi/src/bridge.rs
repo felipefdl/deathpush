@@ -23,7 +23,9 @@ impl FfiEventSink {
 
 impl EventSink for FfiEventSink {
   fn emit_git_command(&self, command: &str, duration_ms: u64, timestamp: &str) {
-    self.listener.on_git_command(command.to_string(), duration_ms, timestamp.to_string());
+    self
+      .listener
+      .on_git_command(command.to_string(), duration_ms, timestamp.to_string());
   }
 
   fn emit_repository_changed(&self, session_id: &str) {
@@ -31,7 +33,9 @@ impl EventSink for FfiEventSink {
   }
 
   fn emit_watcher_error(&self, session_id: &str, message: &str) {
-    self.listener.on_watcher_error(session_id.to_string(), message.to_string());
+    self
+      .listener
+      .on_watcher_error(session_id.to_string(), message.to_string());
   }
 }
 

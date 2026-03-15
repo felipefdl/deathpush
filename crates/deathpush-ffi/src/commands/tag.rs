@@ -4,7 +4,7 @@ use deathpush_core::git::repository::GitRepository;
 use deathpush_core::git::tag as git_tag;
 use deathpush_core::types::TagEntry;
 
-use crate::session::{make_cli, get_root, manager};
+use crate::session::{get_root, make_cli, manager};
 
 #[uniffi::export]
 pub fn list_tags(session_id: String) -> Result<Vec<TagEntry>, Error> {

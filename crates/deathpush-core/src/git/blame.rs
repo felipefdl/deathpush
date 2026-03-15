@@ -199,7 +199,9 @@ pub async fn get_last_commit_info(repo_root: &Path) -> Result<LastCommitInfo> {
   let parts: Vec<&str> = stdout.splitn(3, '|').collect();
 
   if parts.len() < 3 {
-    return Err(Error::Other { message: "Failed to parse last commit info".to_string() });
+    return Err(Error::Other {
+      message: "Failed to parse last commit info".to_string(),
+    });
   }
 
   Ok(LastCommitInfo {

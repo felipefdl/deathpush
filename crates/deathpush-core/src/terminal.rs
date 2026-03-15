@@ -67,7 +67,10 @@ impl PtySession {
     cmd.env("TERM", "xterm-256color");
     cmd.cwd(cwd);
 
-    let mut child = pair.slave.spawn_command(cmd).map_err(|e| Error::Other { message: e.to_string() })?;
+    let mut child = pair
+      .slave
+      .spawn_command(cmd)
+      .map_err(|e| Error::Other { message: e.to_string() })?;
     let child_pid = child.process_id().unwrap_or(0);
     drop(pair.slave);
 
@@ -75,7 +78,10 @@ impl PtySession {
       .master
       .try_clone_reader()
       .map_err(|e| Error::Other { message: e.to_string() })?;
-    let writer = pair.master.take_writer().map_err(|e| Error::Other { message: e.to_string() })?;
+    let writer = pair
+      .master
+      .take_writer()
+      .map_err(|e| Error::Other { message: e.to_string() })?;
     let writer = Arc::new(Mutex::new(writer));
 
     let session_id = id;
@@ -168,7 +174,10 @@ impl PtySession {
   }
 
   pub fn write_data(&self, data: &str) -> Result<()> {
-    let mut writer = self.writer.lock().map_err(|e| Error::Other { message: e.to_string() })?;
+    let mut writer = self
+      .writer
+      .lock()
+      .map_err(|e| Error::Other { message: e.to_string() })?;
     writer.write_all(data.as_bytes())?;
     writer.flush()?;
     Ok(())

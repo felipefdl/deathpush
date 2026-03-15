@@ -3,7 +3,7 @@ use deathpush_core::error::Error;
 use deathpush_core::git::hunk;
 use deathpush_core::types::{FileDiffWithHunks, RepositoryStatus};
 
-use crate::session::{make_cli, get_root, manager, refresh_status};
+use crate::session::{get_root, make_cli, manager, refresh_status};
 
 #[uniffi::export]
 pub fn stage_files(session_id: String, paths: Vec<String>) -> Result<RepositoryStatus, Error> {
@@ -55,12 +55,7 @@ pub fn get_file_hunks(session_id: String, path: String, staged: bool) -> Result<
 }
 
 #[uniffi::export]
-pub fn stage_hunk(
-  session_id: String,
-  path: String,
-  hunk_index: u32,
-  staged: bool,
-) -> Result<RepositoryStatus, Error> {
+pub fn stage_hunk(session_id: String, path: String, hunk_index: u32, staged: bool) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
   let cli = make_cli(&root);
   let rt = &manager().runtime;

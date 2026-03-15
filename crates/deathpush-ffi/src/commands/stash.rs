@@ -3,7 +3,7 @@ use deathpush_core::error::Error;
 use deathpush_core::git::hunk;
 use deathpush_core::types::{FileDiffWithHunks, RepositoryStatus, StashEntry};
 
-use crate::session::{make_cli, get_root, manager, refresh_status};
+use crate::session::{get_root, make_cli, manager, refresh_status};
 
 #[uniffi::export]
 pub fn get_last_commit_message(session_id: String) -> Result<String, Error> {
@@ -61,13 +61,12 @@ pub fn stash_drop(session_id: String, index: u32) -> Result<Vec<StashEntry>, Err
 }
 
 #[uniffi::export]
-pub fn stash_save_include_untracked(
-  session_id: String,
-  message: Option<String>,
-) -> Result<RepositoryStatus, Error> {
+pub fn stash_save_include_untracked(session_id: String, message: Option<String>) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
   let cli = make_cli(&root);
-  manager().runtime.block_on(cli.stash_save_include_untracked(message.as_deref()))?;
+  manager()
+    .runtime
+    .block_on(cli.stash_save_include_untracked(message.as_deref()))?;
   refresh_status(&session_id)
 }
 

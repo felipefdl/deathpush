@@ -10,7 +10,7 @@ use deathpush_core::git::diff::{blob_to_data_uri, detect_language, is_image_file
 use deathpush_core::types::{ContentSearchResult, ExplorerEntry, FileContent, FuzzyFileResult};
 use deathpush_core::util::async_command;
 
-use crate::session::{make_cli, get_root, manager};
+use crate::session::{get_root, make_cli, manager};
 
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024; // 5MB
 const BINARY_CHECK_SIZE: usize = 8192;
@@ -172,7 +172,13 @@ pub fn fuzzy_find_files(session_id: String, query: String, max_results: u32) -> 
   }
 
   let mut matcher = Matcher::new(Config::DEFAULT.match_paths());
-  let atom = Atom::new(&query, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy, false);
+  let atom = Atom::new(
+    &query,
+    CaseMatching::Ignore,
+    Normalization::Smart,
+    AtomKind::Fuzzy,
+    false,
+  );
 
   let mut scored: Vec<FuzzyFileResult> = Vec::new();
   let mut buf = Vec::new();

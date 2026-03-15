@@ -5,7 +5,7 @@ use deathpush_core::git::repository::GitRepository;
 use deathpush_core::git::status::get_repository_status;
 use deathpush_core::types::{BranchEntry, RepositoryStatus};
 
-use crate::session::{make_cli, get_root, manager};
+use crate::session::{get_root, make_cli, manager};
 
 #[uniffi::export]
 pub fn list_branches(session_id: String) -> Result<Vec<BranchEntry>, Error> {
@@ -34,14 +34,12 @@ pub fn checkout_branch(session_id: String, name: String) -> Result<RepositorySta
 }
 
 #[uniffi::export]
-pub fn create_branch(
-  session_id: String,
-  name: String,
-  start_point: Option<String>,
-) -> Result<RepositoryStatus, Error> {
+pub fn create_branch(session_id: String, name: String, start_point: Option<String>) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
   let cli = make_cli(&root);
-  manager().runtime.block_on(cli.create_branch(&name, start_point.as_deref()))?;
+  manager()
+    .runtime
+    .block_on(cli.create_branch(&name, start_point.as_deref()))?;
 
   let repo = GitRepository::open(&root)?;
   let status = get_repository_status(&repo)?;

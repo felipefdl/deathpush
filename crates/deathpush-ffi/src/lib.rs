@@ -13,9 +13,7 @@ use session::{init_manager, manager};
 pub fn initialize() {
   // Initialize tracing
   tracing_subscriber::fmt()
-    .with_env_filter(
-      tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-    )
+    .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
     .init();
 
   // Resolve shell environment

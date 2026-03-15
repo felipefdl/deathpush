@@ -4,7 +4,7 @@ use deathpush_core::git::repository::GitRepository;
 use deathpush_core::git::status::get_repository_status;
 use deathpush_core::types::RepositoryStatus;
 
-use crate::session::{make_cli, get_root, manager};
+use crate::session::{get_root, make_cli, manager};
 
 #[uniffi::export]
 pub fn commit(session_id: String, message: String, amend: bool) -> Result<RepositoryStatus, Error> {

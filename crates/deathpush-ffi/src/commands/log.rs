@@ -23,11 +23,7 @@ pub fn get_commit_detail(session_id: String, commit_id: String) -> Result<Commit
 }
 
 #[uniffi::export]
-pub fn get_commit_file_diff(
-  session_id: String,
-  commit_id: String,
-  path: String,
-) -> Result<CommitDiffContent, Error> {
+pub fn get_commit_file_diff(session_id: String, commit_id: String, path: String) -> Result<CommitDiffContent, Error> {
   let mgr = manager();
   let sessions = mgr.sessions.lock().map_err(|e| Error::other(e.to_string()))?;
   let state = sessions.get(&session_id).ok_or(Error::NoRepository)?;

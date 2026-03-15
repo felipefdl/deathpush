@@ -2,15 +2,10 @@ use deathpush_core::error::Error;
 
 use deathpush_core::types::RepositoryStatus;
 
-use crate::session::{make_cli, get_root, manager, refresh_status};
+use crate::session::{get_root, make_cli, manager, refresh_status};
 
 #[uniffi::export]
-pub fn push(
-  session_id: String,
-  remote: String,
-  branch: String,
-  force: bool,
-) -> Result<RepositoryStatus, Error> {
+pub fn push(session_id: String, remote: String, branch: String, force: bool) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
   let cli = make_cli(&root);
   manager().runtime.block_on(cli.push(&remote, &branch, force))?;
@@ -18,12 +13,7 @@ pub fn push(
 }
 
 #[uniffi::export]
-pub fn pull(
-  session_id: String,
-  remote: String,
-  branch: String,
-  rebase: bool,
-) -> Result<RepositoryStatus, Error> {
+pub fn pull(session_id: String, remote: String, branch: String, rebase: bool) -> Result<RepositoryStatus, Error> {
   let root = get_root(&session_id)?;
   let cli = make_cli(&root);
   manager().runtime.block_on(cli.pull(&remote, &branch, rebase))?;
