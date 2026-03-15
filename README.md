@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Murder the Noise. Ship the Code.</strong></p>
 
-<p align="center">Beautiful diffs, clean GUI, zero bloat. No more opening VS Code just to review your own shit.</p>
+<p align="center">A Git GUI for terminal power users. Your AI agent writes the code, you keep eyes on every change.</p>
 
 <p align="center">
   <a href="#get-running-in-60-seconds"><strong>Get Started</strong></a>
@@ -17,12 +17,15 @@
 
 ## Why DeathPush
 
-DeathPush is a native macOS Git client for people who like the VS Code Source Control workflow, but hate paying the context-switch tax.
+You work in the terminal. Claude Code, Codex, Vim, Copilot CLI, whatever. Your agent writes hundreds of lines while you wait. You need to see what it's doing without opening VS Code or any other IDE.
 
-- Review and stage changes fast, without opening your editor.
-- Keep commits clean with hunk-level control and clear diffs.
-- Handle real Git work (branches, stash, tags, cherry-pick, reset) from one focused UI.
-- Stay in flow with native performance and no feature bloat.
+DeathPush sits next to your terminal. It picks up file changes in real time, shows you diffs, lets you stage what's right, fix what's not, and commit when you're ready.
+
+- Watch changes land as your agent writes code.
+- Stage files and hunks visually, no `git add -p` gymnastics.
+- Fix a typo inline without switching to an editor.
+- Handle branches, stash, tags, cherry-pick, reset from one focused UI.
+- Native performance, no Electron, no bloat.
 
 ## What You Can Do
 
@@ -41,13 +44,9 @@ DeathPush is a native macOS Git client for people who like the VS Code Source Co
 - Manage files directly: delete, add to `.gitignore`, open in editor, or reveal in Finder.
 - Open multiple tabs for different repositories.
 
-## Built for VS Code Git Muscle Memory
+## Works With Any Terminal Workflow
 
-If you already know VS Code Source Control, DeathPush feels immediately familiar.
-
-- Same mental model.
-- Less overhead.
-- Faster path from "changed file" to "clean commit."
+Claude Code, Codex, Vim/Neovim, Copilot CLI, OpenCode, Aider, or any CLI agent. If it writes files, DeathPush shows you what changed.
 
 ## Prerequisites
 
