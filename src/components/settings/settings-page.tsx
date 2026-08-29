@@ -1,4 +1,4 @@
-import { createSignal, For, onSettled, Show, untrack } from "solid-js";
+import { createSignal, createUniqueId, For, onSettled, Show, untrack } from "solid-js";
 import { settingsStore } from "../../stores/settings-store";
 import type {
   EditorSettings,
@@ -11,6 +11,7 @@ import type {
 import { themeStore } from "../../stores/theme-store";
 import { iconThemeStore } from "../../stores/icon-theme-store";
 import { THEME_ENTRIES } from "../../lib/themes/theme-registry";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import { getGitConfig, setGitConfig } from "../../lib/tauri-commands";
 import { WorkspaceConfigModal } from "../shared/workspace-config-modal";
 import { useStore } from "../../lib/use-store";
@@ -22,11 +23,22 @@ export const SettingsPage = () => {
   const { updateUI, updateEditor, updateTerminal, updateGit, updateProjects, resetToDefaults } =
     settingsStore.getState();
 
+  const handleResetToDefaults = async () => {
+    const confirmed = await confirm("Reset all settings to defaults? This cannot be undone.", {
+      title: "Reset to Defaults",
+      kind: "warning",
+      okLabel: "Reset",
+      cancelLabel: "Cancel",
+    });
+    if (!confirmed) return;
+    resetToDefaults();
+  };
+
   return (
     <div class="settings-page">
       <div class="settings-header">
         <span class="settings-title">Settings</span>
-        <button class="settings-reset-btn" onClick={resetToDefaults}>
+        <button class="settings-reset-btn" onClick={handleResetToDefaults}>
           Reset to Defaults
         </button>
       </div>
@@ -60,7 +72,7 @@ const AppearanceSection = (props: { settings: UISettings; onUpdate: (partial: Pa
     <div class="settings-section">
       <div class="settings-section-title">Appearance</div>
       <div class="settings-field">
-        <label class="settings-label">Color Theme</label>
+        <span class="settings-label">Color Theme</span>
         <button
           class="settings-input settings-picker-btn"
           onClick={() => window.dispatchEvent(new CustomEvent("deathpush:open-theme-picker"))}
@@ -82,7 +94,7 @@ const AppearanceSection = (props: { settings: UISettings; onUpdate: (partial: Pa
         onChange={setPreferredLightTheme}
       />
       <div class="settings-field">
-        <label class="settings-label">File Icon Theme</label>
+        <span class="settings-label">File Icon Theme</span>
         <button
           class="settings-input settings-picker-btn"
           onClick={() => window.dispatchEvent(new CustomEvent("deathpush:open-icon-theme-picker"))}
@@ -383,7 +395,7 @@ const TerminalSection = (props: {
       onChange={(v) => props.onUpdate({ colorSaturation: v })}
       min={0.5}
       max={2}
-      step={0.05}
+      step={0.01}
     />
 
     <div class="settings-subsection-title">Shell</div>
@@ -467,6 +479,7 @@ const ProjectsSection = (props: {
   onUpdate: (partial: Partial<ProjectsSettings>) => void;
 }) => {
   const [showModal, setShowModal] = createSignal(false);
+  const id = createUniqueId();
 
   const displayValue = () =>
     props.settings.workspaces.length > 0
@@ -479,9 +492,12 @@ const ProjectsSection = (props: {
     <div class="settings-section">
       <div class="settings-section-title">Projects</div>
       <div class="settings-field">
-        <label class="settings-label">Workspace Directories</label>
+        <label class="settings-label" for={id}>
+          Workspace Directories
+        </label>
         <div class="settings-field-with-action">
           <input
+            id={id}
             class="settings-input settings-input-full"
             type="text"
             value={displayValue()}
@@ -533,8 +549,8 @@ const ShellPathField = (props: { value: string; onChange: (v: string) => void })
   const selectValue = () => (customMode() ? CUSTOM_SHELL : props.value);
 
   return (
-    <div class="settings-field">
-      <label class="settings-label">Shell Path</label>
+    <label class="settings-field">
+      <span class="settings-label">Shell Path</span>
       <div class="settings-field-shell">
         <select
           class="settings-input settings-select"
@@ -565,7 +581,7 @@ const ShellPathField = (props: { value: string; onChange: (v: string) => void })
           />
         </Show>
       </div>
-    </div>
+    </label>
   );
 };
 
@@ -577,8 +593,8 @@ const NumberField = (props: {
   max?: number;
   step?: number;
 }) => (
-  <div class="settings-field">
-    <label class="settings-label">{props.label}</label>
+  <label class="settings-field">
+    <span class="settings-label">{props.label}</span>
     <input
       class="settings-input settings-input-number"
       type="number"
@@ -591,19 +607,19 @@ const NumberField = (props: {
         if (!isNaN(v)) props.onChange(v);
       }}
     />
-  </div>
+  </label>
 );
 
 const TextField = (props: { label: string; value: string; onChange: (v: string) => void }) => (
-  <div class="settings-field">
-    <label class="settings-label">{props.label}</label>
+  <label class="settings-field">
+    <span class="settings-label">{props.label}</span>
     <input
       class="settings-input"
       type="text"
       value={props.value}
       onInput={(e: InputEvent & { currentTarget: HTMLInputElement }) => props.onChange(e.currentTarget.value)}
     />
-  </div>
+  </label>
 );
 
 const SelectField = (props: {
@@ -612,8 +628,8 @@ const SelectField = (props: {
   options: { value: string; label: string }[];
   onChange: (v: string) => void;
 }) => (
-  <div class="settings-field">
-    <label class="settings-label">{props.label}</label>
+  <label class="settings-field">
+    <span class="settings-label">{props.label}</span>
     <select
       class="settings-input settings-select"
       value={props.value}
@@ -623,19 +639,25 @@ const SelectField = (props: {
         {(opt) => <option value={opt().value}>{opt().label}</option>}
       </For>
     </select>
-  </div>
+  </label>
 );
 
-const CheckboxField = (props: { label: string; checked: boolean; onChange: (v: boolean) => void }) => (
-  <div class="settings-field">
-    <label class="settings-label">{props.label}</label>
-    <button
-      class={["settings-toggle", { active: props.checked }]}
-      onClick={() => props.onChange(!props.checked)}
-      role="switch"
-      aria-checked={props.checked ? "true" : "false"}
-    >
-      <span class="settings-toggle-knob" />
-    </button>
-  </div>
-);
+const CheckboxField = (props: { label: string; checked: boolean; onChange: (v: boolean) => void }) => {
+  const id = createUniqueId();
+  return (
+    <div class="settings-field">
+      <label class="settings-label" for={id}>
+        {props.label}
+      </label>
+      <button
+        id={id}
+        class={["settings-toggle", { active: props.checked }]}
+        onClick={() => props.onChange(!props.checked)}
+        role="switch"
+        aria-checked={props.checked ? "true" : "false"}
+      >
+        <span class="settings-toggle-knob" />
+      </button>
+    </div>
+  );
+};

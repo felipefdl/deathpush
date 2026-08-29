@@ -145,6 +145,12 @@ body.hc-light .settings-reset-btn:hover {
   cursor: pointer;
 }
 
+.settings-field-shell .settings-input {
+  flex: none;
+  width: 100%;
+  max-width: none;
+}
+
 .settings-select:focus-visible,
 .settings-picker-btn:focus-visible {
   outline: none;
