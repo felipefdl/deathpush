@@ -1,6 +1,11 @@
 import { createEffect, onSettled } from "solid-js";
 import * as monaco from "monaco-editor";
-import { getOrCreateModel, setModelValueIfChanged } from "../../lib/monaco-models";
+import {
+  disposeOwnedModel,
+  getOrCreateModel,
+  replaceEditorModel,
+  setModelValueIfChanged,
+} from "../../lib/monaco-models";
 
 export type MonacoEditorProps = {
   value: string;
@@ -23,8 +28,9 @@ export const MonacoEditor = (props: MonacoEditorProps) => {
     if (!editor) return;
     const uri = modelUri(props.path);
     const next = getOrCreateModel(props.value, props.language, uri);
-    if (editor.getModel() !== next) {
-      editor.setModel(next);
+    const current = editor.getModel();
+    if (current !== next) {
+      replaceEditorModel(editor, next, props.keepCurrentModel === true);
     } else {
       setModelValueIfChanged(next, props.value);
     }
@@ -46,9 +52,7 @@ export const MonacoEditor = (props: MonacoEditorProps) => {
       editor = undefined;
       const owned = current?.getModel();
       current?.dispose();
-      if (!props.keepCurrentModel) {
-        owned?.dispose();
-      }
+      disposeOwnedModel(owned, props.keepCurrentModel === true);
     };
   });
 

@@ -32,3 +32,23 @@ export const applyDiffModelOptions = (
   editor.getOriginalEditor().getModel()?.updateOptions(options);
   editor.getModifiedEditor().getModel()?.updateOptions(options);
 };
+
+export const disposeOwnedModel = (model: MonacoEditor.ITextModel | null | undefined, retain: boolean): void => {
+  if (!model || retain || model.isAttachedToEditor()) {
+    return;
+  }
+  model.dispose();
+};
+
+export const replaceEditorModel = (
+  editor: Pick<MonacoEditor.IStandaloneCodeEditor, "getModel" | "setModel">,
+  next: MonacoEditor.ITextModel,
+  retainPrevious: boolean
+): void => {
+  const previous = editor.getModel();
+  if (previous === next) {
+    return;
+  }
+  editor.setModel(next);
+  disposeOwnedModel(previous, retainPrevious);
+};

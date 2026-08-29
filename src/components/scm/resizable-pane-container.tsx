@@ -92,11 +92,14 @@ export const ResizablePaneContainer = (props: { panes: PaneDefinition[] }) => {
   );
 
   const togglePane = (id: string) => {
+    const willBeCollapsed = !isCollapsed(id);
     togglePaneCollapsed(id);
 
     setPaneRatios((prev) => {
       const next = { ...prev };
-      const expandedIds = props.panes.filter((p) => !isCollapsed(p.id)).map((p) => p.id);
+      const expandedIds = props.panes
+        .filter((p) => (p.id === id ? !willBeCollapsed : !isCollapsed(p.id)))
+        .map((p) => p.id);
 
       if (expandedIds.length > 0) {
         const totalRatio = expandedIds.reduce((sum, k) => sum + (next[k]?.heightRatio ?? 1), 0);

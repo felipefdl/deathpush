@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { applyDiffModelOptions, getOrCreateModel, setModelValueIfChanged } from "./monaco-models";
+import {
+  applyDiffModelOptions,
+  disposeOwnedModel,
+  getOrCreateModel,
+  replaceEditorModel,
+  setModelValueIfChanged,
+} from "./monaco-models";
 
 const createModelStub = (value: string, languageId = "plaintext") => {
   const model = {
@@ -72,5 +78,112 @@ describe("monaco model helpers", () => {
     applyDiffModelOptions(editor as never, { tabSize: 2 });
     expect(original.updateOptions).toHaveBeenCalledWith({ tabSize: 2 });
     expect(modified.updateOptions).toHaveBeenCalledWith({ tabSize: 2 });
+  });
+});
+
+describe("monaco model ownership", () => {
+  const createOwnedModel = (attached = false) => {
+    const model = {
+      attached,
+      dispose: vi.fn(() => {
+        model.attached = false;
+      }),
+      isAttachedToEditor: () => model.attached,
+    };
+    return model;
+  };
+
+  const createEditor = (model: ReturnType<typeof createOwnedModel> | null) => {
+    const editor = {
+      current: model,
+      getModel: () => editor.current as never,
+      setModel: vi.fn((next: ReturnType<typeof createOwnedModel> | null) => {
+        if (editor.current && editor.current !== next) {
+          editor.current.attached = false;
+        }
+        editor.current = next;
+        if (next) next.attached = true;
+      }),
+      dispose: vi.fn(() => {
+        if (editor.current) editor.current.attached = false;
+      }),
+    };
+    return editor;
+  };
+
+  it("disposes a detached model when it is not retained", () => {
+    const model = createOwnedModel(false);
+    disposeOwnedModel(model as never, false);
+    expect(model.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a retained or still-attached model", () => {
+    const retained = createOwnedModel(false);
+    disposeOwnedModel(retained as never, true);
+    expect(retained.dispose).not.toHaveBeenCalled();
+
+    const attached = createOwnedModel(true);
+    disposeOwnedModel(attached as never, false);
+    expect(attached.dispose).not.toHaveBeenCalled();
+  });
+
+  it("replaces the editor model and disposes the previous detached model", () => {
+    const previous = createOwnedModel(true);
+    const next = createOwnedModel(false);
+    const editor = createEditor(previous);
+
+    replaceEditorModel(editor as never, next as never, false);
+
+    expect(editor.setModel).toHaveBeenCalledWith(next);
+    expect(previous.attached).toBe(false);
+    expect(previous.dispose).toHaveBeenCalledOnce();
+    expect(next.dispose).not.toHaveBeenCalled();
+  });
+
+  it("replaces the editor model without disposing a retained previous model", () => {
+    const previous = createOwnedModel(true);
+    const next = createOwnedModel(false);
+    const editor = createEditor(previous);
+
+    replaceEditorModel(editor as never, next as never, true);
+
+    expect(editor.setModel).toHaveBeenCalledWith(next);
+    expect(previous.dispose).not.toHaveBeenCalled();
+  });
+
+  it("does not dispose a previous model that remains attached after replace", () => {
+    const previous = createOwnedModel(true);
+    const next = createOwnedModel(false);
+    const editor = {
+      getModel: () => previous as never,
+      setModel: vi.fn(() => {
+        previous.attached = true;
+      }),
+    };
+
+    replaceEditorModel(editor as never, next as never, false);
+
+    expect(editor.setModel).toHaveBeenCalledWith(next);
+    expect(previous.dispose).not.toHaveBeenCalled();
+  });
+
+  it("disposes the current model on cleanup only after detach when not retained", () => {
+    const model = createOwnedModel(true);
+    const editor = createEditor(model);
+    editor.dispose();
+    disposeOwnedModel(model as never, false);
+    expect(model.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the current model on cleanup when retained or still attached", () => {
+    const retained = createOwnedModel(true);
+    const editor = createEditor(retained);
+    editor.dispose();
+    disposeOwnedModel(retained as never, true);
+    expect(retained.dispose).not.toHaveBeenCalled();
+
+    const shared = createOwnedModel(true);
+    disposeOwnedModel(shared as never, false);
+    expect(shared.dispose).not.toHaveBeenCalled();
   });
 });
