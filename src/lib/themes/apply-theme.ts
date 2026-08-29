@@ -17,7 +17,11 @@ const uiThemeToMonacoBase = (uiTheme: UiTheme): "vs" | "vs-dark" | "hc-black" | 
   }
 };
 
-export const applyTheme = (theme: ResolvedTheme): void => {
+type ApplyThemeOptions = {
+  transient?: boolean;
+};
+
+export const applyTheme = (theme: ResolvedTheme, options: ApplyThemeOptions = {}): void => {
   const root = document.documentElement;
 
   const staleVars: string[] = [];
@@ -42,12 +46,16 @@ export const applyTheme = (theme: ResolvedTheme): void => {
 
   applyMonacoTheme(theme);
 
-  const isDark = scheme === "dark";
-  setNativeTheme(isDark).catch(() => {});
+  if (!options.transient) {
+    const isDark = scheme === "dark";
+    setNativeTheme(isDark).catch(() => {});
+  }
 
   window.dispatchEvent(new CustomEvent("deathpush:theme-applied", { detail: { colors: theme.colors } }));
 
-  localStorage.setItem(THEME_STORAGE_KEY, theme.id);
+  if (!options.transient) {
+    localStorage.setItem(THEME_STORAGE_KEY, theme.id);
+  }
 };
 
 const applyMonacoTheme = (theme: ResolvedTheme): void => {

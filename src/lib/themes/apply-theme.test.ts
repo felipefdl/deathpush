@@ -1,10 +1,40 @@
 import { describe, it, expect, vi } from "vite-plus/test";
+import type { ResolvedTheme } from "./theme-types";
+
+const { setNativeThemeMock } = vi.hoisted(() => ({
+  setNativeThemeMock: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("monaco-editor", () => ({
   editor: { defineTheme: vi.fn(), setTheme: vi.fn() },
 }));
 
-import { getTerminalTheme } from "./apply-theme";
+vi.mock("../tauri-commands", () => ({
+  setNativeTheme: setNativeThemeMock,
+}));
+
+import { applyTheme, getTerminalTheme } from "./apply-theme";
+
+const previewTheme: ResolvedTheme = {
+  id: "preview-theme",
+  label: "Preview Theme",
+  uiTheme: "vs-dark",
+  kind: "dark",
+  colors: { "editor.background": "#010203" },
+  tokenColors: [],
+};
+
+describe("applyTheme", () => {
+  it("does not persist or update the native window for a transient preview", () => {
+    localStorage.clear();
+    setNativeThemeMock.mockClear();
+
+    applyTheme(previewTheme, { transient: true });
+
+    expect(localStorage.getItem("deathpush:theme")).toBeNull();
+    expect(setNativeThemeMock).not.toHaveBeenCalled();
+  });
+});
 
 describe("getTerminalTheme", () => {
   it("uses provided values when all colors are given", () => {

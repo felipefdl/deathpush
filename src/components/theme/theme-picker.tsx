@@ -97,12 +97,12 @@ export const ThemePicker = (props: ThemePickerProps) => {
 
   const previewTheme = (id: string) => {
     const resolved = getResolvedTheme(id);
-    if (resolved) applyTheme(resolved);
+    if (resolved) applyTheme(resolved, { transient: true });
   };
 
   const confirmTheme = (id: string) => {
-    setTheme(id);
     props.onClose();
+    setTheme(id);
   };
 
   const cancel = () => {
@@ -117,7 +117,7 @@ export const ThemePicker = (props: ThemePickerProps) => {
       return idx >= 0 && idx < list.length ? list[idx].id : null;
     },
     (id) => {
-      if (id) previewTheme(id);
+      if (id && isKeyboardNav) previewTheme(id);
     }
   );
 
