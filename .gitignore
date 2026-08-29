@@ -5,6 +5,7 @@ node_modules/
 dist/
 dist-ssr/
 target/
+src-tauri/gen/schemas/
 
 # Logs
 *.log
@@ -36,4 +37,5 @@ npm-debug.log*
 
 # Website
 website/node_modules/
+website/.astro/
 website/dist/
