@@ -52,3 +52,30 @@ export const replaceEditorModel = (
   editor.setModel(next);
   disposeOwnedModel(previous, retainPrevious);
 };
+
+export const disposeOwnedDiffModels = (
+  models: { original?: MonacoEditor.ITextModel | null; modified?: MonacoEditor.ITextModel | null } | null | undefined,
+  retain: { original: boolean; modified: boolean }
+): void => {
+  const original = models?.original;
+  const modified = models?.modified;
+  if (original && original === modified) {
+    disposeOwnedModel(original, retain.original || retain.modified);
+    return;
+  }
+  disposeOwnedModel(original, retain.original);
+  disposeOwnedModel(modified, retain.modified);
+};
+
+export const replaceDiffEditorModels = (
+  editor: Pick<MonacoEditor.IStandaloneDiffEditor, "getModel" | "setModel">,
+  next: { original: MonacoEditor.ITextModel; modified: MonacoEditor.ITextModel },
+  retainPrevious: { original: boolean; modified: boolean }
+): void => {
+  const previous = editor.getModel();
+  if (previous?.original === next.original && previous?.modified === next.modified) {
+    return;
+  }
+  editor.setModel(next);
+  disposeOwnedDiffModels(previous, retainPrevious);
+};

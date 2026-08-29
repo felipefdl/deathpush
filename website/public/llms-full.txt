@@ -112,7 +112,7 @@ The built application will be in `src-tauri/target/release/`.
 
 DeathPush uses a layered architecture:
 
-- **Frontend**: TypeScript + React with Monaco editor integration
+- **Frontend**: TypeScript + Solid 2 with Monaco editor integration
 - **Backend**: Rust with Tauri framework
 - **Git Operations**: Native git2 library bindings via Rust
 - **Terminal**: PTY-based terminal emulation
@@ -144,7 +144,7 @@ DeathPush uses a layered architecture:
 
 ## Technical Details
 
-- Stack: Rust (backend), TypeScript + React (frontend), Tauri (framework)
+- Stack: Rust (backend), TypeScript + Solid 2 (frontend), Tauri (framework)
 - License: Apache-2.0
 - Platforms: macOS (Apple Silicon & Intel), Windows 10+, Linux (AppImage & .deb)
 - Version: 0.1.0

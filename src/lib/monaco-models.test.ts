@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   applyDiffModelOptions,
+  disposeOwnedDiffModels,
   disposeOwnedModel,
   getOrCreateModel,
+  replaceDiffEditorModels,
   replaceEditorModel,
   setModelValueIfChanged,
 } from "./monaco-models";
@@ -185,5 +187,178 @@ describe("monaco model ownership", () => {
     const shared = createOwnedModel(true);
     disposeOwnedModel(shared as never, false);
     expect(shared.dispose).not.toHaveBeenCalled();
+  });
+});
+
+describe("monaco diff model ownership", () => {
+  const createOwnedModel = (attached = false) => {
+    const model = {
+      attached,
+      dispose: vi.fn(() => {
+        model.attached = false;
+      }),
+      isAttachedToEditor: () => model.attached,
+    };
+    return model;
+  };
+
+  const createDiffEditor = (
+    original: ReturnType<typeof createOwnedModel> | null,
+    modified: ReturnType<typeof createOwnedModel> | null
+  ) => {
+    const editor = {
+      current: original && modified ? { original, modified } : null,
+      getModel: () => editor.current as never,
+      setModel: vi.fn(
+        (next: { original: ReturnType<typeof createOwnedModel>; modified: ReturnType<typeof createOwnedModel> }) => {
+          const previous = editor.current;
+          if (previous) {
+            const nextModels = new Set([next.original, next.modified]);
+            if (!nextModels.has(previous.original)) previous.original.attached = false;
+            if (!nextModels.has(previous.modified)) previous.modified.attached = false;
+          }
+          editor.current = next;
+          next.original.attached = true;
+          next.modified.attached = true;
+        }
+      ),
+      dispose: vi.fn(() => {
+        if (!editor.current) return;
+        editor.current.original.attached = false;
+        editor.current.modified.attached = false;
+      }),
+    };
+    return editor;
+  };
+
+  it("replaces the diff pair and disposes superseded detached models", () => {
+    const previousOriginal = createOwnedModel(true);
+    const previousModified = createOwnedModel(true);
+    const nextOriginal = createOwnedModel(false);
+    const nextModified = createOwnedModel(false);
+    const editor = createDiffEditor(previousOriginal, previousModified);
+
+    replaceDiffEditorModels(
+      editor as never,
+      { original: nextOriginal as never, modified: nextModified as never },
+      { original: false, modified: false }
+    );
+
+    expect(editor.setModel).toHaveBeenCalledWith({ original: nextOriginal, modified: nextModified });
+    expect(previousOriginal.dispose).toHaveBeenCalledOnce();
+    expect(previousModified.dispose).toHaveBeenCalledOnce();
+    expect(nextOriginal.dispose).not.toHaveBeenCalled();
+    expect(nextModified.dispose).not.toHaveBeenCalled();
+  });
+
+  it("replaces the diff pair without disposing retained sides", () => {
+    const previousOriginal = createOwnedModel(true);
+    const previousModified = createOwnedModel(true);
+    const nextOriginal = createOwnedModel(false);
+    const nextModified = createOwnedModel(false);
+    const editor = createDiffEditor(previousOriginal, previousModified);
+
+    replaceDiffEditorModels(
+      editor as never,
+      { original: nextOriginal as never, modified: nextModified as never },
+      { original: true, modified: true }
+    );
+
+    expect(editor.setModel).toHaveBeenCalledWith({ original: nextOriginal, modified: nextModified });
+    expect(previousOriginal.dispose).not.toHaveBeenCalled();
+    expect(previousModified.dispose).not.toHaveBeenCalled();
+  });
+
+  it("does not dispose a previous model that remains attached after replace", () => {
+    const previousOriginal = createOwnedModel(true);
+    const previousModified = createOwnedModel(true);
+    const nextOriginal = createOwnedModel(false);
+    const nextModified = createOwnedModel(false);
+    const editor = {
+      getModel: () => ({ original: previousOriginal, modified: previousModified }) as never,
+      setModel: vi.fn(() => {
+        previousOriginal.attached = true;
+        previousModified.attached = true;
+      }),
+    };
+
+    replaceDiffEditorModels(
+      editor as never,
+      { original: nextOriginal as never, modified: nextModified as never },
+      { original: false, modified: false }
+    );
+
+    expect(editor.setModel).toHaveBeenCalledWith({ original: nextOriginal, modified: nextModified });
+    expect(previousOriginal.dispose).not.toHaveBeenCalled();
+    expect(previousModified.dispose).not.toHaveBeenCalled();
+  });
+
+  it("does not dispose when the diff pair identity is unchanged", () => {
+    const original = createOwnedModel(true);
+    const modified = createOwnedModel(true);
+    const editor = createDiffEditor(original, modified);
+
+    replaceDiffEditorModels(
+      editor as never,
+      { original: original as never, modified: modified as never },
+      { original: false, modified: false }
+    );
+
+    expect(editor.setModel).not.toHaveBeenCalled();
+    expect(original.dispose).not.toHaveBeenCalled();
+    expect(modified.dispose).not.toHaveBeenCalled();
+  });
+
+  it("disposes a shared original/modified model only once", () => {
+    const shared = createOwnedModel(true);
+    const nextOriginal = createOwnedModel(false);
+    const nextModified = createOwnedModel(false);
+    const editor = createDiffEditor(shared, shared);
+
+    replaceDiffEditorModels(
+      editor as never,
+      { original: nextOriginal as never, modified: nextModified as never },
+      { original: false, modified: false }
+    );
+
+    expect(editor.setModel).toHaveBeenCalledWith({ original: nextOriginal, modified: nextModified });
+    expect(shared.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("disposes detached diff models on cleanup when not retained", () => {
+    const original = createOwnedModel(true);
+    const modified = createOwnedModel(true);
+    const editor = createDiffEditor(original, modified);
+    const models = editor.getModel();
+    editor.dispose();
+    disposeOwnedDiffModels(models, { original: false, modified: false });
+    expect(original.dispose).toHaveBeenCalledOnce();
+    expect(modified.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("keeps retained or still-attached diff models on cleanup", () => {
+    const retainedOriginal = createOwnedModel(true);
+    const retainedModified = createOwnedModel(true);
+    const editor = createDiffEditor(retainedOriginal, retainedModified);
+    editor.dispose();
+    disposeOwnedDiffModels(editor.getModel(), { original: true, modified: true });
+    expect(retainedOriginal.dispose).not.toHaveBeenCalled();
+    expect(retainedModified.dispose).not.toHaveBeenCalled();
+
+    const shared = createOwnedModel(true);
+    disposeOwnedDiffModels(
+      { original: shared as never, modified: shared as never },
+      { original: false, modified: false }
+    );
+    expect(shared.dispose).not.toHaveBeenCalled();
+  });
+
+  it("disposes a shared cleanup model only once", () => {
+    const shared = createOwnedModel(false);
+    disposeOwnedDiffModels(
+      { original: shared as never, modified: shared as never },
+      { original: false, modified: false }
+    );
+    expect(shared.dispose).toHaveBeenCalledOnce();
   });
 });

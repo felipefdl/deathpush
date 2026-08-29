@@ -1,6 +1,12 @@
 import { createEffect, onSettled } from "solid-js";
 import * as monaco from "monaco-editor";
-import { applyDiffModelOptions, getOrCreateModel, setModelValueIfChanged } from "../../lib/monaco-models";
+import {
+  applyDiffModelOptions,
+  disposeOwnedDiffModels,
+  getOrCreateModel,
+  replaceDiffEditorModels,
+  setModelValueIfChanged,
+} from "../../lib/monaco-models";
 
 export type MonacoDiffEditorProps = {
   original: string;
@@ -34,7 +40,14 @@ export const MonacoDiffEditor = (props: MonacoDiffEditorProps) => {
     const modified = getOrCreateModel(props.modified, modifiedLanguage, modifiedUri());
     const current = editor.getModel();
     if (current?.original !== original || current?.modified !== modified) {
-      editor.setModel({ original, modified });
+      replaceDiffEditorModels(
+        editor,
+        { original, modified },
+        {
+          original: props.keepCurrentOriginalModel === true,
+          modified: props.keepCurrentModifiedModel === true,
+        }
+      );
     } else {
       setModelValueIfChanged(original, props.original);
       setModelValueIfChanged(modified, props.modified);
@@ -62,12 +75,10 @@ export const MonacoDiffEditor = (props: MonacoDiffEditorProps) => {
       editor = undefined;
       const models = current?.getModel();
       current?.dispose();
-      if (!props.keepCurrentOriginalModel) {
-        models?.original.dispose();
-      }
-      if (!props.keepCurrentModifiedModel) {
-        models?.modified.dispose();
-      }
+      disposeOwnedDiffModels(models, {
+        original: props.keepCurrentOriginalModel === true,
+        modified: props.keepCurrentModifiedModel === true,
+      });
     };
   });
 

@@ -223,8 +223,6 @@ export const CommitDetail = () => {
                     modifiedPath={`commit-modified/${fileDiff()!.path}`}
                     language={fileDiff()!.language ?? undefined}
                     theme={currentTheme().id}
-                    keepCurrentOriginalModel
-                    keepCurrentModifiedModel
                     onMount={handleDiffMount}
                     options={diffOptions()}
                   />

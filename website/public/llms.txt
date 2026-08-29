@@ -21,7 +21,7 @@ DeathPush is an open-source desktop Git client built with Rust and Tauri. It pro
 
 ## Technical Details
 
-- Stack: Rust (backend), TypeScript + React (frontend), Tauri (framework)
+- Stack: Rust (backend), TypeScript + Solid 2 (frontend), Tauri (framework)
 - License: Apache-2.0
 - Platforms: macOS (Apple Silicon & Intel), Windows 10+, Linux (AppImage & .deb)
 - Version: 0.1.0
