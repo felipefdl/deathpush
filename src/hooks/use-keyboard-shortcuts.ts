@@ -7,6 +7,7 @@ import { explorerStore } from "../stores/explorer-store";
 import { toggleTerminal } from "../lib/toggle-terminal";
 import { handleTerminalShortcut } from "../lib/terminal-shortcuts";
 import { buildFlatFileList } from "../lib/flat-file-list";
+import { flushPath } from "../lib/pierre/flush-registry";
 import * as commands from "../lib/tauri-commands";
 
 export const useKeyboardShortcuts = () => {
@@ -319,15 +320,15 @@ export const useKeyboardShortcuts = () => {
         e.preventDefault();
         if (isStaged) {
           startOperation("unstage");
-          commands
-            .unstageFiles([focused.path])
+          void flushPath(focused.path)
+            .then(() => commands.unstageFiles([focused.path]))
             .then(setStatus)
             .catch((err) => setError(String(err)))
             .finally(() => endOperation("unstage"));
         } else {
           startOperation("stage");
-          commands
-            .stageFiles([focused.path])
+          void flushPath(focused.path)
+            .then(() => commands.stageFiles([focused.path]))
             .then(setStatus)
             .catch((err) => setError(String(err)))
             .finally(() => endOperation("stage"));
@@ -347,8 +348,8 @@ export const useKeyboardShortcuts = () => {
         }).then((confirmed) => {
           if (!confirmed) return;
           startOperation("discard");
-          commands
-            .discardChanges([focused.path])
+          void flushPath(focused.path)
+            .then(() => commands.discardChanges([focused.path]))
             .then(setStatus)
             .catch((err) => setError(String(err)))
             .finally(() => endOperation("discard"));

@@ -15,6 +15,7 @@ import { StashHeader, StashBody } from "./stash-view";
 import { SubReposHeader, SubReposBody, useSubRepos } from "./sub-repos-view";
 import { ScmToolbar } from "./scm-toolbar";
 import { ResizablePaneContainer, type PaneDefinition } from "./resizable-pane-container";
+import { flushPaths } from "../../lib/pierre/flush-registry";
 import * as commands from "../../lib/tauri-commands";
 import "../../styles/scm.css";
 import "../../styles/repositories.css";
@@ -78,6 +79,7 @@ export const ScmView = (props: ScmViewProps) => {
   const handleStageAll = async (paths: string[]) => {
     startOperation("stage");
     try {
+      await flushPaths(paths);
       const s = await commands.stageFiles(paths);
       setStatus(s);
     } catch (err) {
@@ -124,6 +126,7 @@ export const ScmView = (props: ScmViewProps) => {
     if (!confirmed) return;
     startOperation("discard");
     try {
+      await flushPaths([...trackedPaths, ...untrackedPaths]);
       let s;
       if (trackedPaths.length > 0) {
         s = await commands.discardChanges(trackedPaths);

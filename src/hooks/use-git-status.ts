@@ -12,13 +12,16 @@ import { getScmSession } from "../components/pierre/pierre-file-diff";
 export const isScmWatcherTarget = (file: SelectedFile | null): boolean =>
   file !== null && file.groupKind !== "index" && file.groupKind !== "merge";
 
-export const runScmDiskGuard = async (input: {
+export type ScmDiskGuardInput = {
   selectedFile: SelectedFile | null;
   session: SaveSession | null;
   getFileDiff: (path: string, staged: boolean) => Promise<DiffContent>;
   sha256Utf8: (text: string) => Promise<string>;
   onReload: (diff: DiffContent, incomingSha: string) => void;
-}): Promise<void> => {
+  isCurrent?: () => boolean;
+};
+
+export const runScmDiskGuard = async (input: ScmDiskGuardInput): Promise<void> => {
   const file = input.selectedFile;
   if (!file || !input.session) return;
   if (!isScmWatcherTarget(file)) return;
@@ -27,25 +30,47 @@ export const runScmDiskGuard = async (input: {
 
   const diff = await input.getFileDiff(file.path, file.staged);
   const incomingSha = await input.sha256Utf8(diff.modified);
+  if (input.isCurrent && !input.isCurrent()) return;
   if (watcherAction(input.session, incomingSha) === "reload") {
     input.onReload(diff, incomingSha);
   }
 };
 
+export const createScmDiskGuard = (): ((input: ScmDiskGuardInput) => Promise<void>) => {
+  let latest = 0;
+  return async (input) => {
+    const requestId = ++latest;
+    await runScmDiskGuard({
+      ...input,
+      isCurrent: () => requestId === latest && (input.isCurrent?.() ?? true),
+    });
+  };
+};
+
 export const useGitStatus = () => {
   const { refreshStatus } = useRepository();
+  const run = createScmDiskGuard();
 
   const handleChange = throttle(() => {
     void refreshStatus();
     const { selectedFile } = repositoryStore.getState();
     const handle = getScmSession();
-    void runScmDiskGuard({
+    void run({
       selectedFile,
       session: handle?.session ?? null,
       getFileDiff,
       sha256Utf8,
       onReload: (diff, incomingSha) => {
         handle?.reload(diff, incomingSha);
+      },
+      isCurrent: () => {
+        const current = repositoryStore.getState().selectedFile;
+        return (
+          current?.path === selectedFile?.path &&
+          current?.staged === selectedFile?.staged &&
+          current?.groupKind === selectedFile?.groupKind &&
+          getScmSession() === handle
+        );
       },
     }).catch(() => undefined);
   }, 1000);

@@ -1,11 +1,13 @@
 import { describe, it, expect } from "vite-plus/test";
-import type { DiffHunk } from "../../lib/git-types";
+import type { DiffHunk, RepositoryStatus } from "../../lib/git-types";
+import { hunkIdentity } from "../../lib/pierre/hunk-annotations";
 import {
   emptyPatchSides,
   enableScmLineSelection,
   hunkAnnotations,
   isNonPierreFileType,
   isScmDiffEditable,
+  runStageLineCalls,
 } from "./pierre-file-diff";
 
 describe("isScmDiffEditable", () => {
@@ -95,8 +97,105 @@ describe("hunkAnnotations", () => {
     ];
 
     expect(hunkAnnotations(hunks)).toEqual([
-      { side: "additions", lineNumber: 2, metadata: { hunkIndex: 0 } },
-      { side: "deletions", lineNumber: 4, metadata: { hunkIndex: 1 } },
+      { side: "additions", lineNumber: 2, metadata: { hunkIndex: 0, identity: hunkIdentity(hunks[0]) } },
+      { side: "deletions", lineNumber: 4, metadata: { hunkIndex: 1, identity: hunkIdentity(hunks[1]) } },
     ]);
+  });
+});
+
+const fakeStatus = (label: string): RepositoryStatus => ({
+  root: label,
+  headBranch: null,
+  headCommit: null,
+  ahead: 0,
+  behind: 0,
+  groups: [],
+  operationState: "none",
+});
+
+describe("runStageLineCalls", () => {
+  it("reidentifies later hunks after an earlier write and publishes each status", async () => {
+    const first: DiffHunk = {
+      header: "@@ -1,1 +1,2 @@",
+      oldStart: 1,
+      oldLines: 1,
+      newStart: 1,
+      newLines: 2,
+      lines: [{ content: "a", lineType: "add", oldLineNumber: null, newLineNumber: 1 }],
+    };
+    const second: DiffHunk = {
+      header: "@@ -10,1 +11,2 @@",
+      oldStart: 10,
+      oldLines: 1,
+      newStart: 11,
+      newLines: 2,
+      lines: [{ content: "b", lineType: "add", oldLineNumber: null, newLineNumber: 11 }],
+    };
+    const statuses: string[] = [];
+    const stageIndexes: number[] = [];
+
+    const last = await runStageLineCalls({
+      path: "src/a.ts",
+      staged: false,
+      hunks: [first, second],
+      calls: [
+        { hunkIndex: 0, lineStart: 0, lineEnd: 0 },
+        { hunkIndex: 1, lineStart: 0, lineEnd: 0 },
+      ],
+      getFileHunks: async () => ({ hunks: [second] }),
+      stageLines: async (_path, hunkIndex) => {
+        stageIndexes.push(hunkIndex);
+        return fakeStatus(`status-${stageIndexes.length}`);
+      },
+      onStatus: (status) => {
+        statuses.push(status.root);
+      },
+    });
+
+    expect(stageIndexes).toEqual([0, 0]);
+    expect(statuses).toEqual(["status-1", "status-2"]);
+    expect(last?.root).toBe("status-2");
+  });
+
+  it("still publishes the successful write when a later call fails", async () => {
+    const first: DiffHunk = {
+      header: "@@ -1,1 +1,2 @@",
+      oldStart: 1,
+      oldLines: 1,
+      newStart: 1,
+      newLines: 2,
+      lines: [{ content: "a", lineType: "add", oldLineNumber: null, newLineNumber: 1 }],
+    };
+    const second: DiffHunk = {
+      header: "@@ -10,1 +11,2 @@",
+      oldStart: 10,
+      oldLines: 1,
+      newStart: 11,
+      newLines: 2,
+      lines: [{ content: "b", lineType: "add", oldLineNumber: null, newLineNumber: 11 }],
+    };
+    const statuses: string[] = [];
+
+    await expect(
+      runStageLineCalls({
+        path: "src/a.ts",
+        staged: false,
+        hunks: [first, second],
+        calls: [
+          { hunkIndex: 0, lineStart: 0, lineEnd: 0 },
+          { hunkIndex: 1, lineStart: 0, lineEnd: 0 },
+        ],
+        getFileHunks: async () => ({ hunks: [second] }),
+        stageLines: async (_path, hunkIndex) => {
+          if (hunkIndex === 0 && statuses.length === 1) throw new Error("later failed");
+          return fakeStatus("ok");
+        },
+        onStatus: (status) => {
+          statuses.push(status.root);
+        },
+      })
+    ).rejects.toThrow("later failed");
+
+    expect(statuses).toEqual(["ok"]);
   });
 });

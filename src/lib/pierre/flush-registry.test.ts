@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vite-plus/test";
-import { flushAll, flushPath, registerFlusher, trackPendingFlush } from "./flush-registry";
+import { flushAll, flushPath, flushPaths, registerFlusher, trackPendingFlush } from "./flush-registry";
 
 describe("flush-registry", () => {
   it("flushPath runs the flusher registered for that path", async () => {
@@ -65,5 +65,19 @@ describe("flush-registry", () => {
     resolveFlush?.();
     await all;
     expect(flushAllDone).toBe(true);
+  });
+
+  it("flushPaths runs each registered flusher", async () => {
+    const first = vi.fn(async () => undefined);
+    const second = vi.fn(async () => undefined);
+    const dropFirst = registerFlusher("src/a.ts", first);
+    const dropSecond = registerFlusher("src/b.ts", second);
+
+    await flushPaths(["src/a.ts", "src/b.ts", "missing.ts"]);
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+
+    dropFirst();
+    dropSecond();
   });
 });

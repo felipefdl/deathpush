@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vite-plus/test";
-import { isScmWatcherTarget, runScmDiskGuard } from "./use-git-status";
+import { createScmDiskGuard, isScmWatcherTarget, runScmDiskGuard } from "./use-git-status";
 import type { SaveSession } from "../lib/pierre/save-session";
 import type { DiffContent } from "../lib/git-types";
 import type { SelectedFile } from "../stores/repository-store";
@@ -86,5 +86,39 @@ describe("runScmDiskGuard", () => {
     });
 
     expect(onReload).toHaveBeenCalledWith(next, "ccc");
+  });
+
+  it("discards a stale check that finishes after a newer selection", async () => {
+    const run = createScmDiskGuard();
+    const onReload = vi.fn();
+    let finishOld: (next: DiffContent) => void = () => undefined;
+    const next = diff("new");
+
+    const old = run({
+      selectedFile: selected(),
+      session: session(),
+      getFileDiff: () =>
+        new Promise<DiffContent>((resolve) => {
+          finishOld = resolve;
+        }),
+      sha256Utf8: async () => "old-sha",
+      onReload,
+    });
+
+    await run({
+      selectedFile: selected({ path: "src/b.ts" }),
+      session: session({ path: "src/b.ts" }),
+      getFileDiff: async () => ({ ...next, path: "src/b.ts" }),
+      sha256Utf8: async () => "new-sha",
+      onReload,
+    });
+
+    expect(onReload).toHaveBeenCalledTimes(1);
+    expect(onReload).toHaveBeenCalledWith({ ...next, path: "src/b.ts" }, "new-sha");
+    onReload.mockClear();
+
+    finishOld(diff("old"));
+    await old;
+    expect(onReload).not.toHaveBeenCalled();
   });
 });

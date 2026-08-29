@@ -5,6 +5,7 @@ import { getStatusColor } from "../../lib/status-colors";
 import { getStatusLabel } from "../../lib/status-icons";
 import { repositoryStore } from "../../stores/repository-store";
 import { useDiff } from "../../hooks/use-diff";
+import { flushPath, flushPaths } from "../../lib/pierre/flush-registry";
 import * as commands from "../../lib/tauri-commands";
 import { ContextMenu, type ContextMenuItem } from "./context-menu";
 import { getFileIconClasses } from "../../lib/icon-themes/get-icon-classes";
@@ -90,6 +91,7 @@ export const ResourceItem = (props: ResourceItemProps) => {
           ? getSelectedPaths("unstaged")
           : [props.file.path];
       if (paths.length === 0) paths.push(props.file.path);
+      await flushPaths(paths);
       const status = await commands.stageFiles(paths);
       setStatus(status);
       state.clearFileSelection();
@@ -110,6 +112,7 @@ export const ResourceItem = (props: ResourceItemProps) => {
           ? getSelectedPaths("staged")
           : [props.file.path];
       if (paths.length === 0) paths.push(props.file.path);
+      await flushPaths(paths);
       const status = await commands.unstageFiles(paths);
       setStatus(status);
       state.clearFileSelection();
@@ -171,6 +174,7 @@ export const ResourceItem = (props: ResourceItemProps) => {
 
     startOperation("discard");
     try {
+      await flushPaths(paths);
       let status;
       if (trackedPaths.length > 0) {
         status = await commands.discardChanges(trackedPaths);
@@ -227,6 +231,7 @@ export const ResourceItem = (props: ResourceItemProps) => {
     if (!confirmed) return;
     startOperation("delete");
     try {
+      await flushPath(props.file.path);
       const status = await commands.deleteFile(props.file.path);
       setStatus(status);
     } catch (err) {

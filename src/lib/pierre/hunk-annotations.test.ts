@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vite-plus/test";
 import type { DiffHunk } from "../git-types";
-import { hunkActionAnchor } from "./hunk-annotations";
+import { hunkActionAnchor, hunkIdentity, reidentifyHunk } from "./hunk-annotations";
 
 describe("hunkActionAnchor", () => {
   it("anchors on the first addition line when present", () => {
@@ -40,5 +40,32 @@ describe("hunkActionAnchor", () => {
       lines: [{ content: "a", lineType: "context", oldLineNumber: 1, newLineNumber: 1 }],
     };
     expect(hunkActionAnchor(hunk)).toBeNull();
+  });
+});
+
+const changedHunk = (header: string, oldStart: number, newStart: number, added: string): DiffHunk => ({
+  header,
+  oldStart,
+  oldLines: 1,
+  newStart,
+  newLines: 2,
+  lines: [
+    { content: "keep", lineType: "context", oldLineNumber: oldStart, newLineNumber: newStart },
+    { content: added, lineType: "add", oldLineNumber: null, newLineNumber: newStart + 1 },
+  ],
+});
+
+describe("reidentifyHunk", () => {
+  it("finds the same changed lines after a preceding hunk is inserted", () => {
+    const target = changedHunk("@@ -10,1 +10,2 @@", 10, 10, "later");
+    const refreshed = [changedHunk("@@ -1,1 +1,2 @@", 1, 1, "earlier"), target];
+    expect(reidentifyHunk(refreshed, hunkIdentity(target))).toBe(1);
+  });
+
+  it("finds the same changed lines after a preceding hunk is removed", () => {
+    const first = changedHunk("@@ -1,1 +1,2 @@", 1, 1, "earlier");
+    const target = changedHunk("@@ -10,1 +10,2 @@", 10, 10, "later");
+    expect(reidentifyHunk([target], hunkIdentity(target))).toBe(0);
+    expect(reidentifyHunk([target], hunkIdentity(first))).toBeNull();
   });
 });

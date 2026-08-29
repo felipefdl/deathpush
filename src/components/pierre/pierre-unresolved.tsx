@@ -16,6 +16,26 @@ export type PierreUnresolvedProps = {
   contents: string;
 };
 
+export const shouldMountMergePane = (
+  selectedFile: { path: string; groupKind: string } | null,
+  diff: { path: string } | null
+): boolean => selectedFile?.groupKind === "merge" && diff !== null && diff.path === selectedFile.path;
+
+const mergeResolveTails = new Map<string, Promise<void>>();
+
+export const enqueueMergeResolve = (path: string, work: () => Promise<void>): Promise<void> => {
+  const previous = mergeResolveTails.get(path) ?? Promise.resolve();
+  const next = previous.then(work, work);
+  mergeResolveTails.set(
+    path,
+    next.then(
+      () => undefined,
+      () => undefined
+    )
+  );
+  return next;
+};
+
 const unresolvedOptions = (themeId: string, wordWrap: "off" | "on"): UnresolvedFileOptions<undefined> => {
   const { diffStyle: _diffStyle, ...options } = buildPierreDiffOptions({
     themeId,
@@ -57,7 +77,7 @@ export const PierreUnresolved = (props: PierreUnresolvedProps) => {
         ...unresolvedOptions(themeId, wordWrap),
         mergeConflictActionsType: "default",
         onMergeConflictResolve: (file: FileContents) => {
-          void (async () => {
+          void enqueueMergeResolve(path, async () => {
             try {
               await writeFile(path, file.contents);
               if (session) session.diskSha = await sha256Utf8(file.contents);
@@ -66,7 +86,7 @@ export const PierreUnresolved = (props: PierreUnresolvedProps) => {
             } catch (error) {
               setError(String(error));
             }
-          })();
+          });
         },
       };
 

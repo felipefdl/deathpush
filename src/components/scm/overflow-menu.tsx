@@ -5,6 +5,7 @@ import { layoutStore } from "../../stores/layout-store";
 import { useStore } from "../../lib/use-store";
 import { useStash } from "../../hooks/use-stash";
 import { useBranches } from "../../hooks/use-branches";
+import { flushAll } from "../../lib/pierre/flush-registry";
 import * as commands from "../../lib/tauri-commands";
 
 type OverflowMenuProps = {
@@ -156,6 +157,7 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   const handleStageAll = async () => {
     startOperation("stage");
     try {
+      await flushAll();
       const newStatus = await commands.stageAll();
       setStatus(newStatus);
     } catch (err) {
@@ -191,6 +193,7 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
     if (!confirmed) return;
     startOperation("discard");
     try {
+      await flushAll();
       const newStatus = await commands.discardChanges(paths);
       setStatus(newStatus);
     } catch (err) {

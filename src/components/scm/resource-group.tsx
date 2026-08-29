@@ -4,6 +4,7 @@ import type { FileEntry, ResourceGroup, ResourceGroupKind } from "../../lib/git-
 import { repositoryStore } from "../../stores/repository-store";
 import { layoutStore } from "../../stores/layout-store";
 import { useStore } from "../../lib/use-store";
+import { flushPaths } from "../../lib/pierre/flush-registry";
 import * as commands from "../../lib/tauri-commands";
 import { ResourceItem } from "./resource-item";
 import { ResourceTree } from "./resource-tree";
@@ -112,6 +113,7 @@ export const ResourceGroupView = (props: ResourceGroupViewProps) => {
     startOperation("stage");
     try {
       const paths = filteredFiles().map((f) => f.path);
+      await flushPaths(paths);
       const status = await commands.stageFiles(paths);
       setStatus(status);
     } catch (err) {
@@ -159,6 +161,7 @@ export const ResourceGroupView = (props: ResourceGroupViewProps) => {
     if (!confirmed) return;
     startOperation("discard");
     try {
+      await flushPaths(files.map((f) => f.path));
       let status;
       if (trackedFiles.length > 0) {
         status = await commands.discardChanges(trackedFiles.map((f) => f.path));

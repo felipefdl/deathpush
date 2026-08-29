@@ -29,3 +29,7 @@ export const flushPath = async (path: string): Promise<void> => {
   const fn = flushers.get(path);
   if (fn) await track(fn());
 };
+
+export const flushPaths = async (paths: string[]): Promise<void> => {
+  await Promise.all(paths.map((path) => flushPath(path)));
+};

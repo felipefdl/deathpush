@@ -13,6 +13,28 @@ export type StageLinesCall = {
   lineEnd: number;
 };
 
+export const normalizeSelectionRange = (range: {
+  start: number;
+  end: number;
+  side?: "additions" | "deletions";
+  endSide?: "additions" | "deletions";
+}): PierreLineRange => {
+  if (range.start <= range.end) {
+    return {
+      start: range.start,
+      end: range.end,
+      side: range.side ?? "additions",
+      endSide: range.endSide,
+    };
+  }
+  return {
+    start: range.end,
+    end: range.start,
+    side: range.side ?? "additions",
+    endSide: range.endSide,
+  };
+};
+
 const inRange = (lineNumber: number | null, start: number, end: number): boolean =>
   lineNumber !== null && lineNumber >= start && lineNumber <= end;
 

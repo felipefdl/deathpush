@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vite-plus/test";
 import type { DiffHunk } from "../git-types";
-import { mapSelectionToStageLines } from "./line-map";
+import { mapSelectionToStageLines, normalizeSelectionRange } from "./line-map";
 
 const hunks: DiffHunk[] = [
   {
@@ -53,5 +53,22 @@ describe("mapSelectionToStageLines", () => {
     expect(
       mapSelectionToStageLines(hunks, { start: 10, end: 10, side: "deletions" })
     ).toEqual([{ hunkIndex: 1, lineStart: 0, lineEnd: 0 }]);
+  });
+
+  it("maps a reverse drag after endpoints are normalized", () => {
+    const reversed = { start: 11, end: 2, side: "additions" as const, endSide: "additions" as const };
+    expect(mapSelectionToStageLines(hunks, reversed)).toEqual([]);
+    expect(mapSelectionToStageLines(hunks, normalizeSelectionRange(reversed))).toEqual([
+      { hunkIndex: 0, lineStart: 1, lineEnd: 1 },
+      { hunkIndex: 1, lineStart: 1, lineEnd: 1 },
+    ]);
+  });
+});
+
+describe("normalizeSelectionRange", () => {
+  it("keeps sides when the drag is upward", () => {
+    expect(
+      normalizeSelectionRange({ start: 11, end: 2, side: "additions", endSide: "additions" })
+    ).toEqual({ start: 2, end: 11, side: "additions", endSide: "additions" });
   });
 });

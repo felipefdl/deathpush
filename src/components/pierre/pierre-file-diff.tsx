@@ -9,7 +9,7 @@ import {
 } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/edit";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import type { DiffContent, DiffHunk, ResourceGroupKind } from "../../lib/git-types";
+import type { DiffContent, DiffHunk, RepositoryStatus, ResourceGroupKind } from "../../lib/git-types";
 import * as commands from "../../lib/tauri-commands";
 import { layoutStore } from "../../stores/layout-store";
 import { repositoryStore } from "../../stores/repository-store";
@@ -21,15 +21,15 @@ import { normalizeWordWrap } from "../../lib/pierre/normalize-editor-settings";
 import { pierreEditorKeymap } from "../../lib/pierre/keymap";
 import { getPierreWorkerPool } from "../../lib/pierre/worker";
 import { flushPath, registerFlusher, trackPendingFlush } from "../../lib/pierre/flush-registry";
-import { hunkActionAnchor } from "../../lib/pierre/hunk-annotations";
-import { mapSelectionToStageLines } from "../../lib/pierre/line-map";
+import { hunkActionAnchor, hunkIdentity, reidentifyHunk, type HunkIdentity } from "../../lib/pierre/hunk-annotations";
+import { mapSelectionToStageLines, normalizeSelectionRange, type StageLinesCall } from "../../lib/pierre/line-map";
 import { isDirty, sessionCacheKey, type SaveSession } from "../../lib/pierre/save-session";
 import { sha256Utf8 } from "../../lib/pierre/sha";
 import { selectionIsInPierreHost } from "./pierre-file";
 
 const SAVE_MS = 1000;
 
-export type HunkAnnotationMeta = { hunkIndex: number };
+export type HunkAnnotationMeta = { hunkIndex: number; identity: HunkIdentity };
 
 export type PierreFileDiffProps = {
   path: string;
@@ -90,9 +90,47 @@ export const hunkAnnotations = (hunks: DiffHunk[]): DiffLineAnnotation<HunkAnnot
   for (const [hunkIndex, hunk] of hunks.entries()) {
     const anchor = hunkActionAnchor(hunk);
     if (!anchor) continue;
-    annotations.push({ side: anchor.side, lineNumber: anchor.lineNumber, metadata: { hunkIndex } });
+    annotations.push({
+      side: anchor.side,
+      lineNumber: anchor.lineNumber,
+      metadata: { hunkIndex, identity: hunkIdentity(hunk) },
+    });
   }
   return annotations;
+};
+
+export const runStageLineCalls = async (input: {
+  path: string;
+  staged: boolean;
+  hunks: DiffHunk[];
+  calls: StageLinesCall[];
+  getFileHunks: (path: string, staged: boolean) => Promise<{ hunks: DiffHunk[] }>;
+  stageLines: (
+    path: string,
+    hunkIndex: number,
+    lineStart: number,
+    lineEnd: number,
+    staged: boolean
+  ) => Promise<RepositoryStatus>;
+  onStatus: (status: RepositoryStatus) => void;
+}): Promise<RepositoryStatus | null> => {
+  const pending = input.calls.map((call) => ({
+    identity: hunkIdentity(input.hunks[call.hunkIndex]),
+    lineStart: call.lineStart,
+    lineEnd: call.lineEnd,
+  }));
+  let current = input.hunks;
+  let last: RepositoryStatus | null = null;
+  for (const [index, call] of pending.entries()) {
+    const hunkIndex = reidentifyHunk(current, call.identity);
+    if (hunkIndex === null) continue;
+    last = await input.stageLines(input.path, hunkIndex, call.lineStart, call.lineEnd, input.staged);
+    input.onStatus(last);
+    if (index < pending.length - 1) {
+      current = (await input.getFileHunks(input.path, input.staged)).hunks;
+    }
+  }
+  return last;
 };
 
 const hunkButton = (label: string, onClick: () => void): HTMLButtonElement => {
@@ -121,29 +159,22 @@ const hunkButton = (label: string, onClick: () => void): HTMLButtonElement => {
 };
 
 const renderHunkButtons = (
-  hunkIndex: number,
+  identity: HunkIdentity,
   groupKind: ResourceGroupKind,
-  run: (hunkIndex: number, action: "stage" | "unstage" | "discard") => void
+  run: (identity: HunkIdentity, action: "stage" | "unstage" | "discard") => void
 ): HTMLElement | undefined => {
   const row = document.createElement("div");
   row.style.cssText = "display:inline-flex;align-items:center;gap:4px;";
   if (groupKind === "index") {
-    row.append(hunkButton("Unstage", () => run(hunkIndex, "unstage")));
+    row.append(hunkButton("Unstage", () => run(identity, "unstage")));
     return row;
   }
   row.append(
-    hunkButton("Stage", () => run(hunkIndex, "stage")),
-    hunkButton("Discard", () => run(hunkIndex, "discard"))
+    hunkButton("Stage", () => run(identity, "stage")),
+    hunkButton("Discard", () => run(identity, "discard"))
   );
   return row;
 };
-
-const selectionRange = (range: SelectedLineRange) => ({
-  start: range.start,
-  end: range.end,
-  side: range.side ?? "additions",
-  endSide: range.endSide,
-});
 
 export const PierreFileDiff = (props: PierreFileDiffProps) => {
   const editorSettings = useStore(settingsStore, (s) => s.settings.editor);
@@ -263,7 +294,7 @@ export const PierreFileDiff = (props: PierreFileDiffProps) => {
         setViewGeneration((value) => value + 1);
       };
 
-      const runHunkAction = async (hunkIndex: number, action: "stage" | "unstage" | "discard"): Promise<void> => {
+      const runHunkAction = async (identity: HunkIdentity, action: "stage" | "unstage" | "discard"): Promise<void> => {
         if (busy) return;
         if (action === "discard") {
           const confirmed = await confirm(
@@ -281,7 +312,8 @@ export const PierreFileDiff = (props: PierreFileDiffProps) => {
         try {
           await flushPath(path);
           const { hunks } = await commands.getFileHunks(path, staged);
-          if (hunkIndex >= hunks.length) return;
+          const hunkIndex = reidentifyHunk(hunks, identity);
+          if (hunkIndex === null) return;
           const status =
             action === "discard"
               ? await commands.discardHunk(path, hunkIndex)
@@ -297,23 +329,24 @@ export const PierreFileDiff = (props: PierreFileDiffProps) => {
       const runLineSelection = async (range: SelectedLineRange): Promise<void> => {
         if (busy) return;
         busy = true;
+        let status: RepositoryStatus | null = null;
         try {
           await flushPath(path);
           const { hunks } = await commands.getFileHunks(path, staged);
-          const calls = mapSelectionToStageLines(hunks, selectionRange(range));
-          let status: Awaited<ReturnType<typeof commands.stageLines>> | null = null;
-          for (const call of calls) {
-            status = await commands.stageLines(
-              path,
-              call.hunkIndex,
-              call.lineStart,
-              call.lineEnd,
-              groupKind === "index"
-            );
-          }
-          if (status) afterGitWrite(status);
+          const calls = mapSelectionToStageLines(hunks, normalizeSelectionRange(range));
+          status = await runStageLineCalls({
+            path,
+            staged: groupKind === "index",
+            hunks,
+            calls,
+            getFileHunks: commands.getFileHunks,
+            stageLines: commands.stageLines,
+            onStatus: setStatus,
+          });
+          if (status) setViewGeneration((value) => value + 1);
         } catch (error) {
           setError(String(error));
+          if (status) setViewGeneration((value) => value + 1);
         } finally {
           busy = false;
         }
@@ -367,12 +400,12 @@ export const PierreFileDiff = (props: PierreFileDiffProps) => {
               })
             : undefined,
           renderAnnotation: (annotation: DiffLineAnnotation) => {
-            const hunkIndex = annotations.find(
+            const identity = annotations.find(
               (item) => item.side === annotation.side && item.lineNumber === annotation.lineNumber
-            )?.metadata.hunkIndex;
-            if (hunkIndex === undefined) return;
-            return renderHunkButtons(hunkIndex, groupKind, (index, action) => {
-              void runHunkAction(index, action);
+            )?.metadata.identity;
+            if (!identity) return;
+            return renderHunkButtons(identity, groupKind, (next, action) => {
+              void runHunkAction(next, action);
             });
           },
           onLineSelectionEnd: (range: SelectedLineRange | null) => {
