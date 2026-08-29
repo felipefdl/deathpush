@@ -1,0 +1,30 @@
+import { describe, it, expect } from "vite-plus/test";
+import { buildPierreDiffOptions } from "./options";
+
+const base = {
+  themeId: "preview-theme",
+  wordWrap: "off" as const,
+  diffMode: "inline" as const,
+  enableLineSelection: true,
+};
+
+describe("buildPierreDiffOptions", () => {
+  it("maps inline to unified and sideBySide to split", () => {
+    expect(buildPierreDiffOptions(base).diffStyle).toBe("unified");
+    expect(buildPierreDiffOptions({ ...base, diffMode: "sideBySide" }).diffStyle).toBe("split");
+  });
+
+  it("maps wrap on to wrap", () => {
+    expect(buildPierreDiffOptions({ ...base, wordWrap: "on" }).overflow).toBe("wrap");
+    expect(buildPierreDiffOptions(base).overflow).toBe("scroll");
+  });
+
+  it("keeps themeType undefined and pins shiki-js", () => {
+    const options = buildPierreDiffOptions(base);
+    expect(options.theme).toBe("preview-theme");
+    expect(options.themeType).toBeUndefined();
+    expect(options.preferredHighlighter).toBe("shiki-js");
+    expect(options.lineDiffType).toBe("word-alt");
+    expect(options.enableLineSelection).toBe(true);
+  });
+});

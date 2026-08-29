@@ -106,14 +106,12 @@ export default defineConfig({
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
   // 2. tauri expects a fixed port, fail if that port is not available
+  worker: { format: "es" },
   build: {
     chunkSizeWarningLimit: 4000,
     rollupOptions: {
       output: {
         manualChunks(id: string): string | undefined {
-          if (id.includes("monaco-editor")) {
-            return "vendor-monaco";
-          }
           if (id.includes("@wterm/core") || id.includes("@wterm/dom") || id.includes("@wterm/ghostty")) {
             return "vendor-wterm";
           }

@@ -1,21 +1,9 @@
-import * as monaco from "monaco-editor";
+import { registerDeathPushPierreTheme } from "../pierre/theme";
+import { applyPierrePoolTheme } from "../pierre/worker";
 import { setNativeTheme } from "../tauri-commands";
-import type { ResolvedTheme, UiTheme } from "./theme-types";
+import type { ResolvedTheme } from "./theme-types";
 
 const THEME_STORAGE_KEY = "deathpush:theme";
-
-const uiThemeToMonacoBase = (uiTheme: UiTheme): "vs" | "vs-dark" | "hc-black" | "hc-light" => {
-  switch (uiTheme) {
-    case "vs":
-      return "vs";
-    case "vs-dark":
-      return "vs-dark";
-    case "hc-black":
-      return "hc-black";
-    case "hc-light":
-      return "hc-light";
-  }
-};
 
 type ApplyThemeOptions = {
   transient?: boolean;
@@ -44,7 +32,9 @@ export const applyTheme = (theme: ResolvedTheme, options: ApplyThemeOptions = {}
   if (theme.uiTheme === "hc-black") document.body.classList.add("hc-black");
   if (theme.uiTheme === "hc-light") document.body.classList.add("hc-light");
 
-  applyMonacoTheme(theme);
+  void registerDeathPushPierreTheme(theme).then(() => {
+    applyPierrePoolTheme(theme.id);
+  });
 
   if (!options.transient) {
     const isDark = scheme === "dark";
@@ -56,28 +46,6 @@ export const applyTheme = (theme: ResolvedTheme, options: ApplyThemeOptions = {}
   if (!options.transient) {
     localStorage.setItem(THEME_STORAGE_KEY, theme.id);
   }
-};
-
-const applyMonacoTheme = (theme: ResolvedTheme): void => {
-  const base = uiThemeToMonacoBase(theme.uiTheme);
-
-  const rules = theme.tokenColors.flatMap((tc) => {
-    const scopes = Array.isArray(tc.scope) ? tc.scope : tc.scope ? [tc.scope] : [];
-    return scopes.map((scope) => ({
-      token: scope,
-      foreground: tc.settings.foreground?.replace("#", ""),
-      background: tc.settings.background?.replace("#", ""),
-      fontStyle: tc.settings.fontStyle,
-    }));
-  });
-
-  const colors: Record<string, string> = {};
-  for (const [key, value] of Object.entries(theme.colors)) {
-    colors[key] = value;
-  }
-
-  monaco.editor.defineTheme(theme.id, { base, inherit: true, rules, colors });
-  monaco.editor.setTheme(theme.id);
 };
 
 export type TerminalTheme = {

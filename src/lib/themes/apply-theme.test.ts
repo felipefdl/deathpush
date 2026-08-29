@@ -1,12 +1,18 @@
 import { describe, it, expect, vi } from "vite-plus/test";
 import type { ResolvedTheme } from "./theme-types";
 
-const { setNativeThemeMock } = vi.hoisted(() => ({
+const { setNativeThemeMock, registerDeathPushPierreThemeMock, applyPierrePoolThemeMock } = vi.hoisted(() => ({
   setNativeThemeMock: vi.fn(() => Promise.resolve()),
+  registerDeathPushPierreThemeMock: vi.fn(() => Promise.resolve()),
+  applyPierrePoolThemeMock: vi.fn(),
 }));
 
-vi.mock("monaco-editor", () => ({
-  editor: { defineTheme: vi.fn(), setTheme: vi.fn() },
+vi.mock("../pierre/theme", () => ({
+  registerDeathPushPierreTheme: registerDeathPushPierreThemeMock,
+}));
+
+vi.mock("../pierre/worker", () => ({
+  applyPierrePoolTheme: applyPierrePoolThemeMock,
 }));
 
 vi.mock("../tauri-commands", () => ({
@@ -28,11 +34,24 @@ describe("applyTheme", () => {
   it("does not persist or update the native window for a transient preview", () => {
     localStorage.clear();
     setNativeThemeMock.mockClear();
+    registerDeathPushPierreThemeMock.mockClear();
+    applyPierrePoolThemeMock.mockClear();
 
     applyTheme(previewTheme, { transient: true });
 
     expect(localStorage.getItem("deathpush:theme")).toBeNull();
     expect(setNativeThemeMock).not.toHaveBeenCalled();
+  });
+
+  it("registers the Pierre theme and applies it to the worker pool", async () => {
+    registerDeathPushPierreThemeMock.mockClear();
+    applyPierrePoolThemeMock.mockClear();
+
+    applyTheme(previewTheme, { transient: true });
+
+    expect(registerDeathPushPierreThemeMock).toHaveBeenCalledWith(previewTheme);
+    await Promise.resolve();
+    expect(applyPierrePoolThemeMock).toHaveBeenCalledWith("preview-theme");
   });
 });
 
