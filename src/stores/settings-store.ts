@@ -1,5 +1,6 @@
 import { createStore } from "zustand/vanilla";
 import { DEFAULT_ICON_THEME_ID } from "../lib/icon-themes/icon-theme-registry";
+import { normalizeWordWrap } from "../lib/pierre/normalize-editor-settings";
 import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from "../lib/themes/theme-registry";
 import { iconThemeStore } from "./icon-theme-store";
 import { themeStore } from "./theme-store";
@@ -11,8 +12,7 @@ export interface EditorSettings {
   fontFamily: string;
   lineHeight: number;
   tabSize: number;
-  wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
-  renderWhitespace: "none" | "boundary" | "selection" | "trailing" | "all";
+  wordWrap: "off" | "on";
 }
 
 export interface TerminalSettings {
@@ -108,7 +108,6 @@ const DEFAULTS: AppSettings = {
     lineHeight: 20,
     tabSize: 4,
     wordWrap: "off",
-    renderWhitespace: "none",
   },
   terminal: {
     fontSize: 13,
@@ -153,9 +152,16 @@ const loadSettings = (): AppSettings => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULTS };
     const parsed = JSON.parse(raw);
+    const editor = { ...DEFAULTS.editor, ...parsed.editor };
     return {
       ui: { ...DEFAULTS.ui, ...parsed.ui },
-      editor: { ...DEFAULTS.editor, ...parsed.editor },
+      editor: {
+        fontSize: editor.fontSize,
+        fontFamily: editor.fontFamily,
+        lineHeight: editor.lineHeight,
+        tabSize: editor.tabSize,
+        wordWrap: normalizeWordWrap(editor.wordWrap),
+      },
       terminal: { ...DEFAULTS.terminal, ...parsed.terminal },
       git: { ...DEFAULTS.git, ...parsed.git },
       projects: {

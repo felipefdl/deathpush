@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vite-plus/test";
+import { describe, it, expect, beforeEach, vi } from "vite-plus/test";
 import { settingsStore } from "./settings-store";
 
 const STORAGE_KEY = "deathpush:settings";
@@ -17,7 +17,6 @@ const DEFAULTS = {
     lineHeight: 20,
     tabSize: 4,
     wordWrap: "off" as const,
-    renderWhitespace: "none" as const,
   },
   terminal: {
     fontSize: 13,
@@ -102,6 +101,29 @@ describe("settings store", () => {
       expect(settings.terminal.cursorBlink).toBe(false);
       expect(settings.git.blame).toBe(false);
       expect(settings.projects.workspaces).toEqual([{ directory: "/home", scanDepth: 3 }]);
+    });
+
+    it("omits renderWhitespace from editor defaults", () => {
+      settingsStore.getState().resetToDefaults();
+      expect(settingsStore.getState().settings.editor).not.toHaveProperty("renderWhitespace");
+    });
+
+    it("normalizes legacy wordWrap and drops renderWhitespace on load", async () => {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          editor: {
+            ...DEFAULTS.editor,
+            wordWrap: "wordWrapColumn",
+            renderWhitespace: "all",
+          },
+        })
+      );
+      vi.resetModules();
+      const { settingsStore: reloaded } = await import("./settings-store");
+      const { editor } = reloaded.getState().settings;
+      expect(editor.wordWrap).toBe("on");
+      expect(editor).not.toHaveProperty("renderWhitespace");
     });
   });
 
@@ -298,7 +320,6 @@ describe("settings store", () => {
     });
 
     it("resetToDefaults resets zoomLevel", () => {
-      settingsStore.getState().zoomIn();
       settingsStore.getState().zoomIn();
       settingsStore.getState().zoomIn();
       settingsStore.getState().resetToDefaults();
