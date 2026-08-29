@@ -99,7 +99,7 @@ export const GET: APIRoute = async () => {
                       letterSpacing: "-0.03em",
                       marginBottom: "20px",
                     },
-                    children: "Murder the Noise. Ship the Code.",
+                    children: "Murder the Noise. Push the Code.",
                   },
                 },
                 {
