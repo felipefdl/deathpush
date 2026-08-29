@@ -48,7 +48,7 @@
     "licenseFile": "../LICENSE",
     "homepage": "https://deathpush.com",
     "shortDescription": "A standalone desktop Git client with the VS Code Source Control UX",
-    "longDescription": "DeathPush is a standalone desktop Git client that replicates the VS Code Source Control UX. Beautiful diffs powered by Monaco Editor, clean staging, branch management, integrated terminal, and zero bloat. Built with Tauri and Rust for native performance.",
+    "longDescription": "DeathPush is a standalone desktop Git client that replicates the VS Code Source Control UX. Monaco diffs, clean staging, branch management, file history, and zero bloat. Built with Tauri and Rust for native performance.",
     "copyright": "Copyright (c) 2026 Felipe Lima",
     "category": "DeveloperTool",
     "publisher": "Felipe Lima",

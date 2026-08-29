@@ -230,7 +230,7 @@ export const GET: APIRoute = async () => {
                                         width: "6px",
                                         height: "6px",
                                         borderRadius: "50%",
-                                        backgroundColor: "#dc2626",
+                                        backgroundColor: "#e8d9bd",
                                       },
                                     },
                                   },

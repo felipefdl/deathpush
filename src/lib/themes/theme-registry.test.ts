@@ -108,6 +108,27 @@ describe("THEME_ENTRIES", () => {
       expect(entry.kind).toBeTruthy();
     }
   });
+
+  it("keeps Death Ayu brand accents separate from semantic colors", () => {
+    const dark = getResolvedTheme("deathayu-dark")!;
+    const light = getResolvedTheme("deathayu-light")!;
+
+    expect(dark.colors["button.background"]).toBe("#e8d9bd");
+    expect(dark.colors["button.hoverBackground"]).toBe("#f0e4cd");
+    expect(dark.colors["button.foreground"]).toBe("#1a1a1a");
+    expect(dark.colors["editorError.foreground"]).toBe("#d95757");
+    expect(dark.colors["diffEditor.removedTextBackground"]).toBe("#f26d781f");
+    expect(dark.colors["editorOverviewRuler.warningForeground"]).toBe("#b09978");
+    expect(dark.colors["editorWarning.foreground"]).toBe("#b09978");
+
+    expect(light.colors["button.background"]).toBe("#8a6f4d");
+    expect(light.colors["button.hoverBackground"]).toBe("#765b3b");
+    expect(light.colors["button.foreground"]).toBe("#ffffff");
+    expect(light.colors["editorError.foreground"]).toBe("#e65050");
+    expect(light.colors["diffEditor.removedTextBackground"]).toBe("#ff73831f");
+    expect(light.colors["editorOverviewRuler.warningForeground"]).toBe("#eba400");
+    expect(light.colors["editorWarning.foreground"]).toBe("#eba400");
+  });
 });
 
 describe("normalizeScope (tested through resolveTheme)", () => {

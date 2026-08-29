@@ -307,8 +307,8 @@ const chevronSvg = `<svg class="chevron" width="16" height="16" viewBox="0 0 24 
     font-size: var(--text-base);
     font-weight: 600;
     font-family: inherit;
-    color: var(--color-white);
-    background: var(--color-accent);
+    color: var(--color-accent-text);
+    background: linear-gradient(to bottom, var(--color-accent), var(--color-accent-dark));
     border: none;
     border-radius: var(--radius-lg);
     cursor: pointer;
@@ -318,6 +318,11 @@ const chevronSvg = `<svg class="chevron" width="16" height="16" viewBox="0 0 24 
 
   .download-trigger:hover {
     background: var(--color-accent-hover);
+  }
+
+  .download-trigger:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
   }
 
   .trigger-icon {
@@ -390,8 +395,14 @@ const chevronSvg = `<svg class="chevron" width="16" height="16" viewBox="0 0 24 
     transition: background 0.15s;
   }
 
-  .download-popover :global(.popover-link:hover) {
+  .download-popover :global(.popover-link:hover),
+  .download-popover :global(.popover-link:focus-visible) {
     background: var(--color-surface);
+  }
+
+  .download-popover :global(.popover-link:focus-visible) {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
   }
 
   .download-popover :global(.popover-link svg) {

@@ -20,7 +20,7 @@
 DeathPush is a standalone desktop Git client for people who like the VS Code Source Control workflow, but hate paying the context-switch tax.
 
 - Review and stage changes fast, without opening your editor.
-- Keep commits clean with hunk-level control and clear diffs.
+- Keep commits clean with clear diffs.
 - Handle real Git work (branches, stash, tags, cherry-pick, reset) from one focused UI.
 - Stay in flow with native performance and no feature bloat.
 
@@ -29,15 +29,12 @@ DeathPush is a standalone desktop Git client for people who like the VS Code Sou
 - Track changes across staged, unstaged, and untracked files.
 - Diff files inline or side-by-side with Monaco-powered views.
 - Diff images side-by-side (PNG, JPG, GIF, WebP, AVIF, SVG, and more).
-- Stage, unstage, discard, and commit -- including amend -- without losing momentum.
+- Stage and unstage files. Discard, commit, and amend without losing momentum.
 - Push, pull, fetch, checkout, and create branches quickly.
 - Manage stashes and tags in the same workflow.
 - Browse history and inspect commit details when you need context.
-- View file blame to trace who changed what.
-- Handle merge and rebase conflicts (continue, abort, skip) without touching the terminal.
-- Search inside your terminal output with the built-in search bar.
-- Use the integrated terminal with full PTY support when you do need it.
-- Install the `dp` command line tool to open repos from your terminal.
+- See blame for the current line in the status bar, then open file history when you need more context.
+- Handle merge and rebase conflicts (continue, abort, skip) from the app.
 - Manage files directly: delete, add to `.gitignore`, open in editor, or reveal in file manager.
 - Open multiple windows for different repositories.
 
@@ -84,10 +81,10 @@ DeathPush is built with a hybrid Git engine:
 - `git2` for fast read operations (status, diff, branches, log, tags).
 - Native `git` CLI for write operations (commit, push/pull, stash, checkout, reset, clone), so hooks, signing, credentials, SSH config, and LFS keep working as expected.
 - Custom syntax highlighting for TOML, Justfile, and dotenv files in diffs.
-- Auto-update support -- get notified and install new versions without leaving the app.
+- Auto-update support: get notified and install new versions without leaving the app.
 
 Stack: Tauri v2 (Rust) + Solid 2 + TypeScript + Zustand + Monaco Editor.
 
 ## License
 
-Apache-2.0 -- see [LICENSE](LICENSE) for details.
+Apache-2.0. See [LICENSE](LICENSE) for details.

@@ -5,7 +5,7 @@ interface Props {
 }
 
 const {
-  title = "DeathPush — Murder the Noise. Ship the Code.",
+  title = "DeathPush: Murder the Noise. Ship the Code.",
   description = "A standalone desktop Git client that replicates the VS Code Source Control UX. Beautiful diffs, clean staging, zero bloat.",
 } = Astro.props;
 
@@ -19,7 +19,6 @@ const jsonLdSoftware = JSON.stringify({
   description,
   applicationCategory: "DeveloperApplication",
   operatingSystem: "macOS, Windows, Linux",
-  softwareVersion: "0.1.0",
   author: {
     "@type": "Person",
     name: "Felipe Lima",
@@ -38,10 +37,11 @@ const jsonLdSoftware = JSON.stringify({
   featureList: [
     "VS Code Source Control UX",
     "Monaco-powered diffs",
+    "File-level staging",
+    "Merge and rebase conflict workflows",
     "Branch management",
     "Image diffs",
     "Git blame and file history",
-    "Integrated terminal",
     "Stash, tags, cherry-pick",
     "Multi-window support",
     "Theme support",
@@ -79,7 +79,7 @@ const jsonLdWebsite = JSON.stringify({
     <!-- Meta -->
     <meta name="theme-color" content="#0a0a0a" />
     <meta name="author" content="Felipe Lima" />
-    <meta name="keywords" content="git client, desktop git client, vs code git, source control, git gui, git diff viewer, git staging, tauri, rust, open source git client, git blame, git history" />
+    <meta name="keywords" content="git client, desktop git client, vs code git, source control, git gui, git diff viewer, git staging, tauri, rust, open source git client, git blame, git history, review claude code changes, review openai codex changes, review agent git changes" />
     <meta name="application-name" content="DeathPush" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
 
@@ -100,7 +100,7 @@ const jsonLdWebsite = JSON.stringify({
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImage} />
-    <meta name="twitter:image:alt" content="DeathPush — Murder the Noise. Ship the Code." />
+    <meta name="twitter:image:alt" content="DeathPush: Murder the Noise. Ship the Code." />
 
     <!-- AI Agent Discovery -->
     <link rel="help" type="text/markdown" href="/llms.txt" />

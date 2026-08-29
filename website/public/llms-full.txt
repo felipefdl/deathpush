@@ -1,153 +1,141 @@
-# DeathPush - Full Documentation
+# DeathPush
 
-> A standalone desktop Git client that replicates the VS Code Source Control UX. Beautiful diffs, clean staging, zero bloat.
+> A standalone desktop Git client that replicates the VS Code Source Control UX.
 
 ## About
 
-DeathPush is an open-source desktop Git client built with Rust and Tauri. It provides a familiar VS Code-style source control interface as a standalone application, designed for developers who want a fast, native Git GUI without the overhead of Electron-based alternatives.
+DeathPush is an open-source desktop Git client. It is the VS Code Source Control workflow without the full VS Code application. Review, stage, commit, and manage branches locally. No account and no telemetry.
+
+DeathPush can review repository changes produced by coding agents such as Claude Code and Codex. It does not integrate with those tools.
 
 ## Features
 
 ### Source Control Interface
-- Replicates the VS Code Source Control panel as a standalone desktop experience
-- Inline diff toggles for quick review of changes
-- File-level staging and unstaging with single click
-- Chunk-level (hunk) staging for granular control over what gets committed
-- Commit message editor with conventional commit support
 
-### Monaco-Powered Diff Viewer
-- Full Monaco editor integration for viewing diffs
-- Syntax highlighting for all major languages
-- Side-by-side (split) and unified diff views
-- Inline editing capability directly in the diff view
-- Word-level diff highlighting for precise change tracking
+- Replicates the VS Code Source Control panel as a standalone desktop experience
+- Inline diff toggles for reviewing changes
+- File-level staging and unstaging
+- Commit and amend from the same view
+
+### Monaco Diff Viewer
+
+- Monaco editor for text diffs
+- Syntax highlighting, including custom support for TOML, Justfile, and dotenv files
+- Side-by-side and unified views
+- Edit unstaged files directly in the diff
 
 ### Branch Management
-- Create new branches from any ref
-- Switch between branches
-- Merge branches with conflict resolution
-- Rebase support (standard and interactive)
-- Rename and delete branches
-- Full remote tracking with push and pull
-- Upstream branch configuration
+
+- Create, switch, rename, and delete branches
+- Merge and rebase, including continue, abort, and rebase skip when conflicts stop the operation
+- Push, pull, and fetch with remote tracking
 
 ### Image Diffs
-- Visual comparison for image file changes
-- Side-by-side comparison mode
-- Overlay comparison mode
-- Difference highlighting mode
-- Supports PNG, JPG, SVG, WebP, and more
 
-### Git Blame & File History
-- Line-by-line blame annotations
-- Author information and timestamps for each line
-- Full file history timeline
-- Diff previews for each historical commit
-- Navigate through file revisions
+- Side-by-side image diffs
+- Formats: PNG, JPG, JPEG, GIF, BMP, WebP, ICO, AVIF, TIFF, SVG
 
-### Integrated Terminal
-- Built-in terminal with full PTY support
-- Run git commands directly
-- Execute scripts and shell commands
-- Multiple terminal instances
-- Terminal persists across view changes
+### Git Blame and File History
+
+- Blame for the current line in the status bar
+- File history with commit diffs
 
 ### Advanced Git Operations
-- Full stash management (save, pop, apply, drop, list)
-- Tag creation and listing (annotated and lightweight)
-- Cherry-pick commits between branches
-- Reset support (soft, mixed, hard)
-- Clean untracked files
+
+- Stash save, pop, apply, drop, and list (including untracked and staged stashes)
+- Tag create, list, delete, and push
+- Cherry-pick
+- Reset (soft, mixed, hard)
 
 ### Multi-Window Support
-- Open multiple repositories in separate windows
-- Each workspace has independent terminal, branches, and state
-- Quick switch between recent repositories
-- Deep link support for opening repositories from external tools
+
+- Open repositories in separate windows
+- Each window has its own branches and state
 
 ### Theming
-- Multiple built-in themes
-- Dark, light, and high-contrast variants
-- Customizable workflow aesthetics
+
+- Built-in themes, including dark, light, and high-contrast variants
 - Theme-aware diff highlighting
 
 ## Installation
 
+Downloads come from GitHub Releases. The release page is the source for the current version and assets.
+
 ### macOS
-1. Download the latest `.dmg` file from the [releases page](https://github.com/felipefdl/deathpush/releases/latest)
-2. Open the `.dmg` file
-3. Drag DeathPush to your Applications folder
-4. Launch DeathPush from Applications
-- Supports both Apple Silicon (M1/M2/M3/M4) and Intel Macs
+
+- Universal `.dmg` and `.app.tar.gz` (Apple Silicon and Intel)
 
 ### Windows
-1. Download the latest `.msi` installer from the [releases page](https://github.com/felipefdl/deathpush/releases/latest)
-2. Run the installer
-3. Launch DeathPush from the Start Menu
-- Requires Windows 10 or later
+
+- `.msi` and `.exe` for x64 and ARM
+- Windows 10 or later
 
 ### Linux
-1. Download the `.AppImage` or `.deb` package from the [releases page](https://github.com/felipefdl/deathpush/releases/latest)
-2. For AppImage: `chmod +x DeathPush.AppImage && ./DeathPush.AppImage`
-3. For .deb: `sudo dpkg -i deathpush_*.deb`
+
+- AppImage, `.deb`, and `.rpm` for x64 and ARM
 
 ## Build from Source
 
 ### Prerequisites
-- Rust 1.85.0 or later
-- Node.js 18 or later
-- Git
 
-### Steps
-```bash
-git clone https://github.com/felipefdl/deathpush.git
-cd deathpush
+- Vite+ (`vp`) with Node.js 24 and pnpm
+- Rust toolchain (edition 2024, minimum rustc 1.85.0)
+- `just` task runner
+
+### Commands
+
+```sh
 vp install
-vp run tauri -- build
+just dev
 ```
 
-The built application will be in `src-tauri/target/release/`.
+Production binary:
+
+```sh
+just build
+```
+
+Quality checks:
+
+```sh
+just lint
+just test
+just fmt
+just check
+```
 
 ## Architecture
 
-DeathPush uses a layered architecture:
+DeathPush uses a hybrid Git engine:
 
-- **Frontend**: TypeScript + Solid 2 with Monaco editor integration
-- **Backend**: Rust with Tauri framework
-- **Git Operations**: Native git2 library bindings via Rust
-- **Terminal**: PTY-based terminal emulation
-- **IPC**: Tauri command system for frontend-backend communication
-
-### Key Design Decisions
-- Native Rust backend for performance and memory efficiency
-- Tauri instead of Electron for smaller binary size and lower resource usage
-- Monaco editor for VS Code-quality diff viewing
-- PTY-based terminal for full shell compatibility
+- `git2` for read operations: status, diff, branches, log, tags
+- Native `git` CLI for write operations: commit, push, pull, stash, checkout, reset, clone, so hooks, signing, credentials, SSH config, and LFS keep working
+- Frontend: Solid, TypeScript, Monaco
+- Backend: Rust and Tauri
+- Local operation. No telemetry, no accounts.
 
 ## Supported Git Operations
 
 - `init`, `clone`
-- `add`, `reset` (staging/unstaging)
+- `add`, `reset` (file-level staging)
 - `commit`, `amend`
 - `push`, `pull`, `fetch`
 - `branch` (create, delete, rename, list)
 - `checkout`, `switch`
-- `merge`, `rebase`
+- `merge` (continue, abort)
+- `rebase` (continue, skip, abort)
 - `stash` (save, pop, apply, drop, list)
-- `tag` (create, delete, list)
+- `tag` (create, delete, list, push)
 - `cherry-pick`
-- `blame`
+- `blame` (current line in the status bar)
 - `log` (file history, commit history)
 - `diff` (staged, unstaged, between commits)
-- `remote` (add, remove, list)
-- `clean`
 
 ## Technical Details
 
-- Stack: Rust (backend), TypeScript + Solid 2 (frontend), Tauri (framework)
 - License: Apache-2.0
-- Platforms: macOS (Apple Silicon & Intel), Windows 10+, Linux (AppImage & .deb)
-- Version: 0.1.0
+- Platforms: macOS, Windows, Linux
+- Packages: macOS universal .dmg and .app.tar.gz; Windows .msi and .exe for x64 and ARM; Linux AppImage, .deb, and .rpm for x64 and ARM
 - Author: Felipe Lima
 
 ## Links

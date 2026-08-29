@@ -14,7 +14,11 @@
     --text: #e0e0e0;
     --text-muted: #666;
     --text-dim: #444;
-    --accent: #dc2626;
+    --accent: #e8d9bd;
+    --accent-hover: #f0e4cd;
+    --accent-text: #1a1a1a;
+    --accent-dark: #b09978;
+    --red: #dc2626;
     --green: #22c55e;
     --yellow: #f59e0b;
     --blue: #3b82f6;
@@ -36,6 +40,12 @@
     height: 675px;
     position: relative;
     overflow: hidden;
+    display: none;
+  }
+
+  body:not(:has(:target)) .scene:first-of-type,
+  .scene:target {
+    display: block;
   }
 
   .window {
@@ -48,7 +58,7 @@
     border-radius: 10px;
     overflow: hidden;
     background: var(--surface);
-    box-shadow: 0 0 80px rgba(220, 38, 38, 0.06), 0 25px 80px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 0 80px rgba(232, 217, 189, 0.06), 0 25px 80px rgba(0, 0, 0, 0.6);
   }
 
   .titlebar {
@@ -68,7 +78,6 @@
     color: var(--text-muted);
   }
 
-  /* GNOME-style window buttons (right side) */
   .wm-buttons {
     display: flex;
     align-items: center;
@@ -130,8 +139,6 @@
     background: var(--bg);
   }
 
-  /* --- Scene 1: Main View --- */
-
   .sidebar {
     width: 260px;
     border-right: 1px solid var(--border);
@@ -166,7 +173,7 @@
     justify-content: center;
     font-size: 11px;
     font-weight: 600;
-    color: #fff;
+    color: var(--accent-text);
     letter-spacing: 0.02em;
   }
 
@@ -194,7 +201,7 @@
   }
 
   .file-row.active {
-    background: rgba(220, 38, 38, 0.08);
+    background: rgba(232, 217, 189, 0.08);
   }
 
   .file-dot {
@@ -225,9 +232,8 @@
 
   .badge-m { color: var(--yellow); }
   .badge-a { color: var(--green); }
-  .badge-d { color: var(--accent); }
+  .badge-d { color: var(--red); }
 
-  /* Diff area */
   .diff-area {
     flex: 1;
     display: flex;
@@ -252,8 +258,29 @@
     font-weight: 500;
   }
 
-  .diff-toolbar .arrow {
-    color: var(--text-dim);
+  .diff-toolbar .path {
+    color: var(--text-muted);
+  }
+
+  .diff-mode {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+  }
+
+  .diff-mode-btn {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+
+  .diff-mode-btn.active {
+    background: rgba(232, 217, 189, 0.12);
+    border-color: var(--accent-dark);
+    color: var(--accent);
   }
 
   .diff-cols {
@@ -301,15 +328,6 @@
     user-select: none;
   }
 
-  .code-bar {
-    height: 5px;
-    border-radius: 3px;
-    background: #1a1a1a;
-  }
-
-  .added .code-bar { background: rgba(34, 197, 94, 0.2); }
-  .removed .code-bar { background: rgba(220, 38, 38, 0.2); }
-
   .code-text {
     font-size: 11px;
     white-space: pre;
@@ -323,8 +341,6 @@
   .code-text .op { color: var(--text-muted); }
   .code-text .ty { color: var(--green); }
   .code-text .var { color: var(--text); }
-
-  /* --- Scene 2: Branch Management --- */
 
   .branch-panel {
     width: 320px;
@@ -378,7 +394,7 @@
   }
 
   .branch-item.current {
-    background: rgba(220, 38, 38, 0.08);
+    background: rgba(232, 217, 189, 0.08);
     color: #fff;
   }
 
@@ -397,7 +413,7 @@
     font-weight: 600;
     padding: 1px 5px;
     border-radius: 3px;
-    background: rgba(220, 38, 38, 0.15);
+    background: rgba(232, 217, 189, 0.15);
     color: var(--accent);
   }
 
@@ -406,7 +422,6 @@
     color: var(--text-dim);
   }
 
-  /* Merge panel */
   .merge-panel {
     flex: 1;
     padding: 24px;
@@ -472,7 +487,7 @@
   .merge-btn.primary {
     background: var(--accent);
     border-color: var(--accent);
-    color: #fff;
+    color: var(--accent-text);
   }
 
   .merge-btn.secondary {
@@ -522,7 +537,7 @@
   }
 
   .graph-hash {
-    width: 60px;
+    width: 72px;
     color: var(--yellow);
     font-size: 10px;
     flex-shrink: 0;
@@ -543,110 +558,166 @@
     flex-shrink: 0;
   }
 
-  /* --- Scene 3: Terminal --- */
-
-  .terminal-body {
+  .history-list {
+    width: 340px;
+    border-right: 1px solid var(--border);
+    background: #0d0d0d;
     display: flex;
     flex-direction: column;
-    height: 100%;
-    background: var(--bg);
-  }
-
-  .terminal-tabs {
-    display: flex;
-    align-items: center;
-    height: 34px;
-    background: #0d0d0d;
-    border-bottom: 1px solid var(--border);
-    padding: 0 12px;
-    gap: 2px;
-  }
-
-  .terminal-tab {
-    padding: 6px 14px;
-    font-size: 11px;
-    color: var(--text-muted);
-    border-radius: 4px 4px 0 0;
-    cursor: pointer;
-  }
-
-  .terminal-tab.active {
-    color: var(--text);
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-bottom: 1px solid var(--bg);
-  }
-
-  .terminal-content {
-    flex: 1;
-    padding: 16px 20px;
-    font-family: var(--mono);
-    font-size: 12px;
-    line-height: 1.7;
+    flex-shrink: 0;
     overflow: hidden;
   }
 
-  .term-prompt {
-    color: var(--green);
+  .history-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
   }
 
-  .term-path {
-    color: var(--blue);
+  .history-item.selected {
+    background: rgba(232, 217, 189, 0.08);
   }
 
-  .term-cmd {
-    color: var(--text);
+  .history-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #5b4634;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
   }
 
-  .term-output {
+  .history-avatar.alt {
+    background: #3d4f3a;
+  }
+
+  .history-item-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .history-item-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .history-subject {
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .history-date {
+    font-size: 10px;
     color: var(--text-muted);
+    flex-shrink: 0;
   }
 
-  .term-hash {
-    color: var(--yellow);
+  .history-item-bottom {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
   }
 
-  .term-branch {
-    color: var(--cyan);
-  }
-
-  .term-added {
-    color: var(--green);
-  }
-
-  .term-removed {
+  .history-hash {
+    font-family: var(--mono);
+    font-size: 10px;
     color: var(--accent);
   }
 
-  .term-stat {
-    color: var(--text);
-  }
-
-  .status-bar {
-    display: flex;
-    align-items: center;
-    height: 24px;
-    background: #0d0d0d;
-    border-top: 1px solid var(--border);
-    padding: 0 12px;
+  .history-author {
     font-size: 10px;
-    color: var(--text-dim);
-    gap: 16px;
+    color: var(--text-muted);
   }
 
-  .status-item {
+  .history-detail {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .history-detail-header {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
   }
 
-  .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
+  .history-detail-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  /* Glow effects */
+  .history-detail-id {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+  }
+
+  .history-files {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .history-files-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    padding: 8px 12px 4px;
+    text-transform: uppercase;
+  }
+
+  .history-file {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 22px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  .history-file.selected {
+    background: rgba(232, 217, 189, 0.08);
+  }
+
+  .history-file-path {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .history-diff-header {
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    background: #0f0f0f;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
   .scene::before {
     content: "";
     position: absolute;
@@ -655,7 +726,7 @@
     transform: translateX(-50%);
     width: 600px;
     height: 300px;
-    background: radial-gradient(ellipse, rgba(220, 38, 38, 0.04) 0%, transparent 70%);
+    background: radial-gradient(ellipse, rgba(232, 217, 189, 0.04) 0%, transparent 70%);
     pointer-events: none;
   }
 </style>
@@ -675,42 +746,42 @@
     </div>
     <div class="body">
       <div class="sidebar">
-        <div class="commit-input">feat: add image diff support</div>
+        <div class="commit-input">feat: add side-by-side image diffs</div>
         <div class="commit-btn">Commit</div>
         <div class="section-label">Staged Changes <span style="color:#555; font-weight:400">(4)</span></div>
         <div class="file-row">
           <span class="file-dot" style="background: var(--green)"></span>
-          <span class="file-name">diff-viewer.tsx<span class="file-path">src/components</span></span>
+          <span class="file-name">diff-viewer.tsx<span class="file-path">diff</span></span>
           <span class="file-badge badge-m">M</span>
         </div>
         <div class="file-row active">
           <span class="file-dot" style="background: var(--green)"></span>
-          <span class="file-name">image-diff.tsx<span class="file-path">src/components</span></span>
-          <span class="file-badge badge-a">A</span>
-        </div>
-        <div class="file-row">
-          <span class="file-dot" style="background: var(--green)"></span>
-          <span class="file-name">file-list.tsx<span class="file-path">src/components</span></span>
+          <span class="file-name">image-diff.tsx<span class="file-path">diff</span></span>
           <span class="file-badge badge-m">M</span>
         </div>
         <div class="file-row">
           <span class="file-dot" style="background: var(--green)"></span>
-          <span class="file-name">main.rs<span class="file-path">src-tauri/src</span></span>
+          <span class="file-name">history-view.tsx<span class="file-path">history</span></span>
+          <span class="file-badge badge-m">M</span>
+        </div>
+        <div class="file-row">
+          <span class="file-dot" style="background: var(--green)"></span>
+          <span class="file-name">commit-detail.tsx<span class="file-path">history</span></span>
           <span class="file-badge badge-m">M</span>
         </div>
         <div class="section-label">Changes <span style="color:#555; font-weight:400">(3)</span></div>
         <div class="file-row">
-          <span class="file-dot" style="background: var(--accent)"></span>
-          <span class="file-name">app.tsx<span class="file-path">src</span></span>
+          <span class="file-dot" style="background: var(--red)"></span>
+          <span class="file-name">scm-view.tsx<span class="file-path">scm</span></span>
           <span class="file-badge badge-m">M</span>
         </div>
         <div class="file-row">
-          <span class="file-dot" style="background: var(--accent)"></span>
-          <span class="file-name">styles.css<span class="file-path">src</span></span>
+          <span class="file-dot" style="background: var(--red)"></span>
+          <span class="file-name">global.css<span class="file-path">styles</span></span>
           <span class="file-badge badge-m">M</span>
         </div>
         <div class="file-row">
-          <span class="file-dot" style="background: var(--accent)"></span>
+          <span class="file-dot" style="background: var(--red)"></span>
           <span class="file-name">README.md<span class="file-path"></span></span>
           <span class="file-badge badge-m">M</span>
         </div>
@@ -718,57 +789,52 @@
       <div class="diff-area">
         <div class="diff-toolbar">
           <span class="filename">image-diff.tsx</span>
-          <span class="arrow">&mdash;</span>
-          <span>src/components/image-diff.tsx</span>
+          <span class="path">src/components/diff/image-diff.tsx</span>
+          <div class="diff-mode">
+            <span class="diff-mode-btn active">Side by Side</span>
+            <span class="diff-mode-btn">Unified</span>
+          </div>
         </div>
         <div class="diff-cols">
           <div class="diff-col">
-            <div class="diff-line"><span class="ln">1</span><span class="code-text"><span class="kw">import</span> <span class="op">{</span> <span class="var">useState</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">"react"</span><span class="op">;</span></span></div>
-            <div class="diff-line"><span class="ln">2</span><span class="code-text"><span class="kw">import</span> <span class="op">{</span> <span class="var">invoke</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">"@tauri-apps/api"</span><span class="op">;</span></span></div>
-            <div class="diff-line"><span class="ln">3</span><span class="code-text"></span></div>
-            <div class="diff-line"><span class="ln">4</span><span class="code-text"><span class="kw">interface</span> <span class="ty">ImageDiffProps</span> <span class="op">{</span></span></div>
-            <div class="diff-line"><span class="ln">5</span><span class="code-text">  <span class="var">oldSrc</span><span class="op">:</span> <span class="ty">string</span><span class="op">;</span></span></div>
-            <div class="diff-line"><span class="ln">6</span><span class="code-text">  <span class="var">newSrc</span><span class="op">:</span> <span class="ty">string</span><span class="op">;</span></span></div>
-            <div class="diff-line removed"><span class="ln">7</span><span class="code-text">  <span class="var">mode</span><span class="op">:</span> <span class="str">"side-by-side"</span><span class="op">;</span></span></div>
-            <div class="diff-line"><span class="ln">8</span><span class="code-text"><span class="op">}</span></span></div>
-            <div class="diff-line"><span class="ln">9</span><span class="code-text"></span></div>
-            <div class="diff-line"><span class="ln">10</span><span class="code-text"><span class="kw">export</span> <span class="kw">const</span> <span class="fn">ImageDiff</span> <span class="op">=</span> <span class="op">(</span><span class="var">props</span><span class="op">:</span> <span class="ty">ImageDiffProps</span><span class="op">)</span> <span class="op">=></span> <span class="op">{</span></span></div>
-            <div class="diff-line removed"><span class="ln">11</span><span class="code-text">  <span class="kw">const</span> <span class="op">[</span><span class="var">zoom</span><span class="op">,</span> <span class="var">setZoom</span><span class="op">]</span> <span class="op">=</span> <span class="fn">useState</span><span class="op">(</span><span class="num">1</span><span class="op">);</span></span></div>
-            <div class="diff-line"><span class="ln">12</span><span class="code-text"></span></div>
-            <div class="diff-line"><span class="ln">13</span><span class="code-text">  <span class="kw">return</span> <span class="op">(</span></span></div>
-            <div class="diff-line"><span class="ln">14</span><span class="code-text">    <span class="op">&lt;</span><span class="ty">div</span> <span class="var">className</span><span class="op">=</span><span class="str">"image-diff"</span><span class="op">></span></span></div>
-            <div class="diff-line removed"><span class="ln">15</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">img</span> <span class="var">src</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">oldSrc</span><span class="op">}</span> <span class="op">/></span></span></div>
-            <div class="diff-line removed"><span class="ln">16</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">img</span> <span class="var">src</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">newSrc</span><span class="op">}</span> <span class="op">/></span></span></div>
-            <div class="diff-line"><span class="ln">17</span><span class="code-text">    <span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
-            <div class="diff-line"><span class="ln">18</span><span class="code-text">  <span class="op">);</span></span></div>
-            <div class="diff-line"><span class="ln">19</span><span class="code-text"><span class="op">};</span></span></div>
+            <div class="diff-line"><span class="ln">1</span><span class="code-text"><span class="kw">import</span> <span class="op">{</span> <span class="ty">JSX</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">"solid-js"</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">2</span><span class="code-text"></span></div>
+            <div class="diff-line"><span class="ln">3</span><span class="code-text"><span class="kw">type</span> <span class="ty">ImageDiffProps</span> <span class="op">=</span> <span class="op">{</span></span></div>
+            <div class="diff-line"><span class="ln">4</span><span class="code-text">  <span class="var">original</span><span class="op">:</span> <span class="ty">string</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">5</span><span class="code-text">  <span class="var">modified</span><span class="op">:</span> <span class="ty">string</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">6</span><span class="code-text"><span class="op">};</span></span></div>
+            <div class="diff-line"><span class="ln">7</span><span class="code-text"></span></div>
+            <div class="diff-line"><span class="ln">8</span><span class="code-text"><span class="kw">export</span> <span class="kw">const</span> <span class="fn">ImageDiff</span> <span class="op">=</span> <span class="op">(</span><span class="var">props</span><span class="op">:</span> <span class="ty">ImageDiffProps</span><span class="op">)</span> <span class="op">=></span> <span class="op">{</span></span></div>
+            <div class="diff-line removed"><span class="ln">9</span><span class="code-text">  <span class="kw">return</span> <span class="op">(</span></span></div>
+            <div class="diff-line removed"><span class="ln">10</span><span class="code-text">    <span class="op">&lt;</span><span class="ty">div</span> <span class="var">class</span><span class="op">=</span><span class="str">"image-diff"</span><span class="op">></span></span></div>
+            <div class="diff-line removed"><span class="ln">11</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">img</span> <span class="var">src</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">original</span><span class="op">}</span> <span class="op">/></span></span></div>
+            <div class="diff-line removed"><span class="ln">12</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">img</span> <span class="var">src</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">modified</span><span class="op">}</span> <span class="op">/></span></span></div>
+            <div class="diff-line removed"><span class="ln">13</span><span class="code-text">    <span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
+            <div class="diff-line"><span class="ln">14</span><span class="code-text">  <span class="op">);</span></span></div>
+            <div class="diff-line"><span class="ln">15</span><span class="code-text"><span class="op">};</span></span></div>
           </div>
           <div class="diff-col">
-            <div class="diff-line"><span class="ln">1</span><span class="code-text"><span class="kw">import</span> <span class="op">{</span> <span class="var">useState</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">"react"</span><span class="op">;</span></span></div>
-            <div class="diff-line"><span class="ln">2</span><span class="code-text"><span class="kw">import</span> <span class="op">{</span> <span class="var">invoke</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">"@tauri-apps/api"</span><span class="op">;</span></span></div>
-            <div class="diff-line"><span class="ln">3</span><span class="code-text"></span></div>
-            <div class="diff-line"><span class="ln">4</span><span class="code-text"><span class="kw">interface</span> <span class="ty">ImageDiffProps</span> <span class="op">{</span></span></div>
-            <div class="diff-line"><span class="ln">5</span><span class="code-text">  <span class="var">oldSrc</span><span class="op">:</span> <span class="ty">string</span><span class="op">;</span></span></div>
-            <div class="diff-line"><span class="ln">6</span><span class="code-text">  <span class="var">newSrc</span><span class="op">:</span> <span class="ty">string</span><span class="op">;</span></span></div>
-            <div class="diff-line added"><span class="ln">7</span><span class="code-text">  <span class="var">mode</span><span class="op">:</span> <span class="str">"side-by-side"</span> <span class="op">|</span> <span class="str">"overlay"</span> <span class="op">|</span> <span class="str">"diff"</span><span class="op">;</span></span></div>
-            <div class="diff-line"><span class="ln">8</span><span class="code-text"><span class="op">}</span></span></div>
-            <div class="diff-line"><span class="ln">9</span><span class="code-text"></span></div>
-            <div class="diff-line"><span class="ln">10</span><span class="code-text"><span class="kw">export</span> <span class="kw">const</span> <span class="fn">ImageDiff</span> <span class="op">=</span> <span class="op">(</span><span class="var">props</span><span class="op">:</span> <span class="ty">ImageDiffProps</span><span class="op">)</span> <span class="op">=></span> <span class="op">{</span></span></div>
-            <div class="diff-line added"><span class="ln">11</span><span class="code-text">  <span class="kw">const</span> <span class="op">[</span><span class="var">zoom</span><span class="op">,</span> <span class="var">setZoom</span><span class="op">]</span> <span class="op">=</span> <span class="fn">useState</span><span class="op">(</span><span class="num">1</span><span class="op">);</span></span></div>
-            <div class="diff-line added"><span class="ln">12</span><span class="code-text">  <span class="kw">const</span> <span class="op">[</span><span class="var">opacity</span><span class="op">,</span> <span class="var">setOpacity</span><span class="op">]</span> <span class="op">=</span> <span class="fn">useState</span><span class="op">(</span><span class="num">0.5</span><span class="op">);</span></span></div>
-            <div class="diff-line"><span class="ln">13</span><span class="code-text"></span></div>
-            <div class="diff-line"><span class="ln">14</span><span class="code-text">  <span class="kw">return</span> <span class="op">(</span></span></div>
-            <div class="diff-line"><span class="ln">15</span><span class="code-text">    <span class="op">&lt;</span><span class="ty">div</span> <span class="var">className</span><span class="op">=</span><span class="str">"image-diff"</span><span class="op">></span></span></div>
-            <div class="diff-line added"><span class="ln">16</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">DiffCanvas</span></span></div>
-            <div class="diff-line added"><span class="ln">17</span><span class="code-text">        <span class="var">old</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">oldSrc</span><span class="op">}</span></span></div>
-            <div class="diff-line added"><span class="ln">18</span><span class="code-text">        <span class="var">new</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">newSrc</span><span class="op">}</span></span></div>
-            <div class="diff-line added"><span class="ln">19</span><span class="code-text">        <span class="var">mode</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">mode</span><span class="op">}</span></span></div>
-            <div class="diff-line added"><span class="ln">20</span><span class="code-text">        <span class="var">zoom</span><span class="op">={</span><span class="var">zoom</span><span class="op">}</span></span></div>
-            <div class="diff-line added"><span class="ln">21</span><span class="code-text">        <span class="var">opacity</span><span class="op">={</span><span class="var">opacity</span><span class="op">}</span></span></div>
-            <div class="diff-line added"><span class="ln">22</span><span class="code-text">      <span class="op">/></span></span></div>
-            <div class="diff-line"><span class="ln">23</span><span class="code-text">    <span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
-            <div class="diff-line"><span class="ln">24</span><span class="code-text">  <span class="op">);</span></span></div>
-            <div class="diff-line"><span class="ln">25</span><span class="code-text"><span class="op">};</span></span></div>
+            <div class="diff-line"><span class="ln">1</span><span class="code-text"><span class="kw">import</span> <span class="op">{</span> <span class="ty">JSX</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">"solid-js"</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">2</span><span class="code-text"></span></div>
+            <div class="diff-line"><span class="ln">3</span><span class="code-text"><span class="kw">type</span> <span class="ty">ImageDiffProps</span> <span class="op">=</span> <span class="op">{</span></span></div>
+            <div class="diff-line"><span class="ln">4</span><span class="code-text">  <span class="var">original</span><span class="op">:</span> <span class="ty">string</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">5</span><span class="code-text">  <span class="var">modified</span><span class="op">:</span> <span class="ty">string</span><span class="op">;</span></span></div>
+            <div class="diff-line"><span class="ln">6</span><span class="code-text"><span class="op">};</span></span></div>
+            <div class="diff-line"><span class="ln">7</span><span class="code-text"></span></div>
+            <div class="diff-line"><span class="ln">8</span><span class="code-text"><span class="kw">export</span> <span class="kw">const</span> <span class="fn">ImageDiff</span> <span class="op">=</span> <span class="op">(</span><span class="var">props</span><span class="op">:</span> <span class="ty">ImageDiffProps</span><span class="op">)</span> <span class="op">=></span> <span class="op">{</span></span></div>
+            <div class="diff-line added"><span class="ln">9</span><span class="code-text">  <span class="kw">return</span> <span class="op">(</span></span></div>
+            <div class="diff-line added"><span class="ln">10</span><span class="code-text">    <span class="op">&lt;</span><span class="ty">div</span> <span class="var">class</span><span class="op">=</span><span class="str">"image-diff"</span><span class="op">></span></span></div>
+            <div class="diff-line added"><span class="ln">11</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">div</span> <span class="var">class</span><span class="op">=</span><span class="str">"image-diff-panel"</span><span class="op">></span></span></div>
+            <div class="diff-line added"><span class="ln">12</span><span class="code-text">        <span class="op">&lt;</span><span class="ty">div</span> <span class="var">class</span><span class="op">=</span><span class="str">"image-diff-label"</span><span class="op">></span>Original<span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
+            <div class="diff-line added"><span class="ln">13</span><span class="code-text">        <span class="op">&lt;</span><span class="ty">img</span> <span class="var">src</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">original</span><span class="op">}</span> <span class="op">/></span></span></div>
+            <div class="diff-line added"><span class="ln">14</span><span class="code-text">      <span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
+            <div class="diff-line added"><span class="ln">15</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">div</span> <span class="var">class</span><span class="op">=</span><span class="str">"image-diff-panel"</span><span class="op">></span></span></div>
+            <div class="diff-line added"><span class="ln">16</span><span class="code-text">        <span class="op">&lt;</span><span class="ty">div</span> <span class="var">class</span><span class="op">=</span><span class="str">"image-diff-label"</span><span class="op">></span>Modified<span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
+            <div class="diff-line added"><span class="ln">17</span><span class="code-text">        <span class="op">&lt;</span><span class="ty">img</span> <span class="var">src</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">modified</span><span class="op">}</span> <span class="op">/></span></span></div>
+            <div class="diff-line added"><span class="ln">18</span><span class="code-text">      <span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
+            <div class="diff-line added"><span class="ln">19</span><span class="code-text">    <span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
+            <div class="diff-line"><span class="ln">20</span><span class="code-text">  <span class="op">);</span></span></div>
+            <div class="diff-line"><span class="ln">21</span><span class="code-text"><span class="op">};</span></span></div>
           </div>
         </div>
       </div>
@@ -807,7 +873,7 @@
         </div>
         <div class="branch-item">
           <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
-          <span class="branch-name">feat/terminal-pty</span>
+          <span class="branch-name">feat/history-filter</span>
           <span class="branch-ahead-behind">+7 -2</span>
         </div>
         <div class="branch-item">
@@ -831,7 +897,7 @@
         </div>
         <div class="branch-item">
           <svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
-          <span class="branch-name" style="color: var(--text-muted)">origin/feat/terminal-pty</span>
+          <span class="branch-name" style="color: var(--text-muted)">origin/feat/history-filter</span>
         </div>
       </div>
       <div class="merge-panel">
@@ -844,7 +910,6 @@
         <div class="merge-actions">
           <div class="merge-btn primary">Merge</div>
           <div class="merge-btn secondary">Rebase</div>
-          <div class="merge-btn secondary">Squash</div>
         </div>
         <div style="font-size: 11px; color: var(--text-muted); margin-top: -8px">3 commits, no conflicts detected</div>
         <div class="commit-graph">
@@ -852,13 +917,13 @@
           <div class="graph-row">
             <div class="graph-line"><span class="graph-dot" style="background: var(--blue)"></span><span class="graph-bar" style="background: var(--blue)"></span></div>
             <span class="graph-hash">a3f82c1</span>
-            <span class="graph-msg">add overlay diff mode</span>
+            <span class="graph-msg">add side-by-side image comparison</span>
             <span class="graph-date">2m ago</span>
           </div>
           <div class="graph-row">
             <div class="graph-line"><span class="graph-dot" style="background: var(--blue)"></span><span class="graph-bar" style="background: var(--blue)"></span></div>
             <span class="graph-hash">7d1e9b4</span>
-            <span class="graph-msg">implement side-by-side image comparison</span>
+            <span class="graph-msg">refine image format detection</span>
             <span class="graph-date">15m ago</span>
           </div>
           <div class="graph-row">
@@ -875,8 +940,8 @@
           </div>
           <div class="graph-row">
             <div class="graph-line"><span class="graph-dot" style="background: var(--accent)"></span><span class="graph-bar" style="background: var(--accent)"></span></div>
-            <span class="graph-hash">2edb07d</span>
-            <span class="graph-msg">release: v0.1.2</span>
+            <span class="graph-hash">8c1b4e2</span>
+            <span class="graph-msg">filter commit history by path</span>
             <span class="graph-date">3h ago</span>
           </div>
           <div class="graph-row">
@@ -897,66 +962,157 @@
   </div>
 </div>
 
-<!-- Scene 3: Terminal -->
-<div class="scene" id="scene-terminal">
+<!-- Scene 3: History -->
+<div class="scene" id="scene-history">
   <div class="window">
     <div class="titlebar">
-      <div class="titlebar-text">DeathPush - Terminal</div>
+      <div class="titlebar-text">DeathPush - History</div>
       <div class="wm-buttons">
         <span class="wm-btn wm-min"></span>
         <span class="wm-btn wm-max"></span>
         <span class="wm-btn wm-close"></span>
       </div>
     </div>
-    <div class="terminal-body">
-      <div class="terminal-tabs">
-        <div class="terminal-tab">Source Control</div>
-        <div class="terminal-tab active">Terminal</div>
-        <div class="terminal-tab">Branches</div>
+    <div class="body">
+      <div class="history-list">
+        <div class="history-item selected">
+          <span class="history-avatar">AR</span>
+          <div class="history-item-content">
+            <div class="history-item-top">
+              <span class="history-subject">add side-by-side image comparison</span>
+              <span class="history-date">2m ago</span>
+            </div>
+            <div class="history-item-bottom">
+              <span class="history-hash">a3f82c1</span>
+              <span class="history-author">Alex Rivera</span>
+            </div>
+          </div>
+        </div>
+        <div class="history-item">
+          <span class="history-avatar">AR</span>
+          <div class="history-item-content">
+            <div class="history-item-top">
+              <span class="history-subject">refine image format detection</span>
+              <span class="history-date">15m ago</span>
+            </div>
+            <div class="history-item-bottom">
+              <span class="history-hash">7d1e9b4</span>
+              <span class="history-author">Alex Rivera</span>
+            </div>
+          </div>
+        </div>
+        <div class="history-item">
+          <span class="history-avatar alt">MC</span>
+          <div class="history-item-content">
+            <div class="history-item-top">
+              <span class="history-subject">filter commit history by path</span>
+              <span class="history-date">1h ago</span>
+            </div>
+            <div class="history-item-bottom">
+              <span class="history-hash">8c1b4e2</span>
+              <span class="history-author">Morgan Chen</span>
+            </div>
+          </div>
+        </div>
+        <div class="history-item">
+          <span class="history-avatar">AR</span>
+          <div class="history-item-content">
+            <div class="history-item-top">
+              <span class="history-subject">fix download links</span>
+              <span class="history-date">2h ago</span>
+            </div>
+            <div class="history-item-bottom">
+              <span class="history-hash">3a4d8f7</span>
+              <span class="history-author">Alex Rivera</span>
+            </div>
+          </div>
+        </div>
+        <div class="history-item">
+          <span class="history-avatar">AR</span>
+          <div class="history-item-content">
+            <div class="history-item-top">
+              <span class="history-subject">fix favicon and og</span>
+              <span class="history-date">5h ago</span>
+            </div>
+            <div class="history-item-bottom">
+              <span class="history-hash">de049ad</span>
+              <span class="history-author">Alex Rivera</span>
+            </div>
+          </div>
+        </div>
+        <div class="history-item">
+          <span class="history-avatar">AR</span>
+          <div class="history-item-content">
+            <div class="history-item-top">
+              <span class="history-subject">added svg</span>
+              <span class="history-date">6h ago</span>
+            </div>
+            <div class="history-item-bottom">
+              <span class="history-hash">f4ccf63</span>
+              <span class="history-author">Alex Rivera</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="terminal-content">
-        <div><span class="term-prompt">&#10095;</span> <span class="term-path">~/Projects/deathpush</span> <span class="term-branch">(main)</span></div>
-        <div><span class="term-cmd">$ git log --oneline -5</span></div>
-        <div><span class="term-hash">3a4d8f7</span> <span class="term-output">fix download links</span></div>
-        <div><span class="term-hash">2edb07d</span> <span class="term-output">release: v0.1.2</span></div>
-        <div><span class="term-hash">de049ad</span> <span class="term-output">fix favicon and og</span></div>
-        <div><span class="term-hash">f4ccf63</span> <span class="term-output">added svg</span></div>
-        <div><span class="term-hash">d7983d1</span> <span class="term-output">release: v0.1.1</span></div>
-        <div style="height: 12px"></div>
-        <div><span class="term-prompt">&#10095;</span> <span class="term-path">~/Projects/deathpush</span> <span class="term-branch">(main)</span></div>
-        <div><span class="term-cmd">$ git diff --stat HEAD~3</span></div>
-        <div><span class="term-stat"> src/components/diff-viewer.tsx</span>  | <span class="term-added">+42</span> <span class="term-removed">-18</span></div>
-        <div><span class="term-stat"> src/components/file-list.tsx</span>    | <span class="term-added">+15</span> <span class="term-removed">-3</span></div>
-        <div><span class="term-stat"> src-tauri/src/main.rs</span>           | <span class="term-added">+28</span> <span class="term-removed">-7</span></div>
-        <div><span class="term-stat"> src/styles/global.css</span>           | <span class="term-added">+8</span>  <span class="term-removed">-2</span></div>
-        <div><span class="term-stat"> 4 files changed,</span> <span class="term-added">93 insertions(+)</span>, <span class="term-removed">30 deletions(-)</span></div>
-        <div style="height: 12px"></div>
-        <div><span class="term-prompt">&#10095;</span> <span class="term-path">~/Projects/deathpush</span> <span class="term-branch">(main)</span></div>
-        <div><span class="term-cmd">$ git status</span></div>
-        <div><span class="term-output">On branch main</span></div>
-        <div><span class="term-output">Your branch is up to date with 'origin/main'.</span></div>
-        <div style="height: 4px"></div>
-        <div><span class="term-output">Changes not staged for commit:</span></div>
-        <div><span class="term-removed">  modified:   src-tauri/src/main.rs</span></div>
-        <div style="height: 12px"></div>
-        <div><span class="term-prompt">&#10095;</span> <span class="term-path">~/Projects/deathpush</span> <span class="term-branch">(main)</span></div>
-        <div><span class="term-cmd">$ _</span><span style="display:inline-block; width:7px; height:14px; background: var(--text); animation: blink 1s step-end infinite; vertical-align: middle; margin-left: -6px"></span></div>
-      </div>
-      <div class="status-bar">
-        <div class="status-item"><span class="status-dot" style="background: var(--green)"></span> main</div>
-        <div class="status-item">zsh</div>
-        <div class="status-item">UTF-8</div>
-        <div class="status-item" style="margin-left: auto">DeathPush v0.1.2</div>
+      <div class="history-detail">
+        <div class="history-detail-header">
+          <span class="history-detail-title">add side-by-side image comparison</span>
+          <span class="history-detail-id">a3f82c1</span>
+          <span>&middot;</span>
+          <span>Alex Rivera</span>
+          <span>&middot;</span>
+          <span>2m ago</span>
+        </div>
+        <div class="history-files">
+          <div class="history-files-label">Changed Files (4)</div>
+          <div class="history-file selected">
+            <span class="history-file-path">src/components/diff/image-diff.tsx</span>
+            <span class="file-badge badge-m">M</span>
+          </div>
+          <div class="history-file">
+            <span class="history-file-path">src/components/diff/diff-viewer.tsx</span>
+            <span class="file-badge badge-m">M</span>
+          </div>
+          <div class="history-file">
+            <span class="history-file-path">src/styles/global.css</span>
+            <span class="file-badge badge-m">M</span>
+          </div>
+          <div class="history-file">
+            <span class="history-file-path">src/components/history/history-view.tsx</span>
+            <span class="file-badge badge-m">M</span>
+          </div>
+        </div>
+        <div class="history-diff-header">
+          <span>src/components/diff/image-diff.tsx</span>
+          <div class="diff-mode">
+            <span class="diff-mode-btn active">Side by Side</span>
+            <span class="diff-mode-btn">Unified</span>
+          </div>
+        </div>
+                <div class="diff-cols">
+          <div class="diff-col">
+            <div class="diff-line"><span class="ln">1</span><span class="code-text"><span class="kw">import</span> <span class="op">{</span> <span class="ty">JSX</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">"solid-js"</span><span class="op">;</span></span></div>
+            <div class="diff-line removed"><span class="ln">2</span><span class="code-text">  <span class="kw">return</span> <span class="op">(</span></span></div>
+            <div class="diff-line removed"><span class="ln">3</span><span class="code-text">    <span class="op">&lt;</span><span class="ty">div</span> <span class="var">class</span><span class="op">=</span><span class="str">"image-diff"</span><span class="op">></span></span></div>
+            <div class="diff-line removed"><span class="ln">4</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">img</span> <span class="var">src</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">original</span><span class="op">}</span> <span class="op">/></span></span></div>
+            <div class="diff-line removed"><span class="ln">5</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">img</span> <span class="var">src</span><span class="op">={</span><span class="var">props</span><span class="op">.</span><span class="var">modified</span><span class="op">}</span> <span class="op">/></span></span></div>
+            <div class="diff-line removed"><span class="ln">6</span><span class="code-text">    <span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
+            <div class="diff-line"><span class="ln">7</span><span class="code-text">  <span class="op">);</span></span></div>
+          </div>
+          <div class="diff-col">
+            <div class="diff-line"><span class="ln">1</span><span class="code-text"><span class="kw">import</span> <span class="op">{</span> <span class="ty">JSX</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">"solid-js"</span><span class="op">;</span></span></div>
+            <div class="diff-line added"><span class="ln">2</span><span class="code-text">  <span class="kw">return</span> <span class="op">(</span></span></div>
+            <div class="diff-line added"><span class="ln">3</span><span class="code-text">    <span class="op">&lt;</span><span class="ty">div</span> <span class="var">class</span><span class="op">=</span><span class="str">"image-diff"</span><span class="op">></span></span></div>
+            <div class="diff-line added"><span class="ln">4</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">div</span> <span class="var">class</span><span class="op">=</span><span class="str">"image-diff-panel"</span><span class="op">></span>Original<span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
+            <div class="diff-line added"><span class="ln">5</span><span class="code-text">      <span class="op">&lt;</span><span class="ty">div</span> <span class="var">class</span><span class="op">=</span><span class="str">"image-diff-panel"</span><span class="op">></span>Modified<span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
+            <div class="diff-line added"><span class="ln">6</span><span class="code-text">    <span class="op">&lt;/</span><span class="ty">div</span><span class="op">></span></span></div>
+            <div class="diff-line"><span class="ln">7</span><span class="code-text">  <span class="op">);</span></span></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </div>
-
-<style>
-  @keyframes blink {
-    50% { opacity: 0; }
-  }
-</style>
 
 </body>
 </html>
