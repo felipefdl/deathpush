@@ -1,3 +1,5 @@
+use std::cmp::Reverse;
+
 use git2::BranchType;
 
 use crate::error::Result;
@@ -48,12 +50,7 @@ pub fn list_branches(repo: &GitRepository) -> Result<Vec<BranchEntry>> {
   }
 
   // Sort: current branch first, then local branches, then remote
-  entries.sort_by(|a, b| {
-    b.is_head
-      .cmp(&a.is_head)
-      .then(a.is_remote.cmp(&b.is_remote))
-      .then(a.name.cmp(&b.name))
-  });
+  entries.sort_by_key(|a| (Reverse(a.is_head), a.is_remote, a.name.clone()));
 
   Ok(entries)
 }

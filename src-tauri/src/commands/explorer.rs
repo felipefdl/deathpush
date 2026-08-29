@@ -204,7 +204,7 @@ pub async fn fuzzy_find_files(
         match_positions: vec![],
       })
       .collect();
-    results.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
+    results.sort_by_key(|result| result.path.to_lowercase());
     return Ok(results.into_iter().take(max_results).collect());
   }
 
@@ -233,7 +233,7 @@ pub async fn fuzzy_find_files(
     buf.clear();
   }
 
-  scored.sort_by(|a, b| b.score.cmp(&a.score));
+  scored.sort_by_key(|result| std::cmp::Reverse(result.score));
   scored.truncate(max_results);
   Ok(scored)
 }

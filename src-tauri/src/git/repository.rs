@@ -30,7 +30,7 @@ impl GitRepository {
   pub fn head_branch(&self) -> Option<String> {
     let head = self.repo.head().ok()?;
     if head.is_branch() {
-      head.shorthand().map(|s| s.to_string())
+      head.shorthand().ok().map(|s| s.to_string())
     } else {
       let commit = head.peel_to_commit().ok()?;
       Some(format!("({})", &commit.id().to_string()[..7]))
@@ -57,8 +57,8 @@ impl GitRepository {
     };
 
     let branch_name = match head.shorthand() {
-      Some(name) => name.to_string(),
-      None => return (0, 0),
+      Ok(name) => name.to_string(),
+      Err(_) => return (0, 0),
     };
 
     let upstream_name = format!("refs/remotes/origin/{}", branch_name);

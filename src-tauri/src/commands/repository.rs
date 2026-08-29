@@ -138,7 +138,7 @@ pub fn scan_projects_directory(path: String, depth: u32) -> Result<Vec<ProjectIn
     }
   }
 
-  projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+  projects.sort_by_key(|a| a.name.to_lowercase());
   Ok(projects)
 }
 
@@ -206,7 +206,7 @@ pub fn discover_repositories(
     }
   }
 
-  repos.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+  repos.sort_by_key(|a| a.name.to_lowercase());
   Ok(repos)
 }
 
@@ -238,7 +238,7 @@ pub fn detect_worktrees(state: State<'_, Mutex<AppRepoState>>, window: WebviewWi
       .unwrap_or_default();
     let branch = repo.head().ok().and_then(|h| {
       if h.is_branch() {
-        h.shorthand().map(|s| s.to_string())
+        h.shorthand().ok().map(|s| s.to_string())
       } else {
         None
       }
@@ -254,13 +254,13 @@ pub fn detect_worktrees(state: State<'_, Mutex<AppRepoState>>, window: WebviewWi
   // Linked worktrees
   if let Ok(worktrees) = repo.worktrees() {
     let mut linked: Vec<WorktreeInfo> = Vec::new();
-    for wt_name in worktrees.iter().flatten() {
+    for wt_name in worktrees.iter().filter_map(|n| n.ok().flatten()) {
       if let Ok(wt) = repo.find_worktree(wt_name) {
         let wt_path = wt.path().to_path_buf();
         let branch = git2::Repository::open(&wt_path).ok().and_then(|r| {
           r.head().ok().and_then(|h| {
             if h.is_branch() {
-              h.shorthand().map(|s| s.to_string())
+              h.shorthand().ok().map(|s| s.to_string())
             } else {
               None
             }
@@ -278,7 +278,7 @@ pub fn detect_worktrees(state: State<'_, Mutex<AppRepoState>>, window: WebviewWi
         });
       }
     }
-    linked.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    linked.sort_by_key(|a| a.name.to_lowercase());
     result.extend(linked);
   }
 
@@ -290,7 +290,7 @@ pub fn get_repo_branch(path: String) -> Result<Option<String>> {
   let repo = git2::Repository::discover(&path)?;
   let branch = repo.head().ok().and_then(|h| {
     if h.is_branch() {
-      h.shorthand().map(|s| s.to_string())
+      h.shorthand().ok().map(|s| s.to_string())
     } else {
       None
     }
