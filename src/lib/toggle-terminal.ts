@@ -7,9 +7,6 @@ export const toggleTerminal = () => {
 
   if (layout.terminalVisible) {
     layout.setTerminalVisible(false);
-    if (layout.terminalMaximized) {
-      layout.setTerminalMaximized(false);
-    }
     return;
   }
 

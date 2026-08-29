@@ -190,13 +190,46 @@ describe("layout store", () => {
       expect(layoutStore.getState().terminalMaximized).toBe(false);
     });
 
-    it("docks the terminal when switching sidebar views", () => {
-      layoutStore.setState({ mainView: "history", sidebarView: "scm", terminalMaximized: true });
+    it("preserves the terminal when switching Changes and Explorer tabs", () => {
+      layoutStore.setState({
+        mainView: "changes",
+        sidebarView: "scm",
+        terminalVisible: true,
+        terminalHeight: 320,
+        terminalMaximized: true,
+      });
 
       layoutStore.getState().setSidebarView("explorer");
 
       expect(layoutStore.getState().sidebarView).toBe("explorer");
-      expect(layoutStore.getState().mainView).toBe("history");
+      expect(layoutStore.getState().mainView).toBe("file");
+      expect(layoutStore.getState().terminalVisible).toBe(true);
+      expect(layoutStore.getState().terminalHeight).toBe(320);
+      expect(layoutStore.getState().terminalMaximized).toBe(true);
+
+      layoutStore.getState().setSidebarView("scm");
+
+      expect(layoutStore.getState().sidebarView).toBe("scm");
+      expect(layoutStore.getState().mainView).toBe("changes");
+      expect(layoutStore.getState().terminalVisible).toBe(true);
+      expect(layoutStore.getState().terminalHeight).toBe(320);
+      expect(layoutStore.getState().terminalMaximized).toBe(true);
+    });
+
+    it("preserves the terminal when staying on changes or file", () => {
+      layoutStore.setState({ mainView: "changes", terminalMaximized: true });
+
+      layoutStore.getState().setMainView("file");
+
+      expect(layoutStore.getState().mainView).toBe("file");
+      expect(layoutStore.getState().terminalMaximized).toBe(true);
+    });
+
+    it("docks the terminal when opening a file", () => {
+      layoutStore.setState({ mainView: "changes", terminalMaximized: true });
+
+      layoutStore.getState().dockTerminal();
+
       expect(layoutStore.getState().terminalMaximized).toBe(false);
     });
   });

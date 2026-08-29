@@ -75,7 +75,8 @@ export const ResourceItem = (props: ResourceItemProps) => {
     }
     clear();
     void loadDiff(props.file.path, isStaged());
-    const { mainView, setMainView } = layoutStore.getState();
+    const { mainView, setMainView, dockTerminal } = layoutStore.getState();
+    dockTerminal();
     if (mainView !== "changes") setMainView("changes");
   };
 

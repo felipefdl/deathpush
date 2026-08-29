@@ -93,7 +93,9 @@ export const ExplorerItem = (props: ExplorerItemProps) => {
     }
     const { setSelectedPath, setFileContent } = explorerStore.getState();
     setSelectedPath(props.entry.path);
-    layoutStore.getState().setMainView("file");
+    const layout = layoutStore.getState();
+    layout.dockTerminal();
+    layout.setMainView("file");
     commands
       .readFileContent(props.entry.path)
       .then((content) => {

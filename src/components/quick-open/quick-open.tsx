@@ -168,6 +168,7 @@ export const QuickOpen = (props: QuickOpenProps) => {
         if (root) addRecentFile(root, path);
       })
       .catch(() => {});
+    layout.dockTerminal();
     layout.setSidebarView("explorer");
     layout.setMainView("file");
     props.onClose();
@@ -178,6 +179,7 @@ export const QuickOpen = (props: QuickOpenProps) => {
     const currentPath = explorer.selectedPath;
     if (currentPath && explorer.fileContent) {
       explorer.setRevealLine(line);
+      layoutStore.getState().dockTerminal();
       layoutStore.getState().setMainView("file");
     }
     props.onClose();

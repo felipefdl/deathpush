@@ -27,6 +27,7 @@ interface LayoutState {
   setPanelTab: (tab: "terminal" | "git-output") => void;
   togglePaneCollapsed: (id: string) => void;
   setTerminalMaximized: (maximized: boolean) => void;
+  dockTerminal: () => void;
   toggleTerminalMaximized: () => void;
   setHistoryListWidth: (width: number) => void;
   loadForProject: (root: string) => void;
@@ -117,12 +118,13 @@ export const layoutStore = createStore<LayoutState>((set, get) => ({
     saveLayout(get());
   },
   setMainView: (mainView) => {
-    set({ mainView, terminalMaximized: false });
+    const dock = mainView !== "changes" && mainView !== "file";
+    set(dock ? { mainView, terminalMaximized: false } : { mainView });
     saveLayout(get());
   },
   setSidebarView: (sidebarView) => {
     const { mainView } = get();
-    const update: Partial<LayoutState> = { sidebarView, terminalMaximized: false };
+    const update: Partial<LayoutState> = { sidebarView };
     if (mainView === "changes" || mainView === "file") {
       update.mainView = sidebarView === "explorer" ? "file" : "changes";
     }
@@ -147,6 +149,10 @@ export const layoutStore = createStore<LayoutState>((set, get) => ({
   },
   toggleTerminalMaximized: () => {
     set((state) => ({ terminalMaximized: !state.terminalMaximized }));
+    saveLayout(get());
+  },
+  dockTerminal: () => {
+    set({ terminalMaximized: false });
     saveLayout(get());
   },
   setHistoryListWidth: (historyListWidth) => {

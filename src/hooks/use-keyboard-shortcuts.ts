@@ -5,6 +5,7 @@ import { layoutStore } from "../stores/layout-store";
 import { settingsStore } from "../stores/settings-store";
 import { explorerStore } from "../stores/explorer-store";
 import { toggleTerminal } from "../lib/toggle-terminal";
+import { handleTerminalShortcut } from "../lib/terminal-shortcuts";
 import { buildFlatFileList } from "../lib/flat-file-list";
 import * as commands from "../lib/tauri-commands";
 
@@ -139,6 +140,7 @@ export const useKeyboardShortcuts = () => {
         toggleTerminal();
         return;
       }
+      if (handleTerminalShortcut(e)) return;
 
       const target = e.target as HTMLElement;
       const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
@@ -301,9 +303,9 @@ export const useKeyboardShortcuts = () => {
       const focused = flatList[focusedIndex];
       const isStaged = focused.groupKind === "index";
 
-      // Enter: open diff
       if (e.key === "Enter") {
         e.preventDefault();
+        layout.dockTerminal();
         setSelectedFile({ path: focused.path, staged: isStaged });
         commands
           .getFileDiff(focused.path, isStaged)
@@ -355,9 +357,9 @@ export const useKeyboardShortcuts = () => {
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown, true);
       if (chordTimer) clearTimeout(chordTimer);
     };
   });
