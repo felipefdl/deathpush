@@ -24,7 +24,7 @@ test:
   cd src-tauri && cargo test
 
 test-watch:
-  vp test
+  vp test watch
 
 release version:
   sed -i '' 's/"version": "[^"]*"/"version": "{{version}}"/' package.json

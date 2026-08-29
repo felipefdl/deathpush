@@ -13,7 +13,7 @@
     "fmt": "vp fmt src vite.config.ts",
     "check": "vp check src vite.config.ts",
     "test": "vp test run",
-    "test:watch": "vp test"
+    "test:watch": "vp test watch"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

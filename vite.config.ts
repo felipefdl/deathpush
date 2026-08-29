@@ -185,6 +185,10 @@ export default defineConfig({
       "src/lib/icon-themes/json/**",
       ".temp-vscode/**",
     ],
+    options: {
+      typeAware: true,
+      typeCheck: true,
+    },
     rules: {
       "no-unused-vars": "warn",
       "no-console": "off",

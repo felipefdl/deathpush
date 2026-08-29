@@ -1,14 +1,14 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DiffEditor, type DiffOnMount } from "@monaco-editor/react";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { useLayoutStore } from "../../stores/layout-store";
-import { useSettingsStore } from "../../stores/settings-store";
+import { useSettingsStore, type EditorSettings } from "../../stores/settings-store";
 import { useThemeStore } from "../../stores/theme-store";
 import { formatRelativeDate } from "../../lib/format-date";
 import { getCommitFileDiff } from "../../lib/tauri-commands";
 import { getFileIconClasses } from "../../lib/icon-themes/get-icon-classes";
 import type { CommitDiffContent } from "../../lib/git-types";
-import { buildDiffOptions } from "../../lib/diff-options";
+import { buildDiffModelOptions, buildDiffOptions } from "../../lib/diff-options";
 import { ImageDiff } from "../diff/image-diff";
 import { CommitFileTree } from "./commit-file-tree";
 
@@ -28,6 +28,15 @@ const copyToClipboard = (text: string) => {
   navigator.clipboard.writeText(text);
 };
 
+const applyDiffModelOptions = (
+  editor: Parameters<DiffOnMount>[0],
+  editorSettings: EditorSettings,
+): void => {
+  const options = buildDiffModelOptions(editorSettings);
+  editor.getOriginalEditor().getModel()?.updateOptions(options);
+  editor.getModifiedEditor().getModel()?.updateOptions(options);
+};
+
 export const CommitDetail = () => {
   const { commitDetail } = useRepositoryStore();
   const { diffMode } = useLayoutStore();
@@ -36,8 +45,13 @@ export const CommitDetail = () => {
   const [fileDiff, setFileDiff] = useState<CommitDiffContent | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [filesViewMode, setFilesViewMode] = useState<"list" | "tree">("list");
+  const editorRef = useRef<Parameters<DiffOnMount>[0] | null>(null);
+  const disposeRef = useRef<(() => void) | null>(null);
 
-  const handleDiffMount: DiffOnMount = useCallback((_editor, monaco) => {
+  const handleDiffMount: DiffOnMount = useCallback((editor, monaco) => {
+    editorRef.current = editor;
+    if (disposeRef.current) disposeRef.current();
+
     const chordKT = monaco.KeyMod.chord(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK,
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyT,
@@ -47,24 +61,46 @@ export const CommitDetail = () => {
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI,
     );
 
-    for (const sub of [_editor.getModifiedEditor(), _editor.getOriginalEditor()]) {
-      sub.addAction({
-        id: "deathpush.openThemePicker",
-        label: "Open Theme Picker",
-        keybindings: [chordKT],
-        run: () => {
-          window.dispatchEvent(new CustomEvent("deathpush:open-theme-picker"));
-        },
-      });
-      sub.addAction({
-        id: "deathpush.openIconThemePicker",
-        label: "Open Icon Theme Picker",
-        keybindings: [chordKI],
-        run: () => {
-          window.dispatchEvent(new CustomEvent("deathpush:open-icon-theme-picker"));
-        },
-      });
+    const disposables: { dispose: () => void }[] = [];
+    for (const sub of [editor.getModifiedEditor(), editor.getOriginalEditor()]) {
+      disposables.push(
+        sub.addAction({
+          id: "deathpush.openThemePicker",
+          label: "Open Theme Picker",
+          keybindings: [chordKT],
+          run: () => {
+            window.dispatchEvent(new CustomEvent("deathpush:open-theme-picker"));
+          },
+        }),
+        sub.addAction({
+          id: "deathpush.openIconThemePicker",
+          label: "Open Icon Theme Picker",
+          keybindings: [chordKI],
+          run: () => {
+            window.dispatchEvent(new CustomEvent("deathpush:open-icon-theme-picker"));
+          },
+        }),
+      );
     }
+
+    disposeRef.current = () => {
+      for (const disposable of disposables) disposable.dispose();
+    };
+
+    applyDiffModelOptions(editor, useSettingsStore.getState().settings.editor);
+  }, []);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    applyDiffModelOptions(editor, settings.editor);
+  }, [settings.editor]);
+
+  useEffect(() => {
+    return () => {
+      if (disposeRef.current) disposeRef.current();
+      editorRef.current = null;
+    };
   }, []);
 
   const handleFileClick = useCallback(async (commitId: string, path: string) => {

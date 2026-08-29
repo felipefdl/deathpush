@@ -53,7 +53,7 @@ jobs:
       - name: Lint frontend
         run: vp lint src/
       - name: Typecheck frontend
-        run: vp check src vite.config.ts
+        run: vp check --no-lint src vite.config.ts
       - name: Test frontend
         run: vp test run
       - name: Clippy
