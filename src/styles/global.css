@@ -195,14 +195,21 @@ summary {
 }
 
 .app-layout-divider {
+  position: relative;
+  z-index: 1;
   width: 1px;
   background: var(--vscode-panel-border);
   cursor: col-resize;
   flex-shrink: 0;
 }
 
+.app-layout-divider::after {
+  position: absolute;
+  inset: 0 -4px;
+  content: "";
+}
+
 .app-layout-divider:hover {
-  width: 3px;
   background: var(--vscode-focusBorder);
 }
 

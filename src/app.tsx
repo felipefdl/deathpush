@@ -76,8 +76,8 @@ export const App = () => {
 
   createEffect(
     () => status()?.root,
-    (root) => {
-      if (root) {
+    (root, previousRoot) => {
+      if (root && root !== previousRoot) {
         layoutStore.getState().loadForProject(root);
         explorerStore.getState().clearCache();
       }

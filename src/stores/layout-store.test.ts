@@ -180,6 +180,27 @@ describe("layout store", () => {
     });
   });
 
+  describe("navigation", () => {
+    it("docks the terminal when navigating to another main view", () => {
+      layoutStore.setState({ terminalMaximized: true });
+
+      layoutStore.getState().setMainView("settings");
+
+      expect(layoutStore.getState().mainView).toBe("settings");
+      expect(layoutStore.getState().terminalMaximized).toBe(false);
+    });
+
+    it("docks the terminal when switching sidebar views", () => {
+      layoutStore.setState({ mainView: "history", sidebarView: "scm", terminalMaximized: true });
+
+      layoutStore.getState().setSidebarView("explorer");
+
+      expect(layoutStore.getState().sidebarView).toBe("explorer");
+      expect(layoutStore.getState().mainView).toBe("history");
+      expect(layoutStore.getState().terminalMaximized).toBe(false);
+    });
+  });
+
   describe("toggleTerminalMaximized", () => {
     it("maximizing preserves the current main view", () => {
       layoutStore.getState().setMainView("history");

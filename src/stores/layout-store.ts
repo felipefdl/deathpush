@@ -117,12 +117,12 @@ export const layoutStore = createStore<LayoutState>((set, get) => ({
     saveLayout(get());
   },
   setMainView: (mainView) => {
-    set({ mainView });
+    set({ mainView, terminalMaximized: false });
     saveLayout(get());
   },
   setSidebarView: (sidebarView) => {
     const { mainView } = get();
-    const update: Partial<LayoutState> = { sidebarView };
+    const update: Partial<LayoutState> = { sidebarView, terminalMaximized: false };
     if (mainView === "changes" || mainView === "file") {
       update.mainView = sidebarView === "explorer" ? "file" : "changes";
     }
