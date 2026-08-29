@@ -5,8 +5,53 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="/codicon/codicon.css" />
     <title>DeathPush</title>
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        background: #1e1e1e;
+      }
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #1e1e1e;
+      }
+      #boot-splash img {
+        width: 80px;
+        height: 80px;
+        opacity: 0.6;
+      }
+      #boot-splash .boot-splash-mark-light {
+        display: none;
+      }
+      @media (prefers-color-scheme: light) {
+        html,
+        body,
+        #root,
+        #boot-splash {
+          background: #f3f3f3;
+        }
+        #boot-splash .boot-splash-mark-dark {
+          display: none;
+        }
+        #boot-splash .boot-splash-mark-light {
+          display: block;
+        }
+      }
+    </style>
   </head>
-  <body style="background-color: #1e1e1e;">
+  <body>
+    <div id="boot-splash">
+      <img class="boot-splash-mark-dark" src="/deathpush-white.png" alt="" />
+      <img class="boot-splash-mark-light" src="/deathpush-black.png" alt="" />
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

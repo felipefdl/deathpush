@@ -78,6 +78,40 @@ body {
   overscroll-behavior: none;
 }
 
+.boot-splash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  background: #1e1e1e;
+}
+
+.boot-splash-mark {
+  width: 80px;
+  height: 80px;
+  opacity: 0.6;
+}
+
+.boot-splash-mark-light {
+  display: none;
+}
+
+@media (prefers-color-scheme: light) {
+  .boot-splash {
+    background: #f3f3f3;
+  }
+
+  .boot-splash-mark-dark {
+    display: none;
+  }
+
+  .boot-splash-mark-light {
+    display: block;
+  }
+}
+
+
 button,
 input,
 optgroup,

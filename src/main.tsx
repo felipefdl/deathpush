@@ -28,3 +28,4 @@ document.documentElement.style.setProperty("--vscode-font-family", uiSettings.fo
 document.documentElement.style.setProperty("--vscode-font-size", `${uiSettings.fontSize}px`);
 
 render(() => <App />, document.getElementById("root")!);
+document.getElementById("boot-splash")?.remove();

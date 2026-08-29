@@ -17,6 +17,7 @@ import { IconThemePicker } from "./components/theme/icon-theme-picker";
 import { QuickOpen } from "./components/quick-open/quick-open";
 import { WelcomeScreen } from "./components/welcome/welcome-screen";
 import { LinuxTitleBar } from "./components/layout/linux-title-bar";
+import { BootSplash } from "./components/layout/boot-splash";
 import { confirm, message } from "@tauri-apps/plugin-dialog";
 import { useRepository } from "./hooks/use-repository";
 import { useStash } from "./hooks/use-stash";
@@ -28,6 +29,7 @@ import { explorerStore } from "./stores/explorer-store";
 import { themeStore } from "./stores/theme-store";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { toggleTerminal } from "./lib/toggle-terminal";
+import { confirmWindowClose } from "./lib/window-close";
 import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from "./lib/themes/theme-registry";
 import { PLATFORM } from "./lib/platform";
 import { useStore } from "./lib/use-store";
@@ -63,7 +65,7 @@ export const App = () => {
       try {
         const cliPath = await commands.getInitialPath();
         if (cliPath) {
-          await openRepo(cliPath);
+          void openRepo(cliPath);
         }
       } catch {
         // Fall through to welcome screen
@@ -273,12 +275,7 @@ export const App = () => {
     );
     listeners.push(
       appWindow.listen("window:close-requested", async () => {
-        const confirmed = await confirm("Are you sure you want to close this window?", {
-          title: "Close Window",
-          kind: "warning",
-          okLabel: "Close",
-          cancelLabel: "Cancel",
-        });
+        const confirmed = await confirmWindowClose();
         if (confirmed) {
           await commands.windowConfirmClose();
         }
@@ -386,7 +383,9 @@ export const App = () => {
           terminal={<TerminalPanel />}
           statusBar={<StatusBar />}
         />
-      ) : null}
+      ) : (
+        <BootSplash />
+      )}
       {showCloneDialog() && <CloneDialog onClose={() => setShowCloneDialog(false)} />}
       {showThemePicker() && <ThemePicker onClose={() => setShowThemePicker(false)} />}
       {showIconThemePicker() && <IconThemePicker onClose={() => setShowIconThemePicker(false)} />}

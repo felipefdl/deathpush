@@ -706,6 +706,7 @@ pub fn run() {
       terminal::terminal_resize,
       terminal::terminal_kill,
       terminal::terminal_foreground_process,
+      terminal::terminals_have_active_process,
       config::get_git_config,
       config::set_git_config,
       blame::get_file_blame,

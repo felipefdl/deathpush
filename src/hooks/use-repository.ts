@@ -2,27 +2,32 @@ import { repositoryStore } from "../stores/repository-store";
 import { addRecentProject } from "../lib/recent-projects";
 import * as commands from "../lib/tauri-commands";
 
+const yieldToPaint = (): Promise<void> => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => resolve());
+  });
+  return promise;
+};
+
 export const useRepository = () => {
   const openRepo = async (path: string) => {
     const { setStatus, startOperation, endOperation, setError } = repositoryStore.getState();
     startOperation("open-repo");
     setError(null);
+    await yieldToPaint();
     try {
-      // Phase 1: fast open -- returns basic metadata with empty file groups
       const basicStatus = await commands.openRepository(path);
-      setStatus(basicStatus);
       addRecentProject(basicStatus.root);
-      endOperation("open-repo");
-
-      // Phase 2: background full status -- populates file lists
       try {
         const fullStatus = await commands.getStatus();
         setStatus(fullStatus);
       } catch {
-        // Non-critical: file watcher will trigger a refresh eventually
+        setStatus(basicStatus);
       }
     } catch (err) {
       setError(String(err));
+    } finally {
       endOperation("open-repo");
     }
   };

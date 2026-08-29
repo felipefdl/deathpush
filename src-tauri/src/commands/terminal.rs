@@ -105,3 +105,19 @@ pub async fn terminal_foreground_process(id: u64, state: State<'_, TerminalState
 
   Ok(get_foreground_process_name(child_pid, &shell_name))
 }
+
+#[tauri::command]
+pub async fn terminals_have_active_process(state: State<'_, TerminalState>) -> Result<bool> {
+  let snapshots: Vec<(u32, String)> = {
+    let sessions = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    sessions
+      .values()
+      .map(|session| (session.child_pid, session.shell_name.clone()))
+      .collect()
+  };
+  Ok(
+    snapshots
+      .iter()
+      .any(|(pid, shell)| get_foreground_process_name(*pid, shell) != *shell),
+  )
+}

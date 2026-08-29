@@ -7,9 +7,10 @@ import { layoutStore } from "./stores/layout-store";
 import { repositoryStore } from "./stores/repository-store";
 import { App } from "./app";
 
-const { getInitialPathMock, listenMock, setRepoMenuEnabledMock, setZoomMock } = vi.hoisted(() => ({
+const { getInitialPathMock, listenMock, openRepoMock, setRepoMenuEnabledMock, setZoomMock } = vi.hoisted(() => ({
   getInitialPathMock: vi.fn(async () => null),
   listenMock: vi.fn(async () => vi.fn()),
+  openRepoMock: vi.fn(async () => {}),
   setRepoMenuEnabledMock: vi.fn(async () => {}),
   setZoomMock: vi.fn(async () => {}),
 }));
@@ -32,7 +33,7 @@ vi.mock("./components/layout/app-layout", () => ({ AppLayout: () => <div /> }));
 vi.mock("./components/layout/linux-title-bar", () => ({ LinuxTitleBar: () => null }));
 vi.mock("./components/welcome/welcome-screen", () => ({ WelcomeScreen: () => <div /> }));
 vi.mock("./hooks/use-keyboard-shortcuts", () => ({ useKeyboardShortcuts: vi.fn() }));
-vi.mock("./hooks/use-repository", () => ({ useRepository: () => ({ openRepo: vi.fn() }) }));
+vi.mock("./hooks/use-repository", () => ({ useRepository: () => ({ openRepo: openRepoMock }) }));
 vi.mock("./hooks/use-stash", () => ({ useStash: () => ({ popStash: vi.fn(), saveStash: vi.fn() }) }));
 vi.mock("./lib/tauri-commands", () => ({
   getInitialPath: getInitialPathMock,
@@ -89,5 +90,26 @@ describe("App project refresh", () => {
     expect(clearCache).toHaveBeenCalledTimes(1);
     expect(layoutStore.getState().mainView).toBe("file");
     expect(explorerStore.getState().selectedPath).toBe("src/app.tsx");
+  });
+
+  it("shows the skull while the app is starting", () => {
+    const { promise } = Promise.withResolvers<string | null>();
+    getInitialPathMock.mockReturnValue(promise);
+    const result = render(() => <App />);
+    flush();
+
+    expect(result.container.querySelector(".boot-splash")).toBeTruthy();
+  });
+
+  it("leaves the splash without waiting for a startup repo to finish opening", async () => {
+    getInitialPathMock.mockResolvedValue("/test/project");
+    openRepoMock.mockReturnValue(Promise.withResolvers<void>().promise);
+    const result = render(() => <App />);
+    flush();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(result.container.querySelector(".boot-splash")).toBeNull();
   });
 });

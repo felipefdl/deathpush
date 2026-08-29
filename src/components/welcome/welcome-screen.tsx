@@ -3,9 +3,11 @@ import { getRecentProjects, removeRecentProject, type RecentProject } from "../.
 import { scanProjectsDirectory, type ProjectInfo } from "../../lib/tauri-commands";
 import { buildMultiRootWorkspaceTree, type WorkspaceTreeNode } from "../../lib/workspace-tree";
 import { settingsStore, type WorkspaceEntry } from "../../stores/settings-store";
+import { repositoryStore } from "../../stores/repository-store";
 import { themeStore } from "../../stores/theme-store";
 import { useStore } from "../../lib/use-store";
 import { WorkspaceConfigModal } from "../shared/workspace-config-modal";
+import { Spinner } from "../ui/spinner";
 import { checkForUpdate, downloadAndInstallUpdate } from "../../lib/updater";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { IS_MACOS, IS_LINUX } from "../../lib/platform";
@@ -141,6 +143,7 @@ export const WelcomeScreen = (props: WelcomeScreenProps) => {
   const { updateProjects } = settingsStore.getState();
   const themeKind = useStore(themeStore, (s) => s.currentTheme.kind);
   const isDark = createMemo(() => themeKind() === "dark" || themeKind() === "hc-dark");
+  const opening = useStore(repositoryStore, (s) => s.operations.has("open-repo"));
 
   onSettled(() => {
     setRecents(getRecentProjects());
@@ -518,6 +521,12 @@ export const WelcomeScreen = (props: WelcomeScreenProps) => {
           Version {__APP_VERSION__} ({__GIT_HASH__})
         </span>
       </div>
+      {opening() && (
+        <div class="welcome-opening" aria-live="polite" aria-busy="true">
+          <Spinner />
+          <span class="welcome-opening-label">Opening repository...</span>
+        </div>
+      )}
     </div>
   );
 };
