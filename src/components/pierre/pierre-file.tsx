@@ -11,11 +11,19 @@ import { buildPierreDiffOptions } from "../../lib/pierre/options";
 import { normalizeWordWrap } from "../../lib/pierre/normalize-editor-settings";
 import { pierreEditorKeymap } from "../../lib/pierre/keymap";
 import { getPierreWorkerPool } from "../../lib/pierre/worker";
-import { registerFlusher } from "../../lib/pierre/flush-registry";
+import { registerFlusher, trackPendingFlush } from "../../lib/pierre/flush-registry";
 import { isDirty, type SaveSession } from "../../lib/pierre/save-session";
 import { sha256Utf8 } from "../../lib/pierre/sha";
 
 const SAVE_MS = 1000;
+
+export const selectionIsInPierreHost = (root: HTMLElement, node: Node): boolean => {
+  if (root.contains(node) || root.shadowRoot?.contains(node)) return true;
+  for (const container of root.querySelectorAll("diffs-container")) {
+    if (container.shadowRoot?.contains(node)) return true;
+  }
+  return false;
+};
 
 export type PierreFileProps = {
   path: string;
@@ -161,7 +169,7 @@ export const PierreFile = (props: PierreFileProps) => {
       const onSelectionChange = (): void => {
         const node = document.getSelection()?.anchorNode;
         if (!node) return;
-        if (!root.shadowRoot?.contains(node) && !root.contains(node)) return;
+        if (!selectionIsInPierreHost(root, node)) return;
         const start = editor.getState().selections?.[0]?.start;
         if (start) setCursorLine(start.line + 1);
       };
@@ -170,7 +178,7 @@ export const PierreFile = (props: PierreFileProps) => {
       return () => {
         document.removeEventListener("selectionchange", onSelectionChange);
         if (session.cacheGeneration === mountedGeneration) {
-          void flush();
+          void trackPendingFlush(flush());
         } else if (pendingTimer) {
           clearTimeout(pendingTimer);
         }

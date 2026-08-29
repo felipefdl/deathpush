@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vite-plus/test";
-import { flushAll, flushPath, registerFlusher } from "./flush-registry";
+import { flushAll, flushPath, registerFlusher, trackPendingFlush } from "./flush-registry";
 
 describe("flush-registry", () => {
   it("flushPath runs the flusher registered for that path", async () => {
@@ -40,5 +40,30 @@ describe("flush-registry", () => {
 
   it("flushPath is a no-op when the path has no flusher", async () => {
     await expect(flushPath("missing.ts")).resolves.toBeUndefined();
+  });
+
+  it("flushAll awaits a cleanup flush after unregister", async () => {
+    let resolveFlush: (() => void) | undefined;
+    const flush = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFlush = resolve;
+        })
+    );
+    const unregister = registerFlusher("src/a.ts", flush);
+    void trackPendingFlush(flush());
+    unregister();
+
+    let flushAllDone = false;
+    const all = flushAll().then(() => {
+      flushAllDone = true;
+    });
+
+    await Promise.resolve();
+    expect(flushAllDone).toBe(false);
+
+    resolveFlush?.();
+    await all;
+    expect(flushAllDone).toBe(true);
   });
 });

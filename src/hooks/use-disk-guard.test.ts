@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vite-plus/test";
-import { runFileViewerDiskGuard } from "./use-disk-guard";
+import { createFileViewerDiskGuard, runFileViewerDiskGuard } from "./use-disk-guard";
 import type { SaveSession } from "../lib/pierre/save-session";
 import type { FileContent } from "../lib/git-types";
 
@@ -78,5 +78,43 @@ describe("runFileViewerDiskGuard", () => {
     });
 
     expect(onReload).toHaveBeenCalledWith(content, "ccc");
+  });
+
+  it("discards a stale check that finishes after a newer reload", async () => {
+    const run = createFileViewerDiskGuard();
+    const current = session();
+    const onReload = vi.fn((content: FileContent, incomingSha: string) => {
+      current.diskSha = incomingSha;
+      void content;
+    });
+    let finishOld: (content: FileContent) => void = () => undefined;
+    const newContent = textFile("new");
+
+    const old = run({
+      selectedPath: "src/a.ts",
+      session: current,
+      readFileContent: () =>
+        new Promise<FileContent>((resolve) => {
+          finishOld = resolve;
+        }),
+      sha256Utf8: async () => "old-sha",
+      onReload,
+    });
+
+    await run({
+      selectedPath: "src/a.ts",
+      session: current,
+      readFileContent: async () => newContent,
+      sha256Utf8: async () => "new-sha",
+      onReload,
+    });
+
+    expect(onReload).toHaveBeenCalledTimes(1);
+    expect(onReload).toHaveBeenCalledWith(newContent, "new-sha");
+    onReload.mockClear();
+
+    finishOld(textFile("old"));
+    await old;
+    expect(onReload).not.toHaveBeenCalled();
   });
 });

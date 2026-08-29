@@ -9,6 +9,17 @@ import { sha256Utf8 } from "../../lib/pierre/sha";
 import { useStore } from "../../lib/use-store";
 import { PierreFile } from "../pierre/pierre-file";
 
+export const isPierreHostReady = (
+  selectedPath: string | null,
+  fileContent: { path: string } | null,
+  session: { path: string } | null
+): boolean =>
+  selectedPath !== null &&
+  fileContent !== null &&
+  session !== null &&
+  fileContent.path === selectedPath &&
+  session.path === fileContent.path;
+
 export const FileViewer = () => {
   const fileContent = useStore(explorerStore, (s) => s.fileContent);
   const selectedPath = useStore(explorerStore, (s) => s.selectedPath);
@@ -59,6 +70,13 @@ export const FileViewer = () => {
     cacheGeneration();
     if (!session) return "";
     return sessionCacheKey(session);
+  });
+
+  const loadedContent = createMemo(() => {
+    const content = fileContent();
+    const selected = selectedPath();
+    if (!content || !selected || content.path !== selected) return null;
+    return content;
   });
 
   const handleOpenInEditor = async () => {
@@ -116,7 +134,7 @@ export const FileViewer = () => {
 
   return (
     <>
-      {!fileContent() || !selectedPath() ? (
+      {!loadedContent() ? (
         <div class="diff-empty-state">
           <img
             class="diff-empty-watermark"
@@ -125,7 +143,7 @@ export const FileViewer = () => {
           />
           <p style={{ opacity: 0.4, "margin-top": "12px" }}>Select a file to view its contents</p>
         </div>
-      ) : fileContent()!.fileType === "large" ? (
+      ) : loadedContent()!.fileType === "large" ? (
         <div class="diff-viewer">
           <div class="file-viewer-header">
             {breadcrumbTrail(false)}
@@ -139,7 +157,7 @@ export const FileViewer = () => {
             </button>
           </div>
         </div>
-      ) : fileContent()!.fileType === "binary" ? (
+      ) : loadedContent()!.fileType === "binary" ? (
         <div class="diff-viewer">
           <div class="file-viewer-header">
             {breadcrumbTrail(false)}
@@ -153,14 +171,14 @@ export const FileViewer = () => {
             </button>
           </div>
         </div>
-      ) : fileContent()!.fileType === "image" ? (
+      ) : loadedContent()!.fileType === "image" ? (
         <div class="diff-viewer">
           <div class="file-viewer-header">
             {breadcrumbTrail(false)}
             {headerActions(true)}
           </div>
           <div class="file-viewer-image">
-            <img src={fileContent()!.content} alt={fileName()} />
+            <img src={loadedContent()!.content} alt={fileName()} />
           </div>
         </div>
       ) : (
@@ -170,13 +188,13 @@ export const FileViewer = () => {
             {headerActions(true)}
           </div>
           <div class="diff-editor-container">
-            {session && hostCacheKey() && (
+            {isPierreHostReady(selectedPath(), loadedContent(), session) && hostCacheKey() && (
               <PierreFile
-                path={selectedPath()!}
-                contents={fileContent()!.content}
+                path={loadedContent()!.path}
+                contents={loadedContent()!.content}
                 cacheKey={hostCacheKey()}
                 revealLine={revealLine()}
-                session={session}
+                session={session!}
               />
             )}
           </div>
