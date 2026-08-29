@@ -110,6 +110,22 @@ pub async fn get_file_hunks(
 }
 
 #[tauri::command]
+pub async fn get_file_patch(
+  path: String,
+  staged: bool,
+  state: State<'_, Mutex<AppRepoState>>,
+  window: WebviewWindow,
+) -> Result<String> {
+  let root = {
+    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
+  };
+  let cli = GitCli::new(&root);
+  cli.get_unified_diff(&path, staged).await
+}
+
+#[tauri::command]
 pub async fn stage_hunk(
   path: String,
   hunk_index: usize,

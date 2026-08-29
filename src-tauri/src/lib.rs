@@ -643,6 +643,7 @@ pub fn run() {
       staging::unstage_all,
       staging::discard_changes,
       staging::get_file_hunks,
+      staging::get_file_patch,
       staging::stage_hunk,
       staging::discard_hunk,
       staging::stage_lines,

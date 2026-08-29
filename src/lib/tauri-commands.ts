@@ -109,6 +109,9 @@ export const addToGitignore = (pattern: string): Promise<RepositoryStatus> => in
 export const getFileHunks = (path: string, staged: boolean): Promise<FileDiffWithHunks> =>
   invoke("get_file_hunks", { path, staged });
 
+export const getFilePatch = (path: string, staged: boolean): Promise<string> =>
+  invoke("get_file_patch", { path, staged });
+
 export const stageHunk = (path: string, hunkIndex: number, staged: boolean): Promise<RepositoryStatus> =>
   invoke("stage_hunk", { path, hunkIndex, staged });
 
