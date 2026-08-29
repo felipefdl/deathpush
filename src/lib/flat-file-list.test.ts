@@ -72,10 +72,7 @@ describe("buildFlatFileList", () => {
   });
 
   it("returns files only from groups that match the filter", () => {
-    const groups = [
-      makeGroup("index", "Staged", ["src/foo.ts"]),
-      makeGroup("workingTree", "Changes", ["lib/bar.ts"]),
-    ];
+    const groups = [makeGroup("index", "Staged", ["src/foo.ts"]), makeGroup("workingTree", "Changes", ["lib/bar.ts"])];
     const result = buildFlatFileList(groups, "bar");
     expect(result).toEqual([{ path: "lib/bar.ts", groupKind: "workingTree" }]);
   });

@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vite-plus/test";
-import {
-  getRecentProjects,
-  addRecentProject,
-  removeRecentProject,
-  clearRecentProjects,
-} from "./recent-projects";
+import { getRecentProjects, addRecentProject, removeRecentProject, clearRecentProjects } from "./recent-projects";
 
 describe("recent-projects", () => {
   beforeEach(() => {
@@ -30,9 +25,7 @@ describe("recent-projects", () => {
     it("normalizes trailing slashes on paths", () => {
       localStorage.setItem(
         "deathpush:recentProjects",
-        JSON.stringify([
-          { path: "/home/user/project/", name: "project", lastOpened: "2025-06-15T11:00:00Z" },
-        ]),
+        JSON.stringify([{ path: "/home/user/project/", name: "project", lastOpened: "2025-06-15T11:00:00Z" }])
       );
       const result = getRecentProjects();
       expect(result[0].path).toBe("/home/user/project");
@@ -41,9 +34,7 @@ describe("recent-projects", () => {
     it("extracts name from path", () => {
       localStorage.setItem(
         "deathpush:recentProjects",
-        JSON.stringify([
-          { path: "/home/user/my-app", name: "", lastOpened: "2025-06-15T11:00:00Z" },
-        ]),
+        JSON.stringify([{ path: "/home/user/my-app", name: "", lastOpened: "2025-06-15T11:00:00Z" }])
       );
       const result = getRecentProjects();
       expect(result[0].name).toBe("my-app");
@@ -56,7 +47,7 @@ describe("recent-projects", () => {
           { path: "/a", name: "a", lastOpened: "2025-06-14T10:00:00Z" },
           { path: "/c", name: "c", lastOpened: "2025-06-15T10:00:00Z" },
           { path: "/b", name: "b", lastOpened: "2025-06-13T10:00:00Z" },
-        ]),
+        ])
       );
       const result = getRecentProjects();
       expect(result.map((p) => p.path)).toEqual(["/c", "/a", "/b"]);

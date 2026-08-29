@@ -1,16 +1,11 @@
 import { editor as MonacoEditor } from "monaco-editor";
 import type { EditorSettings } from "../stores/settings-store";
 
-export const buildDiffModelOptions = (
-  editor: EditorSettings,
-): MonacoEditor.ITextModelUpdateOptions => ({
+export const buildDiffModelOptions = (editor: EditorSettings): MonacoEditor.ITextModelUpdateOptions => ({
   tabSize: editor.tabSize,
 });
 
-export const buildDiffOptions = (
-  editor: EditorSettings,
-  diffMode: "inline" | "sideBySide",
-) =>
+export const buildDiffOptions = (editor: EditorSettings, diffMode: "inline" | "sideBySide") =>
   ({
     renderSideBySide: diffMode === "sideBySide",
     minimap: { enabled: false },

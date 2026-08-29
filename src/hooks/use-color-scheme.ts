@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { createSignal, onSettled } from "solid-js";
 
 const getScheme = () => document.documentElement.style.getPropertyValue("color-scheme") || "dark";
 
@@ -18,4 +18,12 @@ const subscribe = (cb: () => void) => {
   return () => listeners.delete(cb);
 };
 
-export const useColorScheme = () => useSyncExternalStore(subscribe, () => cached);
+export const useColorScheme = () => {
+  const [scheme, setScheme] = createSignal(cached);
+
+  onSettled(() => {
+    return subscribe(() => setScheme(() => cached));
+  });
+
+  return scheme;
+};

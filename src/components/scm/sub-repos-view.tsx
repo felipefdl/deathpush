@@ -1,97 +1,99 @@
-import { useCallback, useEffect, useState } from "react";
-import { useRepositoryStore } from "../../stores/repository-store";
+import { createEffect, createSignal, For } from "solid-js";
+import { repositoryStore } from "../../stores/repository-store";
+import { useStore } from "../../lib/use-store";
 import * as commands from "../../lib/tauri-commands";
 import type { DiscoveredRepo } from "../../lib/tauri-commands";
 
-interface SubReposHeaderProps {
+type SubReposHeaderProps = {
   collapsed: boolean;
   onToggle: () => void;
   count: number;
-}
+};
 
-export const SubReposHeader = ({ collapsed, onToggle, count }: SubReposHeaderProps) => (
-  <div className="resource-group-header" onClick={onToggle}>
-    <span className={`codicon codicon-chevron-down resource-group-chevron ${collapsed ? "collapsed" : ""}`} />
-    <span className="resource-group-label">Nested Repositories</span>
-    <span className="resource-group-count">{count}</span>
+export const SubReposHeader = (props: SubReposHeaderProps) => (
+  <div class="resource-group-header" onClick={() => props.onToggle()}>
+    <span class={`codicon codicon-chevron-down resource-group-chevron ${props.collapsed ? "collapsed" : ""}`} />
+    <span class="resource-group-label">Nested Repositories</span>
+    <span class="resource-group-count">{props.count}</span>
   </div>
 );
 
-interface SubReposBodyProps {
+type SubReposBodyProps = {
   repos: DiscoveredRepo[];
   repoRoot: string;
-}
+};
 
-export const SubReposBody = ({ repos, repoRoot }: SubReposBodyProps) => {
-  const [branches, setBranches] = useState<Record<string, string | null>>({});
+export const SubReposBody = (props: SubReposBodyProps) => {
+  const [branches, setBranches] = createSignal<Record<string, string | null>>({});
 
-  useEffect(() => {
-    const fetchBranches = async () => {
-      const map: Record<string, string | null> = {};
-      await Promise.all(
-        repos.map(async (r) => {
-          const fullPath = `${repoRoot}/${r.path}`;
-          try {
-            map[r.path] = await commands.getRepoBranch(fullPath);
-          } catch {
-            map[r.path] = null;
-          }
-        }),
-      );
-      setBranches(map);
-    };
-    fetchBranches();
-  }, [repos, repoRoot]);
+  createEffect(
+    () => [props.repos, props.repoRoot] as const,
+    ([repos, repoRoot]) => {
+      const fetchBranches = async () => {
+        const map: Record<string, string | null> = {};
+        await Promise.all(
+          repos.map(async (r) => {
+            const fullPath = `${repoRoot}/${r.path}`;
+            try {
+              map[r.path] = await commands.getRepoBranch(fullPath);
+            } catch {
+              map[r.path] = null;
+            }
+          })
+        );
+        setBranches(map);
+      };
+      void fetchBranches();
+    }
+  );
 
-  const handleClick = useCallback(async (repoPath: string) => {
-    const fullPath = `${repoRoot}/${repoPath}`;
+  const handleClick = async (repoPath: string) => {
+    const fullPath = `${props.repoRoot}/${repoPath}`;
     try {
       await commands.newWindow(fullPath);
     } catch (err) {
       console.error("Failed to open repository:", err);
     }
-  }, [repoRoot]);
+  };
 
   return (
-    <div className="resource-group-body">
-      {repos.map((repo) => (
-        <div
-          key={repo.path}
-          className="sub-repo-item"
-          onClick={() => handleClick(repo.path)}
-          title={repo.path}
-        >
-          <span className="codicon codicon-repo sub-repo-icon" />
-          <span className="sub-repo-name">{repo.name}</span>
-          {branches[repo.path] && (
-            <span className="sub-repo-branch">{branches[repo.path]}</span>
-          )}
-        </div>
-      ))}
+    <div class="resource-group-body">
+      <For each={props.repos} keyed={(repo) => repo.path}>
+        {(repo) => (
+          <div class="sub-repo-item" onClick={() => handleClick(repo().path)} title={repo().path}>
+            <span class="codicon codicon-repo sub-repo-icon" />
+            <span class="sub-repo-name">{repo().name}</span>
+            {branches()[repo().path] && <span class="sub-repo-branch">{branches()[repo().path]}</span>}
+          </div>
+        )}
+      </For>
     </div>
   );
 };
 
 export const useSubRepos = () => {
-  const status = useRepositoryStore((s) => s.status);
-  const [repos, setRepos] = useState<DiscoveredRepo[]>([]);
+  const status = useStore(repositoryStore, (s) => s.status);
+  const [repos, setRepos] = createSignal<DiscoveredRepo[]>([]);
 
-  const loadRepos = useCallback(async () => {
+  const loadRepos = async () => {
     try {
       const discovered = await commands.discoverRepositories();
       setRepos(discovered);
     } catch {
       setRepos([]);
     }
-  }, []);
+  };
 
-  useEffect(() => {
-    if (status?.root) {
-      loadRepos();
-    } else {
-      setRepos([]);
+  createEffect(
+    () => status()?.root,
+    (root) => {
+      if (root) {
+        void loadRepos();
+      } else {
+        setRepos([]);
+      }
     }
-  }, [status?.root, loadRepos]);
+  );
 
   return { repos, loadRepos };
 };

@@ -1,37 +1,38 @@
-import { useState, useEffect, useCallback } from "react";
+import { createEffect, createSignal, For } from "solid-js";
 import type { StashEntry, FileDiffWithHunks } from "../../lib/git-types";
-import { useRepositoryStore } from "../../stores/repository-store";
+import { repositoryStore } from "../../stores/repository-store";
+import { useStore } from "../../lib/use-store";
 import { useStash } from "../../hooks/use-stash";
 import { StashEntryRow } from "./stash-entry";
 
-interface StashHeaderProps {
+type StashHeaderProps = {
   collapsed: boolean;
   onToggle: () => void;
   count: number;
-}
+};
 
-export const StashHeader = ({ collapsed, onToggle, count }: StashHeaderProps) => (
-  <div className="resource-group-header" onClick={onToggle}>
-    <span className={`codicon codicon-chevron-down resource-group-chevron ${collapsed ? "collapsed" : ""}`} />
-    <span className="resource-group-label">Stashes</span>
-    <span className="resource-group-count">{count}</span>
+export const StashHeader = (props: StashHeaderProps) => (
+  <div class="resource-group-header" onClick={() => props.onToggle()}>
+    <span class={`codicon codicon-chevron-down resource-group-chevron ${props.collapsed ? "collapsed" : ""}`} />
+    <span class="resource-group-label">Stashes</span>
+    <span class="resource-group-count">{props.count}</span>
   </div>
 );
 
-interface StashBodyProps {
+type StashBodyProps = {
   stashes: StashEntry[];
   onApply: (index: number) => void;
   onPop: (index: number) => void;
   onDrop: (index: number) => void;
-}
+};
 
-export const StashBody = ({ stashes, onApply, onPop, onDrop }: StashBodyProps) => {
+export const StashBody = (props: StashBodyProps) => {
   const { showStash } = useStash();
-  const [expandedStash, setExpandedStash] = useState<number | null>(null);
-  const [stashDiff, setStashDiff] = useState<FileDiffWithHunks | null>(null);
+  const [expandedStash, setExpandedStash] = createSignal<number | null>(null);
+  const [stashDiff, setStashDiff] = createSignal<FileDiffWithHunks | null>(null);
 
-  const handleShow = useCallback(async (index: number) => {
-    if (expandedStash === index) {
+  const handleShow = async (index: number) => {
+    if (expandedStash() === index) {
       setExpandedStash(null);
       setStashDiff(null);
       return;
@@ -41,65 +42,70 @@ export const StashBody = ({ stashes, onApply, onPop, onDrop }: StashBodyProps) =
       setStashDiff(result);
       setExpandedStash(index);
     }
-  }, [expandedStash, showStash]);
+  };
 
   return (
-    <div className="resource-group-body">
-      {stashes.map((entry) => (
-        <div key={entry.index}>
-          <StashEntryRow
-            entry={entry}
-            onApply={onApply}
-            onPop={onPop}
-            onDrop={onDrop}
-            onShow={handleShow}
-          />
-          {expandedStash === entry.index && stashDiff && (
-            <div className="stash-diff-preview">
-              {stashDiff.hunks.map((hunk, i) => (
-                <div key={i} className="stash-diff-hunk">
-                  <div className="stash-diff-header">{hunk.header}</div>
-                  {hunk.lines.map((line, j) => (
-                    <div
-                      key={j}
-                      className={`stash-diff-line stash-diff-line-${line.lineType}`}
-                    >
-                      {line.lineType === "add" ? "+" : line.lineType === "remove" ? "-" : " "}
-                      {line.content}
+    <div class="resource-group-body">
+      <For each={props.stashes} keyed={(entry) => entry.index}>
+        {(entry) => (
+          <div>
+            <StashEntryRow
+              entry={entry()}
+              onApply={props.onApply}
+              onPop={props.onPop}
+              onDrop={props.onDrop}
+              onShow={handleShow}
+            />
+            {expandedStash() === entry().index && stashDiff() && (
+              <div class="stash-diff-preview">
+                <For each={stashDiff()!.hunks} keyed={false}>
+                  {(hunk) => (
+                    <div class="stash-diff-hunk">
+                      <div class="stash-diff-header">{hunk().header}</div>
+                      <For each={hunk().lines} keyed={false}>
+                        {(line) => (
+                          <div class={`stash-diff-line stash-diff-line-${line().lineType}`}>
+                            {line().lineType === "add" ? "+" : line().lineType === "remove" ? "-" : " "}
+                            {line().content}
+                          </div>
+                        )}
+                      </For>
                     </div>
-                  ))}
-                </div>
-              ))}
-              {stashDiff.hunks.length === 0 && (
-                <div className="stash-diff-empty">No diff available</div>
-              )}
-            </div>
-          )}
-        </div>
-      ))}
+                  )}
+                </For>
+                {stashDiff()!.hunks.length === 0 && <div class="stash-diff-empty">No diff available</div>}
+              </div>
+            )}
+          </div>
+        )}
+      </For>
     </div>
   );
 };
 
 export const StashView = () => {
-  const [collapsed, setCollapsed] = useState(false);
-  const { stashes, status } = useRepositoryStore();
+  const [collapsed, setCollapsed] = createSignal(false);
+  const stashes = useStore(repositoryStore, (s) => s.stashes);
+  const status = useStore(repositoryStore, (s) => s.status);
   const { loadStashes, applyStash, popStash, dropStash } = useStash();
 
-  useEffect(() => {
-    if (status) {
-      loadStashes();
+  createEffect(
+    () => status(),
+    (current) => {
+      if (current) {
+        void loadStashes();
+      }
     }
-  }, [status, loadStashes]);
-
-  if (!status || stashes.length === 0) return null;
+  );
 
   return (
-    <div className="resource-group">
-      <StashHeader collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} count={stashes.length} />
-      {!collapsed && (
-        <StashBody stashes={stashes} onApply={applyStash} onPop={popStash} onDrop={dropStash} />
-      )}
-    </div>
+    <>
+      {status() && stashes().length > 0 ? (
+        <div class="resource-group">
+          <StashHeader collapsed={collapsed()} onToggle={() => setCollapsed(!collapsed())} count={stashes().length} />
+          {!collapsed() && <StashBody stashes={stashes()} onApply={applyStash} onPop={popStash} onDrop={dropStash} />}
+        </div>
+      ) : null}
+    </>
   );
 };

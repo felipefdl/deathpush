@@ -45,36 +45,129 @@ interface ThemeRegistration {
 }
 
 const THEMES: ThemeRegistration[] = [
-  { entry: { id: "dark-modern", label: "Dark Modern", uiTheme: "vs-dark", kind: "dark" }, json: darkModernJson as VscodeThemeJson },
-  { entry: { id: "dark-plus", label: "Dark+", uiTheme: "vs-dark", kind: "dark" }, json: darkPlusJson as VscodeThemeJson },
-  { entry: { id: "dark-vs", label: "Dark (Visual Studio)", uiTheme: "vs-dark", kind: "dark" }, json: darkVsJson as VscodeThemeJson },
+  {
+    entry: { id: "dark-modern", label: "Dark Modern", uiTheme: "vs-dark", kind: "dark" },
+    json: darkModernJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "dark-plus", label: "Dark+", uiTheme: "vs-dark", kind: "dark" },
+    json: darkPlusJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "dark-vs", label: "Dark (Visual Studio)", uiTheme: "vs-dark", kind: "dark" },
+    json: darkVsJson as VscodeThemeJson,
+  },
   { entry: { id: "abyss", label: "Abyss", uiTheme: "vs-dark", kind: "dark" }, json: abyssJson as VscodeThemeJson },
-  { entry: { id: "kimbie-dark", label: "Kimbie Dark", uiTheme: "vs-dark", kind: "dark" }, json: kimbieDarkJson as VscodeThemeJson },
-  { entry: { id: "monokai", label: "Monokai", uiTheme: "vs-dark", kind: "dark" }, json: monokaiJson as VscodeThemeJson },
-  { entry: { id: "monokai-dimmed", label: "Monokai Dimmed", uiTheme: "vs-dark", kind: "dark" }, json: dimmedMonokaiJson as VscodeThemeJson },
+  {
+    entry: { id: "kimbie-dark", label: "Kimbie Dark", uiTheme: "vs-dark", kind: "dark" },
+    json: kimbieDarkJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "monokai", label: "Monokai", uiTheme: "vs-dark", kind: "dark" },
+    json: monokaiJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "monokai-dimmed", label: "Monokai Dimmed", uiTheme: "vs-dark", kind: "dark" },
+    json: dimmedMonokaiJson as VscodeThemeJson,
+  },
   { entry: { id: "nord", label: "Nord", uiTheme: "vs-dark", kind: "dark" }, json: nordJson as VscodeThemeJson },
-  { entry: { id: "one-dark-pro", label: "One Dark Pro", uiTheme: "vs-dark", kind: "dark" }, json: oneDarkProJson as VscodeThemeJson },
+  {
+    entry: { id: "one-dark-pro", label: "One Dark Pro", uiTheme: "vs-dark", kind: "dark" },
+    json: oneDarkProJson as VscodeThemeJson,
+  },
   { entry: { id: "red", label: "Red", uiTheme: "vs-dark", kind: "dark" }, json: redJson as VscodeThemeJson },
-  { entry: { id: "solarized-dark", label: "Solarized Dark", uiTheme: "vs-dark", kind: "dark" }, json: solarizedDarkJson as VscodeThemeJson },
-  { entry: { id: "tomorrow-night-blue", label: "Tomorrow Night Blue", uiTheme: "vs-dark", kind: "dark" }, json: tomorrowNightBlueJson as VscodeThemeJson },
-  { entry: { id: "dracula", label: "Dracula", uiTheme: "vs-dark", kind: "dark" }, json: draculaJson as VscodeThemeJson },
-  { entry: { id: "dracula-soft", label: "Dracula Soft", uiTheme: "vs-dark", kind: "dark" }, json: draculaSoftJson as VscodeThemeJson },
-  { entry: { id: "deathayu-dark", label: "Death Ayu Dark", description: "Default Dark Death", uiTheme: "vs-dark", kind: "dark" }, json: deathayuDarkJson as VscodeThemeJson },
-  { entry: { id: "ayu-dark", label: "Ayu Dark", uiTheme: "vs-dark", kind: "dark" }, json: ayuDarkJson as VscodeThemeJson },
-  { entry: { id: "ayu-mirage", label: "Ayu Mirage", uiTheme: "vs-dark", kind: "dark" }, json: ayuMirageJson as VscodeThemeJson },
-  { entry: { id: "catppuccin-mocha", label: "Catppuccin Mocha", uiTheme: "vs-dark", kind: "dark" }, json: catppuccinMochaJson as VscodeThemeJson },
-  { entry: { id: "catppuccin-frappe", label: "Catppuccin Frappe", uiTheme: "vs-dark", kind: "dark" }, json: catppuccinFrappeJson as VscodeThemeJson },
-  { entry: { id: "catppuccin-macchiato", label: "Catppuccin Macchiato", uiTheme: "vs-dark", kind: "dark" }, json: catppuccinMacchiatoJson as VscodeThemeJson },
-  { entry: { id: "light-modern", label: "Light Modern", uiTheme: "vs", kind: "light" }, json: lightModernJson as VscodeThemeJson },
-  { entry: { id: "light-plus", label: "Light+", uiTheme: "vs", kind: "light" }, json: lightPlusJson as VscodeThemeJson },
-  { entry: { id: "light-vs", label: "Light (Visual Studio)", uiTheme: "vs", kind: "light" }, json: lightVsJson as VscodeThemeJson },
-  { entry: { id: "quiet-light", label: "Quiet Light", uiTheme: "vs", kind: "light" }, json: quietLightJson as VscodeThemeJson },
-  { entry: { id: "solarized-light", label: "Solarized Light", uiTheme: "vs", kind: "light" }, json: solarizedLightJson as VscodeThemeJson },
-  { entry: { id: "deathayu-light", label: "Death Ayu Light", description: "Default Light Death", uiTheme: "vs", kind: "light" }, json: deathayuLightJson as VscodeThemeJson },
-  { entry: { id: "ayu-light", label: "Ayu Light", uiTheme: "vs", kind: "light" }, json: ayuLightJson as VscodeThemeJson },
-  { entry: { id: "catppuccin-latte", label: "Catppuccin Latte", uiTheme: "vs", kind: "light" }, json: catppuccinLatteJson as VscodeThemeJson },
-  { entry: { id: "hc-black", label: "High Contrast Dark", uiTheme: "hc-black", kind: "hc-dark" }, json: hcBlackJson as VscodeThemeJson },
-  { entry: { id: "hc-light", label: "High Contrast Light", uiTheme: "hc-light", kind: "hc-light" }, json: hcLightJson as VscodeThemeJson },
+  {
+    entry: { id: "solarized-dark", label: "Solarized Dark", uiTheme: "vs-dark", kind: "dark" },
+    json: solarizedDarkJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "tomorrow-night-blue", label: "Tomorrow Night Blue", uiTheme: "vs-dark", kind: "dark" },
+    json: tomorrowNightBlueJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "dracula", label: "Dracula", uiTheme: "vs-dark", kind: "dark" },
+    json: draculaJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "dracula-soft", label: "Dracula Soft", uiTheme: "vs-dark", kind: "dark" },
+    json: draculaSoftJson as VscodeThemeJson,
+  },
+  {
+    entry: {
+      id: "deathayu-dark",
+      label: "Death Ayu Dark",
+      description: "Default Dark Death",
+      uiTheme: "vs-dark",
+      kind: "dark",
+    },
+    json: deathayuDarkJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "ayu-dark", label: "Ayu Dark", uiTheme: "vs-dark", kind: "dark" },
+    json: ayuDarkJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "ayu-mirage", label: "Ayu Mirage", uiTheme: "vs-dark", kind: "dark" },
+    json: ayuMirageJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "catppuccin-mocha", label: "Catppuccin Mocha", uiTheme: "vs-dark", kind: "dark" },
+    json: catppuccinMochaJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "catppuccin-frappe", label: "Catppuccin Frappe", uiTheme: "vs-dark", kind: "dark" },
+    json: catppuccinFrappeJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "catppuccin-macchiato", label: "Catppuccin Macchiato", uiTheme: "vs-dark", kind: "dark" },
+    json: catppuccinMacchiatoJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "light-modern", label: "Light Modern", uiTheme: "vs", kind: "light" },
+    json: lightModernJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "light-plus", label: "Light+", uiTheme: "vs", kind: "light" },
+    json: lightPlusJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "light-vs", label: "Light (Visual Studio)", uiTheme: "vs", kind: "light" },
+    json: lightVsJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "quiet-light", label: "Quiet Light", uiTheme: "vs", kind: "light" },
+    json: quietLightJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "solarized-light", label: "Solarized Light", uiTheme: "vs", kind: "light" },
+    json: solarizedLightJson as VscodeThemeJson,
+  },
+  {
+    entry: {
+      id: "deathayu-light",
+      label: "Death Ayu Light",
+      description: "Default Light Death",
+      uiTheme: "vs",
+      kind: "light",
+    },
+    json: deathayuLightJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "ayu-light", label: "Ayu Light", uiTheme: "vs", kind: "light" },
+    json: ayuLightJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "catppuccin-latte", label: "Catppuccin Latte", uiTheme: "vs", kind: "light" },
+    json: catppuccinLatteJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "hc-black", label: "High Contrast Dark", uiTheme: "hc-black", kind: "hc-dark" },
+    json: hcBlackJson as VscodeThemeJson,
+  },
+  {
+    entry: { id: "hc-light", label: "High Contrast Light", uiTheme: "hc-light", kind: "hc-light" },
+    json: hcLightJson as VscodeThemeJson,
+  },
 ];
 
 const resolveIncludeChain = (json: VscodeThemeJson): { colors: Record<string, string>; tokenColors: TokenColor[] } => {

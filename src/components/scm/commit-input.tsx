@@ -1,66 +1,85 @@
-import { useState, useCallback, useRef, useEffect, type KeyboardEvent } from "react";
-import { useRepositoryStore } from "../../stores/repository-store";
+import { createEffect, createSignal } from "solid-js";
+import { repositoryStore } from "../../stores/repository-store";
+import { useStore } from "../../lib/use-store";
 import * as commands from "../../lib/tauri-commands";
 import { Spinner } from "../ui/spinner";
 import { IS_MACOS } from "../../lib/platform";
 
 export const CommitInput = () => {
-  const [message, setMessage] = useState("");
-  const [showDropdown, setShowDropdown] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const { status, setStatus, setError, startOperation, endOperation, operations, amendMode, setAmendMode } =
-    useRepositoryStore();
+  const [message, setMessage] = createSignal("");
+  const [showDropdown, setShowDropdown] = createSignal(false);
+  let textareaRef: HTMLTextAreaElement | undefined;
+  let dropdownRef: HTMLDivElement | undefined;
+  const status = useStore(repositoryStore, (s) => s.status);
+  const operations = useStore(repositoryStore, (s) => s.operations);
+  const amendMode = useStore(repositoryStore, (s) => s.amendMode);
+  const { setStatus, setError, startOperation, endOperation, setAmendMode } = repositoryStore.getState();
 
-  const hasStaged = status?.groups.some((g) => g.kind === "index") ?? false;
-  const hasChanges = status?.groups.some((g) => g.kind !== "index") ?? false;
-  const isCommitting = operations.has("commit");
-  const branch = status?.headBranch ?? "HEAD";
+  const hasStaged = () => status()?.groups.some((g) => g.kind === "index") ?? false;
+  const hasChanges = () => status()?.groups.some((g) => g.kind !== "index") ?? false;
+  const isCommitting = () => operations().has("commit");
+  const branch = () => status()?.headBranch ?? "HEAD";
+  const canCommit = () => message().trim() && !isCommitting() && (hasStaged() || hasChanges());
+  const commitLabel = () =>
+    amendMode()
+      ? hasStaged()
+        ? "Amend"
+        : hasChanges()
+          ? "Amend All"
+          : "Amend"
+      : hasStaged()
+        ? "Commit"
+        : hasChanges()
+          ? "Commit All"
+          : "Commit";
+  const placeholder = () => `Message (${IS_MACOS ? "\u2318" : "Ctrl"}+Enter to commit on "${branch()}")`;
 
-  useEffect(() => {
-    if (!amendMode) return;
-    const loadMessage = async () => {
-      try {
-        const lastMsg = await commands.getLastCommitMessage();
-        setMessage(lastMsg);
-      } catch (err) {
-        setError(String(err));
-        setAmendMode(false);
-      }
-    };
-    loadMessage();
-  }, [amendMode, setError, setAmendMode]);
+  createEffect(
+    () => amendMode(),
+    (amend) => {
+      if (!amend) return;
+      const loadMessage = async () => {
+        try {
+          const lastMsg = await commands.getLastCommitMessage();
+          setMessage(lastMsg);
+        } catch (err) {
+          setError(String(err));
+          setAmendMode(false);
+        }
+      };
+      void loadMessage();
+    }
+  );
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    if (!showDropdown) return;
-    const handleClick = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showDropdown]);
+  createEffect(
+    () => showDropdown(),
+    (open) => {
+      if (!open) return;
+      const handleClick = (e: MouseEvent) => {
+        if (dropdownRef && !dropdownRef.contains(e.target as Node)) {
+          setShowDropdown(false);
+        }
+      };
+      const handleKey = (e: KeyboardEvent) => {
+        if (e.key === "Escape") setShowDropdown(false);
+      };
+      document.addEventListener("mousedown", handleClick);
+      document.addEventListener("keydown", handleKey);
+      return () => {
+        document.removeEventListener("mousedown", handleClick);
+        document.removeEventListener("keydown", handleKey);
+      };
+    }
+  );
 
-  // Close dropdown on Escape
-  useEffect(() => {
-    if (!showDropdown) return;
-    const handleKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") setShowDropdown(false);
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [showDropdown]);
-
-  const doCommit = useCallback(async (amend: boolean): Promise<boolean> => {
-    if (!message.trim() || isCommitting) return false;
+  const doCommit = async (amend: boolean): Promise<boolean> => {
+    if (!message().trim() || isCommitting()) return false;
     startOperation("commit");
     try {
-      if (!hasStaged && hasChanges) {
+      if (!hasStaged() && hasChanges()) {
         await commands.stageAll();
       }
-      const newStatus = await commands.commitChanges(message.trim(), amend);
+      const newStatus = await commands.commitChanges(message().trim(), amend);
       setStatus(newStatus);
       setMessage("");
       if (amend) setAmendMode(false);
@@ -71,38 +90,41 @@ export const CommitInput = () => {
     } finally {
       endOperation("commit");
     }
-  }, [message, isCommitting, hasStaged, hasChanges, setStatus, setError, startOperation, endOperation, setAmendMode]);
+  };
 
-  const handleCommit = useCallback(() => {
-    doCommit(amendMode);
-  }, [doCommit, amendMode]);
+  const handleCommit = () => {
+    void doCommit(amendMode());
+  };
 
-  const autoResize = useCallback(() => {
-    const el = textareaRef.current;
+  const autoResize = () => {
+    const el = textareaRef;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
-  }, []);
+  };
 
-  useEffect(() => {
-    autoResize();
-  }, [message, autoResize]);
+  createEffect(
+    () => message(),
+    () => {
+      autoResize();
+    }
+  );
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+  const handleKeyDown = (e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       handleCommit();
     }
-  }, [handleCommit]);
+  };
 
-  const handleAmendCommit = useCallback(() => {
+  const handleAmendCommit = () => {
     setShowDropdown(false);
     setAmendMode(true);
-  }, [setAmendMode]);
+  };
 
-  const handleCommitAndPush = useCallback(async () => {
+  const handleCommitAndPush = async () => {
     setShowDropdown(false);
-    const ok = await doCommit(amendMode);
+    const ok = await doCommit(amendMode());
     if (ok) {
       try {
         startOperation("push");
@@ -114,11 +136,11 @@ export const CommitInput = () => {
         endOperation("push");
       }
     }
-  }, [doCommit, amendMode, setStatus, startOperation, endOperation, setError]);
+  };
 
-  const handleCommitAndSync = useCallback(async () => {
+  const handleCommitAndSync = async () => {
     setShowDropdown(false);
-    const ok = await doCommit(amendMode);
+    const ok = await doCommit(amendMode());
     if (ok) {
       try {
         startOperation("sync");
@@ -131,74 +153,85 @@ export const CommitInput = () => {
         endOperation("sync");
       }
     }
-  }, [doCommit, amendMode, setStatus, startOperation, endOperation, setError]);
-
-  if (!status) return null;
-
-  const canCommit = message.trim() && !isCommitting && (hasStaged || hasChanges);
-  const commitLabel = amendMode
-    ? (hasStaged ? "Amend" : hasChanges ? "Amend All" : "Amend")
-    : (hasStaged ? "Commit" : hasChanges ? "Commit All" : "Commit");
-
-  const placeholder = `Message (${IS_MACOS ? "\u2318" : "Ctrl"}+Enter to commit on "${branch}")`;
+  };
 
   return (
-    <div className="commit-section">
-      <div className="commit-input-wrapper">
-        <textarea
-          ref={textareaRef}
-          className="commit-input"
-          value={message}
-          onChange={(e) => { setMessage(e.target.value); autoResize(); }}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          rows={1}
-          autoCapitalize="off"
-          autoCorrect="off"
-          autoComplete="off"
-          spellCheck={false}
-        />
-      </div>
-      <div className="commit-actions">
-        <div className="commit-dropdown-wrapper" ref={dropdownRef}>
-          <div className="commit-button-group">
-            <button
-              className="action-button"
-              onClick={handleCommit}
-              disabled={!canCommit}
-              title={amendMode ? "Amend staged changes" : "Commit staged changes"}
-            >
-              {isCommitting ? <Spinner /> : <span className="codicon codicon-check" />}
-              {commitLabel}
-            </button>
-            <button
-              className="commit-dropdown-toggle"
-              onClick={() => setShowDropdown((v) => !v)}
-              disabled={!canCommit}
-              title="More commit options"
-            >
-              <span className="codicon codicon-chevron-down" />
-            </button>
+    <>
+      {status() ? (
+        <div class="commit-section">
+          <div class="commit-input-wrapper">
+            <textarea
+              ref={(el) => {
+                textareaRef = el;
+              }}
+              class="commit-input"
+              value={message()}
+              onInput={(e) => {
+                setMessage(e.currentTarget.value);
+                autoResize();
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder()}
+              rows={1}
+              autocapitalize="off"
+              autocorrect="off"
+              autocomplete="off"
+              spellcheck={false}
+            />
           </div>
-          {showDropdown && (
-            <div className="commit-dropdown">
-              <div className="commit-dropdown-item" onClick={() => { setShowDropdown(false); handleCommit(); }}>
-                Commit
+          <div class="commit-actions">
+            <div
+              class="commit-dropdown-wrapper"
+              ref={(el) => {
+                dropdownRef = el;
+              }}
+            >
+              <div class="commit-button-group">
+                <button
+                  class="action-button"
+                  onClick={handleCommit}
+                  disabled={!canCommit()}
+                  title={amendMode() ? "Amend staged changes" : "Commit staged changes"}
+                >
+                  {isCommitting() ? <Spinner /> : <span class="codicon codicon-check" />}
+                  {commitLabel()}
+                </button>
+                <button
+                  class="commit-dropdown-toggle"
+                  onClick={() => setShowDropdown((v) => !v)}
+                  disabled={!canCommit()}
+                  title="More commit options"
+                >
+                  <span class="codicon codicon-chevron-down" />
+                </button>
               </div>
-              <div className="commit-dropdown-item" onClick={handleAmendCommit}>
-                Commit (Amend)
-              </div>
-              <div className="commit-dropdown-separator" />
-              <div className="commit-dropdown-item" onClick={handleCommitAndPush}>
-                Commit & Push
-              </div>
-              <div className="commit-dropdown-item" onClick={handleCommitAndSync}>
-                Commit & Sync
-              </div>
+              {showDropdown() && (
+                <div class="commit-dropdown">
+                  <div
+                    class="commit-dropdown-item"
+                    onClick={() => {
+                      setShowDropdown(false);
+                      handleCommit();
+                    }}
+                  >
+                    Commit
+                  </div>
+                  <div class="commit-dropdown-item" onClick={handleAmendCommit}>
+                    Commit (Amend)
+                  </div>
+                  <div class="commit-dropdown-separator" />
+                  <div class="commit-dropdown-item" onClick={handleCommitAndPush}>
+                    Commit & Push
+                  </div>
+                  <div class="commit-dropdown-item" onClick={handleCommitAndSync}>
+                    Commit & Sync
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
-      </div>
-    </div>
+      ) : null}
+    </>
   );
 };

@@ -1,5 +1,5 @@
-import { create } from "zustand";
-import { useSettingsStore } from "./settings-store";
+import { createStore } from "zustand/vanilla";
+import { settingsStore } from "./settings-store";
 
 export type MainView = "changes" | "history" | "settings" | "terminal" | "output" | "file";
 export type SidebarView = "scm" | "explorer";
@@ -70,10 +70,15 @@ const loadLayout = (root: string): PersistedLayout => {
     if (!raw) return { ...DEFAULTS };
     const parsed = JSON.parse(raw);
     const layout: PersistedLayout = { ...DEFAULTS, ...parsed };
-    if (layout.mainView === "settings" || layout.mainView === "terminal" || layout.mainView === "output" || layout.mainView === "file") {
+    if (
+      layout.mainView === "settings" ||
+      layout.mainView === "terminal" ||
+      layout.mainView === "output" ||
+      layout.mainView === "file"
+    ) {
       layout.mainView = "changes";
     }
-    const { alwaysOpenTerminalOnStart } = useSettingsStore.getState().settings.ui;
+    const { alwaysOpenTerminalOnStart } = settingsStore.getState().settings.ui;
     if (alwaysOpenTerminalOnStart) {
       layout.terminalVisible = true;
     }
@@ -101,7 +106,7 @@ const saveLayout = (state: LayoutState) => {
   localStorage.setItem(storageKey(currentProjectRoot), JSON.stringify(data));
 };
 
-export const useLayoutStore = create<LayoutState>((set, get) => ({
+export const layoutStore = createStore<LayoutState>((set, get) => ({
   ...DEFAULTS,
 
   setSidebarWidth: (sidebarWidth) => {

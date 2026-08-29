@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { createStore } from "zustand/vanilla";
 import type { ExplorerEntry, FileContent } from "../lib/git-types";
 
 interface ClipboardEntry {
@@ -47,7 +47,7 @@ interface ExplorerState {
   clearCache: () => void;
 }
 
-export const useExplorerStore = create<ExplorerState>((set) => ({
+export const explorerStore = createStore<ExplorerState>((set) => ({
   selectedPath: null,
   fileContent: null,
   fileFilter: "",

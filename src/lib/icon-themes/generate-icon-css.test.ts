@@ -24,7 +24,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { iconPath: "icons/file.svg" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain("background-image");
       expect(result.cssContent).toContain(`${BASE_PATH}/icons/file.svg`);
@@ -36,7 +36,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { fontCharacter: "\\E001" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain("content: '\\E001'");
     });
@@ -47,7 +47,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { fontCharacter: "\\E001", fontColor: "#FF0000" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain("color: #FF0000;");
     });
@@ -58,7 +58,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { fontCharacter: "\\E001", fontColor: "notahex" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).not.toContain("color:");
     });
@@ -72,7 +72,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { iconPath: "file.svg" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain("font-size: 200%");
     });
@@ -84,7 +84,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { iconPath: "file.svg" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain("font-size: 120%");
     });
@@ -95,7 +95,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { iconPath: "file.svg" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain("background-image");
     });
@@ -108,7 +108,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { iconPath: "file.svg" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain(".show-file-icons .file-icon::before");
     });
@@ -119,7 +119,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _folder: { iconPath: "folder.svg" } },
           folder: "_folder",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain(".show-file-icons .folder-icon::before");
     });
@@ -130,7 +130,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _folderOpen: { iconPath: "folder-open.svg" } },
           folderExpanded: "_folderOpen",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain(".folder-icon.folder-icon-expanded::before");
     });
@@ -141,7 +141,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _ts: { iconPath: "ts.svg" } },
           fileExtensions: { ts: "_ts" },
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain(".ts-ext-file-icon");
       expect(result.cssContent).toContain(".ext-file-icon");
@@ -154,7 +154,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _pkg: { iconPath: "pkg.svg" } },
           fileNames: { "package.json": "_pkg" },
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain("package\\.json-name-file-icon");
       expect(result.cssContent).toContain(".name-file-icon");
@@ -166,7 +166,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _ts: { iconPath: "ts.svg" } },
           languageIds: { typescript: "_ts" },
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain(".typescript-lang-file-icon.file-icon::before");
     });
@@ -177,7 +177,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _src: { iconPath: "src.svg" } },
           folderNames: { src: "_src" },
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain(".src-name-folder-icon.folder-icon::before");
     });
@@ -194,7 +194,7 @@ describe("generateIconThemeCss", () => {
           file: "_file",
           light: { file: "_fileLight" },
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain(".vs .show-file-icons .file-icon::before");
     });
@@ -209,7 +209,7 @@ describe("generateIconThemeCss", () => {
           file: "_file",
           highContrast: { file: "_fileHc" },
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain(".hc-black .show-file-icons .file-icon::before");
     });
@@ -222,7 +222,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { iconPath: "file.svg" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.hasFileIcons).toBe(true);
     });
@@ -233,7 +233,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _folder: { iconPath: "folder.svg" } },
           folder: "_folder",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.hasFolderIcons).toBe(true);
     });
@@ -245,7 +245,7 @@ describe("generateIconThemeCss", () => {
           file: "_file",
           hidesExplorerArrows: true,
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.hidesExplorerArrows).toBe(true);
     });
@@ -259,7 +259,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { iconPath: "file.svg" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain("@font-face");
       expect(result.cssContent).toContain("font-family: 'myicons'");
@@ -281,7 +281,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { iconPath: "file.svg" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       const fontFace = result.cssContent.split("\n").find((l) => l.startsWith("@font-face"));
       expect(fontFace).toContain("icons.woff2");
@@ -296,7 +296,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { iconPath: "icons/file.svg" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain(`${BASE_PATH}/icons/file.svg`);
     });
@@ -307,7 +307,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { iconPath: "/absolute/file.svg" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain("/absolute/file.svg");
       expect(result.cssContent).not.toContain(`${BASE_PATH}//absolute/file.svg`);
@@ -319,7 +319,7 @@ describe("generateIconThemeCss", () => {
           iconDefinitions: { _file: { iconPath: "https://cdn.example.com/file.svg" } },
           file: "_file",
         }),
-        BASE_PATH,
+        BASE_PATH
       );
       expect(result.cssContent).toContain("https://cdn.example.com/file.svg");
       expect(result.cssContent).not.toContain(`${BASE_PATH}/https://`);

@@ -6,11 +6,9 @@ const EM_QUAD = "'\\2001'";
 
 const selectorEscape = (str: string): string => str.replace(/[\s]/g, "/");
 
-const cssEscapeClassName = (str: string): string =>
-  str.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`);
+const cssEscapeClassName = (str: string): string => str.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`);
 
-const cssClassName = (str: string): string =>
-  cssEscapeClassName(selectorEscape(str));
+const cssClassName = (str: string): string => cssEscapeClassName(selectorEscape(str));
 
 const cssUrl = (path: string): string => `url('${path.replace(/'/g, "\\'")}')`;
 
@@ -22,7 +20,12 @@ interface GenerateResult {
 }
 
 export const generateIconThemeCss = (json: IconThemeJson, assetBasePath: string): GenerateResult => {
-  const result = { cssContent: "", hasFileIcons: false, hasFolderIcons: false, hidesExplorerArrows: !!json.hidesExplorerArrows };
+  const result = {
+    cssContent: "",
+    hasFileIcons: false,
+    hasFolderIcons: false,
+    hidesExplorerArrows: !!json.hidesExplorerArrows,
+  };
 
   if (!json.iconDefinitions) return result;
 
@@ -83,7 +86,10 @@ export const generateIconThemeCss = (json: IconThemeJson, assetBasePath: string)
     if (assoc.folderNamesExpanded) {
       for (const key in assoc.folderNamesExpanded) {
         const name = cssClassName(key.toLowerCase());
-        addSelector(`${qualifier} .${name}-name-folder-icon.folder-icon.folder-icon-expanded::before`, assoc.folderNamesExpanded[key]);
+        addSelector(
+          `${qualifier} .${name}-name-folder-icon.folder-icon.folder-icon-expanded::before`,
+          assoc.folderNamesExpanded[key]
+        );
         result.hasFolderIcons = true;
       }
     }
@@ -99,7 +105,10 @@ export const generateIconThemeCss = (json: IconThemeJson, assetBasePath: string)
     if (assoc.rootFolderNamesExpanded) {
       for (const key in assoc.rootFolderNamesExpanded) {
         const name = cssClassName(key.toLowerCase());
-        addSelector(`${qualifier} .${name}-root-name-folder-icon.rootfolder-icon.folder-icon-expanded::before`, assoc.rootFolderNamesExpanded[key]);
+        addSelector(
+          `${qualifier} .${name}-root-name-folder-icon.rootfolder-icon.folder-icon-expanded::before`,
+          assoc.rootFolderNamesExpanded[key]
+        );
         result.hasFolderIcons = true;
       }
     }
@@ -160,11 +169,9 @@ export const generateIconThemeCss = (json: IconThemeJson, assetBasePath: string)
     const defaultFontSize = normalizeFontSize(fonts[0].size) || "150%";
 
     for (const font of fonts) {
-      const fontSrcs = font.src.map(
-        (s) => `${cssUrl(resolvePath(s.path))} format('${s.format}')`,
-      );
+      const fontSrcs = font.src.map((s) => `${cssUrl(resolvePath(s.path))} format('${s.format}')`);
       cssRules.push(
-        `@font-face { src: ${fontSrcs.join(", ")}; font-family: '${font.id}'; font-weight: ${font.weight || "normal"}; font-style: ${font.style || "normal"}; font-display: block; }`,
+        `@font-face { src: ${fontSrcs.join(", ")}; font-family: '${font.id}'; font-weight: ${font.weight || "normal"}; font-style: ${font.style || "normal"}; font-display: block; }`
       );
       const fontSize = normalizeFontSize(font.size);
       if (fontSize && fontSize !== defaultFontSize) {
@@ -173,7 +180,7 @@ export const generateIconThemeCss = (json: IconThemeJson, assetBasePath: string)
     }
 
     cssRules.push(
-      `.show-file-icons .file-icon::before, .show-file-icons .folder-icon::before, .show-file-icons .rootfolder-icon::before { font-family: '${fonts[0].id}'; font-size: ${defaultFontSize}; }`,
+      `.show-file-icons .file-icon::before, .show-file-icons .folder-icon::before, .show-file-icons .rootfolder-icon::before { font-family: '${fonts[0].id}'; font-size: ${defaultFontSize}; }`
     );
   }
 
@@ -184,7 +191,7 @@ export const generateIconThemeCss = (json: IconThemeJson, assetBasePath: string)
 
     if (definition.iconPath) {
       cssRules.push(
-        `${selectors.join(", ")} { content: ${EM_QUAD}; background-image: ${cssUrl(resolvePath(definition.iconPath))}; }`,
+        `${selectors.join(", ")} { content: ${EM_QUAD}; background-image: ${cssUrl(resolvePath(definition.iconPath))}; }`
       );
     } else if (definition.fontCharacter || definition.fontColor) {
       const body: string[] = [];

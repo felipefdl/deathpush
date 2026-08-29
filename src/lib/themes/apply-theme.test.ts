@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vite-plus/test";
 
-vi.mock("@monaco-editor/react", () => ({ loader: { init: vi.fn() } }));
+vi.mock("monaco-editor", () => ({
+  editor: { defineTheme: vi.fn(), setTheme: vi.fn() },
+}));
 
 import { getTerminalTheme } from "./apply-theme";
 

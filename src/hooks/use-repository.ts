@@ -1,12 +1,10 @@
-import { useCallback } from "react";
-import { useRepositoryStore } from "../stores/repository-store";
+import { repositoryStore } from "../stores/repository-store";
 import { addRecentProject } from "../lib/recent-projects";
 import * as commands from "../lib/tauri-commands";
 
 export const useRepository = () => {
-  const { setStatus, startOperation, endOperation, setError } = useRepositoryStore();
-
-  const openRepo = useCallback(async (path: string) => {
+  const openRepo = async (path: string) => {
+    const { setStatus, startOperation, endOperation, setError } = repositoryStore.getState();
     startOperation("open-repo");
     setError(null);
     try {
@@ -27,16 +25,17 @@ export const useRepository = () => {
       setError(String(err));
       endOperation("open-repo");
     }
-  }, [setStatus, startOperation, endOperation, setError]);
+  };
 
-  const refreshStatus = useCallback(async () => {
+  const refreshStatus = async () => {
+    const { setStatus, setError } = repositoryStore.getState();
     try {
       const status = await commands.getStatus();
       setStatus(status);
     } catch (err) {
       setError(String(err));
     }
-  }, [setStatus, setError]);
+  };
 
   return { openRepo, refreshStatus };
 };

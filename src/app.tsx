@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from "react";
+import { createEffect, createSignal, onSettled } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { AppLayout } from "./components/layout/app-layout";
@@ -20,16 +20,17 @@ import { LinuxTitleBar } from "./components/layout/linux-title-bar";
 import { confirm, message } from "@tauri-apps/plugin-dialog";
 import { useRepository } from "./hooks/use-repository";
 import { useStash } from "./hooks/use-stash";
-import { useRepositoryStore } from "./stores/repository-store";
-import { useLayoutStore } from "./stores/layout-store";
+import { repositoryStore } from "./stores/repository-store";
+import { layoutStore } from "./stores/layout-store";
 import * as commands from "./lib/tauri-commands";
-import { useSettingsStore } from "./stores/settings-store";
-import { useExplorerStore } from "./stores/explorer-store";
-import { useThemeStore } from "./stores/theme-store";
+import { settingsStore } from "./stores/settings-store";
+import { explorerStore } from "./stores/explorer-store";
+import { themeStore } from "./stores/theme-store";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { toggleTerminal } from "./lib/toggle-terminal";
 import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from "./lib/themes/theme-registry";
 import { PLATFORM } from "./lib/platform";
+import { useStore } from "./lib/use-store";
 import "./styles/codicons.css";
 import "./styles/scm.css";
 import "./styles/history.css";
@@ -40,22 +41,24 @@ const THEME_STORAGE_KEY = "deathpush:theme";
 
 export const App = () => {
   const { openRepo } = useRepository();
-  const { error, setError, setStatus, status, startOperation, endOperation } = useRepositoryStore();
+  const error = useStore(repositoryStore, (s) => s.error);
+  const status = useStore(repositoryStore, (s) => s.status);
+  const { setError, setStatus, startOperation, endOperation } = repositoryStore.getState();
   const { saveStash, popStash } = useStash();
-  const [showCloneDialog, setShowCloneDialog] = useState(false);
-  const [showThemePicker, setShowThemePicker] = useState(false);
-  const [showIconThemePicker, setShowIconThemePicker] = useState(false);
-  const [showLicensesModal, setShowLicensesModal] = useState(false);
-  const [showQuickOpen, setShowQuickOpen] = useState(false);
-  const [initializing, setInitializing] = useState(true);
+  const [showCloneDialog, setShowCloneDialog] = createSignal(false);
+  const [showThemePicker, setShowThemePicker] = createSignal(false);
+  const [showIconThemePicker, setShowIconThemePicker] = createSignal(false);
+  const [showLicensesModal, setShowLicensesModal] = createSignal(false);
+  const [showQuickOpen, setShowQuickOpen] = createSignal(false);
+  const [initializing, setInitializing] = createSignal(true);
 
   useKeyboardShortcuts();
 
-  useEffect(() => {
+  onSettled(() => {
     document.documentElement.dataset.platform = PLATFORM;
-  }, []);
+  });
 
-  useEffect(() => {
+  onSettled(() => {
     const init = async () => {
       try {
         const cliPath = await commands.getInitialPath();
@@ -68,58 +71,64 @@ export const App = () => {
         setInitializing(false);
       }
     };
-    init();
-  }, [openRepo]);
+    void init();
+  });
 
-  useEffect(() => {
-    if (status?.root) {
-      useLayoutStore.getState().loadForProject(status.root);
-      useExplorerStore.getState().clearCache();
+  createEffect(
+    () => status()?.root,
+    (root) => {
+      if (root) {
+        layoutStore.getState().loadForProject(root);
+        explorerStore.getState().clearCache();
+      }
     }
-  }, [status?.root]);
+  );
 
-  useEffect(() => {
-    commands.setRepoMenuEnabled(status !== null).catch(() => {});
-  }, [status]);
+  createEffect(
+    () => status() !== null,
+    (hasRepo) => {
+      commands.setRepoMenuEnabled(hasRepo).catch(() => {});
+    }
+  );
 
-  const handleOpenRepository = useCallback(async () => {
+  const handleOpenRepository = async () => {
     const selected = await open({ directory: true, title: "Open Git Repository" });
     if (selected) {
-      openRepo(selected);
+      void openRepo(selected);
     }
-  }, [openRepo]);
+  };
 
-  const handleDismissError = useCallback(() => {
+  const handleDismissError = () => {
     setError(null);
-  }, [setError]);
+  };
 
-  useEffect(() => {
+  onSettled(() => {
     const appWindow = getCurrentWebviewWindow();
     const listeners = [
       appWindow.listen("menu:preferences", () => {
-        useLayoutStore.getState().setMainView("settings");
+        layoutStore.getState().setMainView("settings");
       }),
       appWindow.listen("menu:open-repo", () => {
-        handleOpenRepository();
+        void handleOpenRepository();
       }),
       appWindow.listen("menu:clone-repo", () => {
         setShowCloneDialog(true);
       }),
       appWindow.listen("menu:view-changes", () => {
-        useLayoutStore.getState().setMainView("changes");
+        layoutStore.getState().setMainView("changes");
       }),
       appWindow.listen("menu:view-history", () => {
-        useLayoutStore.getState().setMainView("history");
+        layoutStore.getState().setMainView("history");
       }),
       appWindow.listen("menu:new-terminal", () => {
-        const repo = useRepositoryStore.getState();
-        const layout = useLayoutStore.getState();
+        const repo = repositoryStore.getState();
+        const layout = layoutStore.getState();
         repo.addTerminalGroup();
         layout.setTerminalVisible(true);
         layout.setPanelTab("terminal");
       }),
       appWindow.listen("menu:kill-terminal", () => {
-        const repo = useRepositoryStore.getState();
+        const repo = repositoryStore.getState();
         if (repo.activeGroupId !== null) {
           repo.removeTerminalGroup(repo.activeGroupId);
         }
@@ -128,12 +137,12 @@ export const App = () => {
         toggleTerminal();
       }),
       appWindow.listen("menu:toggle-diff", () => {
-        const layout = useLayoutStore.getState();
+        const layout = layoutStore.getState();
         layout.setDiffMode(layout.diffMode === "inline" ? "sideBySide" : "inline");
       }),
-      appWindow.listen("menu:zoom-in", () => useSettingsStore.getState().zoomIn()),
-      appWindow.listen("menu:zoom-out", () => useSettingsStore.getState().zoomOut()),
-      appWindow.listen("menu:zoom-reset", () => useSettingsStore.getState().resetZoom()),
+      appWindow.listen("menu:zoom-in", () => settingsStore.getState().zoomIn()),
+      appWindow.listen("menu:zoom-out", () => settingsStore.getState().zoomOut()),
+      appWindow.listen("menu:zoom-reset", () => settingsStore.getState().resetZoom()),
       appWindow.listen("menu:color-theme", () => {
         window.dispatchEvent(new CustomEvent("deathpush:open-theme-picker"));
       }),
@@ -141,7 +150,7 @@ export const App = () => {
         window.dispatchEvent(new CustomEvent("deathpush:open-icon-theme-picker"));
       }),
       appWindow.listen("menu:git-pull", async () => {
-        const branch = useRepositoryStore.getState().status?.headBranch;
+        const branch = repositoryStore.getState().status?.headBranch;
         if (!branch) return;
         startOperation("pull");
         try {
@@ -154,7 +163,7 @@ export const App = () => {
         }
       }),
       appWindow.listen("menu:git-push", async () => {
-        const branch = useRepositoryStore.getState().status?.headBranch;
+        const branch = repositoryStore.getState().status?.headBranch;
         if (!branch) return;
         startOperation("push");
         try {
@@ -200,10 +209,10 @@ export const App = () => {
         }
       }),
       appWindow.listen("menu:git-stash", () => {
-        saveStash();
+        void saveStash();
       }),
       appWindow.listen("menu:git-stash-pop", () => {
-        popStash(0);
+        void popStash(0);
       }),
       appWindow.listen("menu:git-undo-commit", async () => {
         const confirmed = await confirm("Undo last commit? Changes will be moved back to staging.", {
@@ -219,7 +228,7 @@ export const App = () => {
         }
       }),
       appWindow.listen("menu:quick-open", () => {
-        if (useRepositoryStore.getState().status) {
+        if (repositoryStore.getState().status) {
           setShowQuickOpen(true);
         }
       }),
@@ -228,11 +237,11 @@ export const App = () => {
       }),
       appWindow.listen("menu:install-cli", async () => {
         try {
-          const status = await commands.checkCliInstalled();
-          if (status.installed) {
+          const cliStatus = await commands.checkCliInstalled();
+          if (cliStatus.installed) {
             const shouldUninstall = await confirm(
               "Command line tools 'dp' and 'deathpush' are already installed. Would you like to uninstall them?",
-              { title: "Command Line Tool", kind: "warning", okLabel: "Uninstall", cancelLabel: "Cancel" },
+              { title: "Command Line Tool", kind: "warning", okLabel: "Uninstall", cancelLabel: "Cancel" }
             );
             if (!shouldUninstall) return;
             await commands.uninstallCli();
@@ -240,11 +249,16 @@ export const App = () => {
           } else {
             const shouldInstall = await confirm(
               "Install dp and deathpush commands to /usr/local/bin so you can open repositories from any terminal.\n\nExamples:\n  dp .\n  deathpush ~/projects/my-repo",
-              { title: "Install Command Line Tool", kind: "warning", okLabel: "Install", cancelLabel: "Cancel" },
+              { title: "Install Command Line Tool", kind: "warning", okLabel: "Install", cancelLabel: "Cancel" }
             );
             if (!shouldInstall) return;
             await commands.installCli();
-            await message("Commands dp and deathpush installed successfully. Restart your terminal to start using them.", { title: "Command Line Tool" });
+            await message(
+              "Commands dp and deathpush installed successfully. Restart your terminal to start using them.",
+              {
+                title: "Command Line Tool",
+              }
+            );
           }
         } catch (err) {
           if (String(err).includes("Authorization cancelled")) return;
@@ -255,108 +269,111 @@ export const App = () => {
     listeners.push(
       appWindow.listen<string>("watcher:error", (event) => {
         setError(event.payload);
-      }),
+      })
     );
     listeners.push(
       appWindow.listen("window:close-requested", async () => {
-        const confirmed = await confirm(
-          "Are you sure you want to close this window?",
-          { title: "Close Window", kind: "warning", okLabel: "Close", cancelLabel: "Cancel" },
-        );
+        const confirmed = await confirm("Are you sure you want to close this window?", {
+          title: "Close Window",
+          kind: "warning",
+          okLabel: "Close",
+          cancelLabel: "Cancel",
+        });
         if (confirmed) {
           await commands.windowConfirmClose();
         }
-      }),
+      })
     );
-    return () => { listeners.forEach((p) => p.then((fn) => fn())); };
-  }, [handleOpenRepository, startOperation, endOperation, setError, setStatus, saveStash, popStash]);
+    return () => {
+      listeners.forEach((p) => p.then((fn) => fn()));
+    };
+  });
 
-  useEffect(() => {
+  onSettled(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "o") {
         e.preventDefault();
-        handleOpenRepository();
+        void handleOpenRepository();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleOpenRepository]);
+  });
 
-  // Listen for theme picker chord shortcut
-  useEffect(() => {
+  onSettled(() => {
     const handler = () => setShowThemePicker(true);
     window.addEventListener("deathpush:open-theme-picker", handler);
     return () => window.removeEventListener("deathpush:open-theme-picker", handler);
-  }, []);
+  });
 
-  // Listen for icon theme picker chord shortcut
-  useEffect(() => {
+  onSettled(() => {
     const handler = () => setShowIconThemePicker(true);
     window.addEventListener("deathpush:open-icon-theme-picker", handler);
     return () => window.removeEventListener("deathpush:open-icon-theme-picker", handler);
-  }, []);
+  });
 
-  // Listen for quick open shortcut (only when a repo is open)
-  useEffect(() => {
+  onSettled(() => {
     const handler = () => {
-      if (useRepositoryStore.getState().status) {
+      if (repositoryStore.getState().status) {
         setShowQuickOpen(true);
       }
     };
     window.addEventListener("deathpush:open-quick-open", handler);
     return () => window.removeEventListener("deathpush:open-quick-open", handler);
-  }, []);
+  });
 
-  // Apply UI font settings reactively
-  const uiSettings = useSettingsStore((s) => s.settings.ui);
-  useEffect(() => {
-    document.documentElement.style.setProperty("--vscode-font-family", uiSettings.fontFamily);
-    document.documentElement.style.setProperty("--vscode-font-size", `${uiSettings.fontSize}px`);
-  }, [uiSettings]);
+  const uiSettings = useStore(settingsStore, (s) => s.settings.ui);
+  createEffect(
+    () => uiSettings(),
+    (ui) => {
+      document.documentElement.style.setProperty("--vscode-font-family", ui.fontFamily);
+      document.documentElement.style.setProperty("--vscode-font-size", `${ui.fontSize}px`);
+    }
+  );
 
-  // Apply zoom level to webview
-  const zoomLevel = useSettingsStore((s) => s.settings.ui.zoomLevel);
-  useEffect(() => {
-    getCurrentWebviewWindow().setZoom(Math.pow(1.2, zoomLevel)).catch(() => {});
-  }, [zoomLevel]);
+  const zoomLevel = useStore(settingsStore, (s) => s.settings.ui.zoomLevel);
+  createEffect(
+    () => zoomLevel(),
+    (level) => {
+      getCurrentWebviewWindow()
+        .setZoom(Math.pow(1.2, level))
+        .catch(() => {});
+    }
+  );
 
-  // Auto-switch theme on system preference change (only if no stored preference)
-  useEffect(() => {
+  onSettled(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = (e: MediaQueryListEvent) => {
       const stored = localStorage.getItem(THEME_STORAGE_KEY);
       if (stored) return;
       const id = e.matches ? DEFAULT_DARK_THEME_ID : DEFAULT_LIGHT_THEME_ID;
-      useThemeStore.getState().setTheme(id);
+      themeStore.getState().setTheme(id);
     };
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
-  }, []);
+  });
 
-  const showWelcome = !initializing && status === null;
+  const showWelcome = () => !initializing() && status() === null;
 
   return (
-    <div className="app">
+    <div class="app">
       <LinuxTitleBar />
-      {error && (
-        <div className="error-toast" onClick={handleDismissError}>
-          <span className="codicon codicon-error" style={{ marginRight: 6 }} />
-          {error}
+      {error() && (
+        <div class="error-toast" onClick={handleDismissError}>
+          <span class="codicon codicon-error" style={{ "margin-right": "6px" }} />
+          {error()}
         </div>
       )}
-      {showWelcome ? (
+      {showWelcome() ? (
         <WelcomeScreen
           onOpenRepository={handleOpenRepository}
           onCloneRepository={() => setShowCloneDialog(true)}
           onSelectProject={(path) => openRepo(path)}
         />
-      ) : status !== null ? (
+      ) : status() !== null ? (
         <AppLayout
           sidebar={
-            <SidebarView
-              onOpenRepository={handleOpenRepository}
-              onCloneRepository={() => setShowCloneDialog(true)}
-            />
+            <SidebarView onOpenRepository={handleOpenRepository} onCloneRepository={() => setShowCloneDialog(true)} />
           }
           main={
             <MainPanel
@@ -370,11 +387,11 @@ export const App = () => {
           statusBar={<StatusBar />}
         />
       ) : null}
-      {showCloneDialog && <CloneDialog onClose={() => setShowCloneDialog(false)} />}
-      {showThemePicker && <ThemePicker onClose={() => setShowThemePicker(false)} />}
-      {showIconThemePicker && <IconThemePicker onClose={() => setShowIconThemePicker(false)} />}
-      {showQuickOpen && <QuickOpen onClose={() => setShowQuickOpen(false)} />}
-      {showLicensesModal && <LicensesModal onClose={() => setShowLicensesModal(false)} />}
+      {showCloneDialog() && <CloneDialog onClose={() => setShowCloneDialog(false)} />}
+      {showThemePicker() && <ThemePicker onClose={() => setShowThemePicker(false)} />}
+      {showIconThemePicker() && <IconThemePicker onClose={() => setShowIconThemePicker(false)} />}
+      {showQuickOpen() && <QuickOpen onClose={() => setShowQuickOpen(false)} />}
+      {showLicensesModal() && <LicensesModal onClose={() => setShowLicensesModal(false)} />}
     </div>
   );
 };

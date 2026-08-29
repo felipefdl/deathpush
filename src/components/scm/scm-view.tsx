@@ -1,8 +1,9 @@
-import { useMemo, useCallback, useEffect } from "react";
+import { createEffect, createMemo } from "solid-js";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import type { FileEntry } from "../../lib/git-types";
-import { useRepositoryStore } from "../../stores/repository-store";
-import { useLayoutStore } from "../../stores/layout-store";
+import { repositoryStore } from "../../stores/repository-store";
+import { layoutStore } from "../../stores/layout-store";
+import { useStore } from "../../lib/use-store";
 import { useColorScheme } from "../../hooks/use-color-scheme";
 import { useGitStatus } from "../../hooks/use-git-status";
 import { useStash } from "../../hooks/use-stash";
@@ -25,57 +26,56 @@ const GROUP_RATIOS: Record<string, number> = {
   untracked: 0.4,
 };
 
-interface ScmViewProps {
+type ScmViewProps = {
   onOpenRepository: () => void;
   onCloneRepository?: () => void;
-}
+};
 
-export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) => {
-  const {
-    status,
-    stashes,
-    fileFilter,
-    setStatus,
-    setError,
-    startOperation,
-    endOperation,
-    focusedIndex,
-  } = useRepositoryStore();
-  const { viewMode } = useLayoutStore();
+export const ScmView = (props: ScmViewProps) => {
+  const status = useStore(repositoryStore, (s) => s.status);
+  const stashes = useStore(repositoryStore, (s) => s.stashes);
+  const fileFilter = useStore(repositoryStore, (s) => s.fileFilter);
+  const focusedIndex = useStore(repositoryStore, (s) => s.focusedIndex);
+  const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
+  const viewMode = useStore(layoutStore, (s) => s.viewMode);
   const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const isDark = () => colorScheme() === "dark";
   useGitStatus();
   const { loadStashes, applyStash, popStash, dropStash } = useStash();
   const { repos: subRepos } = useSubRepos();
 
-  useEffect(() => {
-    if (status) {
-      loadStashes();
+  createEffect(
+    () => status(),
+    (current) => {
+      if (current) {
+        void loadStashes();
+      }
     }
-  }, [status, loadStashes]);
+  );
 
-  const filteredGroups = useMemo(() => {
-    if (!status) return [];
-    const lower = fileFilter.toLowerCase();
-    return status.groups.map((group) => {
-      const files = fileFilter
-        ? group.files.filter((f) => f.path.toLowerCase().includes(lower))
-        : group.files;
-      return { group, files };
-    }).filter(({ files }) => files.length > 0);
-  }, [status, fileFilter]);
+  const filteredGroups = createMemo(() => {
+    const current = status();
+    if (!current) return [];
+    const lower = fileFilter().toLowerCase();
+    return current.groups
+      .map((group) => {
+        const files = fileFilter() ? group.files.filter((f) => f.path.toLowerCase().includes(lower)) : group.files;
+        return { group, files };
+      })
+      .filter(({ files }) => files.length > 0);
+  });
 
-  const groupOffsets = useMemo(() => {
+  const groupOffsets = createMemo(() => {
     const offsets: number[] = [];
     let offset = 0;
-    for (const { files } of filteredGroups) {
+    for (const { files } of filteredGroups()) {
       offsets.push(offset);
       offset += files.length;
     }
     return offsets;
-  }, [filteredGroups]);
+  });
 
-  const handleStageAll = useCallback(async (paths: string[]) => {
+  const handleStageAll = async (paths: string[]) => {
     startOperation("stage");
     try {
       const s = await commands.stageFiles(paths);
@@ -85,9 +85,9 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
     } finally {
       endOperation("stage");
     }
-  }, [setStatus, setError, startOperation, endOperation]);
+  };
 
-  const handleUnstageAll = useCallback(async () => {
+  const handleUnstageAll = async () => {
     startOperation("unstage");
     try {
       const s = await commands.unstageAll();
@@ -97,9 +97,9 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
     } finally {
       endOperation("unstage");
     }
-  }, [setStatus, setError, startOperation, endOperation]);
+  };
 
-  const handleDiscardAll = useCallback(async (files: FileEntry[]) => {
+  const handleDiscardAll = async (files: FileEntry[]) => {
     const trackedPaths = files.filter((f) => f.status !== "untracked").map((f) => f.path);
     const untrackedPaths = files.filter((f) => f.status === "untracked").map((f) => f.path);
 
@@ -137,14 +137,21 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
     } finally {
       endOperation("discard");
     }
-  }, [setStatus, setError, startOperation, endOperation]);
+  };
 
-  const panes: PaneDefinition[] = useMemo(() => {
+  const panes = createMemo((): PaneDefinition[] => {
     const result: PaneDefinition[] = [];
+    const groups = filteredGroups();
+    const offsets = groupOffsets();
+    const stashList = stashes();
+    const nested = subRepos();
+    const root = status()?.root;
+    const mode = viewMode();
+    const focused = focusedIndex();
 
-    for (let i = 0; i < filteredGroups.length; i++) {
-      const { group, files } = filteredGroups[i];
-      const offset = groupOffsets[i];
+    for (let i = 0; i < groups.length; i++) {
+      const { group, files } = groups[i];
+      const offset = offsets[i];
       const isIndex = group.kind === "index";
       const paths = files.map((f) => f.path);
 
@@ -166,82 +173,73 @@ export const ScmView = ({ onOpenRepository, onCloneRepository }: ScmViewProps) =
         body: () => (
           <ResourceGroupBody
             files={files}
-            viewMode={viewMode}
+            viewMode={mode}
             groupKind={group.kind}
             flatIndexOffset={offset}
-            focusedIndex={focusedIndex}
+            focusedIndex={focused}
           />
         ),
       });
     }
 
-    if (stashes.length > 0) {
+    if (stashList.length > 0) {
       result.push({
         id: "stashes",
         defaultRatio: 0.3,
         header: (collapsed, onToggle) => (
-          <StashHeader collapsed={collapsed} onToggle={onToggle} count={stashes.length} />
+          <StashHeader collapsed={collapsed} onToggle={onToggle} count={stashList.length} />
         ),
-        body: () => (
-          <StashBody stashes={stashes} onApply={applyStash} onPop={popStash} onDrop={dropStash} />
-        ),
+        body: () => <StashBody stashes={stashList} onApply={applyStash} onPop={popStash} onDrop={dropStash} />,
       });
     }
 
-    if (subRepos.length > 0 && status?.root) {
+    if (nested.length > 0 && root) {
       result.push({
         id: "sub-repos",
         defaultRatio: 0.3,
         defaultCollapsed: true,
         header: (collapsed, onToggle) => (
-          <SubReposHeader collapsed={collapsed} onToggle={onToggle} count={subRepos.length} />
+          <SubReposHeader collapsed={collapsed} onToggle={onToggle} count={nested.length} />
         ),
-        body: () => (
-          <SubReposBody repos={subRepos} repoRoot={status.root} />
-        ),
+        body: () => <SubReposBody repos={nested} repoRoot={root} />,
       });
     }
 
     return result;
-  }, [filteredGroups, groupOffsets, stashes, subRepos, status?.root, viewMode, focusedIndex, handleStageAll, handleUnstageAll, handleDiscardAll, applyStash, popStash, dropStash]);
+  });
 
-  const hasFiles = status?.groups.some((g) => g.files.length > 0);
+  const hasFiles = () => status()?.groups.some((g) => g.files.length > 0);
+  const operationState = () => status()?.operationState;
 
   return (
-    <div className="scm-view">
-      <div className="scm-header">
-        <div className="scm-header-right">
-          <ScmToolbar onOpenRepository={onOpenRepository} onCloneRepository={onCloneRepository} />
+    <div class="scm-view">
+      <div class="scm-header">
+        <div class="scm-header-right">
+          <ScmToolbar onOpenRepository={props.onOpenRepository} onCloneRepository={props.onCloneRepository} />
         </div>
       </div>
-      <div className="scm-content">
-        {status?.operationState && status.operationState !== "none" && (
-          <MergeBanner operationState={status.operationState} />
-        )}
+      <div class="scm-content">
+        {operationState() && operationState() !== "none" && <MergeBanner operationState={operationState()!} />}
         <CommitInput />
-        {hasFiles && <FileFilter />}
-        {status && status.groups.length === 0 && (
-          <div className="scm-empty">
-            <img
-              className="scm-empty-watermark"
-              src={isDark ? "/deathpush-white.png" : "/deathpush-black.png"}
-              alt=""
-            />
-            <span className="scm-empty-label">No changes</span>
+        {hasFiles() && <FileFilter />}
+        {status() && status()!.groups.length === 0 && (
+          <div class="scm-empty">
+            <img class="scm-empty-watermark" src={isDark() ? "/deathpush-white.png" : "/deathpush-black.png"} alt="" />
+            <span class="scm-empty-label">No changes</span>
           </div>
         )}
-        <ResizablePaneContainer panes={panes} />
-        {!status && (
-          <div className="scm-empty">
-            <span style={{ opacity: 0.5, padding: 16, display: "block", textAlign: "center" }}>
+        <ResizablePaneContainer panes={panes()} />
+        {!status() && (
+          <div class="scm-empty">
+            <span style={{ opacity: 0.5, padding: "16px", display: "block", "text-align": "center" }}>
               No repository open
             </span>
             <button
-              className="action-button"
+              class="action-button"
               style={{ margin: "0 16px", width: "auto" }}
-              onClick={onOpenRepository}
+              onClick={() => props.onOpenRepository()}
             >
-              <span className="codicon codicon-folder-opened" />
+              <span class="codicon codicon-folder-opened" />
               Open Repository
             </button>
           </div>

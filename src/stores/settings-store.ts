@@ -1,9 +1,9 @@
-import { create } from "zustand";
 import type { FontWeight } from "@xterm/xterm";
-import { useThemeStore } from "./theme-store";
-import { useIconThemeStore } from "./icon-theme-store";
-import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from "../lib/themes/theme-registry";
+import { createStore } from "zustand/vanilla";
 import { DEFAULT_ICON_THEME_ID } from "../lib/icon-themes/icon-theme-registry";
+import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from "../lib/themes/theme-registry";
+import { iconThemeStore } from "./icon-theme-store";
+import { themeStore } from "./theme-store";
 
 export interface EditorSettings {
   fontSize: number;
@@ -170,7 +170,7 @@ const saveSettings = (settings: AppSettings) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
 };
 
-export const useSettingsStore = create<SettingsState>((set) => ({
+export const settingsStore = createStore<SettingsState>((set) => ({
   settings: loadSettings(),
 
   updateUI: (partial) =>
@@ -258,7 +258,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     const id = prefersDark ? DEFAULT_DARK_THEME_ID : DEFAULT_LIGHT_THEME_ID;
-    useThemeStore.getState().setTheme(id);
-    useIconThemeStore.getState().setIconTheme(DEFAULT_ICON_THEME_ID);
+    themeStore.getState().setTheme(id);
+    iconThemeStore.getState().setIconTheme(DEFAULT_ICON_THEME_ID);
   },
 }));

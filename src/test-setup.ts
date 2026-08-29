@@ -11,3 +11,7 @@ Object.defineProperty(window, "matchMedia", {
     dispatchEvent: () => false,
   }),
 });
+
+if (typeof document.queryCommandSupported !== "function") {
+  document.queryCommandSupported = (_commandId: string): boolean => false;
+}

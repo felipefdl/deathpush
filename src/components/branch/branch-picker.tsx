@@ -1,21 +1,23 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { createEffect, createMemo, createSignal, For, onSettled } from "solid-js";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import { useRepositoryStore } from "../../stores/repository-store";
+import { repositoryStore } from "../../stores/repository-store";
 import { useBranches } from "../../hooks/use-branches";
 import { useTags } from "../../hooks/use-tags";
+import { useStore } from "../../lib/use-store";
 import { BranchItem } from "./branch-item";
 import { TagItem } from "./tag-item";
 
-interface BranchPickerProps {
+type BranchPickerProps = {
   onClose: () => void;
-}
+};
 
-export const BranchPicker = ({ onClose }: BranchPickerProps) => {
-  const [search, setSearch] = useState("");
-  const [tagsExpanded, setTagsExpanded] = useState(false);
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const { branches, tags } = useRepositoryStore();
+export const BranchPicker = (props: BranchPickerProps) => {
+  const [search, setSearch] = createSignal("");
+  const [tagsExpanded, setTagsExpanded] = createSignal(false);
+  const [renaming, setRenaming] = createSignal<string | null>(null);
+  const [renameValue, setRenameValue] = createSignal("");
+  const branches = useStore(repositoryStore, (s) => s.branches);
+  const tags = useStore(repositoryStore, (s) => s.tags);
   const {
     loadBranches,
     switchBranch,
@@ -27,193 +29,219 @@ export const BranchPicker = ({ onClose }: BranchPickerProps) => {
     rebaseBranch,
   } = useBranches();
   const { loadTags, createTag, removeTag, pushTagToRemote, removeRemoteTag } = useTags();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const renameInputRef = useRef<HTMLInputElement>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
+  let inputRef: HTMLInputElement | undefined;
+  let renameInputRef: HTMLInputElement | undefined;
+  let overlayRef: HTMLDivElement | undefined;
 
-  useEffect(() => {
-    loadBranches();
-    loadTags();
-    inputRef.current?.focus();
-  }, [loadBranches, loadTags]);
+  onSettled(() => {
+    void loadBranches();
+    void loadTags();
+    inputRef?.focus();
+  });
 
-  useEffect(() => {
-    if (renaming) {
-      renameInputRef.current?.focus();
-      renameInputRef.current?.select();
+  createEffect(
+    () => renaming(),
+    (name) => {
+      if (name) {
+        renameInputRef?.focus();
+        renameInputRef?.select();
+      }
     }
-  }, [renaming]);
-
-  const filtered = branches.filter((b) =>
-    b.name.toLowerCase().includes(search.toLowerCase()),
   );
 
-  const filteredTags = tags.filter((t) =>
-    t.name.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = createMemo(() => branches().filter((b) => b.name.toLowerCase().includes(search().toLowerCase())));
 
-  const handleSelect = useCallback(async (name: string) => {
+  const filteredTags = createMemo(() => tags().filter((t) => t.name.toLowerCase().includes(search().toLowerCase())));
+
+  const handleSelect = async (name: string) => {
     await switchBranch(name);
-    onClose();
-  }, [switchBranch, onClose]);
+    props.onClose();
+  };
 
-  const handleCreate = useCallback(async () => {
-    if (!search.trim()) return;
-    await createNewBranch(search.trim());
-    onClose();
-  }, [search, createNewBranch, onClose]);
+  const handleCreate = async () => {
+    const name = search().trim();
+    if (!name) return;
+    await createNewBranch(name);
+    props.onClose();
+  };
 
-  const handleCreateTag = useCallback(async () => {
-    if (!search.trim()) return;
-    await createTag(search.trim());
+  const handleCreateTag = async () => {
+    const name = search().trim();
+    if (!name) return;
+    await createTag(name);
     setSearch("");
-  }, [search, createTag]);
+  };
 
-  const handleStartRename = useCallback((name: string) => {
+  const handleStartRename = (name: string) => {
     setRenaming(name);
     setRenameValue(name);
-  }, []);
+  };
 
-  const handleConfirmRename = useCallback(async () => {
-    if (!renaming || !renameValue.trim() || renameValue.trim() === renaming) {
+  const handleConfirmRename = async () => {
+    const current = renaming();
+    const value = renameValue().trim();
+    if (!current || !value || value === current) {
       setRenaming(null);
       return;
     }
-    await renameBranch(renaming, renameValue.trim());
+    await renameBranch(current, value);
     setRenaming(null);
-  }, [renaming, renameValue, renameBranch]);
+  };
 
-  const handleDeleteBranch = useCallback(async (name: string, force: boolean) => {
-    const confirmed = await confirm(
-      `Are you sure you want to delete branch "${name}"?`,
-      { title: "Delete Branch", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" },
-    );
+  const handleDeleteBranch = async (name: string, force: boolean) => {
+    const confirmed = await confirm(`Are you sure you want to delete branch "${name}"?`, {
+      title: "Delete Branch",
+      kind: "warning",
+      okLabel: "Delete",
+      cancelLabel: "Cancel",
+    });
     if (!confirmed) return;
     await removeBranch(name, force);
-  }, [removeBranch]);
+  };
 
-  const handleDeleteRemoteBranch = useCallback(async (remote: string, name: string) => {
+  const handleDeleteRemoteBranch = async (remote: string, name: string) => {
     const confirmed = await confirm(
       `Are you sure you want to delete remote branch "${remote}/${name}"?\n\nThis cannot be undone.`,
-      { title: "Delete Remote Branch", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" },
+      { title: "Delete Remote Branch", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" }
     );
     if (!confirmed) return;
     await removeRemoteBranch(remote, name);
-  }, [removeRemoteBranch]);
+  };
 
-  const handleMerge = useCallback(async (name: string) => {
+  const handleMerge = async (name: string) => {
     await mergeBranch(name);
-    onClose();
-  }, [mergeBranch, onClose]);
+    props.onClose();
+  };
 
-  const handleRebase = useCallback(async (name: string) => {
+  const handleRebase = async (name: string) => {
     await rebaseBranch(name);
-    onClose();
-  }, [rebaseBranch, onClose]);
+    props.onClose();
+  };
 
-  const handleDeleteRemoteTag = useCallback(async (name: string) => {
-    const confirmed = await confirm(
-      `Are you sure you want to delete remote tag "${name}"?\n\nThis cannot be undone.`,
-      { title: "Delete Remote Tag", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" },
-    );
+  const handleDeleteRemoteTag = async (name: string) => {
+    const confirmed = await confirm(`Are you sure you want to delete remote tag "${name}"?\n\nThis cannot be undone.`, {
+      title: "Delete Remote Tag",
+      kind: "warning",
+      okLabel: "Delete",
+      cancelLabel: "Cancel",
+    });
     if (!confirmed) return;
     await removeRemoteTag(name);
-  }, [removeRemoteTag]);
+  };
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
-      onClose();
-    } else if (e.key === "Enter" && filtered.length > 0) {
-      handleSelect(filtered[0].name);
+      props.onClose();
+    } else if (e.key === "Enter" && filtered().length > 0) {
+      void handleSelect(filtered()[0].name);
     }
-  }, [onClose, filtered, handleSelect]);
+  };
 
-  const handleOverlayClick = useCallback((e: React.MouseEvent) => {
-    if (e.target === overlayRef.current) {
-      onClose();
+  const handleOverlayClick = (e: MouseEvent) => {
+    if (e.target === overlayRef) {
+      props.onClose();
     }
-  }, [onClose]);
+  };
+
+  const handleSearchInput = (e: InputEvent & { currentTarget: HTMLInputElement }) => {
+    setSearch(e.currentTarget.value);
+  };
+
+  const handleRenameInput = (e: InputEvent & { currentTarget: HTMLInputElement }) => {
+    setRenameValue(e.currentTarget.value);
+  };
+
+  const searchTrimmed = createMemo(() => search().trim());
+  const canCreateBranch = createMemo(() => !!searchTrimmed() && !filtered().some((b) => b.name === searchTrimmed()));
+  const canCreateTag = createMemo(() => !!searchTrimmed() && !filteredTags().some((t) => t.name === searchTrimmed()));
 
   return (
-    <div className="branch-picker-overlay" ref={overlayRef} onClick={handleOverlayClick}>
-      <div className="branch-picker">
+    <div
+      class="branch-picker-overlay"
+      ref={(el) => {
+        overlayRef = el;
+      }}
+      onClick={handleOverlayClick}
+    >
+      <div class="branch-picker">
         <input
-          ref={inputRef}
-          className="branch-picker-input"
+          ref={(el) => {
+            inputRef = el;
+          }}
+          class="branch-picker-input"
           type="search"
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck={false}
           data-form-type="other"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={search()}
+          onInput={handleSearchInput}
           onKeyDown={handleKeyDown}
           placeholder="Switch to branch..."
         />
-        <div className="branch-picker-list">
-          {filtered.map((branch) => (
-            renaming === branch.name ? (
-              <div key={branch.name} className="branch-item branch-rename-row">
-                <span className="codicon codicon-edit" style={{ marginRight: 6, fontSize: 14 }} />
-                <input
-                  ref={renameInputRef}
-                  className="branch-rename-input"
-                  value={renameValue}
-                  onChange={(e) => setRenameValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleConfirmRename();
-                    if (e.key === "Escape") setRenaming(null);
-                  }}
-                  onBlur={handleConfirmRename}
+        <div class="branch-picker-list">
+          <For each={filtered()} keyed={(branch) => branch.name}>
+            {(branch) =>
+              renaming() === branch().name ? (
+                <div class="branch-item branch-rename-row">
+                  <span class="codicon codicon-edit" style={{ "margin-right": "6px", "font-size": "14px" }} />
+                  <input
+                    ref={(el) => {
+                      renameInputRef = el;
+                    }}
+                    class="branch-rename-input"
+                    value={renameValue()}
+                    onInput={handleRenameInput}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void handleConfirmRename();
+                      if (e.key === "Escape") setRenaming(null);
+                    }}
+                    onBlur={handleConfirmRename}
+                  />
+                </div>
+              ) : (
+                <BranchItem
+                  branch={branch()}
+                  onSelect={() => handleSelect(branch().name)}
+                  onRename={handleStartRename}
+                  onDelete={handleDeleteBranch}
+                  onDeleteRemote={handleDeleteRemoteBranch}
+                  onMerge={handleMerge}
+                  onRebase={handleRebase}
                 />
-              </div>
-            ) : (
-              <BranchItem
-                key={branch.name}
-                branch={branch}
-                onSelect={() => handleSelect(branch.name)}
-                onRename={handleStartRename}
-                onDelete={handleDeleteBranch}
-                onDeleteRemote={handleDeleteRemoteBranch}
-                onMerge={handleMerge}
-                onRebase={handleRebase}
-              />
-            )
-          ))}
-          {search.trim() && !filtered.some((b) => b.name === search.trim()) && (
-            <div className="branch-picker-create" onClick={handleCreate}>
-              <span className="codicon codicon-add" />
-              <span>Create branch: {search.trim()}</span>
+              )
+            }
+          </For>
+          {canCreateBranch() && (
+            <div class="branch-picker-create" onClick={handleCreate}>
+              <span class="codicon codicon-add" />
+              <span>Create branch: {searchTrimmed()}</span>
             </div>
           )}
-          <div
-            className="branch-picker-section-header"
-            onClick={() => setTagsExpanded(!tagsExpanded)}
-          >
-            <span className={`codicon codicon-chevron-${tagsExpanded ? "down" : "right"}`} />
-            <span>Tags ({filteredTags.length})</span>
+          <div class="branch-picker-section-header" onClick={() => setTagsExpanded(!tagsExpanded())}>
+            <span class={`codicon codicon-chevron-${tagsExpanded() ? "down" : "right"}`} />
+            <span>Tags ({filteredTags().length})</span>
           </div>
-          {tagsExpanded && (
+          {tagsExpanded() && (
             <>
-              {filteredTags.map((tag) => (
-                <TagItem
-                  key={tag.name}
-                  tag={tag}
-                  onDelete={removeTag}
-                  onPush={pushTagToRemote}
-                  onDeleteRemote={handleDeleteRemoteTag}
-                />
-              ))}
-              {search.trim() && !filteredTags.some((t) => t.name === search.trim()) && (
-                <div className="branch-picker-create" onClick={handleCreateTag}>
-                  <span className="codicon codicon-add" />
-                  <span>Create tag: {search.trim()}</span>
+              <For each={filteredTags()} keyed={(tag) => tag.name}>
+                {(tag) => (
+                  <TagItem
+                    tag={tag()}
+                    onDelete={removeTag}
+                    onPush={pushTagToRemote}
+                    onDeleteRemote={handleDeleteRemoteTag}
+                  />
+                )}
+              </For>
+              {canCreateTag() && (
+                <div class="branch-picker-create" onClick={handleCreateTag}>
+                  <span class="codicon codicon-add" />
+                  <span>Create tag: {searchTrimmed()}</span>
                 </div>
               )}
-              {filteredTags.length === 0 && !search.trim() && (
-                <div className="branch-picker-empty">No tags</div>
-              )}
+              {filteredTags().length === 0 && !searchTrimmed() && <div class="branch-picker-empty">No tags</div>}
             </>
           )}
         </div>

@@ -2,10 +2,10 @@ default:
   @just --list
 
 dev:
-  vp run tauri -- dev --features devtools
+  vp run tauri dev --features devtools
 
 build:
-  vp run tauri -- build
+  vp run tauri build
 
 lint:
   vp lint src/

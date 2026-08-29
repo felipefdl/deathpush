@@ -32,7 +32,7 @@ describe("recent-files", () => {
           { path: "src/a.ts", lastOpened: "2025-06-14T10:00:00Z" },
           { path: "src/c.ts", lastOpened: "2025-06-15T10:00:00Z" },
           { path: "src/b.ts", lastOpened: "2025-06-13T10:00:00Z" },
-        ]),
+        ])
       );
       const result = getRecentFiles(REPO_ROOT);
       expect(result.map((f) => f.path)).toEqual(["src/c.ts", "src/a.ts", "src/b.ts"]);

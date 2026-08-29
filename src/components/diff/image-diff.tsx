@@ -1,19 +1,20 @@
-import { useEffect, useState } from "react";
+import { createEffect, createSignal } from "solid-js";
+import type { JSX } from "@solidjs/web";
 
-interface ImageDiffProps {
+type ImageDiffProps = {
   original: string;
   modified: string;
-}
+};
 
-interface ImageMeta {
+type ImageMeta = {
   width: number;
   height: number;
   size: number;
-}
+};
 
 const getBase64Size = (dataUri: string): number => {
   const base64 = dataUri.split(",")[1] ?? "";
-  return Math.floor(base64.length * 3 / 4);
+  return Math.floor((base64.length * 3) / 4);
 };
 
 const formatSize = (bytes: number): string => {
@@ -22,67 +23,76 @@ const formatSize = (bytes: number): string => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const useImageMeta = (src: string): ImageMeta | null => {
-  const [meta, setMeta] = useState<ImageMeta | null>(null);
+const useImageMeta = (src: () => string): (() => ImageMeta | null) => {
+  const [meta, setMeta] = createSignal<ImageMeta | null>(null);
 
-  useEffect(() => {
-    if (!src) {
-      setMeta(null);
-      return;
+  createEffect(
+    () => src(),
+    (value) => {
+      if (!value) {
+        setMeta(null);
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        setMeta({
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+          size: getBase64Size(value),
+        });
+      };
+      img.src = value;
     }
-    const img = new Image();
-    img.onload = () => {
-      setMeta({
-        width: img.naturalWidth,
-        height: img.naturalHeight,
-        size: getBase64Size(src),
-      });
-    };
-    img.src = src;
-  }, [src]);
+  );
 
   return meta;
 };
 
-export const ImageDiff = ({ original, modified }: ImageDiffProps) => {
-  const originalMeta = useImageMeta(original);
-  const modifiedMeta = useImageMeta(modified);
+export const ImageDiff = (props: ImageDiffProps) => {
+  const originalMeta = useImageMeta(() => props.original);
+  const modifiedMeta = useImageMeta(() => props.modified);
+
+  const originalPanel = (): JSX.Element =>
+    props.original ? (
+      <>
+        <div class="image-diff-container">
+          <img src={props.original} alt="Original" />
+        </div>
+        {originalMeta() && (
+          <div class="image-diff-meta">
+            {originalMeta()!.width} x {originalMeta()!.height} - {formatSize(originalMeta()!.size)}
+          </div>
+        )}
+      </>
+    ) : (
+      <div class="image-diff-empty">New file</div>
+    );
+
+  const modifiedPanel = (): JSX.Element =>
+    props.modified ? (
+      <>
+        <div class="image-diff-container">
+          <img src={props.modified} alt="Modified" />
+        </div>
+        {modifiedMeta() && (
+          <div class="image-diff-meta">
+            {modifiedMeta()!.width} x {modifiedMeta()!.height} - {formatSize(modifiedMeta()!.size)}
+          </div>
+        )}
+      </>
+    ) : (
+      <div class="image-diff-empty">Deleted</div>
+    );
 
   return (
-    <div className="image-diff">
-      <div className="image-diff-panel">
-        <div className="image-diff-label">Original</div>
-        {original ? (
-          <>
-            <div className="image-diff-container">
-              <img src={original} alt="Original" />
-            </div>
-            {originalMeta && (
-              <div className="image-diff-meta">
-                {originalMeta.width} x {originalMeta.height} - {formatSize(originalMeta.size)}
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="image-diff-empty">New file</div>
-        )}
+    <div class="image-diff">
+      <div class="image-diff-panel">
+        <div class="image-diff-label">Original</div>
+        {originalPanel()}
       </div>
-      <div className="image-diff-panel">
-        <div className="image-diff-label">Modified</div>
-        {modified ? (
-          <>
-            <div className="image-diff-container">
-              <img src={modified} alt="Modified" />
-            </div>
-            {modifiedMeta && (
-              <div className="image-diff-meta">
-                {modifiedMeta.width} x {modifiedMeta.height} - {formatSize(modifiedMeta.size)}
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="image-diff-empty">Deleted</div>
-        )}
+      <div class="image-diff-panel">
+        <div class="image-diff-label">Modified</div>
+        {modifiedPanel()}
       </div>
     </div>
   );

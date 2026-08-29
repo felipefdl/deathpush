@@ -1,42 +1,48 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import { useRepositoryStore } from "../../stores/repository-store";
+import { createSignal, onSettled } from "solid-js";
+import { repositoryStore } from "../../stores/repository-store";
 
 export const FileFilter = () => {
-  const { setFileFilter } = useRepositoryStore();
-  const [value, setValue] = useState("");
-  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const { setFileFilter } = repositoryStore.getState();
+  const [value, setValue] = createSignal("");
+  let timer: ReturnType<typeof setTimeout> | undefined;
 
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
+  const handleInput = (e: InputEvent & { currentTarget: HTMLInputElement }) => {
+    const val = e.currentTarget.value;
     setValue(val);
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
       setFileFilter(val);
     }, 150);
-  }, [setFileFilter]);
+  };
 
-  useEffect(() => {
-    return () => clearTimeout(timerRef.current);
-  }, []);
+  onSettled(() => {
+    return () => clearTimeout(timer);
+  });
 
   return (
-    <div className="file-filter">
-      <span className="codicon codicon-search file-filter-icon" />
+    <div class="file-filter">
+      <span class="codicon codicon-search file-filter-icon" />
       <input
-        className="file-filter-input"
+        class="file-filter-input"
         type="search"
         placeholder="Filter files..."
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-        spellCheck={false}
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="off"
+        spellcheck={false}
         data-form-type="other"
-        value={value}
-        onChange={handleChange}
+        value={value()}
+        onInput={handleInput}
       />
-      {value && (
-        <button className="file-filter-clear" onClick={() => { setValue(""); setFileFilter(""); }}>
-          <span className="codicon codicon-close" />
+      {value() && (
+        <button
+          class="file-filter-clear"
+          onClick={() => {
+            setValue("");
+            setFileFilter("");
+          }}
+        >
+          <span class="codicon codicon-close" />
         </button>
       )}
     </div>

@@ -1,4 +1,3 @@
-import { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
 import { css, html, json, typescript } from "monaco-editor";
 import editorWorker from "monaco-editor/editor/editor.worker.js?worker";
@@ -6,6 +5,9 @@ import jsonWorker from "monaco-editor/language/json/json.worker.js?worker";
 import cssWorker from "monaco-editor/language/css/css.worker.js?worker";
 import htmlWorker from "monaco-editor/language/html/html.worker.js?worker";
 import tsWorker from "monaco-editor/language/typescript/ts.worker.js?worker";
+import { conf as tomlConf, language as tomlLanguage } from "./languages/toml";
+import { conf as justfileConf, language as justfileLanguage } from "./languages/justfile";
+import { conf as dotenvConf, language as dotenvLanguage } from "./languages/dotenv";
 
 self.MonacoEnvironment = {
   getWorker(_, label) {
@@ -16,12 +18,6 @@ self.MonacoEnvironment = {
     return new editorWorker();
   },
 };
-
-import { conf as tomlConf, language as tomlLanguage } from "./languages/toml";
-import { conf as justfileConf, language as justfileLanguage } from "./languages/justfile";
-import { conf as dotenvConf, language as dotenvLanguage } from "./languages/dotenv";
-
-loader.config({ monaco });
 
 monaco.languages.register({ id: "toml", extensions: [".toml"], aliases: ["TOML"] });
 monaco.languages.setMonarchTokensProvider("toml", tomlLanguage);

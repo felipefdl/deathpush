@@ -12,8 +12,16 @@ interface IconThemeRegistration {
 
 const ICON_THEMES: IconThemeRegistration[] = [
   { entry: { id: "none", label: "None" }, json: null, assetBasePath: "" },
-  { entry: { id: "material", label: "Material Icon Theme" }, json: materialJson as unknown as IconThemeJson, assetBasePath: "/icon-themes/material" },
-  { entry: { id: "seti", label: "Seti (Visual Studio Code)" }, json: setiJson as unknown as IconThemeJson, assetBasePath: "/icon-themes/seti" },
+  {
+    entry: { id: "material", label: "Material Icon Theme" },
+    json: materialJson as unknown as IconThemeJson,
+    assetBasePath: "/icon-themes/material",
+  },
+  {
+    entry: { id: "seti", label: "Seti (Visual Studio Code)" },
+    json: setiJson as unknown as IconThemeJson,
+    assetBasePath: "/icon-themes/seti",
+  },
 ];
 
 export const DEFAULT_ICON_THEME_ID = "material";

@@ -1,52 +1,51 @@
-import { useCallback } from "react";
 import type { TagEntry } from "../../lib/git-types";
 
-interface TagItemProps {
+type TagItemProps = {
   tag: TagEntry;
   onDelete: (name: string) => void;
   onPush: (name: string) => void;
   onDeleteRemote?: (name: string) => void;
-}
+};
 
-export const TagItem = ({ tag, onDelete, onPush, onDeleteRemote }: TagItemProps) => {
-  const handleDelete = useCallback((e: React.MouseEvent) => {
+export const TagItem = (props: TagItemProps) => {
+  const handleDelete = (e: MouseEvent) => {
     e.stopPropagation();
-    onDelete(tag.name);
-  }, [tag.name, onDelete]);
+    props.onDelete(props.tag.name);
+  };
 
-  const handlePush = useCallback((e: React.MouseEvent) => {
+  const handlePush = (e: MouseEvent) => {
     e.stopPropagation();
-    onPush(tag.name);
-  }, [tag.name, onPush]);
+    props.onPush(props.tag.name);
+  };
 
-  const handleDeleteRemote = useCallback((e: React.MouseEvent) => {
+  const handleDeleteRemote = (e: MouseEvent) => {
     e.stopPropagation();
-    onDeleteRemote?.(tag.name);
-  }, [tag.name, onDeleteRemote]);
+    props.onDeleteRemote?.(props.tag.name);
+  };
 
   return (
-    <div className="branch-item tag-item">
+    <div class="branch-item tag-item">
       <span
-        className={`codicon ${tag.isAnnotated ? "codicon-bookmark" : "codicon-tag"}`}
-        style={{ marginRight: 6, fontSize: 14 }}
+        class={`codicon ${props.tag.isAnnotated ? "codicon-bookmark" : "codicon-tag"}`}
+        style={{ "margin-right": "6px", "font-size": "14px" }}
       />
-      <span className="branch-item-name">{tag.name}</span>
-      {tag.message && (
-        <span className="tag-item-message" title={tag.message}>
-          {tag.message}
+      <span class="branch-item-name">{props.tag.name}</span>
+      {props.tag.message && (
+        <span class="tag-item-message" title={props.tag.message}>
+          {props.tag.message}
         </span>
       )}
-      <div className="tag-item-actions">
-        <button className="inline-action" onClick={handlePush} title="Push Tag">
-          <span className="codicon codicon-cloud-upload" />
+      <div class="tag-item-actions">
+        <button class="inline-action" onClick={handlePush} title="Push Tag">
+          <span class="codicon codicon-cloud-upload" />
         </button>
-        {onDeleteRemote && (
-          <button className="inline-action" onClick={handleDeleteRemote} title="Delete Remote Tag">
-            <span className="codicon codicon-cloud" />
+        {props.onDeleteRemote && (
+          <button class="inline-action" onClick={handleDeleteRemote} title="Delete Remote Tag">
+            <span class="codicon codicon-cloud" />
           </button>
         )}
-        <button className="inline-action" onClick={handleDelete} title="Delete Tag">
-          <span className="codicon codicon-trash" />
+        <button class="inline-action" onClick={handleDelete} title="Delete Tag">
+          <span class="codicon codicon-trash" />
         </button>
       </div>
     </div>

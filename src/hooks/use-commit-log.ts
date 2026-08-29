@@ -1,31 +1,30 @@
-import { useCallback } from "react";
-import { useRepositoryStore } from "../stores/repository-store";
+import { repositoryStore } from "../stores/repository-store";
 import * as commands from "../lib/tauri-commands";
 
 const PAGE_SIZE = 50;
 
 export const useCommitLog = () => {
-  const { commitLog, setCommitLog, setSelectedCommit, setCommitDetail, setError } = useRepositoryStore();
-
-  const loadCommitLog = useCallback(async (reset: boolean = true) => {
+  const loadCommitLog = async (reset: boolean = true) => {
+    const { commitLog, setCommitLog, setError } = repositoryStore.getState();
     try {
       const skip = reset ? 0 : commitLog.length;
       const entries = await commands.getCommitLog(skip, PAGE_SIZE);
       if (reset) {
         setCommitLog(entries);
       } else {
-        setCommitLog([...commitLog, ...entries]);
+        setCommitLog([...repositoryStore.getState().commitLog, ...entries]);
       }
     } catch (err) {
       setError(String(err));
     }
-  }, [commitLog, setCommitLog, setError]);
+  };
 
-  const loadMore = useCallback(async () => {
+  const loadMore = async () => {
     await loadCommitLog(false);
-  }, [loadCommitLog]);
+  };
 
-  const selectCommit = useCallback(async (id: string) => {
+  const selectCommit = async (id: string) => {
+    const { setSelectedCommit, setCommitDetail, setError } = repositoryStore.getState();
     setSelectedCommit(id);
     setCommitDetail(null);
     try {
@@ -34,7 +33,7 @@ export const useCommitLog = () => {
     } catch (err) {
       setError(String(err));
     }
-  }, [setSelectedCommit, setCommitDetail, setError]);
+  };
 
   return { loadCommitLog, loadMore, selectCommit };
 };

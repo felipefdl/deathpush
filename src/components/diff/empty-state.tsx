@@ -2,16 +2,15 @@ import { useColorScheme } from "../../hooks/use-color-scheme";
 
 export const EmptyState = () => {
   const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
 
   return (
-    <div className="diff-empty-state">
+    <div class="diff-empty-state">
       <img
-        className="diff-empty-watermark"
-        src={isDark ? "/deathpush-white.png" : "/deathpush-black.png"}
+        class="diff-empty-watermark"
+        src={colorScheme() === "dark" ? "/deathpush-white.png" : "/deathpush-black.png"}
         alt=""
       />
-      <p style={{ opacity: 0.4, marginTop: 12 }}>Select a file to view changes</p>
+      <p style={{ opacity: 0.4, "margin-top": "12px" }}>Select a file to view changes</p>
     </div>
   );
 };

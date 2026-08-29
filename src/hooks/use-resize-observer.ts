@@ -1,24 +1,25 @@
-import { useCallback, useRef, useState } from "react";
+import { createSignal, onCleanup } from "solid-js";
 
 export const useResizeObserver = () => {
-  const [height, setHeight] = useState(0);
-  const observerRef = useRef<ResizeObserver | null>(null);
+  const [height, setHeight] = createSignal(0);
+  let observer: ResizeObserver | undefined;
 
-  const ref = useCallback((el: HTMLDivElement | null) => {
-    if (observerRef.current) {
-      observerRef.current.disconnect();
-      observerRef.current = null;
-    }
-    if (el) {
-      const observer = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-          setHeight(entry.contentRect.height);
-        }
-      });
-      observer.observe(el);
-      observerRef.current = observer;
-    }
-  }, []);
+  const ref = (el: HTMLDivElement | undefined) => {
+    observer?.disconnect();
+    observer = undefined;
+    if (!el) return;
+    observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(el);
+  };
+
+  onCleanup(() => {
+    observer?.disconnect();
+    observer = undefined;
+  });
 
   return { ref, height };
 };

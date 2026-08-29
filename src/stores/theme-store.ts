@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { createStore } from "zustand/vanilla";
 import type { ResolvedTheme } from "../lib/themes/theme-types";
 import { getResolvedTheme, DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from "../lib/themes/theme-registry";
 import { applyTheme } from "../lib/themes/apply-theme";
@@ -31,7 +31,7 @@ interface ThemeState {
   setPreferredLightTheme: (id: string) => void;
 }
 
-export const useThemeStore = create<ThemeState>((set) => ({
+export const themeStore = createStore<ThemeState>((set) => ({
   currentTheme: resolveInitialTheme(),
   preferredDarkThemeId: getPreferredDarkId(),
   preferredLightThemeId: getPreferredLightId(),
@@ -78,13 +78,13 @@ export const useThemeStore = create<ThemeState>((set) => ({
 
 const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
 mediaQuery.addEventListener("change", (e) => {
-  const state = useThemeStore.getState();
+  const state = themeStore.getState();
   const id = e.matches ? state.preferredDarkThemeId : state.preferredLightThemeId;
   if (id === state.currentTheme.id) return;
   const theme = getResolvedTheme(id);
   if (theme) {
     applyTheme(theme);
-    useThemeStore.setState({ currentTheme: theme });
+    themeStore.setState({ currentTheme: theme });
   }
 });
 
@@ -93,18 +93,18 @@ window.addEventListener("storage", (e: StorageEvent) => {
     const theme = getResolvedTheme(e.newValue);
     if (!theme) return;
     applyTheme(theme);
-    useThemeStore.setState({ currentTheme: theme });
+    themeStore.setState({ currentTheme: theme });
   }
 
   if (e.key === PREFERRED_DARK_KEY && e.newValue) {
     if (getResolvedTheme(e.newValue)) {
-      useThemeStore.setState({ preferredDarkThemeId: e.newValue });
+      themeStore.setState({ preferredDarkThemeId: e.newValue });
     }
   }
 
   if (e.key === PREFERRED_LIGHT_KEY && e.newValue) {
     if (getResolvedTheme(e.newValue)) {
-      useThemeStore.setState({ preferredLightThemeId: e.newValue });
+      themeStore.setState({ preferredLightThemeId: e.newValue });
     }
   }
 });

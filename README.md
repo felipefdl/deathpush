@@ -86,7 +86,7 @@ DeathPush is built with a hybrid Git engine:
 - Custom syntax highlighting for TOML, Justfile, and dotenv files in diffs.
 - Auto-update support -- get notified and install new versions without leaving the app.
 
-Stack: Tauri v2 (Rust) + React 19 + TypeScript + Zustand + Monaco Editor.
+Stack: Tauri v2 (Rust) + Solid 2 + TypeScript + Zustand + Monaco Editor.
 
 ## License
 

@@ -36,7 +36,7 @@ export const buildWorkspaceTree = (projects: ProjectInfo[], rootDirectory: strin
 
 export const buildMultiRootWorkspaceTree = (
   projects: ProjectInfo[],
-  workspaces: WorkspaceEntry[],
+  workspaces: WorkspaceEntry[]
 ): WorkspaceTreeNode => {
   const root: WorkspaceTreeNode = { name: "", children: new Map(), projects: [] };
 

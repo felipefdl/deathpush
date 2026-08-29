@@ -15,20 +15,14 @@ describe("buildWorkspaceTree", () => {
   });
 
   it("places depth-1 projects into root projects", () => {
-    const projects = [
-      makeProject("/home/user/projects/alpha"),
-      makeProject("/home/user/projects/beta"),
-    ];
+    const projects = [makeProject("/home/user/projects/alpha"), makeProject("/home/user/projects/beta")];
     const root = buildWorkspaceTree(projects, "/home/user/projects");
     expect(root.projects).toHaveLength(2);
     expect(root.children.size).toBe(0);
   });
 
   it("creates folder children for depth-2 projects", () => {
-    const projects = [
-      makeProject("/home/user/projects/work/repo-a"),
-      makeProject("/home/user/projects/work/repo-b"),
-    ];
+    const projects = [makeProject("/home/user/projects/work/repo-a"), makeProject("/home/user/projects/work/repo-b")];
     const root = buildWorkspaceTree(projects, "/home/user/projects");
     expect(root.children.size).toBe(1);
     expect(root.children.has("work")).toBe(true);
@@ -40,10 +34,7 @@ describe("buildWorkspaceTree", () => {
   });
 
   it("handles mixed depths: folders and top-level projects coexist", () => {
-    const projects = [
-      makeProject("/root/projects/standalone"),
-      makeProject("/root/projects/group/nested"),
-    ];
+    const projects = [makeProject("/root/projects/standalone"), makeProject("/root/projects/group/nested")];
     const root = buildWorkspaceTree(projects, "/root/projects");
     expect(root.projects).toHaveLength(1);
     expect(root.projects[0].name).toBe("standalone");
@@ -108,10 +99,7 @@ describe("buildMultiRootWorkspaceTree", () => {
   });
 
   it("builds sub-tree for scanDepth > 1", () => {
-    const projects = [
-      makeProject("/home/projects/group/repo-a"),
-      makeProject("/home/projects/group/repo-b"),
-    ];
+    const projects = [makeProject("/home/projects/group/repo-a"), makeProject("/home/projects/group/repo-b")];
     const workspaces = [{ directory: "/home/projects", scanDepth: 2 }];
     const root = buildMultiRootWorkspaceTree(projects, workspaces);
     const wsNode = root.children.get("/home/projects")!;

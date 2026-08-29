@@ -1,19 +1,20 @@
-import { useMemo } from "react";
+import { createMemo } from "solid-js";
 import type { FileStatus, RepositoryStatus } from "../lib/git-types";
 import { getStatusColor } from "../lib/status-colors";
 import { getStatusLabel } from "../lib/status-icons";
-import { useRepositoryStore } from "../stores/repository-store";
+import { repositoryStore } from "../stores/repository-store";
+import { useStore } from "../lib/use-store";
 
-export interface GitDecoration {
+export type GitDecoration = {
   status: FileStatus;
   color: string;
   label: string;
-}
+};
 
-export interface GitDecorationMaps {
+export type GitDecorationMaps = {
   fileMap: Map<string, GitDecoration>;
   dirMap: Map<string, GitDecoration>;
-}
+};
 
 const STATUS_PRIORITY: Record<FileStatus, number> = {
   bothDeleted: 10,
@@ -77,7 +78,7 @@ const buildMaps = (status: RepositoryStatus | null): GitDecorationMaps => {
   return { fileMap, dirMap };
 };
 
-export const useExplorerGitStatus = (): GitDecorationMaps => {
-  const status = useRepositoryStore((s) => s.status);
-  return useMemo(() => buildMaps(status), [status]);
+export const useExplorerGitStatus = (): (() => GitDecorationMaps) => {
+  const status = useStore(repositoryStore, (s) => s.status);
+  return createMemo(() => buildMaps(status()));
 };

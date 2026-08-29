@@ -1,19 +1,19 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useThemeStore } from "../../stores/theme-store";
+import { createEffect, createMemo, createSignal, For, onSettled } from "solid-js";
+import { themeStore } from "../../stores/theme-store";
 import { THEME_ENTRIES } from "../../lib/themes/theme-registry";
 import { applyTheme } from "../../lib/themes/apply-theme";
 import { getResolvedTheme } from "../../lib/themes/theme-registry";
 import type { ThemeEntry, ThemeKind } from "../../lib/themes/theme-types";
 
-interface ThemePickerProps {
+type ThemePickerProps = {
   onClose: () => void;
-}
+};
 
-interface GroupedThemes {
+type GroupedThemes = {
   kind: ThemeKind;
   label: string;
   themes: ThemeEntry[];
-}
+};
 
 const GROUP_LABELS: Record<ThemeKind, string> = {
   dark: "dark themes",
@@ -24,9 +24,7 @@ const GROUP_LABELS: Record<ThemeKind, string> = {
 
 const getGroupOrder = (): ThemeKind[] => {
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  return prefersDark
-    ? ["dark", "light", "hc-dark", "hc-light"]
-    : ["light", "dark", "hc-dark", "hc-light"];
+  return prefersDark ? ["dark", "light", "hc-dark", "hc-light"] : ["light", "dark", "hc-dark", "hc-light"];
 };
 
 const groupThemes = (entries: ThemeEntry[]): GroupedThemes[] => {
@@ -61,136 +59,162 @@ const groupThemes = (entries: ThemeEntry[]): GroupedThemes[] => {
     .filter((g) => g.themes.length > 0);
 };
 
-export const ThemePicker = ({ onClose }: ThemePickerProps) => {
-  const { currentTheme, setTheme } = useThemeStore();
-  const originalThemeRef = useRef(currentTheme);
-  const [search, setSearch] = useState("");
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const listRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const isKeyboardNavRef = useRef(false);
+export const ThemePicker = (props: ThemePickerProps) => {
+  const { setTheme } = themeStore.getState();
+  const originalTheme = themeStore.getState().currentTheme;
+  const currentThemeId = originalTheme.id;
+  const initialIndex = (() => {
+    const flat = groupThemes(THEME_ENTRIES).flatMap((g) => g.themes);
+    const idx = flat.findIndex((t) => t.id === currentThemeId);
+    return idx >= 0 ? idx : 0;
+  })();
 
-  const filtered = useMemo(() => {
-    if (!search) return THEME_ENTRIES;
-    const lower = search.toLowerCase();
+  const [search, setSearch] = createSignal("");
+  const [activeIndex, setActiveIndex] = createSignal(initialIndex);
+  let listRef: HTMLDivElement | undefined;
+  let inputRef: HTMLInputElement | undefined;
+  let isKeyboardNav = false;
+
+  const filtered = createMemo(() => {
+    const query = search();
+    if (!query) return THEME_ENTRIES;
+    const lower = query.toLowerCase();
     return THEME_ENTRIES.filter((e) => e.label.toLowerCase().includes(lower));
-  }, [search]);
+  });
 
-  const groups = useMemo(() => groupThemes(filtered), [filtered]);
+  const groups = createMemo(() => groupThemes(filtered()));
+  const flatList = createMemo(() => groups().flatMap((g) => g.themes));
 
-  const flatList = useMemo(() => groups.flatMap((g) => g.themes), [groups]);
+  const groupOffsets = createMemo(() => {
+    const offsets: number[] = [];
+    let offset = 0;
+    for (const group of groups()) {
+      offsets.push(offset);
+      offset += group.themes.length;
+    }
+    return offsets;
+  });
 
-  useEffect(() => {
-    const idx = flatList.findIndex((t) => t.id === currentTheme.id);
-    setActiveIndex(idx >= 0 ? idx : 0);
-  }, []);
-
-  const previewTheme = useCallback((id: string) => {
+  const previewTheme = (id: string) => {
     const resolved = getResolvedTheme(id);
     if (resolved) applyTheme(resolved);
-  }, []);
+  };
 
-  const confirmTheme = useCallback((id: string) => {
+  const confirmTheme = (id: string) => {
     setTheme(id);
-    onClose();
-  }, [setTheme, onClose]);
+    props.onClose();
+  };
 
-  const cancel = useCallback(() => {
-    applyTheme(originalThemeRef.current);
-    onClose();
-  }, [onClose]);
+  const cancel = () => {
+    applyTheme(originalTheme);
+    props.onClose();
+  };
 
-  useEffect(() => {
-    if (activeIndex >= 0 && activeIndex < flatList.length) {
-      previewTheme(flatList[activeIndex].id);
+  createEffect(
+    () => {
+      const idx = activeIndex();
+      const list = flatList();
+      return idx >= 0 && idx < list.length ? list[idx].id : null;
+    },
+    (id) => {
+      if (id) previewTheme(id);
     }
-  }, [activeIndex, flatList, previewTheme]);
+  );
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+  createEffect(
+    () => activeIndex(),
+    (idx) => {
+      if (idx < 0 || !listRef) return;
+      const items = listRef.querySelectorAll("[data-theme-item]");
+      items[idx]?.scrollIntoView({ block: "nearest" });
+    }
+  );
 
-  useEffect(() => {
-    if (activeIndex < 0 || !listRef.current) return;
-    const items = listRef.current.querySelectorAll("[data-theme-item]");
-    items[activeIndex]?.scrollIntoView({ block: "nearest" });
-  }, [activeIndex]);
+  createEffect(
+    () => search(),
+    () => {
+      setActiveIndex(filtered().length > 0 ? 0 : -1);
+    },
+    { defer: true }
+  );
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+  onSettled(() => {
+    inputRef?.focus();
+  });
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    const list = flatList();
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      isKeyboardNavRef.current = true;
-      setActiveIndex((prev) => (prev + 1) % flatList.length);
+      isKeyboardNav = true;
+      setActiveIndex((prev) => (list.length > 0 ? (prev + 1) % list.length : -1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      isKeyboardNavRef.current = true;
-      setActiveIndex((prev) => (prev - 1 + flatList.length) % flatList.length);
+      isKeyboardNav = true;
+      setActiveIndex((prev) => (list.length > 0 ? (prev - 1 + list.length) % list.length : -1));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (activeIndex >= 0 && activeIndex < flatList.length) {
-        confirmTheme(flatList[activeIndex].id);
+      const idx = activeIndex();
+      if (idx >= 0 && idx < list.length) {
+        confirmTheme(list[idx].id);
       }
     } else if (e.key === "Escape") {
       e.preventDefault();
       cancel();
     }
-  }, [activeIndex, flatList, confirmTheme, cancel]);
-
-  useEffect(() => {
-    setActiveIndex(flatList.length > 0 ? 0 : -1);
-  }, [search]);
-
-  const groupOffsets = useMemo(() => {
-    const offsets: number[] = [];
-    let offset = 0;
-    for (const group of groups) {
-      offsets.push(offset);
-      offset += group.themes.length;
-    }
-    return offsets;
-  }, [groups]);
+  };
 
   return (
-    <div className="theme-picker-overlay" onMouseDown={cancel}>
-      <div className="theme-picker" onMouseDown={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
+    <div class="theme-picker-overlay" onMouseDown={cancel}>
+      <div class="theme-picker" onMouseDown={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
         <input
-          ref={inputRef}
-          className="theme-picker-input"
+          ref={(el) => {
+            inputRef = el;
+          }}
+          class="theme-picker-input"
           type="search"
           placeholder="Select Color Theme"
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck={false}
           data-form-type="other"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={search()}
+          onInput={(e: InputEvent & { currentTarget: HTMLInputElement }) => setSearch(e.currentTarget.value)}
         />
-        <div className="theme-picker-list" ref={listRef} onMouseMove={() => { isKeyboardNavRef.current = false; }}>
-          {groups.map((group, gi) => (
-            <div key={group.kind}>
-              <div className={`theme-picker-separator${gi === 0 ? " first" : ""}`}>
-                <span className="theme-picker-group-label">{group.label}</span>
+        <div
+          class="theme-picker-list"
+          ref={(el) => {
+            listRef = el;
+          }}
+          onMouseMove={() => {
+            isKeyboardNav = false;
+          }}
+        >
+          <For each={groups()} keyed={(group) => group.kind}>
+            {(group, gi) => (
+              <div>
+                <div class={["theme-picker-separator", { first: gi() === 0 }]}>
+                  <span class="theme-picker-group-label">{group().label}</span>
+                </div>
+                <For each={group().themes} keyed={(theme) => theme.id}>
+                  {(theme, ti) => (
+                    <div
+                      data-theme-item
+                      class={["theme-picker-item", { active: groupOffsets()[gi()] + ti() === activeIndex() }]}
+                      onMouseEnter={() => {
+                        if (!isKeyboardNav) setActiveIndex(groupOffsets()[gi()] + ti());
+                      }}
+                      onClick={() => confirmTheme(theme().id)}
+                    >
+                      <span class="theme-picker-item-label">{theme().label}</span>
+                      {theme().description && <span class="theme-picker-item-description">{theme().description}</span>}
+                    </div>
+                  )}
+                </For>
               </div>
-              {group.themes.map((theme, ti) => {
-                const idx = groupOffsets[gi] + ti;
-                return (
-                  <div
-                    key={theme.id}
-                    data-theme-item
-                    className={`theme-picker-item${idx === activeIndex ? " active" : ""}`}
-                    onMouseEnter={() => { if (!isKeyboardNavRef.current) setActiveIndex(idx); }}
-                    onClick={() => confirmTheme(theme.id)}
-                  >
-                    <span className="theme-picker-item-label">{theme.label}</span>
-                    {theme.description && (
-                      <span className="theme-picker-item-description">{theme.description}</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+            )}
+          </For>
         </div>
       </div>
     </div>

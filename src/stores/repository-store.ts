@@ -1,5 +1,14 @@
-import { create } from "zustand";
-import type { CommitDetail, CommitEntry, DiffContent, FileBlame, RepositoryStatus, BranchEntry, StashEntry, TagEntry } from "../lib/git-types";
+import { createStore } from "zustand/vanilla";
+import type {
+  CommitDetail,
+  CommitEntry,
+  DiffContent,
+  FileBlame,
+  RepositoryStatus,
+  BranchEntry,
+  StashEntry,
+  TagEntry,
+} from "../lib/git-types";
 
 export interface TerminalPane {
   paneId: number;
@@ -67,7 +76,7 @@ interface RepositoryState {
   setCursorLine: (line: number | null) => void;
 }
 
-export const useRepositoryStore = create<RepositoryState>((set, get) => ({
+export const repositoryStore = createStore<RepositoryState>((set, get) => ({
   status: null,
   selectedFile: null,
   diff: null,
@@ -96,9 +105,7 @@ export const useRepositoryStore = create<RepositoryState>((set, get) => ({
   setStatus: (status) => {
     const { selectedFile } = get();
     if (selectedFile && status) {
-      const stillExists = status.groups.some((g) =>
-        g.files.some((f) => f.path === selectedFile.path)
-      );
+      const stillExists = status.groups.some((g) => g.files.some((f) => f.path === selectedFile.path));
       if (!stillExists) {
         set({ status, selectedFile: null, diff: null, blame: null, cursorLine: null });
         return;
@@ -184,7 +191,7 @@ export const useRepositoryStore = create<RepositoryState>((set, get) => ({
         terminalGroups: state.terminalGroups.map((g) =>
           g.groupId === groupId
             ? { ...g, panes: [...g.panes, pane], activePaneId: num, splitDirection: "horizontal" as const }
-            : g,
+            : g
         ),
         terminalIdCounter: num,
       };
@@ -197,7 +204,7 @@ export const useRepositoryStore = create<RepositoryState>((set, get) => ({
         terminalGroups: state.terminalGroups.map((g) =>
           g.groupId === groupId
             ? { ...g, panes: [...g.panes, pane], activePaneId: num, splitDirection: "vertical" as const }
-            : g,
+            : g
         ),
         terminalIdCounter: num,
       };
@@ -213,9 +220,7 @@ export const useRepositoryStore = create<RepositoryState>((set, get) => ({
     const panes = group.panes.filter((p) => p.paneId !== paneId);
     const activePaneId = group.activePaneId === paneId ? panes[panes.length - 1].paneId : group.activePaneId;
     set({
-      terminalGroups: state.terminalGroups.map((g) =>
-        g.groupId === groupId ? { ...g, panes, activePaneId } : g,
-      ),
+      terminalGroups: state.terminalGroups.map((g) => (g.groupId === groupId ? { ...g, panes, activePaneId } : g)),
     });
   },
   renamePane: (paneId, name) =>
@@ -227,9 +232,7 @@ export const useRepositoryStore = create<RepositoryState>((set, get) => ({
     })),
   setActivePaneInGroup: (groupId, paneId) =>
     set((state) => ({
-      terminalGroups: state.terminalGroups.map((g) =>
-        g.groupId === groupId ? { ...g, activePaneId: paneId } : g,
-      ),
+      terminalGroups: state.terminalGroups.map((g) => (g.groupId === groupId ? { ...g, activePaneId: paneId } : g)),
     })),
   setIsDiffDirty: (dirty) => set({ isDiffDirty: dirty }),
   setBlame: (blame) => set({ blame }),

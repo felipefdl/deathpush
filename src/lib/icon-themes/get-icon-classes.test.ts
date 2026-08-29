@@ -6,14 +6,14 @@ describe("getFileIconClasses", () => {
     it("returns correct classes for a basic file", () => {
       const result = getFileIconClasses("app.ts");
       expect(result).toBe(
-        "file-icon app.ts-name-file-icon name-file-icon ts-ext-file-icon ext-file-icon typescript-lang-file-icon",
+        "file-icon app.ts-name-file-icon name-file-icon ts-ext-file-icon ext-file-icon typescript-lang-file-icon"
       );
     });
 
     it("uses only the last path segment for nested paths", () => {
       const result = getFileIconClasses("src/app.ts");
       expect(result).toBe(
-        "file-icon app.ts-name-file-icon name-file-icon ts-ext-file-icon ext-file-icon typescript-lang-file-icon",
+        "file-icon app.ts-name-file-icon name-file-icon ts-ext-file-icon ext-file-icon typescript-lang-file-icon"
       );
     });
 

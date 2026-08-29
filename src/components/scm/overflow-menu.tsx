@@ -1,52 +1,67 @@
-import { useEffect, useRef, useState } from "react";
+import { createEffect, createMemo, createSignal, For, onSettled } from "solid-js";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import { useRepositoryStore } from "../../stores/repository-store";
-import { useLayoutStore } from "../../stores/layout-store";
+import { repositoryStore } from "../../stores/repository-store";
+import { layoutStore } from "../../stores/layout-store";
+import { useStore } from "../../lib/use-store";
 import { useStash } from "../../hooks/use-stash";
 import { useBranches } from "../../hooks/use-branches";
 import * as commands from "../../lib/tauri-commands";
 
-interface OverflowMenuProps {
-  anchorRef: React.RefObject<HTMLButtonElement | null>;
+type OverflowMenuProps = {
+  anchorRef: HTMLButtonElement | undefined;
   onClose: () => void;
   onOpenRepository: () => void;
   onCloneRepository?: () => void;
-}
+};
 
-export const OverflowMenu = ({ anchorRef, onClose, onOpenRepository, onCloneRepository }: OverflowMenuProps) => {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const { status, stashes, branches, setStatus, setError, startOperation, endOperation, operations } =
-    useRepositoryStore();
-  const { viewMode, setViewMode } = useLayoutStore();
+export const OverflowMenu = (props: OverflowMenuProps) => {
+  let menuRef: HTMLDivElement | undefined;
+  const status = useStore(repositoryStore, (s) => s.status);
+  const stashes = useStore(repositoryStore, (s) => s.stashes);
+  const branches = useStore(repositoryStore, (s) => s.branches);
+  const operations = useStore(repositoryStore, (s) => s.operations);
+  const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
+  const viewMode = useStore(layoutStore, (s) => s.viewMode);
+  const { setViewMode } = layoutStore.getState();
   const { saveStash, saveStashIncludeUntracked, saveStashStaged, popStash } = useStash();
   const { loadBranches, mergeBranch, rebaseBranch } = useBranches();
-  const [showMergePicker, setShowMergePicker] = useState(false);
-  const [showRebasePicker, setShowRebasePicker] = useState(false);
-  const [pickerSearch, setPickerSearch] = useState("");
-  const pickerInputRef = useRef<HTMLInputElement>(null);
+  const [showMergePicker, setShowMergePicker] = createSignal(false);
+  const [showRebasePicker, setShowRebasePicker] = createSignal(false);
+  const [pickerSearch, setPickerSearch] = createSignal("");
+  let pickerInputRef: HTMLInputElement | undefined;
 
-  const branch = status?.headBranch;
-  const hasStaged = status?.groups.some((g) => g.kind === "index" && g.files.length > 0) ?? false;
-  const hasUnstaged = status?.groups.some((g) => g.kind !== "index" && g.files.length > 0) ?? false;
-  const hasCommit = !!status?.headCommit;
-  const hasStashes = stashes.length > 0;
+  const branch = () => status()?.headBranch;
+  const hasStaged = () => status()?.groups.some((g) => g.kind === "index" && g.files.length > 0) ?? false;
+  const hasUnstaged = () => status()?.groups.some((g) => g.kind !== "index" && g.files.length > 0) ?? false;
+  const hasCommit = () => !!status()?.headCommit;
+  const hasStashes = () => stashes().length > 0;
+  const noBranch = () => !branch();
+  const isNetworkBusy = () => operations().has("push") || operations().has("pull") || operations().has("fetch");
+  const showingPicker = () => showMergePicker() || showRebasePicker();
 
-  useEffect(() => {
+  const filteredBranches = createMemo(() => {
+    const q = pickerSearch().toLowerCase();
+    return branches().filter((b) => !b.isHead && b.name.toLowerCase().includes(q));
+  });
+
+  onSettled(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (
-        menuRef.current && !menuRef.current.contains(e.target as Node) &&
-        anchorRef.current && !anchorRef.current.contains(e.target as Node)
+        menuRef &&
+        !menuRef.contains(e.target as Node) &&
+        props.anchorRef &&
+        !props.anchorRef.contains(e.target as Node)
       ) {
-        onClose();
+        props.onClose();
       }
     };
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (showMergePicker || showRebasePicker) {
+        if (showMergePicker() || showRebasePicker()) {
           setShowMergePicker(false);
           setShowRebasePicker(false);
         } else {
-          onClose();
+          props.onClose();
         }
       }
     };
@@ -56,26 +71,30 @@ export const OverflowMenu = ({ anchorRef, onClose, onOpenRepository, onCloneRepo
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [onClose, anchorRef, showMergePicker, showRebasePicker]);
+  });
 
-  useEffect(() => {
-    if (showMergePicker || showRebasePicker) {
-      loadBranches();
-      pickerInputRef.current?.focus();
+  createEffect(
+    () => showingPicker(),
+    (open) => {
+      if (open) {
+        void loadBranches();
+        pickerInputRef?.focus();
+      }
     }
-  }, [showMergePicker, showRebasePicker, loadBranches]);
+  );
 
   const handleItem = (action: () => void, disabled?: boolean) => {
     if (disabled) return;
-    onClose();
+    props.onClose();
     action();
   };
 
   const handlePull = async (rebase: boolean = false) => {
-    if (!branch) return;
+    const current = branch();
+    if (!current) return;
     startOperation("pull");
     try {
-      const newStatus = await commands.pull("origin", branch, rebase);
+      const newStatus = await commands.pull("origin", current, rebase);
       setStatus(newStatus);
     } catch (err) {
       setError(String(err));
@@ -85,17 +104,20 @@ export const OverflowMenu = ({ anchorRef, onClose, onOpenRepository, onCloneRepo
   };
 
   const handlePush = async (force: boolean = false) => {
-    if (!branch) return;
+    const current = branch();
+    if (!current) return;
     if (force) {
-      const confirmed = await confirm(
-        "Are you sure you want to force push? This may overwrite remote changes.",
-        { title: "Force Push", kind: "warning", okLabel: "Force Push", cancelLabel: "Cancel" },
-      );
+      const confirmed = await confirm("Are you sure you want to force push? This may overwrite remote changes.", {
+        title: "Force Push",
+        kind: "warning",
+        okLabel: "Force Push",
+        cancelLabel: "Cancel",
+      });
       if (!confirmed) return;
     }
     startOperation("push");
     try {
-      const newStatus = await commands.push("origin", branch, force);
+      const newStatus = await commands.push("origin", current, force);
       setStatus(newStatus);
     } catch (err) {
       setError(String(err));
@@ -117,11 +139,12 @@ export const OverflowMenu = ({ anchorRef, onClose, onOpenRepository, onCloneRepo
   };
 
   const handleSync = async () => {
-    if (!branch) return;
+    const current = branch();
+    if (!current) return;
     startOperation("pull");
     try {
-      let newStatus = await commands.pull("origin", branch);
-      newStatus = await commands.push("origin", branch);
+      let newStatus = await commands.pull("origin", current);
+      newStatus = await commands.push("origin", current);
       setStatus(newStatus);
     } catch (err) {
       setError(String(err));
@@ -155,14 +178,15 @@ export const OverflowMenu = ({ anchorRef, onClose, onOpenRepository, onCloneRepo
   };
 
   const handleDiscardAll = async () => {
-    if (!status) return;
-    const unstaged = status.groups.filter((g) => g.kind !== "index");
+    const current = repositoryStore.getState().status;
+    if (!current) return;
+    const unstaged = current.groups.filter((g) => g.kind !== "index");
     const paths = unstaged.flatMap((g) => g.files.map((f) => f.path));
     const count = paths.length;
     if (count === 0) return;
     const confirmed = await confirm(
       `Are you sure you want to discard all ${count} change(s)?\n\nThis action is irreversible.`,
-      { title: "Discard All Changes", kind: "warning", okLabel: "Discard All", cancelLabel: "Cancel" },
+      { title: "Discard All Changes", kind: "warning", okLabel: "Discard All", cancelLabel: "Cancel" }
     );
     if (!confirmed) return;
     startOperation("discard");
@@ -192,217 +216,210 @@ export const OverflowMenu = ({ anchorRef, onClose, onOpenRepository, onCloneRepo
 
   const handleMergeSelect = async (name: string) => {
     setShowMergePicker(false);
-    onClose();
+    props.onClose();
     await mergeBranch(name);
   };
 
   const handleRebaseSelect = async (name: string) => {
     setShowRebasePicker(false);
-    onClose();
+    props.onClose();
     await rebaseBranch(name);
   };
 
-  const noBranch = !branch;
-  const isNetworkBusy = operations.has("push") || operations.has("pull") || operations.has("fetch");
-
-  // If showing a branch picker for merge/rebase
-  if (showMergePicker || showRebasePicker) {
-    const filteredBranches = branches.filter(
-      (b) => !b.isHead && b.name.toLowerCase().includes(pickerSearch.toLowerCase()),
-    );
-    const label = showMergePicker ? "Merge" : "Rebase onto";
-
-    return (
-      <div className="overflow-menu overflow-menu-wide" ref={menuRef}>
-        <div className="overflow-menu-picker-header">{label}</div>
-        <input
-          ref={pickerInputRef}
-          className="overflow-menu-picker-input"
-          type="search"
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          data-form-type="other"
-          value={pickerSearch}
-          onChange={(e) => setPickerSearch(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              setShowMergePicker(false);
-              setShowRebasePicker(false);
-            } else if (e.key === "Enter" && filteredBranches.length > 0) {
-              if (showMergePicker) handleMergeSelect(filteredBranches[0].name);
-              else handleRebaseSelect(filteredBranches[0].name);
-            }
+  return (
+    <>
+      {showingPicker() ? (
+        <div
+          class="overflow-menu overflow-menu-wide"
+          ref={(el) => {
+            menuRef = el;
           }}
-          placeholder="Select a branch..."
-        />
-        <div className="overflow-menu-picker-list">
-          {filteredBranches.map((b) => (
-            <div
-              key={b.name}
-              className="context-menu-item"
-              onClick={() => showMergePicker ? handleMergeSelect(b.name) : handleRebaseSelect(b.name)}
-            >
-              <span
-                className={`codicon ${b.isRemote ? "codicon-cloud" : "codicon-git-branch"}`}
-                style={{ marginRight: 8, fontSize: 14 }}
-              />
-              {b.name}
+        >
+          <div class="overflow-menu-picker-header">{showMergePicker() ? "Merge" : "Rebase onto"}</div>
+          <input
+            ref={(el) => {
+              pickerInputRef = el;
+            }}
+            class="overflow-menu-picker-input"
+            type="search"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck={false}
+            data-form-type="other"
+            value={pickerSearch()}
+            onInput={(e) => setPickerSearch(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setShowMergePicker(false);
+                setShowRebasePicker(false);
+              } else if (e.key === "Enter" && filteredBranches().length > 0) {
+                if (showMergePicker()) void handleMergeSelect(filteredBranches()[0].name);
+                else void handleRebaseSelect(filteredBranches()[0].name);
+              }
+            }}
+            placeholder="Select a branch..."
+          />
+          <div class="overflow-menu-picker-list">
+            <For each={filteredBranches()} keyed={(b) => b.name}>
+              {(b) => (
+                <div
+                  class="context-menu-item"
+                  onClick={() => void (showMergePicker() ? handleMergeSelect(b().name) : handleRebaseSelect(b().name))}
+                >
+                  <span
+                    class={`codicon ${b().isRemote ? "codicon-cloud" : "codicon-git-branch"}`}
+                    style={{ "margin-right": "8px", "font-size": "14px" }}
+                  />
+                  {b().name}
+                </div>
+              )}
+            </For>
+            {filteredBranches().length === 0 && <div class="context-menu-item disabled">No matching branches</div>}
+          </div>
+        </div>
+      ) : (
+        <div
+          class="overflow-menu"
+          ref={(el) => {
+            menuRef = el;
+          }}
+        >
+          <div
+            class="context-menu-item"
+            onClick={() => handleItem(() => setViewMode(viewMode() === "list" ? "tree" : "list"))}
+          >
+            <span
+              class={`codicon ${viewMode() === "list" ? "codicon-list-tree" : "codicon-list-flat"}`}
+              style={{ "margin-right": "8px", "font-size": "14px" }}
+            />
+            {viewMode() === "list" ? "View as Tree" : "View as List"}
+          </div>
+
+          <div class="context-menu-separator" />
+
+          <div
+            class={`context-menu-item${noBranch() || isNetworkBusy() ? " disabled" : ""}`}
+            onClick={() => handleItem(() => handlePull(), noBranch() || isNetworkBusy())}
+          >
+            Pull
+          </div>
+          <div
+            class={`context-menu-item${noBranch() || isNetworkBusy() ? " disabled" : ""}`}
+            onClick={() => handleItem(() => handlePull(true), noBranch() || isNetworkBusy())}
+          >
+            Pull (Rebase)
+          </div>
+          <div
+            class={`context-menu-item${noBranch() || isNetworkBusy() ? " disabled" : ""}`}
+            onClick={() => handleItem(() => handlePush(), noBranch() || isNetworkBusy())}
+          >
+            Push
+          </div>
+          <div
+            class={`context-menu-item${noBranch() || isNetworkBusy() ? " disabled" : ""}`}
+            onClick={() => handleItem(() => handlePush(true), noBranch() || isNetworkBusy())}
+          >
+            Push (Force)
+          </div>
+          <div
+            class={`context-menu-item${isNetworkBusy() ? " disabled" : ""}`}
+            onClick={() => handleItem(handleFetch, isNetworkBusy())}
+          >
+            Fetch
+          </div>
+          <div
+            class={`context-menu-item${noBranch() || isNetworkBusy() ? " disabled" : ""}`}
+            onClick={() => handleItem(handleSync, noBranch() || isNetworkBusy())}
+          >
+            Sync
+          </div>
+
+          <div class="context-menu-separator" />
+
+          <div
+            class={`context-menu-item${noBranch() ? " disabled" : ""}`}
+            onClick={() => {
+              if (!noBranch()) {
+                setShowMergePicker(true);
+                setPickerSearch("");
+              }
+            }}
+          >
+            Merge Branch...
+          </div>
+          <div
+            class={`context-menu-item${noBranch() ? " disabled" : ""}`}
+            onClick={() => {
+              if (!noBranch()) {
+                setShowRebasePicker(true);
+                setPickerSearch("");
+              }
+            }}
+          >
+            Rebase Branch...
+          </div>
+
+          <div class="context-menu-separator" />
+
+          <div class="context-menu-item" onClick={() => handleItem(handleStageAll)}>
+            Stage All Changes
+          </div>
+          <div
+            class={`context-menu-item${!hasStaged() ? " disabled" : ""}`}
+            onClick={() => handleItem(handleUnstageAll, !hasStaged())}
+          >
+            Unstage All Changes
+          </div>
+          <div
+            class={`context-menu-item${!hasUnstaged() ? " disabled" : ""}`}
+            onClick={() => handleItem(handleDiscardAll, !hasUnstaged())}
+          >
+            Discard All Changes
+          </div>
+
+          <div class="context-menu-separator" />
+
+          <div class="context-menu-item" onClick={() => handleItem(() => saveStash())}>
+            Stash Changes
+          </div>
+          <div class="context-menu-item" onClick={() => handleItem(() => saveStashIncludeUntracked())}>
+            Stash (Include Untracked)
+          </div>
+          <div
+            class={`context-menu-item${!hasStaged() ? " disabled" : ""}`}
+            onClick={() => handleItem(() => saveStashStaged(), !hasStaged())}
+          >
+            Stash Staged Only
+          </div>
+          <div
+            class={`context-menu-item${!hasStashes() ? " disabled" : ""}`}
+            onClick={() => handleItem(() => popStash(0), !hasStashes())}
+          >
+            Stash Pop (Latest)
+          </div>
+
+          <div class="context-menu-separator" />
+
+          <div
+            class={`context-menu-item${!hasCommit() ? " disabled" : ""}`}
+            onClick={() => handleItem(handleUndoLastCommit, !hasCommit())}
+          >
+            Undo Last Commit
+          </div>
+
+          <div class="context-menu-separator" />
+
+          <div class="context-menu-item" onClick={() => handleItem(props.onOpenRepository)}>
+            Open Repository...
+          </div>
+          {props.onCloneRepository && (
+            <div class="context-menu-item" onClick={() => handleItem(props.onCloneRepository!)}>
+              Clone Repository...
             </div>
-          ))}
-          {filteredBranches.length === 0 && (
-            <div className="context-menu-item disabled">No matching branches</div>
           )}
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="overflow-menu" ref={menuRef}>
-      <div
-        className="context-menu-item"
-        onClick={() => handleItem(() => setViewMode(viewMode === "list" ? "tree" : "list"))}
-      >
-        <span
-          className={`codicon ${viewMode === "list" ? "codicon-list-tree" : "codicon-list-flat"}`}
-          style={{ marginRight: 8, fontSize: 14 }}
-        />
-        {viewMode === "list" ? "View as Tree" : "View as List"}
-      </div>
-
-      <div className="context-menu-separator" />
-
-      <div
-        className={`context-menu-item${noBranch || isNetworkBusy ? " disabled" : ""}`}
-        onClick={() => handleItem(() => handlePull(), noBranch || isNetworkBusy)}
-      >
-        Pull
-      </div>
-      <div
-        className={`context-menu-item${noBranch || isNetworkBusy ? " disabled" : ""}`}
-        onClick={() => handleItem(() => handlePull(true), noBranch || isNetworkBusy)}
-      >
-        Pull (Rebase)
-      </div>
-      <div
-        className={`context-menu-item${noBranch || isNetworkBusy ? " disabled" : ""}`}
-        onClick={() => handleItem(() => handlePush(), noBranch || isNetworkBusy)}
-      >
-        Push
-      </div>
-      <div
-        className={`context-menu-item${noBranch || isNetworkBusy ? " disabled" : ""}`}
-        onClick={() => handleItem(() => handlePush(true), noBranch || isNetworkBusy)}
-      >
-        Push (Force)
-      </div>
-      <div
-        className={`context-menu-item${isNetworkBusy ? " disabled" : ""}`}
-        onClick={() => handleItem(handleFetch, isNetworkBusy)}
-      >
-        Fetch
-      </div>
-      <div
-        className={`context-menu-item${noBranch || isNetworkBusy ? " disabled" : ""}`}
-        onClick={() => handleItem(handleSync, noBranch || isNetworkBusy)}
-      >
-        Sync
-      </div>
-
-      <div className="context-menu-separator" />
-
-      <div
-        className={`context-menu-item${noBranch ? " disabled" : ""}`}
-        onClick={() => {
-          if (!noBranch) {
-            setShowMergePicker(true);
-            setPickerSearch("");
-          }
-        }}
-      >
-        Merge Branch...
-      </div>
-      <div
-        className={`context-menu-item${noBranch ? " disabled" : ""}`}
-        onClick={() => {
-          if (!noBranch) {
-            setShowRebasePicker(true);
-            setPickerSearch("");
-          }
-        }}
-      >
-        Rebase Branch...
-      </div>
-
-      <div className="context-menu-separator" />
-
-      <div
-        className="context-menu-item"
-        onClick={() => handleItem(handleStageAll)}
-      >
-        Stage All Changes
-      </div>
-      <div
-        className={`context-menu-item${!hasStaged ? " disabled" : ""}`}
-        onClick={() => handleItem(handleUnstageAll, !hasStaged)}
-      >
-        Unstage All Changes
-      </div>
-      <div
-        className={`context-menu-item${!hasUnstaged ? " disabled" : ""}`}
-        onClick={() => handleItem(handleDiscardAll, !hasUnstaged)}
-      >
-        Discard All Changes
-      </div>
-
-      <div className="context-menu-separator" />
-
-      <div
-        className="context-menu-item"
-        onClick={() => handleItem(() => saveStash())}
-      >
-        Stash Changes
-      </div>
-      <div
-        className="context-menu-item"
-        onClick={() => handleItem(() => saveStashIncludeUntracked())}
-      >
-        Stash (Include Untracked)
-      </div>
-      <div
-        className={`context-menu-item${!hasStaged ? " disabled" : ""}`}
-        onClick={() => handleItem(() => saveStashStaged(), !hasStaged)}
-      >
-        Stash Staged Only
-      </div>
-      <div
-        className={`context-menu-item${!hasStashes ? " disabled" : ""}`}
-        onClick={() => handleItem(() => popStash(0), !hasStashes)}
-      >
-        Stash Pop (Latest)
-      </div>
-
-      <div className="context-menu-separator" />
-
-      <div
-        className={`context-menu-item${!hasCommit ? " disabled" : ""}`}
-        onClick={() => handleItem(handleUndoLastCommit, !hasCommit)}
-      >
-        Undo Last Commit
-      </div>
-
-      <div className="context-menu-separator" />
-
-      <div className="context-menu-item" onClick={() => handleItem(onOpenRepository)}>
-        Open Repository...
-      </div>
-      {onCloneRepository && (
-        <div className="context-menu-item" onClick={() => handleItem(onCloneRepository)}>
-          Clone Repository...
-        </div>
       )}
-    </div>
+    </>
   );
 };

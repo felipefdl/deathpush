@@ -1,3 +1,1 @@
-export const Spinner = () => (
-  <span className="codicon codicon-loading spinning" />
-);
+export const Spinner = () => <span class="codicon codicon-loading spinning" />;

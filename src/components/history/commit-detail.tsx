@@ -1,64 +1,76 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { DiffEditor, type DiffOnMount } from "@monaco-editor/react";
-import { useRepositoryStore } from "../../stores/repository-store";
-import { useLayoutStore } from "../../stores/layout-store";
-import { useSettingsStore, type EditorSettings } from "../../stores/settings-store";
-import { useThemeStore } from "../../stores/theme-store";
+import { createEffect, createMemo, createSignal, For, onSettled } from "solid-js";
+import type * as monaco from "monaco-editor";
+import { repositoryStore } from "../../stores/repository-store";
+import { layoutStore } from "../../stores/layout-store";
+import { settingsStore } from "../../stores/settings-store";
+import { themeStore } from "../../stores/theme-store";
+import { useStore } from "../../lib/use-store";
 import { formatRelativeDate } from "../../lib/format-date";
 import { getCommitFileDiff } from "../../lib/tauri-commands";
 import { getFileIconClasses } from "../../lib/icon-themes/get-icon-classes";
 import type { CommitDiffContent } from "../../lib/git-types";
+import { applyDiffModelOptions } from "../../lib/monaco-models";
 import { buildDiffModelOptions, buildDiffOptions } from "../../lib/diff-options";
 import { ImageDiff } from "../diff/image-diff";
+import { MonacoDiffEditor } from "../monaco/monaco-diff-editor";
 import { CommitFileTree } from "./commit-file-tree";
 
 const statusLetter = (status: string): string => {
   switch (status) {
-    case "added": return "A";
-    case "deleted": return "D";
-    case "modified": return "M";
-    case "renamed": return "R";
-    case "copied": return "C";
-    case "typeChanged": return "T";
-    default: return "M";
+    case "added":
+      return "A";
+    case "deleted":
+      return "D";
+    case "modified":
+      return "M";
+    case "renamed":
+      return "R";
+    case "copied":
+      return "C";
+    case "typeChanged":
+      return "T";
+    default:
+      return "M";
   }
 };
 
 const copyToClipboard = (text: string) => {
-  navigator.clipboard.writeText(text);
-};
-
-const applyDiffModelOptions = (
-  editor: Parameters<DiffOnMount>[0],
-  editorSettings: EditorSettings,
-): void => {
-  const options = buildDiffModelOptions(editorSettings);
-  editor.getOriginalEditor().getModel()?.updateOptions(options);
-  editor.getModifiedEditor().getModel()?.updateOptions(options);
+  void navigator.clipboard.writeText(text);
 };
 
 export const CommitDetail = () => {
-  const { commitDetail } = useRepositoryStore();
-  const { diffMode } = useLayoutStore();
-  const { settings } = useSettingsStore();
-  const { currentTheme } = useThemeStore();
-  const [fileDiff, setFileDiff] = useState<CommitDiffContent | null>(null);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [filesViewMode, setFilesViewMode] = useState<"list" | "tree">("list");
-  const editorRef = useRef<Parameters<DiffOnMount>[0] | null>(null);
-  const disposeRef = useRef<(() => void) | null>(null);
+  const commitDetail = useStore(repositoryStore, (s) => s.commitDetail);
+  const diffMode = useStore(layoutStore, (s) => s.diffMode);
+  const editorSettings = useStore(settingsStore, (s) => s.settings.editor);
+  const currentTheme = useStore(themeStore, (s) => s.currentTheme);
+  const [fileDiff, setFileDiff] = createSignal<CommitDiffContent | null>(null);
+  const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
+  const [filesViewMode, setFilesViewMode] = createSignal<"list" | "tree">("list");
+  let editorRef: monaco.editor.IStandaloneDiffEditor | undefined;
+  let disposeActions: (() => void) | undefined;
 
-  const handleDiffMount: DiffOnMount = useCallback((editor, monaco) => {
-    editorRef.current = editor;
-    if (disposeRef.current) disposeRef.current();
+  const commit = createMemo(() => commitDetail()?.commit);
+  const files = createMemo(() => commitDetail()?.files ?? []);
+  const firstLine = createMemo(() => commit()?.message.split("\n")[0] ?? "");
+  const bodyLines = createMemo(() => commit()?.message.split("\n").slice(1).join("\n").trim() ?? "");
+  const diffOptions = createMemo(() => ({
+    ...buildDiffOptions(editorSettings(), diffMode()),
+    readOnly: true,
+    domReadOnly: true,
+    tabSize: editorSettings().tabSize,
+  }));
 
-    const chordKT = monaco.KeyMod.chord(
-      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK,
-      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyT,
+  const handleDiffMount = (editor: monaco.editor.IStandaloneDiffEditor, monacoApi: typeof monaco) => {
+    editorRef = editor;
+    disposeActions?.();
+
+    const chordKT = monacoApi.KeyMod.chord(
+      monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyK,
+      monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyT
     );
-    const chordKI = monaco.KeyMod.chord(
-      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK,
-      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI,
+    const chordKI = monacoApi.KeyMod.chord(
+      monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyK,
+      monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyI
     );
 
     const disposables: { dispose: () => void }[] = [];
@@ -79,31 +91,34 @@ export const CommitDetail = () => {
           run: () => {
             window.dispatchEvent(new CustomEvent("deathpush:open-icon-theme-picker"));
           },
-        }),
+        })
       );
     }
 
-    disposeRef.current = () => {
+    disposeActions = () => {
       for (const disposable of disposables) disposable.dispose();
     };
 
-    applyDiffModelOptions(editor, useSettingsStore.getState().settings.editor);
-  }, []);
+    applyDiffModelOptions(editor, buildDiffModelOptions(settingsStore.getState().settings.editor));
+  };
 
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    applyDiffModelOptions(editor, settings.editor);
-  }, [settings.editor]);
+  createEffect(
+    () => editorSettings(),
+    (editor) => {
+      const instance = editorRef;
+      if (!instance) return;
+      applyDiffModelOptions(instance, buildDiffModelOptions(editor));
+    }
+  );
 
-  useEffect(() => {
+  onSettled(() => {
     return () => {
-      if (disposeRef.current) disposeRef.current();
-      editorRef.current = null;
+      disposeActions?.();
+      editorRef = undefined;
     };
-  }, []);
+  });
 
-  const handleFileClick = useCallback(async (commitId: string, path: string) => {
+  const handleFileClick = async (commitId: string, path: string) => {
     setSelectedPath(path);
     try {
       const diff = await getCommitFileDiff(commitId, path);
@@ -111,124 +126,114 @@ export const CommitDetail = () => {
     } catch {
       setFileDiff(null);
     }
-  }, []);
-
-  if (!commitDetail) {
-    return (
-      <div className="commit-detail-empty">
-        <span className="codicon codicon-history commit-detail-empty-icon" />
-        <span>Select a commit to view details</span>
-      </div>
-    );
-  }
-
-  const { commit, files } = commitDetail;
-  const firstLine = commit.message.split("\n")[0];
-  const bodyLines = commit.message.split("\n").slice(1).join("\n").trim();
+  };
 
   return (
-    <div className="commit-detail">
-      <div className="commit-detail-header">
-        <div className="commit-detail-meta-inline">
-          <span className="commit-detail-title">{firstLine}</span>
-          <span className="commit-meta-id">{commit.shortId}</span>
-          <span className="commit-meta-separator">&middot;</span>
-          <span>{commit.authorName}</span>
-          <span className="commit-meta-separator">&middot;</span>
-          <span>{formatRelativeDate(commit.authorDate)}</span>
-          <span className="commit-meta-actions">
-            <button
-              className="commit-copy-btn"
-              onClick={() => copyToClipboard(commit.id)}
-              title="Copy full SHA"
-            >
-              <span className="codicon codicon-copy" />
-            </button>
-            <button
-              className="commit-copy-btn"
-              onClick={() => copyToClipboard(commit.message)}
-              title="Copy commit message"
-            >
-              <span className="codicon codicon-comment" />
-            </button>
-            <button
-              className="commit-copy-btn"
-              onClick={() => copyToClipboard(commit.authorEmail)}
-              title="Copy email"
-            >
-              <span className="codicon codicon-mail" />
-            </button>
-          </span>
+    <>
+      {!commitDetail() ? (
+        <div class="commit-detail-empty">
+          <span class="codicon codicon-history commit-detail-empty-icon" />
+          <span>Select a commit to view details</span>
         </div>
-        {bodyLines && <div className="commit-detail-body">{bodyLines}</div>}
-        {commit.parentIds.length > 1 && (
-          <div className="commit-detail-parents">
-            Merge: {commit.parentIds.map((p) => p.slice(0, 7)).join(", ")}
-          </div>
-        )}
-      </div>
-      <div className="commit-detail-files">
-        <div className="commit-detail-files-header">
-          <span className="commit-detail-files-header-label">
-            Changed Files ({files.length})
-          </span>
-          <button
-            className="scm-toolbar-button"
-            onClick={() => setFilesViewMode(filesViewMode === "list" ? "tree" : "list")}
-            title={filesViewMode === "list" ? "Show as tree" : "Show as list"}
-          >
-            <span className={`codicon codicon-${filesViewMode === "list" ? "list-tree" : "list-flat"}`} />
-          </button>
-        </div>
-        {filesViewMode === "tree" ? (
-          <CommitFileTree
-            files={files}
-            selectedPath={selectedPath}
-            onFileClick={(path) => handleFileClick(commit.id, path)}
-          />
-        ) : (
-          files.map((file) => (
-            <div
-              key={file.path}
-              className={`commit-detail-file${selectedPath === file.path ? " selected" : ""}`}
-              onClick={() => handleFileClick(commit.id, file.path)}
-            >
-              <span className={`commit-detail-file-icon ${getFileIconClasses(file.path, "file")}`} />
-              <span className="commit-detail-file-path" title={file.path}>
-                {file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path}
-              </span>
-              <span className={`commit-file-badge badge-${file.status}`}>
-                {statusLetter(file.status)}
+      ) : (
+        <div class="commit-detail">
+          <div class="commit-detail-header">
+            <div class="commit-detail-meta-inline">
+              <span class="commit-detail-title">{firstLine()}</span>
+              <span class="commit-meta-id">{commit()!.shortId}</span>
+              <span class="commit-meta-separator">&middot;</span>
+              <span>{commit()!.authorName}</span>
+              <span class="commit-meta-separator">&middot;</span>
+              <span>{formatRelativeDate(commit()!.authorDate)}</span>
+              <span class="commit-meta-actions">
+                <button class="commit-copy-btn" onClick={() => copyToClipboard(commit()!.id)} title="Copy full SHA">
+                  <span class="codicon codicon-copy" />
+                </button>
+                <button
+                  class="commit-copy-btn"
+                  onClick={() => copyToClipboard(commit()!.message)}
+                  title="Copy commit message"
+                >
+                  <span class="codicon codicon-comment" />
+                </button>
+                <button
+                  class="commit-copy-btn"
+                  onClick={() => copyToClipboard(commit()!.authorEmail)}
+                  title="Copy email"
+                >
+                  <span class="codicon codicon-mail" />
+                </button>
               </span>
             </div>
-          ))
-        )}
-      </div>
-      {fileDiff && (
-        <div className="commit-detail-diff">
-          <div className="commit-detail-diff-header">{fileDiff.path}</div>
-          {fileDiff.fileType === "image" ? (
-            <ImageDiff original={fileDiff.original} modified={fileDiff.modified} />
-          ) : (
-            <div className="commit-detail-diff-editor">
-              <DiffEditor
-                original={fileDiff.original}
-                modified={fileDiff.modified}
-                language={fileDiff.language ?? undefined}
-                theme={currentTheme.id}
-                keepCurrentOriginalModel
-                keepCurrentModifiedModel
-                onMount={handleDiffMount}
-                options={{
-                  ...buildDiffOptions(settings.editor, diffMode),
-                  readOnly: true,
-                  domReadOnly: true,
-                }}
+            {bodyLines() && <div class="commit-detail-body">{bodyLines()}</div>}
+            {commit()!.parentIds.length > 1 && (
+              <div class="commit-detail-parents">
+                Merge:{" "}
+                {commit()!
+                  .parentIds.map((parent) => parent.slice(0, 7))
+                  .join(", ")}
+              </div>
+            )}
+          </div>
+          <div class="commit-detail-files">
+            <div class="commit-detail-files-header">
+              <span class="commit-detail-files-header-label">Changed Files ({files().length})</span>
+              <button
+                class="scm-toolbar-button"
+                onClick={() => setFilesViewMode((mode) => (mode === "list" ? "tree" : "list"))}
+                title={filesViewMode() === "list" ? "Show as tree" : "Show as list"}
+              >
+                <span class={["codicon", filesViewMode() === "list" ? "codicon-list-tree" : "codicon-list-flat"]} />
+              </button>
+            </div>
+            {filesViewMode() === "tree" ? (
+              <CommitFileTree
+                files={files()}
+                selectedPath={selectedPath()}
+                onFileClick={(path) => handleFileClick(commit()!.id, path)}
               />
+            ) : (
+              <For each={files()} keyed={(file) => file.path}>
+                {(file) => (
+                  <div
+                    class={["commit-detail-file", { selected: selectedPath() === file().path }]}
+                    onClick={() => handleFileClick(commit()!.id, file().path)}
+                  >
+                    <span class={["commit-detail-file-icon", getFileIconClasses(file().path, "file")]} />
+                    <span class="commit-detail-file-path" title={file().path}>
+                      {file().oldPath ? `${file().oldPath} -> ${file().path}` : file().path}
+                    </span>
+                    <span class={["commit-file-badge", `badge-${file().status}`]}>{statusLetter(file().status)}</span>
+                  </div>
+                )}
+              </For>
+            )}
+          </div>
+          {fileDiff() && (
+            <div class="commit-detail-diff">
+              <div class="commit-detail-diff-header">{fileDiff()!.path}</div>
+              {fileDiff()!.fileType === "image" ? (
+                <ImageDiff original={fileDiff()!.original} modified={fileDiff()!.modified} />
+              ) : (
+                <div class="commit-detail-diff-editor">
+                  <MonacoDiffEditor
+                    original={fileDiff()!.original}
+                    modified={fileDiff()!.modified}
+                    originalPath={`commit-original/${fileDiff()!.path}`}
+                    modifiedPath={`commit-modified/${fileDiff()!.path}`}
+                    language={fileDiff()!.language ?? undefined}
+                    theme={currentTheme().id}
+                    keepCurrentOriginalModel
+                    keepCurrentModifiedModel
+                    onMount={handleDiffMount}
+                    options={diffOptions()}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>
       )}
-    </div>
+    </>
   );
 };

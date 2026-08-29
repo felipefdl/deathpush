@@ -1,4 +1,4 @@
-import { loader } from "@monaco-editor/react";
+import * as monaco from "monaco-editor";
 import { setNativeTheme } from "../tauri-commands";
 import type { ResolvedTheme, UiTheme } from "./theme-types";
 
@@ -6,10 +6,14 @@ const THEME_STORAGE_KEY = "deathpush:theme";
 
 const uiThemeToMonacoBase = (uiTheme: UiTheme): "vs" | "vs-dark" | "hc-black" | "hc-light" => {
   switch (uiTheme) {
-    case "vs": return "vs";
-    case "vs-dark": return "vs-dark";
-    case "hc-black": return "hc-black";
-    case "hc-light": return "hc-light";
+    case "vs":
+      return "vs";
+    case "vs-dark":
+      return "vs-dark";
+    case "hc-black":
+      return "hc-black";
+    case "hc-light":
+      return "hc-light";
   }
 };
 
@@ -47,27 +51,25 @@ export const applyTheme = (theme: ResolvedTheme): void => {
 };
 
 const applyMonacoTheme = (theme: ResolvedTheme): void => {
-  loader.init().then((monaco) => {
-    const base = uiThemeToMonacoBase(theme.uiTheme);
+  const base = uiThemeToMonacoBase(theme.uiTheme);
 
-    const rules = theme.tokenColors.flatMap((tc) => {
-      const scopes = Array.isArray(tc.scope) ? tc.scope : tc.scope ? [tc.scope] : [];
-      return scopes.map((scope) => ({
-        token: scope,
-        foreground: tc.settings.foreground?.replace("#", ""),
-        background: tc.settings.background?.replace("#", ""),
-        fontStyle: tc.settings.fontStyle,
-      }));
-    });
-
-    const colors: Record<string, string> = {};
-    for (const [key, value] of Object.entries(theme.colors)) {
-      colors[key] = value;
-    }
-
-    monaco.editor.defineTheme(theme.id, { base, inherit: true, rules, colors });
-    monaco.editor.setTheme(theme.id);
+  const rules = theme.tokenColors.flatMap((tc) => {
+    const scopes = Array.isArray(tc.scope) ? tc.scope : tc.scope ? [tc.scope] : [];
+    return scopes.map((scope) => ({
+      token: scope,
+      foreground: tc.settings.foreground?.replace("#", ""),
+      background: tc.settings.background?.replace("#", ""),
+      fontStyle: tc.settings.fontStyle,
+    }));
   });
+
+  const colors: Record<string, string> = {};
+  for (const [key, value] of Object.entries(theme.colors)) {
+    colors[key] = value;
+  }
+
+  monaco.editor.defineTheme(theme.id, { base, inherit: true, rules, colors });
+  monaco.editor.setTheme(theme.id);
 };
 
 export const getTerminalTheme = (colors: Record<string, string>) => ({

@@ -1,27 +1,31 @@
-import { useRef, useState } from "react";
+import { createSignal } from "solid-js";
 import { useRepository } from "../../hooks/use-repository";
-import { useRepositoryStore } from "../../stores/repository-store";
-import { useLayoutStore } from "../../stores/layout-store";
+import { repositoryStore } from "../../stores/repository-store";
+import { layoutStore } from "../../stores/layout-store";
+import { useStore } from "../../lib/use-store";
 import * as commands from "../../lib/tauri-commands";
 import { ActionButton } from "./action-button";
 import { OverflowMenu } from "./overflow-menu";
 
-interface ScmToolbarProps {
+type ScmToolbarProps = {
   onOpenRepository: () => void;
   onCloneRepository?: () => void;
-}
+};
 
-export const ScmToolbar = ({ onOpenRepository, onCloneRepository }: ScmToolbarProps) => {
+export const ScmToolbar = (props: ScmToolbarProps) => {
   const { refreshStatus } = useRepository();
-  const { setStatus, setError, status, startOperation, endOperation, operations } = useRepositoryStore();
-  const { viewMode, setViewMode } = useLayoutStore();
-  const [showOverflow, setShowOverflow] = useState(false);
-  const overflowRef = useRef<HTMLButtonElement>(null);
+  const status = useStore(repositoryStore, (s) => s.status);
+  const operations = useStore(repositoryStore, (s) => s.operations);
+  const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
+  const viewMode = useStore(layoutStore, (s) => s.viewMode);
+  const { setViewMode } = layoutStore.getState();
+  const [showOverflow, setShowOverflow] = createSignal(false);
+  let overflowRef: HTMLButtonElement | undefined;
 
-  const isStaging = operations.has("stage");
+  const isStaging = () => operations().has("stage");
 
   const handleRefresh = () => {
-    refreshStatus();
+    void refreshStatus();
   };
 
   const handleStageAll = async () => {
@@ -37,38 +41,40 @@ export const ScmToolbar = ({ onOpenRepository, onCloneRepository }: ScmToolbarPr
   };
 
   return (
-    <div className="scm-toolbar">
-      {status && (
+    <div class="scm-toolbar">
+      {status() && (
         <>
           <button
-            className="scm-toolbar-button"
-            onClick={() => setViewMode(viewMode === "list" ? "tree" : "list")}
-            title={viewMode === "list" ? "View as Tree" : "View as List"}
+            class="scm-toolbar-button"
+            onClick={() => setViewMode(viewMode() === "list" ? "tree" : "list")}
+            title={viewMode() === "list" ? "View as Tree" : "View as List"}
           >
-            <span className={`codicon ${viewMode === "list" ? "codicon-list-tree" : "codicon-list-flat"}`} />
+            <span class={`codicon ${viewMode() === "list" ? "codicon-list-tree" : "codicon-list-flat"}`} />
           </button>
-          <button className="scm-toolbar-button" onClick={handleStageAll} disabled={isStaging} title="Stage All Changes">
-            <span className="codicon codicon-add" />
+          <button class="scm-toolbar-button" onClick={handleStageAll} disabled={isStaging()} title="Stage All Changes">
+            <span class="codicon codicon-add" />
           </button>
-          <button className="scm-toolbar-button" onClick={handleRefresh} title="Refresh">
-            <span className="codicon codicon-refresh" />
+          <button class="scm-toolbar-button" onClick={handleRefresh} title="Refresh">
+            <span class="codicon codicon-refresh" />
           </button>
           <ActionButton />
-          <div className="overflow-menu-wrapper">
+          <div class="overflow-menu-wrapper">
             <button
-              ref={overflowRef}
-              className="scm-toolbar-button"
-              onClick={() => setShowOverflow(!showOverflow)}
+              ref={(el) => {
+                overflowRef = el;
+              }}
+              class="scm-toolbar-button"
+              onClick={() => setShowOverflow(!showOverflow())}
               title="More Actions..."
             >
-              <span className="codicon codicon-ellipsis" />
+              <span class="codicon codicon-ellipsis" />
             </button>
-            {showOverflow && (
+            {showOverflow() && (
               <OverflowMenu
                 anchorRef={overflowRef}
                 onClose={() => setShowOverflow(false)}
-                onOpenRepository={onOpenRepository}
-                onCloneRepository={onCloneRepository}
+                onOpenRepository={props.onOpenRepository}
+                onCloneRepository={props.onCloneRepository}
               />
             )}
           </div>

@@ -25,5 +25,4 @@ const STATUS_LABELS: Record<FileStatus, string> = {
   bothModified: "!",
 };
 
-export const getStatusLabel = (status: FileStatus): string =>
-  STATUS_LABELS[status] ?? "?";
+export const getStatusLabel = (status: FileStatus): string => STATUS_LABELS[status] ?? "?";

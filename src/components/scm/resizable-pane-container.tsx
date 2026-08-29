@@ -1,18 +1,20 @@
-import { type ReactNode, useState, useEffect, useCallback, useRef } from "react";
+import { createEffect, createMemo, createSignal, For } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { useResizeObserver } from "../../hooks/use-resize-observer";
-import { useLayoutStore } from "../../stores/layout-store";
+import { layoutStore } from "../../stores/layout-store";
+import { useStore } from "../../lib/use-store";
 
-interface PaneDefinition {
+type PaneDefinition = {
   id: string;
   defaultRatio?: number;
   defaultCollapsed?: boolean;
-  header: (collapsed: boolean, onToggle: () => void) => ReactNode;
-  body: () => ReactNode;
-}
+  header: (collapsed: boolean, onToggle: () => void) => JSX.Element;
+  body: () => JSX.Element;
+};
 
-interface PaneRatio {
+type PaneRatio = {
   heightRatio: number;
-}
+};
 
 const MIN_PANE_HEIGHT = 60;
 const HEADER_HEIGHT = 22;
@@ -20,80 +22,81 @@ const DIVIDER_HEIGHT = 4;
 
 export type { PaneDefinition };
 
-export const ResizablePaneContainer = ({ panes }: { panes: PaneDefinition[] }) => {
+export const ResizablePaneContainer = (props: { panes: PaneDefinition[] }) => {
   const { ref: containerRef, height: containerHeight } = useResizeObserver();
-  const collapsedPanes = useLayoutStore((s) => s.collapsedPanes);
-  const togglePaneCollapsed = useLayoutStore((s) => s.togglePaneCollapsed);
-  const [paneRatios, setPaneRatios] = useState<Record<string, PaneRatio>>({});
-  const dragRef = useRef<{
+  const collapsedPanes = useStore(layoutStore, (s) => s.collapsedPanes);
+  const { togglePaneCollapsed } = layoutStore.getState();
+  const [paneRatios, setPaneRatios] = createSignal<Record<string, PaneRatio>>({});
+  let dragRef: {
     paneAbove: string;
     paneBelow: string;
     startY: number;
     startRatioAbove: number;
     startRatioBelow: number;
-  } | null>(null);
+  } | null = null;
 
-  const seenPanesRef = useRef<Set<string>>(new Set());
-  const isCollapsed = (id: string) => collapsedPanes.includes(id);
-  const getRatio = (id: string) => paneRatios[id]?.heightRatio ?? 1;
+  const seenPanes = new Set<string>();
+  const isCollapsed = (id: string) => collapsedPanes().includes(id);
+  const getRatio = (id: string) => paneRatios()[id]?.heightRatio ?? 1;
 
-  // Auto-collapse panes with defaultCollapsed on first appearance
-  useEffect(() => {
-    for (const pane of panes) {
-      if (pane.defaultCollapsed && !seenPanesRef.current.has(pane.id) && !collapsedPanes.includes(pane.id)) {
-        togglePaneCollapsed(pane.id);
-      }
-      seenPanesRef.current.add(pane.id);
-    }
-  }, [panes, collapsedPanes, togglePaneCollapsed]);
-
-  // Sync pane ratios when panes change
-  useEffect(() => {
-    setPaneRatios((prev) => {
-      const paneIds = new Set(panes.map((p) => p.id));
-      const next: Record<string, PaneRatio> = {};
-      let hasNew = false;
-
+  createEffect(
+    () => [props.panes, collapsedPanes()] as const,
+    ([panes, collapsed]) => {
       for (const pane of panes) {
-        if (prev[pane.id]) {
-          next[pane.id] = prev[pane.id];
-        } else {
-          next[pane.id] = { heightRatio: pane.defaultRatio ?? 1 };
-          hasNew = true;
+        if (pane.defaultCollapsed && !seenPanes.has(pane.id) && !collapsed.includes(pane.id)) {
+          togglePaneCollapsed(pane.id);
         }
+        seenPanes.add(pane.id);
       }
+    }
+  );
 
-      const hadOld = Object.keys(prev).some((id) => !paneIds.has(id));
-      if (!hasNew && !hadOld) return prev;
+  createEffect(
+    () => [props.panes, collapsedPanes()] as const,
+    ([panes]) => {
+      setPaneRatios((prev) => {
+        const paneIds = new Set(panes.map((p) => p.id));
+        const next: Record<string, PaneRatio> = {};
+        let hasNew = false;
 
-      const expandedIds = panes.filter((p) => !isCollapsed(p.id)).map((p) => p.id);
-      if (expandedIds.length > 0) {
-        const totalRatio = expandedIds.reduce((sum, id) => sum + (next[id]?.heightRatio ?? 1), 0);
-        if (totalRatio > 0) {
-          for (const id of expandedIds) {
-            next[id] = { heightRatio: (next[id]?.heightRatio ?? 1) / totalRatio };
-          }
-        } else {
-          const equal = 1 / expandedIds.length;
-          for (const id of expandedIds) {
-            next[id] = { heightRatio: equal };
+        for (const pane of panes) {
+          if (prev[pane.id]) {
+            next[pane.id] = prev[pane.id];
+          } else {
+            next[pane.id] = { heightRatio: pane.defaultRatio ?? 1 };
+            hasNew = true;
           }
         }
-      }
 
-      return next;
-    });
-  }, [panes, collapsedPanes]);
+        const hadOld = Object.keys(prev).some((id) => !paneIds.has(id));
+        if (!hasNew && !hadOld) return prev;
 
-  const togglePane = useCallback((id: string) => {
+        const expandedIds = panes.filter((p) => !isCollapsed(p.id)).map((p) => p.id);
+        if (expandedIds.length > 0) {
+          const totalRatio = expandedIds.reduce((sum, id) => sum + (next[id]?.heightRatio ?? 1), 0);
+          if (totalRatio > 0) {
+            for (const id of expandedIds) {
+              next[id] = { heightRatio: (next[id]?.heightRatio ?? 1) / totalRatio };
+            }
+          } else {
+            const equal = 1 / expandedIds.length;
+            for (const id of expandedIds) {
+              next[id] = { heightRatio: equal };
+            }
+          }
+        }
+
+        return next;
+      });
+    }
+  );
+
+  const togglePane = (id: string) => {
     togglePaneCollapsed(id);
 
     setPaneRatios((prev) => {
       const next = { ...prev };
-      const willBeCollapsed = !isCollapsed(id);
-      const expandedIds = panes
-        .filter((p) => (p.id === id ? !willBeCollapsed : !isCollapsed(p.id)))
-        .map((p) => p.id);
+      const expandedIds = props.panes.filter((p) => !isCollapsed(p.id)).map((p) => p.id);
 
       if (expandedIds.length > 0) {
         const totalRatio = expandedIds.reduce((sum, k) => sum + (next[k]?.heightRatio ?? 1), 0);
@@ -111,23 +114,25 @@ export const ResizablePaneContainer = ({ panes }: { panes: PaneDefinition[] }) =
 
       return next;
     });
-  }, [panes, togglePaneCollapsed, collapsedPanes]);
+  };
 
-  const expanded = panes.filter((p) => !isCollapsed(p.id));
-  const collapsed = panes.filter((p) => isCollapsed(p.id));
+  const expanded = createMemo(() => props.panes.filter((p) => !isCollapsed(p.id)));
+  const collapsed = createMemo(() => props.panes.filter((p) => isCollapsed(p.id)));
 
-  // Compute available body height for drag min-ratio clamping
-  const collapsedAreaHeight = collapsed.length * HEADER_HEIGHT;
-  const dividersHeight = Math.max(0, expanded.length - 1) * DIVIDER_HEIGHT;
-  const expandedHeadersHeight = expanded.length * HEADER_HEIGHT;
-  const availableBodyHeight = Math.max(0, containerHeight - collapsedAreaHeight - dividersHeight - expandedHeadersHeight);
+  const availableBodyHeight = createMemo(() => {
+    const collapsedAreaHeight = collapsed().length * HEADER_HEIGHT;
+    const dividersHeight = Math.max(0, expanded().length - 1) * DIVIDER_HEIGHT;
+    const expandedHeadersHeight = expanded().length * HEADER_HEIGHT;
+    return Math.max(0, containerHeight() - collapsedAreaHeight - dividersHeight - expandedHeadersHeight);
+  });
 
-  const handleDividerMouseDown = useCallback((e: React.MouseEvent, aboveId: string, belowId: string) => {
+  const handleDividerMouseDown = (e: MouseEvent, aboveId: string, belowId: string) => {
     e.preventDefault();
     const aboveRatio = getRatio(aboveId);
     const belowRatio = getRatio(belowId);
+    const bodyHeight = availableBodyHeight();
 
-    dragRef.current = {
+    dragRef = {
       paneAbove: aboveId,
       paneBelow: belowId,
       startY: e.clientY,
@@ -136,14 +141,14 @@ export const ResizablePaneContainer = ({ panes }: { panes: PaneDefinition[] }) =
     };
 
     const totalRatio = aboveRatio + belowRatio;
-    const minRatio = availableBodyHeight > 0 ? MIN_PANE_HEIGHT / availableBodyHeight : 0;
+    const minRatio = bodyHeight > 0 ? MIN_PANE_HEIGHT / bodyHeight : 0;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const drag = dragRef.current;
-      if (!drag || availableBodyHeight <= 0) return;
+      const drag = dragRef;
+      if (!drag || bodyHeight <= 0) return;
 
       const deltaY = moveEvent.clientY - drag.startY;
-      const deltaRatio = deltaY / availableBodyHeight;
+      const deltaRatio = deltaY / bodyHeight;
 
       let newAbove = drag.startRatioAbove + deltaRatio;
       let newBelow = drag.startRatioBelow - deltaRatio;
@@ -165,7 +170,7 @@ export const ResizablePaneContainer = ({ panes }: { panes: PaneDefinition[] }) =
     };
 
     const handleMouseUp = () => {
-      dragRef.current = null;
+      dragRef = null;
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
       document.body.style.cursor = "";
@@ -176,40 +181,35 @@ export const ResizablePaneContainer = ({ panes }: { panes: PaneDefinition[] }) =
     document.body.style.userSelect = "none";
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
-  }, [paneRatios, availableBodyHeight]);
+  };
 
   return (
-    <div className="resizable-pane-container" ref={containerRef}>
-      {panes.length > 0 && (
+    <div class="resizable-pane-container" ref={containerRef}>
+      {props.panes.length > 0 && (
         <>
-          <div className="resizable-pane-expanded-area">
-            {expanded.map((pane, i) => {
-              const ratio = getRatio(pane.id);
-              return (
-                <div key={pane.id} className="resizable-pane-wrapper" style={{ flex: `${ratio} 1 0px` }}>
-                  <div className="resizable-pane">
-                    {pane.header(false, () => togglePane(pane.id))}
-                    <div className="resizable-pane-body">
-                      {pane.body()}
-                    </div>
+          <div class="resizable-pane-expanded-area">
+            <For each={expanded()} keyed={(pane) => pane.id}>
+              {(pane, i) => (
+                <div class="resizable-pane-wrapper" style={{ flex: `${getRatio(pane().id)} 1 0px` }}>
+                  <div class="resizable-pane">
+                    {pane().header(false, () => togglePane(pane().id))}
+                    <div class="resizable-pane-body">{pane().body()}</div>
                   </div>
-                  {i < expanded.length - 1 && (
+                  {i() < expanded().length - 1 && (
                     <div
-                      className="pane-divider"
-                      onMouseDown={(e) => handleDividerMouseDown(e, expanded[i].id, expanded[i + 1].id)}
+                      class="pane-divider"
+                      onMouseDown={(e) => handleDividerMouseDown(e, expanded()[i()].id, expanded()[i() + 1].id)}
                     />
                   )}
                 </div>
-              );
-            })}
+              )}
+            </For>
           </div>
-          {collapsed.length > 0 && (
-            <div className="resizable-pane-collapsed-area">
-              {collapsed.map((pane) => (
-                <div key={pane.id}>
-                  {pane.header(true, () => togglePane(pane.id))}
-                </div>
-              ))}
+          {collapsed().length > 0 && (
+            <div class="resizable-pane-collapsed-area">
+              <For each={collapsed()} keyed={(pane) => pane.id}>
+                {(pane) => <div>{pane().header(true, () => togglePane(pane().id))}</div>}
+              </For>
             </div>
           )}
         </>

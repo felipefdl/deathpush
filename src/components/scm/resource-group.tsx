@@ -1,13 +1,14 @@
-import { useState, useCallback, useMemo } from "react";
+import { createMemo, createSignal, For } from "solid-js";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import type { FileEntry, ResourceGroup, ResourceGroupKind } from "../../lib/git-types";
-import { useRepositoryStore } from "../../stores/repository-store";
-import { useLayoutStore } from "../../stores/layout-store";
+import { repositoryStore } from "../../stores/repository-store";
+import { layoutStore } from "../../stores/layout-store";
+import { useStore } from "../../lib/use-store";
 import * as commands from "../../lib/tauri-commands";
 import { ResourceItem } from "./resource-item";
 import { ResourceTree } from "./resource-tree";
 
-interface ResourceGroupHeaderProps {
+type ResourceGroupHeaderProps = {
   collapsed: boolean;
   onToggle: () => void;
   label: string;
@@ -16,34 +17,46 @@ interface ResourceGroupHeaderProps {
   onStageAll: () => void;
   onUnstageAll: () => void;
   onDiscardAll: () => void;
-}
+};
 
-export const ResourceGroupHeader = ({
-  collapsed,
-  onToggle,
-  label,
-  count,
-  isIndex,
-  onStageAll,
-  onUnstageAll,
-  onDiscardAll,
-}: ResourceGroupHeaderProps) => (
-  <div className="resource-group-header" onClick={onToggle}>
-    <span className={`codicon codicon-chevron-down resource-group-chevron ${collapsed ? "collapsed" : ""}`} />
-    <span className="resource-group-label">{label}</span>
-    <span className="resource-group-count">{count}</span>
-    <div className="resource-group-actions">
-      {isIndex ? (
-        <button className="inline-action" onClick={(e) => { e.stopPropagation(); onUnstageAll(); }} title="Unstage All">
-          <span className="codicon codicon-remove" />
+export const ResourceGroupHeader = (props: ResourceGroupHeaderProps) => (
+  <div class="resource-group-header" onClick={() => props.onToggle()}>
+    <span class={`codicon codicon-chevron-down resource-group-chevron ${props.collapsed ? "collapsed" : ""}`} />
+    <span class="resource-group-label">{props.label}</span>
+    <span class="resource-group-count">{props.count}</span>
+    <div class="resource-group-actions">
+      {props.isIndex ? (
+        <button
+          class="inline-action"
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onUnstageAll();
+          }}
+          title="Unstage All"
+        >
+          <span class="codicon codicon-remove" />
         </button>
       ) : (
         <>
-          <button className="inline-action" onClick={(e) => { e.stopPropagation(); onDiscardAll(); }} title="Discard All Changes">
-            <span className="codicon codicon-discard" />
+          <button
+            class="inline-action"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onDiscardAll();
+            }}
+            title="Discard All Changes"
+          >
+            <span class="codicon codicon-discard" />
           </button>
-          <button className="inline-action" onClick={(e) => { e.stopPropagation(); onStageAll(); }} title="Stage All Changes">
-            <span className="codicon codicon-add" />
+          <button
+            class="inline-action"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onStageAll();
+            }}
+            title="Stage All Changes"
+          >
+            <span class="codicon codicon-add" />
           </button>
         </>
       )}
@@ -51,52 +64,54 @@ export const ResourceGroupHeader = ({
   </div>
 );
 
-interface ResourceGroupBodyProps {
+type ResourceGroupBodyProps = {
   files: FileEntry[];
   viewMode: "list" | "tree";
   groupKind: ResourceGroupKind;
   flatIndexOffset: number;
   focusedIndex: number | null;
-}
+};
 
-export const ResourceGroupBody = ({ files, viewMode, groupKind, flatIndexOffset, focusedIndex }: ResourceGroupBodyProps) => (
-  <div className="resource-group-body">
-    {viewMode === "tree" ? (
-      <ResourceTree files={files} groupKind={groupKind} />
+export const ResourceGroupBody = (props: ResourceGroupBodyProps) => (
+  <div class="resource-group-body">
+    {props.viewMode === "tree" ? (
+      <ResourceTree files={props.files} groupKind={props.groupKind} />
     ) : (
-      files.map((file, i) => (
-        <ResourceItem
-          key={file.path}
-          file={file}
-          groupKind={groupKind}
-          focused={focusedIndex === flatIndexOffset + i}
-        />
-      ))
+      <For each={props.files} keyed={(file) => file.path}>
+        {(file, i) => (
+          <ResourceItem
+            file={file()}
+            groupKind={props.groupKind}
+            focused={props.focusedIndex === props.flatIndexOffset + i()}
+          />
+        )}
+      </For>
     )}
   </div>
 );
 
-interface ResourceGroupViewProps {
+type ResourceGroupViewProps = {
   group: ResourceGroup;
   filter?: string;
   flatIndexOffset?: number;
-}
+};
 
-export const ResourceGroupView = ({ group, filter, flatIndexOffset = 0 }: ResourceGroupViewProps) => {
-  const [collapsed, setCollapsed] = useState(false);
-  const { setStatus, setError, startOperation, endOperation, focusedIndex } = useRepositoryStore();
-  const { viewMode } = useLayoutStore();
+export const ResourceGroupView = (props: ResourceGroupViewProps) => {
+  const [collapsed, setCollapsed] = createSignal(false);
+  const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
+  const focusedIndex = useStore(repositoryStore, (s) => s.focusedIndex);
+  const viewMode = useStore(layoutStore, (s) => s.viewMode);
 
-  const filteredFiles = useMemo(() => {
-    if (!filter) return group.files;
-    const lower = filter.toLowerCase();
-    return group.files.filter((f) => f.path.toLowerCase().includes(lower));
-  }, [group.files, filter]);
+  const filteredFiles = createMemo(() => {
+    if (!props.filter) return props.group.files;
+    const lower = props.filter.toLowerCase();
+    return props.group.files.filter((f) => f.path.toLowerCase().includes(lower));
+  });
 
-  const handleStageAll = useCallback(async () => {
+  const handleStageAll = async () => {
     startOperation("stage");
     try {
-      const paths = filteredFiles.map((f) => f.path);
+      const paths = filteredFiles().map((f) => f.path);
       const status = await commands.stageFiles(paths);
       setStatus(status);
     } catch (err) {
@@ -104,9 +119,9 @@ export const ResourceGroupView = ({ group, filter, flatIndexOffset = 0 }: Resour
     } finally {
       endOperation("stage");
     }
-  }, [filteredFiles, setStatus, setError, startOperation, endOperation]);
+  };
 
-  const handleUnstageAll = useCallback(async () => {
+  const handleUnstageAll = async () => {
     startOperation("unstage");
     try {
       const status = await commands.unstageAll();
@@ -116,11 +131,12 @@ export const ResourceGroupView = ({ group, filter, flatIndexOffset = 0 }: Resour
     } finally {
       endOperation("unstage");
     }
-  }, [setStatus, setError, startOperation, endOperation]);
+  };
 
-  const handleDiscardAll = useCallback(async () => {
-    const trackedFiles = filteredFiles.filter((f) => f.status !== "untracked");
-    const untrackedFiles = filteredFiles.filter((f) => f.status === "untracked");
+  const handleDiscardAll = async () => {
+    const files = filteredFiles();
+    const trackedFiles = files.filter((f) => f.status !== "untracked");
+    const untrackedFiles = files.filter((f) => f.status === "untracked");
 
     let msg: string;
     let title: string;
@@ -156,33 +172,35 @@ export const ResourceGroupView = ({ group, filter, flatIndexOffset = 0 }: Resour
     } finally {
       endOperation("discard");
     }
-  }, [filteredFiles, setStatus, setError, startOperation, endOperation]);
+  };
 
-  if (filteredFiles.length === 0) return null;
-
-  const isIndex = group.kind === "index";
+  const isIndex = () => props.group.kind === "index";
 
   return (
-    <div className="resource-group">
-      <ResourceGroupHeader
-        collapsed={collapsed}
-        onToggle={() => setCollapsed(!collapsed)}
-        label={group.label}
-        count={filteredFiles.length}
-        isIndex={isIndex}
-        onStageAll={handleStageAll}
-        onUnstageAll={handleUnstageAll}
-        onDiscardAll={handleDiscardAll}
-      />
-      {!collapsed && (
-        <ResourceGroupBody
-          files={filteredFiles}
-          viewMode={viewMode}
-          groupKind={group.kind}
-          flatIndexOffset={flatIndexOffset}
-          focusedIndex={focusedIndex}
-        />
+    <>
+      {filteredFiles().length === 0 ? null : (
+        <div class="resource-group">
+          <ResourceGroupHeader
+            collapsed={collapsed()}
+            onToggle={() => setCollapsed(!collapsed())}
+            label={props.group.label}
+            count={filteredFiles().length}
+            isIndex={isIndex()}
+            onStageAll={handleStageAll}
+            onUnstageAll={handleUnstageAll}
+            onDiscardAll={handleDiscardAll}
+          />
+          {!collapsed() && (
+            <ResourceGroupBody
+              files={filteredFiles()}
+              viewMode={viewMode()}
+              groupKind={props.group.kind}
+              flatIndexOffset={props.flatIndexOffset ?? 0}
+              focusedIndex={focusedIndex()}
+            />
+          )}
+        </div>
       )}
-    </div>
+    </>
   );
 };

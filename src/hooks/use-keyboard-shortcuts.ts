@@ -1,27 +1,33 @@
-import { useEffect } from "react";
+import { onSettled } from "solid-js";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import { useRepositoryStore } from "../stores/repository-store";
-import { useLayoutStore } from "../stores/layout-store";
-import { useSettingsStore } from "../stores/settings-store";
-import { useExplorerStore } from "../stores/explorer-store";
+import { repositoryStore } from "../stores/repository-store";
+import { layoutStore } from "../stores/layout-store";
+import { settingsStore } from "../stores/settings-store";
+import { explorerStore } from "../stores/explorer-store";
 import { toggleTerminal } from "../lib/toggle-terminal";
 import { buildFlatFileList } from "../lib/flat-file-list";
 import * as commands from "../lib/tauri-commands";
 
 export const useKeyboardShortcuts = () => {
-  const {
-    setStatus, setError,
-    setFocusedIndex, setSelectedFile, setDiff,
-    clearFileSelection, startOperation, endOperation,
-  } = useRepositoryStore();
-  const { diffMode, setDiffMode, mainView, setMainView } = useLayoutStore();
-
-  useEffect(() => {
+  onSettled(() => {
     let chordK = false;
     let chordTimer: ReturnType<typeof setTimeout> | null = null;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
+      const repo = repositoryStore.getState();
+      const layout = layoutStore.getState();
+      const {
+        setStatus,
+        setError,
+        setFocusedIndex,
+        setSelectedFile,
+        setDiff,
+        clearFileSelection,
+        startOperation,
+        endOperation,
+      } = repo;
+      const { setDiffMode, diffMode } = layout;
 
       // Chord: Cmd+K Cmd+T -> open theme picker
       if (chordK && isMod && e.key === "t") {
@@ -45,7 +51,9 @@ export const useKeyboardShortcuts = () => {
         e.preventDefault();
         chordK = true;
         if (chordTimer) clearTimeout(chordTimer);
-        chordTimer = setTimeout(() => { chordK = false; }, 1500);
+        chordTimer = setTimeout(() => {
+          chordK = false;
+        }, 1500);
         return;
       }
 
@@ -61,17 +69,17 @@ export const useKeyboardShortcuts = () => {
       // Zoom: Cmd/Ctrl + =/- /0 (must be before isInput check)
       if (isMod && (e.key === "=" || e.key === "+")) {
         e.preventDefault();
-        useSettingsStore.getState().zoomIn();
+        settingsStore.getState().zoomIn();
         return;
       }
       if (isMod && e.key === "-") {
         e.preventDefault();
-        useSettingsStore.getState().zoomOut();
+        settingsStore.getState().zoomOut();
         return;
       }
       if (isMod && e.key === "0") {
         e.preventDefault();
-        useSettingsStore.getState().resetZoom();
+        settingsStore.getState().resetZoom();
         return;
       }
 
@@ -79,7 +87,6 @@ export const useKeyboardShortcuts = () => {
       if (isMod && e.altKey && e.code >= "Digit1" && e.code <= "Digit9") {
         e.preventDefault();
         const idx = parseInt(e.code.slice(5), 10) - 1;
-        const repo = useRepositoryStore.getState();
         const group = repo.terminalGroups[idx];
         if (group) {
           repo.setActiveGroup(group.groupId);
@@ -90,22 +97,18 @@ export const useKeyboardShortcuts = () => {
       // Cmd+1: Changes, Cmd+2: Explorer, Cmd+3: Terminal
       if (isMod && !e.altKey && e.key === "1") {
         e.preventDefault();
-        const layout = useLayoutStore.getState();
         layout.setSidebarView("scm");
         layout.setMainView("changes");
         return;
       }
       if (isMod && !e.altKey && e.key === "2") {
         e.preventDefault();
-        const layout = useLayoutStore.getState();
         layout.setSidebarView("explorer");
         layout.setMainView("file");
         return;
       }
       if (isMod && !e.altKey && e.key === "3") {
         e.preventDefault();
-        const layout = useLayoutStore.getState();
-        const repo = useRepositoryStore.getState();
         if (layout.terminalMaximized) {
           layout.setMainView("terminal");
           requestAnimationFrame(() => {
@@ -132,7 +135,6 @@ export const useKeyboardShortcuts = () => {
 
       if (isMod && e.key === ",") {
         e.preventDefault();
-        const layout = useLayoutStore.getState();
         layout.setMainView(layout.mainView === "settings" ? "changes" : "settings");
         return;
       }
@@ -149,7 +151,10 @@ export const useKeyboardShortcuts = () => {
       // Ctrl/Cmd+Shift+G: Focus SCM (refresh status)
       if (isMod && e.shiftKey && e.key === "G") {
         e.preventDefault();
-        commands.getStatus().then(setStatus).catch((err) => setError(String(err)));
+        commands
+          .getStatus()
+          .then(setStatus)
+          .catch((err) => setError(String(err)));
         return;
       }
 
@@ -162,12 +167,10 @@ export const useKeyboardShortcuts = () => {
 
       // Explorer shortcuts: only when explorer sidebar is active and focus is within explorer-view
       const inExplorer =
-        useLayoutStore.getState().sidebarView === "explorer" &&
-        !isInput &&
-        !!document.activeElement?.closest(".explorer-view");
+        layout.sidebarView === "explorer" && !isInput && !!document.activeElement?.closest(".explorer-view");
 
       if (inExplorer) {
-        const explorer = useExplorerStore.getState();
+        const explorer = explorerStore.getState();
         const selectedPath = explorer.selectedPath;
 
         // F2 or Enter: start rename
@@ -181,17 +184,22 @@ export const useKeyboardShortcuts = () => {
         if ((e.key === "Delete" || (isMod && e.key === "Backspace")) && selectedPath) {
           e.preventDefault();
           const fileName = selectedPath.split("/").pop() ?? selectedPath;
-          confirm(
-            `Are you sure you want to delete "${fileName}"?\n\nThis will move it to the trash.`,
-            { title: "Delete", kind: "warning", okLabel: "Move to Trash", cancelLabel: "Cancel" },
-          ).then((confirmed) => {
+          void confirm(`Are you sure you want to delete "${fileName}"?\n\nThis will move it to the trash.`, {
+            title: "Delete",
+            kind: "warning",
+            okLabel: "Move to Trash",
+            cancelLabel: "Cancel",
+          }).then((confirmed) => {
             if (!confirmed) return;
-            commands.deleteFile(selectedPath).then((status) => {
-              setStatus(status);
-              explorer.setSelectedPath(null);
-              explorer.setFileContent(null);
-              explorer.clearCache();
-            }).catch((err) => setError(String(err)));
+            commands
+              .deleteFile(selectedPath)
+              .then((status) => {
+                setStatus(status);
+                explorer.setSelectedPath(null);
+                explorer.setFileContent(null);
+                explorer.clearCache();
+              })
+              .catch((err) => setError(String(err)));
           });
           return;
         }
@@ -199,7 +207,6 @@ export const useKeyboardShortcuts = () => {
         // Cmd+C: copy
         if (isMod && e.key === "c" && selectedPath) {
           e.preventDefault();
-          // Determine if directory from cache
           const rootEntries = explorer.directoryCache.get("__root__");
           const findEntry = (entries: typeof rootEntries, path: string): boolean => {
             if (!entries) return false;
@@ -241,15 +248,17 @@ export const useKeyboardShortcuts = () => {
         if (isMod && e.key === "v" && explorer.clipboardEntry) {
           e.preventDefault();
           const clip = explorer.clipboardEntry;
-          // Paste into selected folder, or root
           const targetDir = selectedPath ?? "";
-          const pasteOp = clip.operation === "copy"
-            ? commands.copyEntries([clip.path], targetDir)
-            : commands.moveEntries([clip.path], targetDir);
-          pasteOp.then(() => {
-            if (clip.operation === "cut") explorer.setClipboardEntry(null);
-            explorer.clearCache();
-          }).catch((err) => setError(String(err)));
+          const pasteOp =
+            clip.operation === "copy"
+              ? commands.copyEntries([clip.path], targetDir)
+              : commands.moveEntries([clip.path], targetDir);
+          pasteOp
+            .then(() => {
+              if (clip.operation === "cut") explorer.setClipboardEntry(null);
+              explorer.clearCache();
+            })
+            .catch((err) => setError(String(err)));
           return;
         }
       }
@@ -264,14 +273,13 @@ export const useKeyboardShortcuts = () => {
         setSelectedFile(null);
         setDiff(null);
         clearFileSelection();
-        const explorer = useExplorerStore.getState();
+        const explorer = explorerStore.getState();
         explorer.setSelectedPath(null);
         explorer.setFileContent(null);
         return;
       }
 
-      const state = useRepositoryStore.getState();
-      const { status, fileFilter, focusedIndex } = state;
+      const { status, fileFilter, focusedIndex } = repo;
       if (!status) return;
 
       const flatList = buildFlatFileList(status.groups, fileFilter);
@@ -302,10 +310,9 @@ export const useKeyboardShortcuts = () => {
       if (e.key === "Enter") {
         e.preventDefault();
         setSelectedFile({ path: focused.path, staged: isStaged });
-        commands.getFileDiff(focused.path, isStaged)
-          .then((diff) => {
-            useRepositoryStore.getState().setDiff(diff);
-          })
+        commands
+          .getFileDiff(focused.path, isStaged)
+          .then(setDiff)
           .catch((err) => setError(String(err)));
         return;
       }
@@ -315,13 +322,15 @@ export const useKeyboardShortcuts = () => {
         e.preventDefault();
         if (isStaged) {
           startOperation("unstage");
-          commands.unstageFiles([focused.path])
+          commands
+            .unstageFiles([focused.path])
             .then(setStatus)
             .catch((err) => setError(String(err)))
             .finally(() => endOperation("unstage"));
         } else {
           startOperation("stage");
-          commands.stageFiles([focused.path])
+          commands
+            .stageFiles([focused.path])
             .then(setStatus)
             .catch((err) => setError(String(err)))
             .finally(() => endOperation("stage"));
@@ -333,13 +342,16 @@ export const useKeyboardShortcuts = () => {
       if ((e.key === "Delete" || e.key === "Backspace") && !isStaged) {
         e.preventDefault();
         const fileName = focused.path.split("/").pop() ?? focused.path;
-        confirm(
-          `Are you sure you want to discard changes in "${fileName}"?\n\nThis action is irreversible.`,
-          { title: "Discard Changes", kind: "warning", okLabel: "Discard", cancelLabel: "Cancel" },
-        ).then((confirmed) => {
+        void confirm(`Are you sure you want to discard changes in "${fileName}"?\n\nThis action is irreversible.`, {
+          title: "Discard Changes",
+          kind: "warning",
+          okLabel: "Discard",
+          cancelLabel: "Cancel",
+        }).then((confirmed) => {
           if (!confirmed) return;
           startOperation("discard");
-          commands.discardChanges([focused.path])
+          commands
+            .discardChanges([focused.path])
             .then(setStatus)
             .catch((err) => setError(String(err)))
             .finally(() => endOperation("discard"));
@@ -353,10 +365,5 @@ export const useKeyboardShortcuts = () => {
       window.removeEventListener("keydown", handleKeyDown);
       if (chordTimer) clearTimeout(chordTimer);
     };
-  }, [
-    setStatus, setError, setDiffMode, diffMode,
-    setFocusedIndex, setSelectedFile, setDiff,
-    clearFileSelection, startOperation, endOperation,
-    mainView, setMainView,
-  ]);
+  });
 };

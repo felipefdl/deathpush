@@ -1,94 +1,94 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createSignal, onSettled } from "solid-js";
 import type { SearchAddon } from "@xterm/addon-search";
 
-interface TerminalSearchBarProps {
+type TerminalSearchBarProps = {
   searchAddon: SearchAddon;
   onClose: () => void;
-}
+};
 
-export const TerminalSearchBar = ({ searchAddon, onClose }: TerminalSearchBarProps) => {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [query, setQuery] = useState("");
-  const [resultIndex, setResultIndex] = useState(-1);
-  const [resultCount, setResultCount] = useState(0);
+export const TerminalSearchBar = (props: TerminalSearchBarProps) => {
+  const [query, setQuery] = createSignal("");
+  const [resultIndex, setResultIndex] = createSignal(-1);
+  const [resultCount, setResultCount] = createSignal(0);
+  let inputEl: HTMLInputElement | undefined;
 
-  useEffect(() => {
-    inputRef.current?.focus();
-    const disposable = searchAddon.onDidChangeResults?.((e) => {
-      setResultIndex(e.resultIndex);
-      setResultCount(e.resultCount);
+  onSettled(() => {
+    inputEl?.focus();
+    const disposable = props.searchAddon.onDidChangeResults?.((event) => {
+      setResultIndex(event.resultIndex);
+      setResultCount(event.resultCount);
     });
     return () => disposable?.dispose();
-  }, [searchAddon]);
+  });
 
-  const handleChange = useCallback(
-    (value: string) => {
-      setQuery(value);
-      if (value) {
-        searchAddon.findNext(value, { incremental: true });
+  const handleInput = (e: InputEvent & { currentTarget: HTMLInputElement }) => {
+    const value = e.currentTarget.value;
+    setQuery(value);
+    if (value) {
+      props.searchAddon.findNext(value, { incremental: true });
+    } else {
+      props.searchAddon.clearDecorations();
+      setResultIndex(-1);
+      setResultCount(0);
+    }
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      props.searchAddon.clearDecorations();
+      props.onClose();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey) {
+        props.searchAddon.findPrevious(query());
       } else {
-        searchAddon.clearDecorations();
-        setResultIndex(-1);
-        setResultCount(0);
+        props.searchAddon.findNext(query());
       }
-    },
-    [searchAddon],
-  );
+    }
+  };
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Escape") {
-        searchAddon.clearDecorations();
-        onClose();
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        if (e.shiftKey) {
-          searchAddon.findPrevious(query);
-        } else {
-          searchAddon.findNext(query);
-        }
-      }
-    },
-    [searchAddon, query, onClose],
-  );
-
-  const countLabel = query && resultCount >= 0 ? `${resultIndex + 1}/${resultCount}` : "";
+  const countLabel = () => {
+    const q = query();
+    const count = resultCount();
+    return q && count >= 0 ? `${resultIndex() + 1}/${count}` : "";
+  };
 
   return (
-    <div className="terminal-search-bar">
+    <div class="terminal-search-bar">
       <input
-        ref={inputRef}
-        className="terminal-search-input"
+        ref={(el) => (inputEl = el)}
+        class="terminal-search-input"
         type="text"
-        value={query}
+        value={query()}
         placeholder="Find"
-        onChange={(e) => handleChange(e.target.value)}
+        spellcheck={false}
+        onInput={handleInput}
         onKeyDown={handleKeyDown}
       />
-      {countLabel && <span className="terminal-search-count">{countLabel}</span>}
+      {countLabel() && <span class="terminal-search-count">{countLabel()}</span>}
       <button
-        className="terminal-search-btn"
-        onClick={() => searchAddon.findPrevious(query)}
+        class="terminal-search-btn"
+        onClick={() => props.searchAddon.findPrevious(query())}
         title="Previous Match (Shift+Enter)"
       >
-        <span className="codicon codicon-chevron-up" />
+        <span class="codicon codicon-chevron-up" />
       </button>
       <button
-        className="terminal-search-btn"
-        onClick={() => searchAddon.findNext(query)}
+        class="terminal-search-btn"
+        onClick={() => props.searchAddon.findNext(query())}
         title="Next Match (Enter)"
       >
-        <span className="codicon codicon-chevron-down" />
+        <span class="codicon codicon-chevron-down" />
       </button>
       <button
-        className="terminal-search-btn"
+        class="terminal-search-btn"
         onClick={() => {
-          searchAddon.clearDecorations();
-          onClose();
+          props.searchAddon.clearDecorations();
+          props.onClose();
         }}
         title="Close (Escape)"
       >
-        <span className="codicon codicon-close" />
+        <span class="codicon codicon-close" />
       </button>
     </div>
   );

@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import react from "@vitejs/plugin-react";
+import solid from "@solidjs/vite-plugin";
 import { defineConfig, lazyPlugins } from "vite-plus";
 
 const host = process.env.TAURI_DEV_HOST;
@@ -94,7 +94,7 @@ const licenses = collectLicenses();
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: lazyPlugins(() => [react()]),
+  plugins: lazyPlugins(() => [solid()]),
   define: {
     __GIT_HASH__: JSON.stringify(gitHash),
     __APP_VERSION__: JSON.stringify(pkg.version),
@@ -114,11 +114,7 @@ export default defineConfig({
           if (id.includes("monaco-editor")) {
             return "vendor-monaco";
           }
-          if (
-            id.includes("@xterm/xterm") ||
-            id.includes("@xterm/addon-fit") ||
-            id.includes("@xterm/addon-web-links")
-          ) {
+          if (id.includes("@xterm/xterm") || id.includes("@xterm/addon-fit") || id.includes("@xterm/addon-web-links")) {
             return "vendor-xterm";
           }
         },
@@ -140,9 +136,6 @@ export default defineConfig({
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
-  },
-  check: {
-    fmt: false,
   },
   fmt: {
     printWidth: 120,

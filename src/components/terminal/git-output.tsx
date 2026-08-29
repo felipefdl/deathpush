@@ -1,45 +1,50 @@
-import { useEffect, useRef, useState } from "react";
+import { createEffect, createSignal, For, onSettled } from "solid-js";
 import { listen } from "@tauri-apps/api/event";
 
-interface GitCommandEntry {
+type GitCommandEntry = {
   command: string;
   duration_ms: number;
   timestamp: string;
-}
+};
 
 export const GitOutput = () => {
-  const [entries, setEntries] = useState<GitCommandEntry[]>([]);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [entries, setEntries] = createSignal<GitCommandEntry[]>([]);
+  let containerEl: HTMLDivElement | undefined;
 
-  useEffect(() => {
+  onSettled(() => {
     const unlisten = listen<GitCommandEntry>("git:command", (event) => {
       setEntries((prev) => [...prev, event.payload]);
     });
     return () => {
-      unlisten.then((fn) => fn());
+      void unlisten.then((fn) => fn());
     };
-  }, []);
+  });
 
-  useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+  createEffect(
+    () => entries(),
+    () => {
+      if (containerEl) {
+        containerEl.scrollTop = containerEl.scrollHeight;
+      }
     }
-  }, [entries]);
+  );
 
   return (
-    <div className="git-output" ref={containerRef}>
-      {entries.length === 0 ? (
-        <div className="git-output-empty">No git commands recorded yet.</div>
+    <div class="git-output" ref={(el) => (containerEl = el)}>
+      {entries().length === 0 ? (
+        <div class="git-output-empty">No git commands recorded yet.</div>
       ) : (
-        entries.map((entry, i) => (
-          <div key={i} className="git-output-line">
-            <span className="git-output-timestamp">{entry.timestamp}</span>
-            <span className="git-output-level">[info]</span>
-            <span className="git-output-arrow">&gt;</span>
-            <span className="git-output-command">{entry.command}</span>
-            <span className="git-output-duration">[{entry.duration_ms}ms]</span>
-          </div>
-        ))
+        <For each={entries()} keyed={false}>
+          {(entry) => (
+            <div class="git-output-line">
+              <span class="git-output-timestamp">{entry().timestamp}</span>
+              <span class="git-output-level">[info]</span>
+              <span class="git-output-arrow">&gt;</span>
+              <span class="git-output-command">{entry().command}</span>
+              <span class="git-output-duration">[{entry().duration_ms}ms]</span>
+            </div>
+          )}
+        </For>
       )}
     </div>
   );

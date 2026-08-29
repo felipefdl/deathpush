@@ -74,4 +74,3 @@ describe("buildDiffModelOptions", () => {
     expect(buildDiffModelOptions({ ...mockEditor, tabSize: 8 })).toEqual({ tabSize: 8 });
   });
 });
-

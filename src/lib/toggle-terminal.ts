@@ -1,9 +1,9 @@
-import { useLayoutStore } from "../stores/layout-store";
-import { useRepositoryStore } from "../stores/repository-store";
+import { layoutStore } from "../stores/layout-store";
+import { repositoryStore } from "../stores/repository-store";
 
 export const toggleTerminal = () => {
-  const layout = useLayoutStore.getState();
-  const repo = useRepositoryStore.getState();
+  const layout = layoutStore.getState();
+  const repo = repositoryStore.getState();
 
   if (layout.terminalVisible) {
     layout.setTerminalVisible(false);

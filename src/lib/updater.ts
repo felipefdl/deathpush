@@ -11,7 +11,7 @@ export const checkForUpdate = async (): Promise<Update | null> => {
 
 export const downloadAndInstallUpdate = async (
   update: Update,
-  onProgress?: (downloaded: number, total: number | undefined) => void,
+  onProgress?: (downloaded: number, total: number | undefined) => void
 ): Promise<void> => {
   let downloaded = 0;
   let contentLength: number | undefined;

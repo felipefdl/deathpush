@@ -1,164 +1,175 @@
-import { createContext, useCallback, useEffect, useMemo, useRef } from "react";
+import { createContext, createEffect, createMemo, For, onSettled } from "solid-js";
 import type { GitDecorationMaps } from "../../hooks/use-explorer-git-status";
-import { useExplorerStore } from "../../stores/explorer-store";
-import { useRepositoryStore } from "../../stores/repository-store";
+import { explorerStore } from "../../stores/explorer-store";
+import { repositoryStore } from "../../stores/repository-store";
+import { useStore } from "../../lib/use-store";
 import { ExplorerItem } from "./explorer-item";
 import * as commands from "../../lib/tauri-commands";
 
-const EMPTY_MAPS: GitDecorationMaps = {
-  fileMap: new Map(),
-  dirMap: new Map(),
-};
+export const GitDecorationContext = createContext<() => GitDecorationMaps>();
 
-export const GitDecorationContext = createContext<GitDecorationMaps>(EMPTY_MAPS);
-
-interface ExplorerTreeProps {
+type ExplorerTreeProps = {
   path: string | null;
   depth: number;
   filter: string;
-}
+};
+
+type CreateRowProps = {
+  parentPath: string | null;
+  type: "file" | "folder";
+  depth: number;
+};
 
 const entryMatchesFilter = (
   entry: { name: string; path: string; isDirectory: boolean },
   filter: string,
-  cache: Map<string, { name: string; path: string; isDirectory: boolean }[]>,
+  cache: Map<string, { name: string; path: string; isDirectory: boolean }[]>
 ): boolean => {
   if (!entry.isDirectory) {
     return entry.name.toLowerCase().includes(filter);
   }
   const children = cache.get(entry.path);
-  if (!children) return true; // not loaded yet, keep visible
+  if (!children) return true;
   return children.some((child) => entryMatchesFilter(child, filter, cache));
 };
 
-const CreateRow = ({ parentPath, type, depth }: { parentPath: string | null; type: "file" | "folder"; depth: number }) => {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const setCreatingIn = useExplorerStore((s) => s.setCreatingIn);
-  const clearCache = useExplorerStore((s) => s.clearCache);
-  const setError = useRepositoryStore((s) => s.setError);
+const CreateRow = (props: CreateRowProps) => {
+  let inputRef: HTMLInputElement | undefined;
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+  onSettled(() => {
+    inputRef?.focus();
+  });
 
-  const handleSubmit = useCallback(
-    async (name: string) => {
-      setCreatingIn(null);
-      const trimmed = name.trim();
-      if (!trimmed) return;
-      const fullPath = parentPath ? `${parentPath}/${trimmed}` : trimmed;
-      try {
-        if (type === "folder") {
-          await commands.createDirectory(fullPath);
-        } else {
-          await commands.writeFile(fullPath, "");
-        }
-        clearCache();
-      } catch (err) {
-        setError(String(err));
+  const handleSubmit = async (name: string) => {
+    const { setCreatingIn, clearCache } = explorerStore.getState();
+    const { setError } = repositoryStore.getState();
+    setCreatingIn(null);
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const fullPath = props.parentPath ? `${props.parentPath}/${trimmed}` : trimmed;
+    try {
+      if (props.type === "folder") {
+        await commands.createDirectory(fullPath);
+      } else {
+        await commands.writeFile(fullPath, "");
       }
-    },
-    [parentPath, type, setCreatingIn, clearCache, setError],
-  );
+      clearCache();
+    } catch (err) {
+      setError(String(err));
+    }
+  };
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        handleSubmit(e.currentTarget.value);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        setCreatingIn(null);
-      }
-    },
-    [handleSubmit, setCreatingIn],
-  );
+  const handleKeyDown = (e: KeyboardEvent & { currentTarget: HTMLInputElement }) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void handleSubmit(e.currentTarget.value);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      explorerStore.getState().setCreatingIn(null);
+    }
+  };
 
-  const iconClass = type === "folder" ? "codicon codicon-folder" : "codicon codicon-file";
+  const iconClass = () => (props.type === "folder" ? "codicon codicon-folder" : "codicon codicon-file");
 
   return (
-    <div className="explorer-create-row" style={{ paddingLeft: 12 + depth * 12 }}>
-      <span className={iconClass} style={{ marginRight: 4, fontSize: 14 }} />
+    <div class="explorer-create-row" style={{ "padding-left": `${12 + props.depth * 12}px` }}>
+      <span class={iconClass()} style={{ "margin-right": "4px", "font-size": "14px" }} />
       <input
-        ref={inputRef}
-        className="explorer-item-rename-input"
-        placeholder={type === "folder" ? "Folder name" : "File name"}
+        ref={(el) => {
+          inputRef = el;
+        }}
+        class="explorer-item-rename-input"
+        placeholder={props.type === "folder" ? "Folder name" : "File name"}
         onKeyDown={handleKeyDown}
         onBlur={(e) => handleSubmit(e.currentTarget.value)}
-        autoComplete="off"
-        spellCheck={false}
+        autocomplete="off"
+        spellcheck={false}
       />
     </div>
   );
 };
 
-const ExplorerTreeLevel = ({ path, depth, filter }: ExplorerTreeProps) => {
-  const directoryCache = useExplorerStore((s) => s.directoryCache);
-  const expandedDirs = useExplorerStore((s) => s.expandedDirs);
-  const setDirectoryEntries = useExplorerStore((s) => s.setDirectoryEntries);
-  const toggleDir = useExplorerStore((s) => s.toggleDir);
-  const creatingIn = useExplorerStore((s) => s.creatingIn);
-  const setError = useRepositoryStore((s) => s.setError);
+const ExplorerTreeLevel = (props: ExplorerTreeProps) => {
+  const directoryCache = useStore(explorerStore, (s) => s.directoryCache);
+  const expandedDirs = useStore(explorerStore, (s) => s.expandedDirs);
+  const creatingIn = useStore(explorerStore, (s) => s.creatingIn);
 
-  const cacheKey = path ?? "__root__";
-  const entries = directoryCache.get(cacheKey);
+  const cacheKey = createMemo(() => props.path ?? "__root__");
+  const entries = createMemo(() => directoryCache().get(cacheKey()));
 
-  useEffect(() => {
-    if (!entries) {
-      commands
-        .listDirectory(path)
-        .then((result) => {
-          setDirectoryEntries(cacheKey, result);
-        })
-        .catch((err) => setError(String(err)));
-    }
-  }, [path, cacheKey, entries, setDirectoryEntries, setError]);
-
-  const handleToggleDir = useCallback(
-    (dirPath: string) => {
-      toggleDir(dirPath);
-      if (!directoryCache.has(dirPath)) {
+  createEffect(
+    () => [props.path, cacheKey(), entries()] as const,
+    ([path, key, current]) => {
+      if (!current) {
         commands
-          .listDirectory(dirPath)
+          .listDirectory(path)
           .then((result) => {
-            setDirectoryEntries(dirPath, result);
+            explorerStore.getState().setDirectoryEntries(key, result);
           })
-          .catch((err) => setError(String(err)));
+          .catch((err) => repositoryStore.getState().setError(String(err)));
       }
-    },
-    [toggleDir, directoryCache, setDirectoryEntries, setError],
+    }
   );
 
-  const filtered = useMemo(() => {
-    if (!entries || !filter) return entries ?? [];
-    return entries.filter((e) => entryMatchesFilter(e, filter, directoryCache));
-  }, [entries, filter, directoryCache]);
+  const handleToggleDir = (dirPath: string) => {
+    const { toggleDir, directoryCache: cache, setDirectoryEntries } = explorerStore.getState();
+    toggleDir(dirPath);
+    if (!cache.has(dirPath)) {
+      commands
+        .listDirectory(dirPath)
+        .then((result) => {
+          setDirectoryEntries(dirPath, result);
+        })
+        .catch((err) => repositoryStore.getState().setError(String(err)));
+    }
+  };
 
-  if (!entries) return null;
+  const filtered = createMemo(() => {
+    const list = entries();
+    if (!list || !props.filter) return list ?? [];
+    return list.filter((e) => entryMatchesFilter(e, props.filter, directoryCache()));
+  });
 
-  // Determine if a creation row should appear at this level
-  const showCreateRow = creatingIn && creatingIn.parentPath === path;
+  const showCreateRow = createMemo(() => {
+    const creating = creatingIn();
+    return creating !== null && creating.parentPath === props.path;
+  });
+
+  const isExpanded = (path: string, isDirectory: boolean): boolean =>
+    expandedDirs().has(path) || (!!props.filter && isDirectory);
 
   return (
     <>
-      {showCreateRow && <CreateRow parentPath={creatingIn.parentPath} type={creatingIn.type} depth={depth} />}
-      {filtered.map((entry) => {
-        const isExpanded = expandedDirs.has(entry.path) || (!!filter && entry.isDirectory);
-        const showChildCreate = creatingIn && creatingIn.parentPath === entry.path;
-        return (
-          <div key={entry.path}>
-            <ExplorerItem entry={entry} depth={depth} onToggleDir={handleToggleDir} expanded={isExpanded} />
-            {entry.isDirectory && (isExpanded || showChildCreate) && (
-              <ExplorerTreeLevel path={entry.path} depth={depth + 1} filter={filter} />
-            )}
-          </div>
-        );
-      })}
+      {entries() ? (
+        <>
+          {showCreateRow() && creatingIn() && (
+            <CreateRow parentPath={creatingIn()!.parentPath} type={creatingIn()!.type} depth={props.depth} />
+          )}
+          <For each={filtered()} keyed={(entry) => entry.path}>
+            {(entry) => {
+              const showChildCreate = () => creatingIn()?.parentPath === entry().path;
+              return (
+                <div>
+                  <ExplorerItem
+                    entry={entry()}
+                    depth={props.depth}
+                    onToggleDir={handleToggleDir}
+                    expanded={isExpanded(entry().path, entry().isDirectory)}
+                  />
+                  {entry().isDirectory && (isExpanded(entry().path, entry().isDirectory) || showChildCreate()) && (
+                    <ExplorerTreeLevel path={entry().path} depth={props.depth + 1} filter={props.filter} />
+                  )}
+                </div>
+              );
+            }}
+          </For>
+        </>
+      ) : null}
     </>
   );
 };
 
 export const ExplorerTree = () => {
-  const filter = useExplorerStore((s) => s.fileFilter).toLowerCase();
-  return <ExplorerTreeLevel path={null} depth={0} filter={filter} />;
+  const fileFilter = useStore(explorerStore, (s) => s.fileFilter);
+  return <ExplorerTreeLevel path={null} depth={0} filter={fileFilter().toLowerCase()} />;
 };

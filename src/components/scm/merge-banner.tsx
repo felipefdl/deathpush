@@ -1,11 +1,10 @@
-import { useCallback } from "react";
 import type { RepoOperationState } from "../../lib/git-types";
-import { useRepositoryStore } from "../../stores/repository-store";
+import { repositoryStore } from "../../stores/repository-store";
 import * as commands from "../../lib/tauri-commands";
 
-interface MergeBannerProps {
+type MergeBannerProps = {
   operationState: RepoOperationState;
-}
+};
 
 const LABELS: Record<string, string> = {
   merging: "Merge in progress",
@@ -14,19 +13,19 @@ const LABELS: Record<string, string> = {
   reverting: "Revert in progress",
 };
 
-export const MergeBanner = ({ operationState }: MergeBannerProps) => {
-  const { setStatus, setError, startOperation, endOperation } = useRepositoryStore();
+export const MergeBanner = (props: MergeBannerProps) => {
+  const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
 
-  const label = LABELS[operationState] ?? "Operation in progress";
-  const isMerge = operationState === "merging";
-  const isRebase = operationState === "rebasing";
+  const label = () => LABELS[props.operationState] ?? "Operation in progress";
+  const isMerge = () => props.operationState === "merging";
+  const isRebase = () => props.operationState === "rebasing";
 
-  const handleContinue = useCallback(async () => {
+  const handleContinue = async () => {
     startOperation("lifecycle");
     try {
-      const status = isMerge
+      const status = isMerge()
         ? await commands.mergeContinue()
-        : isRebase
+        : isRebase()
           ? await commands.rebaseContinue()
           : await commands.mergeContinue();
       setStatus(status);
@@ -35,14 +34,14 @@ export const MergeBanner = ({ operationState }: MergeBannerProps) => {
     } finally {
       endOperation("lifecycle");
     }
-  }, [isMerge, isRebase, setStatus, setError, startOperation, endOperation]);
+  };
 
-  const handleAbort = useCallback(async () => {
+  const handleAbort = async () => {
     startOperation("lifecycle");
     try {
-      const status = isMerge
+      const status = isMerge()
         ? await commands.mergeAbort()
-        : isRebase
+        : isRebase()
           ? await commands.rebaseAbort()
           : await commands.mergeAbort();
       setStatus(status);
@@ -51,10 +50,10 @@ export const MergeBanner = ({ operationState }: MergeBannerProps) => {
     } finally {
       endOperation("lifecycle");
     }
-  }, [isMerge, isRebase, setStatus, setError, startOperation, endOperation]);
+  };
 
-  const handleSkip = useCallback(async () => {
-    if (!isRebase) return;
+  const handleSkip = async () => {
+    if (!isRebase()) return;
     startOperation("lifecycle");
     try {
       const status = await commands.rebaseSkip();
@@ -64,22 +63,22 @@ export const MergeBanner = ({ operationState }: MergeBannerProps) => {
     } finally {
       endOperation("lifecycle");
     }
-  }, [isRebase, setStatus, setError, startOperation, endOperation]);
+  };
 
   return (
-    <div className="merge-banner">
-      <span className="codicon codicon-warning merge-banner-icon" />
-      <span className="merge-banner-label">{label}</span>
-      <div className="merge-banner-actions">
-        <button className="merge-banner-btn" onClick={handleContinue} title="Continue">
+    <div class="merge-banner">
+      <span class="codicon codicon-warning merge-banner-icon" />
+      <span class="merge-banner-label">{label()}</span>
+      <div class="merge-banner-actions">
+        <button class="merge-banner-btn" onClick={handleContinue} title="Continue">
           Continue
         </button>
-        {isRebase && (
-          <button className="merge-banner-btn" onClick={handleSkip} title="Skip">
+        {isRebase() && (
+          <button class="merge-banner-btn" onClick={handleSkip} title="Skip">
             Skip
           </button>
         )}
-        <button className="merge-banner-btn merge-banner-btn-danger" onClick={handleAbort} title="Abort">
+        <button class="merge-banner-btn merge-banner-btn-danger" onClick={handleAbort} title="Abort">
           Abort
         </button>
       </div>

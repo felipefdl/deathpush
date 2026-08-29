@@ -1,17 +1,18 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { createEffect, createSignal, For, onSettled } from "solid-js";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
-import { useRepositoryStore } from "../../stores/repository-store";
+import { repositoryStore } from "../../stores/repository-store";
+import { useStore } from "../../lib/use-store";
 import { IS_LINUX } from "../../lib/platform";
 
-interface MenuItem {
+type MenuItem = {
   type: "item" | "separator";
   label?: string;
   shortcut?: string;
   event?: string;
   action?: () => void;
   needsRepo?: boolean;
-}
+};
 
 const MENU_ITEMS: MenuItem[] = [
   { type: "item", label: "New Window", shortcut: "Ctrl+N", action: () => invoke("new_window") },
@@ -50,112 +51,126 @@ const MENU_ITEMS: MenuItem[] = [
 export const LinuxTitleBar = () => {
   if (!IS_LINUX) return null;
 
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [isMaximized, setIsMaximized] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = createSignal(false);
+  const [isMaximized, setIsMaximized] = createSignal(false);
+  let menuRef: HTMLDivElement | undefined;
   const appWindow = getCurrentWebviewWindow();
-  const hasRepo = useRepositoryStore((s) => s.status !== null);
-  const status = useRepositoryStore((s) => s.status);
+  const hasRepo = useStore(repositoryStore, (s) => s.status !== null);
+  const status = useStore(repositoryStore, (s) => s.status);
 
-  const repoName = status?.root ? status.root.split("/").filter(Boolean).pop() : undefined;
-  const branch = status?.headBranch;
-  const titleText = repoName
-    ? `${repoName}${branch ? ` - ${branch}` : ""}`
-    : "DeathPush";
+  const repoName = () => (status()?.root ? status()!.root.split("/").filter(Boolean).pop() : undefined);
+  const branch = () => status()?.headBranch;
+  const titleText = () => {
+    const name = repoName();
+    return name ? `${name}${branch() ? ` - ${branch()}` : ""}` : "DeathPush";
+  };
 
-  useEffect(() => {
+  onSettled(() => {
     let mounted = true;
-    appWindow.isMaximized().then((v) => { if (mounted) setIsMaximized(v); });
-    const unlisten = appWindow.onResized(() => {
-      appWindow.isMaximized().then((v) => { if (mounted) setIsMaximized(v); });
+    void appWindow.isMaximized().then((v) => {
+      if (mounted) setIsMaximized(v);
     });
-    return () => { mounted = false; unlisten.then((fn) => fn()); };
-  }, [appWindow]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
+    const unlisten = appWindow.onResized(() => {
+      void appWindow.isMaximized().then((v) => {
+        if (mounted) setIsMaximized(v);
+      });
+    });
+    return () => {
+      mounted = false;
+      void unlisten.then((fn) => fn());
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [menuOpen]);
+  });
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false);
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [menuOpen]);
+  createEffect(
+    () => menuOpen(),
+    (open) => {
+      if (!open) return;
+      const handler = (e: MouseEvent) => {
+        if (menuRef && !menuRef.contains(e.target as Node)) {
+          setMenuOpen(false);
+        }
+      };
+      document.addEventListener("mousedown", handler);
+      return () => document.removeEventListener("mousedown", handler);
+    }
+  );
 
-  const handleMenuAction = useCallback((item: MenuItem) => {
+  createEffect(
+    () => menuOpen(),
+    (open) => {
+      if (!open) return;
+      const handler = (e: KeyboardEvent) => {
+        if (e.key === "Escape") setMenuOpen(false);
+      };
+      document.addEventListener("keydown", handler);
+      return () => document.removeEventListener("keydown", handler);
+    }
+  );
+
+  const handleMenuAction = (item: MenuItem) => {
     setMenuOpen(false);
     if (item.action) {
       item.action();
     } else if (item.event) {
-      appWindow.emitTo(appWindow.label, item.event, null);
+      void appWindow.emitTo(appWindow.label, item.event, null);
     }
-  }, [appWindow]);
+  };
 
   return (
-    <div className="linux-title-bar">
-      <div className="linux-title-bar-left">
-        <div className="linux-menu-wrapper" ref={menuRef}>
-          <button
-            className="linux-title-btn linux-menu-btn"
-            onClick={() => setMenuOpen(!menuOpen)}
-          >
-            <span className="codicon codicon-menu" />
+    <div class="linux-title-bar">
+      <div class="linux-title-bar-left">
+        <div
+          class="linux-menu-wrapper"
+          ref={(el) => {
+            menuRef = el;
+          }}
+        >
+          <button class="linux-title-btn linux-menu-btn" onClick={() => setMenuOpen(!menuOpen())}>
+            <span class="codicon codicon-menu" />
           </button>
-          {menuOpen && (
+          {menuOpen() && (
             <div
-              className="linux-menu-dropdown"
+              class="linux-menu-dropdown"
               style={{
-                backgroundColor: getComputedStyle(document.documentElement)
-                  .getPropertyValue("--vscode-menu-background").trim()
-                  || getComputedStyle(document.documentElement)
-                    .getPropertyValue("--vscode-editor-background").trim()
-                  || "#1e1e1e",
+                "background-color":
+                  getComputedStyle(document.documentElement).getPropertyValue("--vscode-menu-background").trim() ||
+                  getComputedStyle(document.documentElement).getPropertyValue("--vscode-editor-background").trim() ||
+                  "#1e1e1e",
               }}
             >
-              {MENU_ITEMS.map((item, i) => {
-                if (item.type === "separator") {
-                  return <div key={i} className="linux-menu-separator" />;
+              <For each={MENU_ITEMS} keyed>
+                {(item) =>
+                  item.type === "separator" ? (
+                    <div class="linux-menu-separator" />
+                  ) : (
+                    <button
+                      class="linux-menu-item"
+                      disabled={item.needsRepo === true && !hasRepo()}
+                      onClick={() => handleMenuAction(item)}
+                    >
+                      <span class="linux-menu-label">{item.label}</span>
+                      {item.shortcut && <span class="linux-menu-shortcut">{item.shortcut}</span>}
+                    </button>
+                  )
                 }
-                const disabled = item.needsRepo === true && !hasRepo;
-                return (
-                  <button
-                    key={i}
-                    className="linux-menu-item"
-                    disabled={disabled}
-                    onClick={() => handleMenuAction(item)}
-                  >
-                    <span className="linux-menu-label">{item.label}</span>
-                    {item.shortcut && (
-                      <span className="linux-menu-shortcut">{item.shortcut}</span>
-                    )}
-                  </button>
-                );
-              })}
+              </For>
             </div>
           )}
         </div>
-        <span className="linux-title-text" data-tauri-drag-region>{titleText}</span>
+        <span class="linux-title-text" data-tauri-drag-region>
+          {titleText()}
+        </span>
       </div>
-      <div className="linux-title-bar-drag" data-tauri-drag-region />
-      <div className="linux-title-bar-right">
-        <button className="linux-title-btn" onClick={() => invoke("window_minimize")}>
-          <span className="codicon codicon-chrome-minimize" />
+      <div class="linux-title-bar-drag" data-tauri-drag-region />
+      <div class="linux-title-bar-right">
+        <button class="linux-title-btn" onClick={() => invoke("window_minimize")}>
+          <span class="codicon codicon-chrome-minimize" />
         </button>
-        <button className="linux-title-btn" onClick={() => invoke("window_maximize")}>
-          <span className={`codicon codicon-chrome-${isMaximized ? "restore" : "maximize"}`} />
+        <button class="linux-title-btn" onClick={() => invoke("window_maximize")}>
+          <span class={`codicon codicon-chrome-${isMaximized() ? "restore" : "maximize"}`} />
         </button>
-        <button className="linux-title-btn linux-close-btn" onClick={() => invoke("window_close")}>
-          <span className="codicon codicon-chrome-close" />
+        <button class="linux-title-btn linux-close-btn" onClick={() => invoke("window_close")}>
+          <span class="codicon codicon-chrome-close" />
         </button>
       </div>
     </div>

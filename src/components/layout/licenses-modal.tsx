@@ -1,11 +1,11 @@
-import { useCallback, useRef, useEffect } from "react";
+import { For, onSettled } from "solid-js";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 
 declare const __LICENSES__: { name: string; license: string; url: string; category: "npm" | "rust" | "asset" }[];
 
-interface LicensesModalProps {
+type LicensesModalProps = {
   onClose: () => void;
-}
+};
 
 const CATEGORY_LABELS: Record<string, string> = {
   asset: "Assets",
@@ -15,23 +15,20 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 const CATEGORY_ORDER = ["asset", "npm", "rust"] as const;
 
-export const LicensesModal = ({ onClose }: LicensesModalProps) => {
-  const overlayRef = useRef<HTMLDivElement>(null);
+export const LicensesModal = (props: LicensesModalProps) => {
+  let overlayRef: HTMLDivElement | undefined;
 
-  useEffect(() => {
+  onSettled(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") props.onClose();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  });
 
-  const handleOverlayClick = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.target === overlayRef.current) onClose();
-    },
-    [onClose],
-  );
+  const handleOverlayClick = (e: MouseEvent) => {
+    if (e.target === overlayRef) props.onClose();
+  };
 
   const grouped = new Map<string, typeof __LICENSES__>();
   for (const entry of __LICENSES__) {
@@ -41,37 +38,43 @@ export const LicensesModal = ({ onClose }: LicensesModalProps) => {
   }
 
   return (
-    <div className="branch-picker-overlay" ref={overlayRef} onClick={handleOverlayClick}>
-      <div className="licenses-modal">
-        <div className="clone-dialog-title">Open Source Licenses</div>
-        <div className="licenses-list">
-          {CATEGORY_ORDER.map((cat) => {
-            const items = grouped.get(cat);
-            if (!items?.length) return null;
-            return (
-              <div key={cat}>
-                <div className="licenses-group-title">{CATEGORY_LABELS[cat]}</div>
-                {items.map((entry) => (
-                  <div key={entry.name} className="license-entry">
-                    <span className="license-entry-name">{entry.name}</span>
-                    <span className="license-badge">{entry.license}</span>
-                    {entry.url && (
-                      <button
-                        className="license-link"
-                        onClick={() => shellOpen(entry.url)}
-                        title={entry.url}
-                      >
-                        <span className="codicon codicon-link-external" />
-                      </button>
+    <div
+      class="branch-picker-overlay"
+      ref={(el) => {
+        overlayRef = el;
+      }}
+      onClick={handleOverlayClick}
+    >
+      <div class="licenses-modal">
+        <div class="clone-dialog-title">Open Source Licenses</div>
+        <div class="licenses-list">
+          <For each={CATEGORY_ORDER} keyed>
+            {(cat) => {
+              const items = grouped.get(cat);
+              if (!items?.length) return null;
+              return (
+                <div>
+                  <div class="licenses-group-title">{CATEGORY_LABELS[cat]}</div>
+                  <For each={items} keyed={(entry) => entry.name}>
+                    {(entry) => (
+                      <div class="license-entry">
+                        <span class="license-entry-name">{entry().name}</span>
+                        <span class="license-badge">{entry().license}</span>
+                        {entry().url && (
+                          <button class="license-link" onClick={() => shellOpen(entry().url)} title={entry().url}>
+                            <span class="codicon codicon-link-external" />
+                          </button>
+                        )}
+                      </div>
                     )}
-                  </div>
-                ))}
-              </div>
-            );
-          })}
+                  </For>
+                </div>
+              );
+            }}
+          </For>
         </div>
-        <div className="clone-dialog-actions">
-          <button className="action-button secondary" onClick={onClose}>
+        <div class="clone-dialog-actions">
+          <button class="action-button secondary" onClick={() => props.onClose()}>
             Close
           </button>
         </div>

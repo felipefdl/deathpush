@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, React + TypeScript frontend) that replicates the VS Code Source Control UX. It provides staging, committing, diffing, branch management, push/pull, stash, tags, commit history, hunk staging, merge/rebase detection, clone, cherry-pick, reset, git blame, integrated terminal, settings, multi-window support, CLI tool (`dp`/`deathpush`), auto-update, and a welcome/project picker screen in a lightweight native app.
+DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, Solid 2 + TypeScript frontend) that replicates the VS Code Source Control UX. It provides staging, committing, diffing, branch management, push/pull, stash, tags, commit history, hunk staging, merge/rebase detection, clone, cherry-pick, reset, git blame, integrated terminal, settings, multi-window support, CLI tool (`dp`/`deathpush`), auto-update, and a welcome/project picker screen in a lightweight native app.
 
 ## Brand & Voice
 
@@ -15,10 +15,10 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 
 | Component | Technology |
 |-----------|-----------|
-| Frontend | React 19 + TypeScript |
+| Frontend | Solid 2 + TypeScript |
 | Backend | Rust (Tauri v2) |
-| State | Zustand |
-| Diff viewer | Monaco Editor (@monaco-editor/react) |
+| State | Zustand vanilla stores with Solid selectors |
+| Diff viewer | Monaco Editor (direct integration) |
 | Terminal | xterm.js + portable-pty (Rust) |
 | Icons | VS Code Codicon font (@vscode/codicons) |
 | Package manager | Vite+ (`vp`) / pnpm |
@@ -211,8 +211,8 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 - `src-tauri/src/commands/` -- Tauri command handlers (thin, delegate to git/ or pty)
 - `src-tauri/src/git/` -- Git operations (git2 reads, CLI writes, blame)
 - `src-tauri/src/pty.rs` -- PTY session management (portable-pty)
-- `src/components/` -- React components organized by feature (scm/, diff/, branch/, history/, terminal/, layout/, settings/, welcome/, theme/, shared/, ui/)
-- `src/hooks/` -- Custom React hooks
+- `src/components/` -- Solid components organized by feature (scm/, diff/, branch/, history/, terminal/, layout/, settings/, welcome/, theme/, shared/, ui/)
+- `src/hooks/` -- Custom Solid reactive utilities
 - `src/stores/` -- Zustand stores (repository, layout, theme, icon-theme, settings)
 - `src/lib/` -- Utilities, types, constants
 - `src/lib/themes/` -- Color theme infrastructure
@@ -229,7 +229,7 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 
 ### Testing
 
-- `vp test` with jsdom environment
+- Vitest with jsdom environment
 - TZ=UTC for all tests
 - Test files: `src/**/*.test.{ts,tsx}`
 - Exclude `.temp-vscode/` from test discovery
@@ -298,5 +298,8 @@ The `.temp-vscode/` directory contains VS Code source for reference. Key files:
 just dev          # Start Tauri dev server
 just build        # Production build
 just lint         # Run vp lint + clippy
-
-[Showing lines 1-300 of 306. Use :301 to continue]
+just fmt          # Format TypeScript and Rust
+just check        # Type-check frontend and backend
+just test         # Run Vitest and Rust tests
+just test-watch   # Run Vitest in watch mode
+```

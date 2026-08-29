@@ -1,111 +1,125 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { createSignal, onSettled } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useRepositoryStore } from "../../stores/repository-store";
+import { repositoryStore } from "../../stores/repository-store";
 import { addRecentProject } from "../../lib/recent-projects";
 import * as commands from "../../lib/tauri-commands";
 
-interface CloneDialogProps {
+type CloneDialogProps = {
   onClose: () => void;
-}
+};
 
-export const CloneDialog = ({ onClose }: CloneDialogProps) => {
-  const [url, setUrl] = useState("");
-  const [directory, setDirectory] = useState("");
-  const [cloning, setCloning] = useState(false);
-  const { setStatus, setError } = useRepositoryStore();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
+export const CloneDialog = (props: CloneDialogProps) => {
+  const [url, setUrl] = createSignal("");
+  const [directory, setDirectory] = createSignal("");
+  const [cloning, setCloning] = createSignal(false);
+  const { setStatus, setError } = repositoryStore.getState();
+  let inputRef: HTMLInputElement | undefined;
+  let overlayRef: HTMLDivElement | undefined;
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+  onSettled(() => {
+    inputRef?.focus();
+  });
 
-  const handleBrowse = useCallback(async () => {
+  const handleBrowse = async () => {
     const selected = await open({ directory: true, title: "Choose directory to clone into" });
     if (selected) {
       setDirectory(selected);
     }
-  }, []);
+  };
 
-  const handleClone = useCallback(async () => {
-    if (!url.trim() || !directory.trim()) return;
-    const repoName = url.trim().split("/").pop()?.replace(/\.git$/, "") ?? "repo";
-    const targetPath = `${directory.trim()}/${repoName}`;
+  const handleClone = async () => {
+    const urlValue = url().trim();
+    const directoryValue = directory().trim();
+    if (!urlValue || !directoryValue) return;
+    const repoName =
+      urlValue
+        .split("/")
+        .pop()
+        ?.replace(/\.git$/, "") ?? "repo";
+    const targetPath = `${directoryValue}/${repoName}`;
     setCloning(true);
     try {
-      const status = await commands.cloneRepository(url.trim(), targetPath);
+      const status = await commands.cloneRepository(urlValue, targetPath);
       addRecentProject(status.root);
       setStatus(status);
-      onClose();
+      props.onClose();
     } catch (err) {
       setError(String(err));
     } finally {
       setCloning(false);
     }
-  }, [url, directory, setStatus, setError, onClose]);
+  };
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
-      onClose();
+      props.onClose();
     } else if (e.key === "Enter") {
-      handleClone();
+      void handleClone();
     }
-  }, [onClose, handleClone]);
+  };
 
-  const handleOverlayClick = useCallback((e: React.MouseEvent) => {
-    if (e.target === overlayRef.current) {
-      onClose();
+  const handleOverlayClick = (e: MouseEvent) => {
+    if (e.target === overlayRef) {
+      props.onClose();
     }
-  }, [onClose]);
+  };
 
   return (
-    <div className="branch-picker-overlay" ref={overlayRef} onClick={handleOverlayClick}>
-      <div className="clone-dialog" onKeyDown={handleKeyDown}>
-        <div className="clone-dialog-title">Clone Repository</div>
-        <div className="clone-dialog-field">
-          <label className="clone-dialog-label">Repository URL</label>
+    <div
+      class="branch-picker-overlay"
+      ref={(el) => {
+        overlayRef = el;
+      }}
+      onClick={handleOverlayClick}
+    >
+      <div class="clone-dialog" onKeyDown={handleKeyDown}>
+        <div class="clone-dialog-title">Clone Repository</div>
+        <div class="clone-dialog-field">
+          <label class="clone-dialog-label">Repository URL</label>
           <input
-            ref={inputRef}
-            className="clone-dialog-input"
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
+            ref={(el) => {
+              inputRef = el;
+            }}
+            class="clone-dialog-input"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck={false}
             data-form-type="other"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            value={url()}
+            onInput={(e: InputEvent & { currentTarget: HTMLInputElement }) => setUrl(e.currentTarget.value)}
             placeholder="https://github.com/user/repo.git"
           />
         </div>
-        <div className="clone-dialog-field">
-          <label className="clone-dialog-label">Directory</label>
-          <div className="clone-dialog-dir-row">
+        <div class="clone-dialog-field">
+          <label class="clone-dialog-label">Directory</label>
+          <div class="clone-dialog-dir-row">
             <input
-              className="clone-dialog-input"
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
+              class="clone-dialog-input"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck={false}
               data-form-type="other"
-              value={directory}
-              onChange={(e) => setDirectory(e.target.value)}
+              value={directory()}
+              onInput={(e: InputEvent & { currentTarget: HTMLInputElement }) => setDirectory(e.currentTarget.value)}
               placeholder="Select a directory..."
             />
-            <button className="clone-dialog-browse" onClick={handleBrowse}>
-              <span className="codicon codicon-folder-opened" />
+            <button class="clone-dialog-browse" onClick={handleBrowse}>
+              <span class="codicon codicon-folder-opened" />
             </button>
           </div>
         </div>
-        <div className="clone-dialog-actions">
-          <button className="action-button secondary" onClick={onClose} disabled={cloning}>
+        <div class="clone-dialog-actions">
+          <button class="action-button secondary" onClick={() => props.onClose()} disabled={cloning()}>
             Cancel
           </button>
           <button
-            className="action-button"
+            class="action-button"
             onClick={handleClone}
-            disabled={!url.trim() || !directory.trim() || cloning}
+            disabled={!url().trim() || !directory().trim() || cloning()}
           >
-            {cloning ? "Cloning..." : "Clone"}
+            {cloning() ? "Cloning..." : "Clone"}
           </button>
         </div>
       </div>

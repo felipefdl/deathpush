@@ -1,141 +1,150 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { createSignal, For, onSettled } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { WorkspaceEntry } from "../../stores/settings-store";
 
-interface WorkspaceConfigModalProps {
+type WorkspaceConfigModalProps = {
   onClose: () => void;
   workspaces: WorkspaceEntry[];
   onSave: (workspaces: WorkspaceEntry[]) => void;
-}
+};
 
 const EMPTY_ENTRY: WorkspaceEntry = { directory: "", scanDepth: 1 };
 
-export const WorkspaceConfigModal = ({ onClose, workspaces, onSave }: WorkspaceConfigModalProps) => {
-  const [entries, setEntries] = useState<WorkspaceEntry[]>(
-    workspaces.length > 0 ? workspaces.map((w) => ({ ...w })) : [{ ...EMPTY_ENTRY }],
+export const WorkspaceConfigModal = (props: WorkspaceConfigModalProps) => {
+  const [entries, setEntries] = createSignal<WorkspaceEntry[]>(
+    props.workspaces.length > 0 ? props.workspaces.map((w) => ({ ...w })) : [{ ...EMPTY_ENTRY }]
   );
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  let overlayRef: HTMLDivElement | undefined;
+  let listRef: HTMLDivElement | undefined;
 
-  useEffect(() => {
-    const firstInput = listRef.current?.querySelector<HTMLInputElement>(".clone-dialog-input");
+  onSettled(() => {
+    const firstInput = listRef?.querySelector<HTMLInputElement>(".clone-dialog-input");
     firstInput?.focus();
-  }, []);
+  });
 
-  const handleBrowse = useCallback(async (index: number) => {
+  const handleBrowse = async (index: number) => {
     const selected = await open({ directory: true, title: "Select Git Projects Directory" });
     if (selected) {
       setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, directory: selected } : e)));
     }
-  }, []);
+  };
 
-  const handleDirectoryChange = useCallback((index: number, value: string) => {
+  const handleDirectoryChange = (index: number, value: string) => {
     setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, directory: value } : e)));
-  }, []);
+  };
 
-  const handleDepthChange = useCallback((index: number, delta: number) => {
+  const handleDepthChange = (index: number, delta: number) => {
     setEntries((prev) =>
-      prev.map((e, i) => (i === index ? { ...e, scanDepth: Math.min(5, Math.max(1, e.scanDepth + delta)) } : e)),
+      prev.map((e, i) => (i === index ? { ...e, scanDepth: Math.min(5, Math.max(1, e.scanDepth + delta)) } : e))
     );
-  }, []);
+  };
 
-  const handleRemove = useCallback((index: number) => {
+  const handleRemove = (index: number) => {
     setEntries((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  };
 
-  const handleAdd = useCallback(() => {
+  const handleAdd = () => {
     setEntries((prev) => [...prev, { ...EMPTY_ENTRY }]);
     requestAnimationFrame(() => {
-      const inputs = listRef.current?.querySelectorAll<HTMLInputElement>(".clone-dialog-input");
+      const inputs = listRef?.querySelectorAll<HTMLInputElement>(".clone-dialog-input");
       inputs?.[inputs.length - 1]?.focus();
     });
-  }, []);
+  };
 
-  const handleSave = useCallback(() => {
-    const filtered = entries.filter((e) => e.directory.trim() !== "");
-    onSave(filtered);
-    onClose();
-  }, [entries, onSave, onClose]);
+  const handleSave = () => {
+    const filtered = entries().filter((e) => e.directory.trim() !== "");
+    props.onSave(filtered);
+    props.onClose();
+  };
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      } else if (e.key === "Enter") {
-        handleSave();
-      }
-    },
-    [onClose, handleSave],
-  );
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      props.onClose();
+    } else if (e.key === "Enter") {
+      handleSave();
+    }
+  };
 
-  const handleOverlayClick = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.target === overlayRef.current) {
-        onClose();
-      }
-    },
-    [onClose],
-  );
+  const handleOverlayClick = (e: MouseEvent) => {
+    if (e.target === overlayRef) {
+      props.onClose();
+    }
+  };
 
   return (
-    <div className="branch-picker-overlay" ref={overlayRef} onClick={handleOverlayClick}>
-      <div className="clone-dialog" onKeyDown={handleKeyDown}>
-        <div className="clone-dialog-title">Workspace Settings</div>
-        <div className="workspace-config-description">
+    <div
+      class="branch-picker-overlay"
+      ref={(el) => {
+        overlayRef = el;
+      }}
+      onClick={handleOverlayClick}
+    >
+      <div class="clone-dialog" onKeyDown={handleKeyDown}>
+        <div class="clone-dialog-title">Workspace Settings</div>
+        <div class="workspace-config-description">
           Add directories containing your Git repositories. The scan depth controls how many levels deep to search for
           projects within each directory.
         </div>
-        <div className="workspace-entries" ref={listRef}>
-          {entries.map((entry, index) => (
-            <div key={index} className="workspace-entry-row">
-              <input
-                className="clone-dialog-input"
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
-                spellCheck={false}
-                data-form-type="other"
-                value={entry.directory}
-                onChange={(e) => handleDirectoryChange(index, e.target.value)}
-                placeholder="Select a directory..."
-              />
-              <button className="clone-dialog-browse" onClick={() => handleBrowse(index)} title="Browse...">
-                <span className="codicon codicon-folder-opened" />
-              </button>
-              <div className="welcome-depth-control">
-                <button
-                  className="welcome-depth-btn"
-                  disabled={entry.scanDepth <= 1}
-                  onClick={() => handleDepthChange(index, -1)}
-                >
-                  <span className="codicon codicon-chevron-left" />
+        <div
+          class="workspace-entries"
+          ref={(el) => {
+            listRef = el;
+          }}
+        >
+          <For each={entries()} keyed={false}>
+            {(entry, index) => (
+              <div class="workspace-entry-row">
+                <input
+                  class="clone-dialog-input"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  spellcheck={false}
+                  data-form-type="other"
+                  value={entry().directory}
+                  onInput={(e: InputEvent & { currentTarget: HTMLInputElement }) =>
+                    handleDirectoryChange(index, e.currentTarget.value)
+                  }
+                  placeholder="Select a directory..."
+                />
+                <button class="clone-dialog-browse" onClick={() => handleBrowse(index)} title="Browse...">
+                  <span class="codicon codicon-folder-opened" />
                 </button>
-                <span className="welcome-depth-value">{entry.scanDepth}</span>
-                <button
-                  className="welcome-depth-btn"
-                  disabled={entry.scanDepth >= 5}
-                  onClick={() => handleDepthChange(index, 1)}
-                >
-                  <span className="codicon codicon-chevron-right" />
-                </button>
+                <div class="welcome-depth-control">
+                  <button
+                    class="welcome-depth-btn"
+                    disabled={entry().scanDepth <= 1}
+                    onClick={() => handleDepthChange(index, -1)}
+                  >
+                    <span class="codicon codicon-chevron-left" />
+                  </button>
+                  <span class="welcome-depth-value">{entry().scanDepth}</span>
+                  <button
+                    class="welcome-depth-btn"
+                    disabled={entry().scanDepth >= 5}
+                    onClick={() => handleDepthChange(index, 1)}
+                  >
+                    <span class="codicon codicon-chevron-right" />
+                  </button>
+                </div>
+                {entries().length > 1 && (
+                  <button class="workspace-entry-remove" onClick={() => handleRemove(index)} title="Remove">
+                    <span class="codicon codicon-close" />
+                  </button>
+                )}
               </div>
-              {entries.length > 1 && (
-                <button className="workspace-entry-remove" onClick={() => handleRemove(index)} title="Remove">
-                  <span className="codicon codicon-close" />
-                </button>
-              )}
-            </div>
-          ))}
+            )}
+          </For>
         </div>
-        <button className="workspace-add-btn" onClick={handleAdd}>
-          <span className="codicon codicon-add" />
+        <button class="workspace-add-btn" onClick={handleAdd}>
+          <span class="codicon codicon-add" />
           Add Directory
         </button>
-        <div className="clone-dialog-actions">
-          <button className="action-button secondary" onClick={onClose}>
+        <div class="clone-dialog-actions">
+          <button class="action-button secondary" onClick={() => props.onClose()}>
             Cancel
           </button>
-          <button className="action-button" onClick={handleSave}>
+          <button class="action-button" onClick={handleSave}>
             OK
           </button>
         </div>

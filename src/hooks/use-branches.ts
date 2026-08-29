@@ -1,47 +1,49 @@
-import { useCallback } from "react";
-import { useRepositoryStore } from "../stores/repository-store";
+import { repositoryStore } from "../stores/repository-store";
 import * as commands from "../lib/tauri-commands";
 
 export const useBranches = () => {
-  const { setBranches, setStatus, setError } = useRepositoryStore();
-
-  const loadBranches = useCallback(async () => {
+  const loadBranches = async () => {
+    const { setBranches, setError } = repositoryStore.getState();
     try {
       const branches = await commands.listBranches();
       setBranches(branches);
     } catch (err) {
       setError(String(err));
     }
-  }, [setBranches, setError]);
+  };
 
-  const switchBranch = useCallback(async (name: string) => {
+  const switchBranch = async (name: string) => {
+    const { setStatus, setError } = repositoryStore.getState();
     try {
       const status = await commands.checkoutBranch(name);
       setStatus(status);
     } catch (err) {
       setError(String(err));
     }
-  }, [setStatus, setError]);
+  };
 
-  const createNewBranch = useCallback(async (name: string, from?: string) => {
+  const createNewBranch = async (name: string, from?: string) => {
+    const { setStatus, setError } = repositoryStore.getState();
     try {
       const status = await commands.createBranch(name, from);
       setStatus(status);
     } catch (err) {
       setError(String(err));
     }
-  }, [setStatus, setError]);
+  };
 
-  const removeBranch = useCallback(async (name: string, force: boolean = false) => {
+  const removeBranch = async (name: string, force: boolean = false) => {
+    const { setError } = repositoryStore.getState();
     try {
       await commands.deleteBranch(name, force);
       await loadBranches();
     } catch (err) {
       setError(String(err));
     }
-  }, [loadBranches, setError]);
+  };
 
-  const renameBranch = useCallback(async (oldName: string, newName: string) => {
+  const renameBranch = async (oldName: string, newName: string) => {
+    const { setStatus, setError } = repositoryStore.getState();
     try {
       const status = await commands.renameBranch(oldName, newName);
       setStatus(status);
@@ -49,34 +51,37 @@ export const useBranches = () => {
     } catch (err) {
       setError(String(err));
     }
-  }, [setStatus, setError, loadBranches]);
+  };
 
-  const mergeBranch = useCallback(async (name: string) => {
+  const mergeBranch = async (name: string) => {
+    const { setStatus, setError } = repositoryStore.getState();
     try {
       const status = await commands.mergeBranch(name);
       setStatus(status);
     } catch (err) {
       setError(String(err));
     }
-  }, [setStatus, setError]);
+  };
 
-  const rebaseBranch = useCallback(async (name: string) => {
+  const rebaseBranch = async (name: string) => {
+    const { setStatus, setError } = repositoryStore.getState();
     try {
       const status = await commands.rebaseBranch(name);
       setStatus(status);
     } catch (err) {
       setError(String(err));
     }
-  }, [setStatus, setError]);
+  };
 
-  const removeRemoteBranch = useCallback(async (remote: string, name: string) => {
+  const removeRemoteBranch = async (remote: string, name: string) => {
+    const { setError } = repositoryStore.getState();
     try {
       await commands.deleteRemoteBranch(remote, name);
       await loadBranches();
     } catch (err) {
       setError(String(err));
     }
-  }, [loadBranches, setError]);
+  };
 
   return {
     loadBranches,

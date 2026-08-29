@@ -1,10 +1,9 @@
-import { useCallback } from "react";
-import { useRepositoryStore } from "../stores/repository-store";
+import { repositoryStore } from "../stores/repository-store";
 import * as commands from "../lib/tauri-commands";
 
 const isDiffEqual = (
   a: { path: string; original: string; modified: string; fileType: string } | null,
-  b: { path: string; original: string; modified: string; fileType: string } | null,
+  b: { path: string; original: string; modified: string; fileType: string } | null
 ) => {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -12,13 +11,12 @@ const isDiffEqual = (
 };
 
 export const useDiff = () => {
-  const { setDiff, setSelectedFile, setError } = useRepositoryStore();
-
-  const loadDiff = useCallback(async (path: string, staged: boolean) => {
+  const loadDiff = async (path: string, staged: boolean) => {
+    const { setDiff, setSelectedFile, setError } = repositoryStore.getState();
     setSelectedFile({ path, staged });
     try {
       const diff = await commands.getFileDiff(path, staged);
-      const current = useRepositoryStore.getState().diff;
+      const current = repositoryStore.getState().diff;
       if (!isDiffEqual(current, diff)) {
         setDiff(diff);
       }
@@ -26,12 +24,13 @@ export const useDiff = () => {
       setError(String(err));
       setDiff(null);
     }
-  }, [setDiff, setSelectedFile, setError]);
+  };
 
-  const clearDiff = useCallback(() => {
+  const clearDiff = () => {
+    const { setDiff, setSelectedFile } = repositoryStore.getState();
     setSelectedFile(null);
     setDiff(null);
-  }, [setDiff, setSelectedFile]);
+  };
 
   return { loadDiff, clearDiff };
 };
