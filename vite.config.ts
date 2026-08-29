@@ -1,16 +1,21 @@
-import { defineConfig } from "vite";
+import { execSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import process from "node:process";
 import react from "@vitejs/plugin-react";
-import { execSync } from "child_process";
-import { readFileSync, existsSync } from "fs";
-import { join } from "path";
+import { defineConfig, lazyPlugins } from "vite-plus";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 const gitHash = execSync("git rev-parse --short=4 HEAD").toString().trim();
 const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
 
-type LicenseEntry = { name: string; license: string; url: string; category: "npm" | "rust" | "asset" };
+type LicenseEntry = {
+  name: string;
+  license: string;
+  url: string;
+  category: "npm" | "rust" | "asset";
+};
 
 function collectLicenses(): LicenseEntry[] {
   const entries: LicenseEntry[] = [];
@@ -29,7 +34,7 @@ function collectLicenses(): LicenseEntry[] {
     try {
       const depPkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
       const repo = depPkg.repository;
-      const url = typeof repo === "string" ? repo : repo?.url ?? "";
+      const url = typeof repo === "string" ? repo : (repo?.url ?? "");
       add({
         name: depPkg.name ?? name,
         license: depPkg.license ?? "Unknown",
@@ -62,7 +67,12 @@ function collectLicenses(): LicenseEntry[] {
   }
 
   // Manual asset entries
-  add({ name: "Seti Icon Theme", license: "MIT", url: "https://github.com/jesseweed/seti-ui", category: "asset" });
+  add({
+    name: "Seti Icon Theme",
+    license: "MIT",
+    url: "https://github.com/jesseweed/seti-ui",
+    category: "asset",
+  });
   add({
     name: "Material Icon Theme",
     license: "MIT",
@@ -83,8 +93,8 @@ function collectLicenses(): LicenseEntry[] {
 const licenses = collectLicenses();
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
-  plugins: [react()],
+export default defineConfig({
+  plugins: lazyPlugins(() => [react()]),
   define: {
     __GIT_HASH__: JSON.stringify(gitHash),
     __APP_VERSION__: JSON.stringify(pkg.version),
@@ -100,9 +110,17 @@ export default defineConfig(async () => ({
     chunkSizeWarningLimit: 4000,
     rollupOptions: {
       output: {
-        manualChunks: {
-          "vendor-monaco": ["monaco-editor"],
-          "vendor-xterm": ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-web-links"],
+        manualChunks(id: string): string | undefined {
+          if (id.includes("monaco-editor")) {
+            return "vendor-monaco";
+          }
+          if (
+            id.includes("@xterm/xterm") ||
+            id.includes("@xterm/addon-fit") ||
+            id.includes("@xterm/addon-web-links")
+          ) {
+            return "vendor-xterm";
+          }
         },
       },
     },
@@ -123,4 +141,64 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
-}));
+  check: {
+    fmt: false,
+  },
+  fmt: {
+    printWidth: 120,
+    tabWidth: 2,
+    useTabs: false,
+    semi: true,
+    singleQuote: false,
+    jsxSingleQuote: false,
+    trailingComma: "es5",
+    arrowParens: "always",
+    bracketSpacing: true,
+    sortPackageJson: false,
+    ignorePatterns: [
+      "website/**",
+      "public/**",
+      "imagem/**",
+      "src-tauri/**",
+      "src/styles/**",
+      "src/lib/themes/json/**",
+      "src/lib/icon-themes/json/**",
+      ".temp-vscode/**",
+      "dist/**",
+      "**/*.md",
+      "**/*.css",
+      "**/*.html",
+      "**/*.json",
+      "**/*.yml",
+      "**/*.yaml",
+      "**/*.astro",
+      "**/*.svg",
+    ],
+  },
+  lint: {
+    ignorePatterns: [
+      "website/**",
+      "public/**",
+      "imagem/**",
+      "src-tauri/**",
+      "src/lib/themes/json/**",
+      "src/lib/icon-themes/json/**",
+      ".temp-vscode/**",
+    ],
+    rules: {
+      "no-unused-vars": "warn",
+      "no-console": "off",
+      eqeqeq: "error",
+    },
+  },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    include: ["src/**/*.test.{ts,tsx}"],
+    exclude: [".temp-vscode/**", "node_modules/**"],
+    setupFiles: ["src/test-setup.ts"],
+    env: {
+      TZ: "UTC",
+    },
+  },
+});

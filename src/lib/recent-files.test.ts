@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vite-plus/test";
 import { getRecentFiles, addRecentFile, clearRecentFiles } from "./recent-files";
 
 const REPO_ROOT = "/home/user/my-repo";

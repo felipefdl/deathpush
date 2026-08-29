@@ -1,10 +1,11 @@
 import { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
-import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
-import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
-import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
-import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
-import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
+import { css, html, json, typescript } from "monaco-editor";
+import editorWorker from "monaco-editor/editor/editor.worker.js?worker";
+import jsonWorker from "monaco-editor/language/json/json.worker.js?worker";
+import cssWorker from "monaco-editor/language/css/css.worker.js?worker";
+import htmlWorker from "monaco-editor/language/html/html.worker.js?worker";
+import tsWorker from "monaco-editor/language/typescript/ts.worker.js?worker";
 
 self.MonacoEnvironment = {
   getWorker(_, label) {
@@ -34,36 +35,36 @@ monaco.languages.register({ id: "dotenv", filenames: [".env"], aliases: ["dotenv
 monaco.languages.setMonarchTokensProvider("dotenv", dotenvLanguage);
 monaco.languages.setLanguageConfiguration("dotenv", dotenvConf);
 
-monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+typescript.typescriptDefaults.setDiagnosticsOptions({
   noSemanticValidation: true,
   noSyntaxValidation: true,
   noSuggestionDiagnostics: true,
 });
-monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-  target: monaco.languages.typescript.ScriptTarget.Latest,
+typescript.typescriptDefaults.setCompilerOptions({
+  target: typescript.ScriptTarget.Latest,
   allowNonTsExtensions: true,
   noLib: true,
 });
 
-monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+typescript.javascriptDefaults.setDiagnosticsOptions({
   noSemanticValidation: true,
   noSyntaxValidation: true,
   noSuggestionDiagnostics: true,
 });
-monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
-  target: monaco.languages.typescript.ScriptTarget.Latest,
+typescript.javascriptDefaults.setCompilerOptions({
+  target: typescript.ScriptTarget.Latest,
   allowNonTsExtensions: true,
   noLib: true,
 });
 
-monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+json.jsonDefaults.setDiagnosticsOptions({
   validate: false,
 });
 
-monaco.languages.css.cssDefaults.setOptions({ validate: false });
-monaco.languages.css.scssDefaults.setOptions({ validate: false });
-monaco.languages.css.lessDefaults.setOptions({ validate: false });
+css.cssDefaults.setOptions({ validate: false });
+css.scssDefaults.setOptions({ validate: false });
+css.lessDefaults.setOptions({ validate: false });
 
-monaco.languages.html.htmlDefaults.setModeConfiguration({
+html.htmlDefaults.setModeConfiguration({
   diagnostics: false,
 });

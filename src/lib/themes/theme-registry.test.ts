@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "vite-plus/test";
 import {
   resolveTheme,
   THEME_ENTRIES,
@@ -9,9 +9,24 @@ import {
 import { DEFAULT_DARK_COLORS, DEFAULT_LIGHT_COLORS } from "./defaults";
 import type { VscodeThemeJson, ThemeEntry } from "./theme-types";
 
-const darkEntry: ThemeEntry = { id: "test-dark", label: "Test Dark", uiTheme: "vs-dark", kind: "dark" };
-const lightEntry: ThemeEntry = { id: "test-light", label: "Test Light", uiTheme: "vs", kind: "light" };
-const hcLightEntry: ThemeEntry = { id: "test-hc-light", label: "Test HC Light", uiTheme: "hc-light", kind: "hc-light" };
+const darkEntry: ThemeEntry = {
+  id: "test-dark",
+  label: "Test Dark",
+  uiTheme: "vs-dark",
+  kind: "dark",
+};
+const lightEntry: ThemeEntry = {
+  id: "test-light",
+  label: "Test Light",
+  uiTheme: "vs",
+  kind: "light",
+};
+const hcLightEntry: ThemeEntry = {
+  id: "test-hc-light",
+  label: "Test HC Light",
+  uiTheme: "hc-light",
+  kind: "hc-light",
+};
 
 describe("resolveTheme", () => {
   it("returns colors and tokenColors from a simple theme", () => {

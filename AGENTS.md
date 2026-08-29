@@ -21,10 +21,10 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 | Diff viewer | Monaco Editor (@monaco-editor/react) |
 | Terminal | xterm.js + portable-pty (Rust) |
 | Icons | VS Code Codicon font (@vscode/codicons) |
-| Package manager | npm |
-| Linter | oxlint |
-| Formatter | oxfmt (TS), rustfmt (Rust) |
-| Tests | Vitest (jsdom) |
+| Package manager | Vite+ (`vp`) / pnpm |
+| Linter | `vp lint` |
+| Formatter | `vp fmt` (TS), rustfmt (Rust) |
+| Tests | `vp test` (jsdom) |
 | Task runner | justfile |
 
 ## Architecture
@@ -229,7 +229,7 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 
 ### Testing
 
-- Vitest with jsdom environment
+- `vp test` with jsdom environment
 - TZ=UTC for all tests
 - Test files: `src/**/*.test.{ts,tsx}`
 - Exclude `.temp-vscode/` from test discovery
@@ -297,9 +297,6 @@ The `.temp-vscode/` directory contains VS Code source for reference. Key files:
 ```sh
 just dev          # Start Tauri dev server
 just build        # Production build
-just lint         # Run oxlint + clippy
-just fmt          # Format with rustfmt
-just check        # Type check (cargo check)
-just test         # Run vitest
-just test-watch   # Run vitest in watch mode
-```
+just lint         # Run vp lint + clippy
+
+[Showing lines 1-300 of 306. Use :301 to continue]

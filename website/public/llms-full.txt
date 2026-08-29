@@ -102,8 +102,8 @@ DeathPush is an open-source desktop Git client built with Rust and Tauri. It pro
 ```bash
 git clone https://github.com/felipefdl/deathpush.git
 cd deathpush
-npm install
-npm run tauri build
+vp install
+vp run tauri -- build
 ```
 
 The built application will be in `src-tauri/target/release/`.

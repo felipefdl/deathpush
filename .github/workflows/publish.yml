@@ -26,9 +26,10 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: voidzero-dev/setup-vp@v1.18.0
         with:
-          node-version: 22
+          cache: true
+          run-install: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.platform == 'windows-11-arm' && 'aarch64-pc-windows-msvc' || '' }}
@@ -40,7 +41,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
-      - run: npm ci
+      - run: vp install --frozen-lockfile
       - name: Import Apple Developer Certificate
         if: matrix.platform == 'macos-latest'
         uses: apple-actions/import-codesign-certs@v3
@@ -67,6 +68,7 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
         with:
+          tauriScript: vp run tauri --
           tagName: v__VERSION__
           releaseName: "DeathPush v__VERSION__"
           releaseBody: ""

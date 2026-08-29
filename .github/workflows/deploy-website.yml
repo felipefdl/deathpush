@@ -19,19 +19,17 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./website
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: voidzero-dev/setup-vp@v1.18.0
         with:
-          node-version: 22
+          cache: true
+          run-install: false
 
-      - run: npm ci
+      - run: vp install --frozen-lockfile
 
-      - run: npm run build
+      - run: vp run --filter website build
 
       - uses: actions/upload-pages-artifact@v3
         with:

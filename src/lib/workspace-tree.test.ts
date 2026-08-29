@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "vite-plus/test";
 import { buildWorkspaceTree, buildMultiRootWorkspaceTree } from "./workspace-tree";
 import type { ProjectInfo } from "./tauri-commands";
 
@@ -52,9 +52,7 @@ describe("buildWorkspaceTree", () => {
   });
 
   it("creates nested folders for depth 3+", () => {
-    const projects = [
-      makeProject("/root/projects/a/b/deep-repo"),
-    ];
+    const projects = [makeProject("/root/projects/a/b/deep-repo")];
     const root = buildWorkspaceTree(projects, "/root/projects");
     expect(root.children.has("a")).toBe(true);
 
@@ -68,19 +66,14 @@ describe("buildWorkspaceTree", () => {
   });
 
   it("skips projects not under root", () => {
-    const projects = [
-      makeProject("/home/user/projects/valid"),
-      makeProject("/other/path/outside"),
-    ];
+    const projects = [makeProject("/home/user/projects/valid"), makeProject("/other/path/outside")];
     const root = buildWorkspaceTree(projects, "/home/user/projects");
     expect(root.projects).toHaveLength(1);
     expect(root.projects[0].name).toBe("valid");
   });
 
   it("handles root directory with trailing slash", () => {
-    const projects = [
-      makeProject("/home/user/projects/repo"),
-    ];
+    const projects = [makeProject("/home/user/projects/repo")];
     const root = buildWorkspaceTree(projects, "/home/user/projects/");
     expect(root.projects).toHaveLength(1);
     expect(root.projects[0].name).toBe("repo");
@@ -95,10 +88,7 @@ describe("buildMultiRootWorkspaceTree", () => {
   });
 
   it("creates one child per workspace", () => {
-    const projects = [
-      makeProject("/home/projects/alpha"),
-      makeProject("/home/work/beta"),
-    ];
+    const projects = [makeProject("/home/projects/alpha"), makeProject("/home/work/beta")];
     const workspaces = [
       { directory: "/home/projects", scanDepth: 1 },
       { directory: "/home/work", scanDepth: 1 },
@@ -150,13 +140,8 @@ describe("buildMultiRootWorkspaceTree", () => {
   });
 
   it("deduplicates projects across overlapping workspaces", () => {
-    const projects = [
-      makeProject("/home/projects/repo"),
-      makeProject("/home/projects/repo"),
-    ];
-    const workspaces = [
-      { directory: "/home/projects", scanDepth: 1 },
-    ];
+    const projects = [makeProject("/home/projects/repo"), makeProject("/home/projects/repo")];
+    const workspaces = [{ directory: "/home/projects", scanDepth: 1 }];
     const root = buildMultiRootWorkspaceTree(projects, workspaces);
     const wsNode = root.children.get("/home/projects")!;
     expect(wsNode.projects).toHaveLength(2);

@@ -3,12 +3,21 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { writeFile } from "../../lib/tauri-commands";
 import { useRepositoryStore } from "../../stores/repository-store";
 import { useLayoutStore } from "../../stores/layout-store";
-import { useSettingsStore } from "../../stores/settings-store";
+import { useSettingsStore, type EditorSettings } from "../../stores/settings-store";
 import { useThemeStore } from "../../stores/theme-store";
-import { buildDiffOptions } from "../../lib/diff-options";
+import { buildDiffModelOptions, buildDiffOptions } from "../../lib/diff-options";
 import { DiffHeader } from "./diff-header";
 import { EmptyState } from "./empty-state";
 import { ImageDiff } from "./image-diff";
+
+const applyDiffModelOptions = (
+  editor: Parameters<DiffOnMount>[0],
+  editorSettings: EditorSettings,
+): void => {
+  const options = buildDiffModelOptions(editorSettings);
+  editor.getOriginalEditor().getModel()?.updateOptions(options);
+  editor.getModifiedEditor().getModel()?.updateOptions(options);
+};
 
 export const DiffViewer = () => {
   const diff = useRepositoryStore((s) => s.diff);
@@ -141,6 +150,8 @@ export const DiffViewer = () => {
           modModel.setValue(currentDiff.modified);
         }
       }
+
+      applyDiffModelOptions(editor, useSettingsStore.getState().settings.editor);
     },
     [setDiff, setError, setIsDiffDirty, setCursorLine],
   );
@@ -154,6 +165,12 @@ export const DiffViewer = () => {
     }
   }, [diff]);
 
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    applyDiffModelOptions(editor, settings.editor);
+  }, [settings.editor]);
 
   useEffect(() => {
     return () => {

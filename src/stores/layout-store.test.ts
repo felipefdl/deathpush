@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vite-plus/test";
 import { useLayoutStore } from "./layout-store";
 import { useSettingsStore } from "./settings-store";
 
@@ -96,19 +96,13 @@ describe("layout store", () => {
     });
 
     it("respects saved terminalVisible=false on subsequent opens", () => {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ terminalVisible: false }),
-      );
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ terminalVisible: false }));
       useLayoutStore.getState().loadForProject(PROJECT_ROOT);
       expect(useLayoutStore.getState().terminalVisible).toBe(false);
     });
 
     it("alwaysOpenTerminalOnStart overrides saved terminalVisible=false", () => {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ terminalVisible: false }),
-      );
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ terminalVisible: false }));
       useSettingsStore.getState().updateUI({ alwaysOpenTerminalOnStart: true });
       useLayoutStore.getState().loadForProject(PROJECT_ROOT);
       expect(useLayoutStore.getState().terminalVisible).toBe(true);

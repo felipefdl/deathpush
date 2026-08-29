@@ -1,4 +1,5 @@
 import { Editor, type OnMount } from "@monaco-editor/react";
+import { editor as MonacoEditor } from "monaco-editor";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useExplorerStore } from "../../stores/explorer-store";
 import { useSettingsStore } from "../../stores/settings-store";
@@ -131,7 +132,7 @@ export const FileViewer = () => {
       suggestOnTriggerCharacters: false,
       codeLens: false,
       stickyScroll: { enabled: false },
-      hover: { enabled: false },
+      hover: { enabled: "off" },
       inlayHints: { enabled: "off" as const },
       glyphMargin: false,
       lineNumbersMinChars: 3,
@@ -140,10 +141,9 @@ export const FileViewer = () => {
       occurrencesHighlight: "off" as const,
       selectionHighlight: false,
       links: false,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      lightbulb: { enabled: "off" as any },
+      lightbulb: { enabled: MonacoEditor.ShowLightbulbIconMode.Off },
       bracketPairColorization: { enabled: false },
-    }),
+    }) satisfies MonacoEditor.IStandaloneEditorConstructionOptions,
     [settings.editor],
   );
 

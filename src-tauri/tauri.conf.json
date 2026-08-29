@@ -5,9 +5,9 @@
   "version": "0.2.1",
   "identifier": "com.deathpush.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "vp dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "vp run build",
     "frontendDist": "../dist"
   },
   "app": {

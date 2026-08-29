@@ -1,5 +1,17 @@
-import { describe, it, expect } from "vitest";
-import { buildDiffOptions } from "./diff-options";
+import { describe, it, expect, vi } from "vite-plus/test";
+
+vi.mock("monaco-editor", () => ({
+  editor: {
+    ShowLightbulbIconMode: {
+      Off: "off",
+      OnCode: "onCode",
+      On: "on",
+    },
+  },
+}));
+
+import { editor as MonacoEditor } from "monaco-editor";
+import { buildDiffOptions, buildDiffModelOptions } from "./diff-options";
 import type { EditorSettings } from "../stores/settings-store";
 
 const mockEditor: EditorSettings = {
@@ -43,5 +55,23 @@ describe("buildDiffOptions", () => {
     expect(opts.scrollBeyondLastLine).toBe(false);
     expect(opts.originalEditable).toBe(false);
     expect(opts.codeLens).toBe(false);
+    expect(opts.hover.enabled).toBe("off");
+    expect(opts.lightbulb.enabled).toBe(MonacoEditor.ShowLightbulbIconMode.Off);
+  });
+
+  it("omits tabSize from construction options", () => {
+    const opts = buildDiffOptions(mockEditor, "inline");
+    expect("tabSize" in opts).toBe(false);
   });
 });
+
+describe("buildDiffModelOptions", () => {
+  it("maps editor tabSize onto the model update options", () => {
+    expect(buildDiffModelOptions(mockEditor)).toEqual({ tabSize: 2 });
+  });
+
+  it("uses the configured tabSize", () => {
+    expect(buildDiffModelOptions({ ...mockEditor, tabSize: 8 })).toEqual({ tabSize: 8 });
+  });
+});
+

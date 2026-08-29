@@ -1,11 +1,12 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vite-plus/test";
 import { useSettingsStore } from "./settings-store";
 
 const STORAGE_KEY = "deathpush:settings";
 
 const DEFAULTS = {
   ui: {
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    fontFamily:
+      "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
     fontSize: 13,
     sidebarPosition: "left" as const,
     alwaysOpenTerminalOnStart: false,
@@ -240,7 +241,9 @@ describe("settings store", () => {
       useSettingsStore.getState().updateEditor({ tabSize: 8 });
       useSettingsStore.getState().updateTerminal({ cursorBlink: false });
       useSettingsStore.getState().updateGit({ blame: false });
-      useSettingsStore.getState().updateProjects({ workspaces: [{ directory: "/tmp", scanDepth: 10 }] });
+      useSettingsStore
+        .getState()
+        .updateProjects({ workspaces: [{ directory: "/tmp", scanDepth: 10 }] });
       useSettingsStore.getState().resetToDefaults();
       const { settings } = useSettingsStore.getState();
       expect(settings.ui.fontSize).toBe(13);

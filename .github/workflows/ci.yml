@@ -34,9 +34,10 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: voidzero-dev/setup-vp@v1.18.0
         with:
-          node-version: 22
+          cache: true
+          run-install: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'windows-11-arm' && 'aarch64-pc-windows-msvc' || '' }}
@@ -48,16 +49,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
-      - run: npm ci
+      - run: vp install --frozen-lockfile
       - name: Lint frontend
-        run: npx oxlint src/
+        run: vp lint src/
       - name: Typecheck frontend
-        run: npx tsc --noEmit
+        run: vp check src vite.config.ts
       - name: Test frontend
-        run: npx vitest run
+        run: vp test run
       - name: Clippy
         run: cd src-tauri && cargo clippy -- -D warnings
       - name: Test Rust
         run: cd src-tauri && cargo test
       - name: Build
-        run: npx tauri build --no-bundle ${{ matrix.args }}
+        run: vp run tauri -- build --no-bundle ${{ matrix.args }}

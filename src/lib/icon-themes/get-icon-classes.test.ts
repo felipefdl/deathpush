@@ -1,16 +1,20 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "vite-plus/test";
 import { getFileIconClasses } from "./get-icon-classes";
 
 describe("getFileIconClasses", () => {
   describe("file icons", () => {
     it("returns correct classes for a basic file", () => {
       const result = getFileIconClasses("app.ts");
-      expect(result).toBe("file-icon app.ts-name-file-icon name-file-icon ts-ext-file-icon ext-file-icon typescript-lang-file-icon");
+      expect(result).toBe(
+        "file-icon app.ts-name-file-icon name-file-icon ts-ext-file-icon ext-file-icon typescript-lang-file-icon",
+      );
     });
 
     it("uses only the last path segment for nested paths", () => {
       const result = getFileIconClasses("src/app.ts");
-      expect(result).toBe("file-icon app.ts-name-file-icon name-file-icon ts-ext-file-icon ext-file-icon typescript-lang-file-icon");
+      expect(result).toBe(
+        "file-icon app.ts-name-file-icon name-file-icon ts-ext-file-icon ext-file-icon typescript-lang-file-icon",
+      );
     });
 
     it("generates extension classes for each dot segment with double extension", () => {

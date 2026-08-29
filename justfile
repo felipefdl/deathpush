@@ -2,27 +2,29 @@ default:
   @just --list
 
 dev:
-  npm run tauri dev -- --features devtools
+  vp run tauri -- dev --features devtools
 
 build:
-  npm run tauri build
+  vp run tauri -- build
 
 lint:
-  npx oxlint src/
+  vp lint src/
   cd src-tauri && cargo clippy -- -D warnings
 
 fmt:
+  vp fmt src vite.config.ts
   cd src-tauri && cargo fmt
 
 check:
+  vp check src vite.config.ts
   cd src-tauri && cargo check
 
 test:
-  npx vitest run
+  vp test run
   cd src-tauri && cargo test
 
 test-watch:
-  npx vitest
+  vp test
 
 release version:
   sed -i '' 's/"version": "[^"]*"/"version": "{{version}}"/' package.json

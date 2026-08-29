@@ -51,14 +51,14 @@ If you already know VS Code Source Control, DeathPush feels immediately familiar
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18 or later)
+- [Vite+](https://viteplus.dev/) (`vp`) with Node.js 24 and pnpm
 - [Rust toolchain](https://rustup.rs/) (edition 2024, minimum rustc 1.85.0)
 - [`just`](https://github.com/casey/just) task runner (`cargo install just`)
 
 ## Get Running in 60 Seconds
 
 ```sh
-npm install
+vp install
 just dev
 ```
 
@@ -71,10 +71,10 @@ just build
 Quality checks:
 
 ```sh
-just lint    # oxlint + cargo clippy
-just test    # vitest
-just fmt     # cargo fmt
-just check   # cargo check
+just lint    # vp lint + cargo clippy
+just test    # vp test
+just fmt     # vp fmt + cargo fmt
+just check   # vp check + cargo check
 ```
 
 ## Under the Hood
