@@ -30,6 +30,7 @@ import { themeStore } from "./stores/theme-store";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { toggleTerminal } from "./lib/toggle-terminal";
 import { confirmWindowClose } from "./lib/window-close";
+import { flushAll } from "./lib/pierre/flush-registry";
 import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from "./lib/themes/theme-registry";
 import { PLATFORM } from "./lib/platform";
 import { useStore } from "./lib/use-store";
@@ -275,10 +276,9 @@ export const App = () => {
     );
     listeners.push(
       appWindow.listen("window:close-requested", async () => {
+        await flushAll();
         const confirmed = await confirmWindowClose();
-        if (confirmed) {
-          await commands.windowConfirmClose();
-        }
+        if (confirmed) await commands.windowConfirmClose();
       })
     );
     return () => {

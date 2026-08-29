@@ -1,154 +1,65 @@
-import { createEffect, createMemo, For, onSettled } from "solid-js";
-import { editor as MonacoEditor } from "monaco-editor";
-import type * as monaco from "monaco-editor";
+import { createEffect, createMemo, createSignal, For } from "solid-js";
 import { explorerStore } from "../../stores/explorer-store";
-import { settingsStore } from "../../stores/settings-store";
-import { themeStore } from "../../stores/theme-store";
-import { useColorScheme } from "../../hooks/use-color-scheme";
-import * as commands from "../../lib/tauri-commands";
-import { writeFile } from "../../lib/tauri-commands";
 import { repositoryStore } from "../../stores/repository-store";
+import { useColorScheme } from "../../hooks/use-color-scheme";
+import { useDiskGuard } from "../../hooks/use-disk-guard";
+import * as commands from "../../lib/tauri-commands";
+import { sessionCacheKey, type SaveSession } from "../../lib/pierre/save-session";
+import { sha256Utf8 } from "../../lib/pierre/sha";
 import { useStore } from "../../lib/use-store";
-import { MonacoEditor as DeathPushMonacoEditor } from "../monaco/monaco-editor";
+import { PierreFile } from "../pierre/pierre-file";
 
 export const FileViewer = () => {
   const fileContent = useStore(explorerStore, (s) => s.fileContent);
   const selectedPath = useStore(explorerStore, (s) => s.selectedPath);
   const isFileDirty = useStore(explorerStore, (s) => s.isFileDirty);
   const revealLine = useStore(explorerStore, (s) => s.revealLine);
-  const { setIsFileDirty } = explorerStore.getState();
-  const editorSettings = useStore(settingsStore, (s) => s.settings.editor);
-  const currentTheme = useStore(themeStore, (s) => s.currentTheme);
   const colorScheme = useColorScheme();
-  let disposeActions: (() => void) | undefined;
-  let knownContent: string | null = null;
-  let editorRef: monaco.editor.IStandaloneCodeEditor | undefined;
+  const [sessionTick, setSessionTick] = createSignal(0);
+  const [cacheGeneration, setCacheGeneration] = createSignal(0);
+  let session: SaveSession | null = null;
 
   createEffect(
-    () => fileContent(),
-    (content) => {
-      knownContent = content?.content ?? null;
-      setIsFileDirty(false);
-    }
-  );
-
-  onSettled(() => {
-    return () => {
-      disposeActions?.();
-    };
-  });
-
-  createEffect(
-    () => [revealLine(), fileContent(), selectedPath()] as const,
-    ([line, content, path]) => {
-      if (!line || !editorRef) return;
-      if (!content || content.path !== path) return;
-      requestAnimationFrame(() => {
-        const editor = editorRef;
-        if (!editor) return;
-        editor.revealLineInCenter(line);
-        editor.setPosition({ lineNumber: line, column: 1 });
-        editor.focus();
-        explorerStore.getState().setRevealLine(null);
+    () => fileContent()?.path,
+    (path) => {
+      const content = explorerStore.getState().fileContent;
+      if (!path || !content) {
+        session = null;
+        setCacheGeneration(0);
+        setSessionTick((tick) => tick + 1);
+        return;
+      }
+      session = { path, diskSha: "", pendingSha: null, cacheGeneration: 0 };
+      setCacheGeneration(0);
+      setSessionTick((tick) => tick + 1);
+      explorerStore.getState().setIsFileDirty(false);
+      void sha256Utf8(content.content).then((sha) => {
+        if (session?.path === path && session.cacheGeneration === 0 && session.diskSha === "") {
+          session.diskSha = sha;
+        }
       });
     }
   );
 
-  const handleMount = (editor: monaco.editor.IStandaloneCodeEditor, monacoApi: typeof monaco) => {
-    editorRef = editor;
-    disposeActions?.();
+  useDiskGuard({
+    getSession: () => session,
+    onReload: (content, incomingSha) => {
+      if (!session || session.path !== content.path) return;
+      session.diskSha = incomingSha;
+      session.pendingSha = null;
+      session.cacheGeneration += 1;
+      setCacheGeneration(session.cacheGeneration);
+      explorerStore.getState().setFileContent(content);
+      explorerStore.getState().setIsFileDirty(false);
+    },
+  });
 
-    const contentDisposable = editor.onDidChangeModelContent(() => {
-      const current = editor.getValue();
-      if (current === knownContent) return;
-      setIsFileDirty(true);
-    });
-
-    const saveAction = editor.addAction({
-      id: "deathpush.save",
-      label: "Save File",
-      keybindings: [monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS],
-      run: async () => {
-        const state = explorerStore.getState();
-        const path = state.selectedPath;
-        const content = state.fileContent;
-        if (!path || !content) return;
-        const newContent = editor.getValue();
-        try {
-          await writeFile(path, newContent);
-          knownContent = newContent;
-          explorerStore.getState().setFileContent({ ...content, content: newContent });
-          setIsFileDirty(false);
-        } catch (e) {
-          repositoryStore.getState().setError(String(e));
-        }
-      },
-    });
-
-    const chordKT = monacoApi.KeyMod.chord(
-      monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyK,
-      monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyT
-    );
-    const chordKI = monacoApi.KeyMod.chord(
-      monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyK,
-      monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyI
-    );
-
-    const themeAction = editor.addAction({
-      id: "deathpush.openThemePicker",
-      label: "Open Theme Picker",
-      keybindings: [chordKT],
-      run: () => {
-        window.dispatchEvent(new CustomEvent("deathpush:open-theme-picker"));
-      },
-    });
-
-    const iconThemeAction = editor.addAction({
-      id: "deathpush.openIconThemePicker",
-      label: "Open Icon Theme Picker",
-      keybindings: [chordKI],
-      run: () => {
-        window.dispatchEvent(new CustomEvent("deathpush:open-icon-theme-picker"));
-      },
-    });
-
-    disposeActions = () => {
-      contentDisposable.dispose();
-      saveAction.dispose();
-      themeAction.dispose();
-      iconThemeAction.dispose();
-    };
-  };
-
-  const editorOptions = createMemo(
-    () =>
-      ({
-        minimap: { enabled: false },
-        scrollBeyondLastLine: false,
-        fontSize: editorSettings().fontSize,
-        fontFamily: editorSettings().fontFamily,
-        lineHeight: editorSettings().lineHeight,
-        tabSize: editorSettings().tabSize,
-        wordWrap: editorSettings().wordWrap,
-        renderWhitespace: editorSettings().renderWhitespace,
-        quickSuggestions: false,
-        parameterHints: { enabled: false },
-        suggestOnTriggerCharacters: false,
-        codeLens: false,
-        stickyScroll: { enabled: false },
-        hover: { enabled: "off" },
-        inlayHints: { enabled: "off" as const },
-        glyphMargin: false,
-        lineNumbersMinChars: 3,
-        folding: true,
-        matchBrackets: "never" as const,
-        occurrencesHighlight: "off" as const,
-        selectionHighlight: false,
-        links: false,
-        lightbulb: { enabled: MonacoEditor.ShowLightbulbIconMode.Off },
-        bracketPairColorization: { enabled: false },
-      }) satisfies MonacoEditor.IStandaloneEditorConstructionOptions
-  );
+  const hostCacheKey = createMemo(() => {
+    sessionTick();
+    cacheGeneration();
+    if (!session) return "";
+    return sessionCacheKey(session);
+  });
 
   const handleOpenInEditor = async () => {
     const path = selectedPath();
@@ -259,14 +170,15 @@ export const FileViewer = () => {
             {headerActions(true)}
           </div>
           <div class="diff-editor-container">
-            <DeathPushMonacoEditor
-              value={fileContent()!.content}
-              language={fileContent()!.language ?? undefined}
-              path={selectedPath() ?? undefined}
-              theme={currentTheme().id}
-              onMount={handleMount}
-              options={editorOptions()}
-            />
+            {session && hostCacheKey() && (
+              <PierreFile
+                path={selectedPath()!}
+                contents={fileContent()!.content}
+                cacheKey={hostCacheKey()}
+                revealLine={revealLine()}
+                session={session}
+              />
+            )}
           </div>
         </div>
       )}

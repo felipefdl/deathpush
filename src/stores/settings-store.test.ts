@@ -1,4 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from "vite-plus/test";
+
+vi.mock("../lib/pierre/worker", () => ({
+  getPierreWorkerPool: vi.fn(),
+  applyPierrePoolTheme: vi.fn(),
+}));
+
+vi.mock("../lib/pierre/theme", () => ({
+  registerDeathPushPierreTheme: vi.fn(() => Promise.resolve()),
+}));
+
 import { settingsStore } from "./settings-store";
 
 const STORAGE_KEY = "deathpush:settings";
