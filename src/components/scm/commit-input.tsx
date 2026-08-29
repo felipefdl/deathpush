@@ -32,7 +32,7 @@ export const CommitInput = () => {
         : hasChanges()
           ? "Commit All"
           : "Commit";
-  const placeholder = () => `Message (${IS_MACOS ? "\u2318" : "Ctrl"}+Enter to commit on "${branch()}")`;
+  const placeholderHint = () => `${IS_MACOS ? "\u2318" : "Ctrl"}+Enter to commit on "${branch()}"`;
 
   createEffect(
     () => amendMode(),
@@ -171,8 +171,9 @@ export const CommitInput = () => {
                 autoResize();
               }}
               onKeyDown={handleKeyDown}
-              placeholder={placeholder()}
-              rows={1}
+              placeholder="commit message"
+              title={placeholderHint()}
+              rows={2}
               autocapitalize="off"
               autocorrect="off"
               autocomplete="off"

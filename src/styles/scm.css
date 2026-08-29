@@ -135,14 +135,15 @@
 
 .commit-input {
   width: 100%;
-  min-height: 26px;
+  min-height: 42px;
   max-height: 180px;
   padding: 3px 6px;
   border: 1px solid var(--vscode-input-border);
   background: var(--vscode-input-background);
   color: var(--vscode-input-foreground);
-  font-family: var(--vscode-font-family);
+  font-family: "MesloLGS Nerd Font Mono", Menlo, Monaco, "Courier New", monospace;
   font-size: var(--vscode-font-size);
+  line-height: 1.4;
   resize: none;
   overflow-y: auto;
   outline: none;
