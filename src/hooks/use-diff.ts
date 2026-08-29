@@ -1,3 +1,4 @@
+import type { ResourceGroupKind } from "../lib/git-types";
 import { repositoryStore } from "../stores/repository-store";
 import * as commands from "../lib/tauri-commands";
 
@@ -11,9 +12,9 @@ const isDiffEqual = (
 };
 
 export const useDiff = () => {
-  const loadDiff = async (path: string, staged: boolean) => {
+  const loadDiff = async (path: string, staged: boolean, groupKind: ResourceGroupKind = "workingTree") => {
     const { setDiff, setSelectedFile, setError } = repositoryStore.getState();
-    setSelectedFile({ path, staged });
+    setSelectedFile({ path, staged, groupKind });
     try {
       const diff = await commands.getFileDiff(path, staged);
       const current = repositoryStore.getState().diff;

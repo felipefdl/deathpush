@@ -74,7 +74,7 @@ export const ResourceItem = (props: ResourceItemProps) => {
       return;
     }
     clear();
-    void loadDiff(props.file.path, isStaged());
+    void loadDiff(props.file.path, isStaged(), props.groupKind);
     const { mainView, setMainView, dockTerminal } = layoutStore.getState();
     dockTerminal();
     if (mainView !== "changes") setMainView("changes");
@@ -253,7 +253,7 @@ export const ResourceItem = (props: ResourceItemProps) => {
   const getContextMenuItems = (): ContextMenuItem[] => {
     if (isStaged()) {
       return [
-        { label: "Open Changes", icon: "diff", action: () => loadDiff(props.file.path, isStaged()) },
+        { label: "Open Changes", icon: "diff", action: () => loadDiff(props.file.path, isStaged(), props.groupKind) },
         { label: "Open File", icon: "go-to-file", action: handleOpenFile },
         { label: "Show File History", icon: "history", action: handleShowFileHistory },
         { label: "", action: () => {}, separator: true },
@@ -265,7 +265,7 @@ export const ResourceItem = (props: ResourceItemProps) => {
       ];
     }
     const items: ContextMenuItem[] = [
-      { label: "Open Changes", icon: "diff", action: () => loadDiff(props.file.path, isStaged()) },
+      { label: "Open Changes", icon: "diff", action: () => loadDiff(props.file.path, isStaged(), props.groupKind) },
       { label: "Open File", icon: "go-to-file", action: handleOpenFile },
       { label: "Show File History", icon: "history", action: handleShowFileHistory },
       { label: "", action: () => {}, separator: true },

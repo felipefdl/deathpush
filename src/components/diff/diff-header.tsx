@@ -45,7 +45,10 @@ export const DiffHeader = (props: { isDirty?: boolean }) => {
           <span class="diff-header-path" title={selectedFile()!.path}>
             {selectedFile()!.path.split("/").pop() ?? selectedFile()!.path}
             {props.isDirty && <span class="dirty-indicator"> *</span>}
-            <span class="diff-header-label"> ({selectedFile()!.staged ? "Staged" : "Working Tree"})</span>
+            <span class="diff-header-label">
+              {" "}
+              ({selectedFile()!.groupKind === "merge" ? "Merge" : selectedFile()!.staged ? "Staged" : "Working Tree"})
+            </span>
           </span>
           <div class="diff-header-actions">
             <button class="scm-toolbar-button" onClick={handleShowFileHistory} title="Show File History">

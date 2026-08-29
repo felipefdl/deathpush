@@ -306,7 +306,7 @@ export const useKeyboardShortcuts = () => {
       if (e.key === "Enter") {
         e.preventDefault();
         layout.dockTerminal();
-        setSelectedFile({ path: focused.path, staged: isStaged });
+        setSelectedFile({ path: focused.path, staged: isStaged, groupKind: focused.groupKind });
         commands
           .getFileDiff(focused.path, isStaged)
           .then(setDiff)

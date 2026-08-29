@@ -260,11 +260,32 @@ describe("repository store", () => {
         blame: { path: "test", lines: [] } as never,
         cursorLine: 42,
       });
-      repositoryStore.getState().setSelectedFile({ path: "new-file.ts", staged: false });
+      repositoryStore.getState().setSelectedFile({
+        path: "new-file.ts",
+        staged: false,
+        groupKind: "workingTree",
+      });
       const state = repositoryStore.getState();
-      expect(state.selectedFile).toEqual({ path: "new-file.ts", staged: false });
+      expect(state.selectedFile).toEqual({
+        path: "new-file.ts",
+        staged: false,
+        groupKind: "workingTree",
+      });
       expect(state.blame).toBeNull();
       expect(state.cursorLine).toBeNull();
+    });
+
+    it("setSelectedFile stores groupKind from the resource group", () => {
+      repositoryStore.getState().setSelectedFile({
+        path: "conflict.ts",
+        staged: false,
+        groupKind: "merge",
+      });
+      expect(repositoryStore.getState().selectedFile).toEqual({
+        path: "conflict.ts",
+        staged: false,
+        groupKind: "merge",
+      });
     });
 
     it("setDiff updates diff", () => {

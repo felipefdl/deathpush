@@ -5,10 +5,17 @@ import type {
   DiffContent,
   FileBlame,
   RepositoryStatus,
+  ResourceGroupKind,
   BranchEntry,
   StashEntry,
   TagEntry,
 } from "../lib/git-types";
+
+export type SelectedFile = {
+  path: string;
+  staged: boolean;
+  groupKind: ResourceGroupKind;
+};
 
 export interface TerminalPane {
   paneId: number;
@@ -24,7 +31,7 @@ export interface TerminalGroup {
 
 interface RepositoryState {
   status: RepositoryStatus | null;
-  selectedFile: { path: string; staged: boolean } | null;
+  selectedFile: SelectedFile | null;
   diff: DiffContent | null;
   branches: BranchEntry[];
   operations: Set<string>;
@@ -49,7 +56,7 @@ interface RepositoryState {
   setStashes: (stashes: StashEntry[]) => void;
   setAmendMode: (amend: boolean) => void;
   setStatus: (status: RepositoryStatus | null) => void;
-  setSelectedFile: (file: { path: string; staged: boolean } | null) => void;
+  setSelectedFile: (file: SelectedFile | null) => void;
   setDiff: (diff: DiffContent | null) => void;
   setBranches: (branches: BranchEntry[]) => void;
   startOperation: (name: string) => void;
