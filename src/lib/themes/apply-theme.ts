@@ -80,7 +80,31 @@ const applyMonacoTheme = (theme: ResolvedTheme): void => {
   monaco.editor.setTheme(theme.id);
 };
 
-export const getTerminalTheme = (colors: Record<string, string>) => ({
+export type TerminalTheme = {
+  background: string;
+  foreground: string;
+  cursor: string;
+  cursorAccent: string;
+  selectionBackground: string;
+  black: string;
+  red: string;
+  green: string;
+  yellow: string;
+  blue: string;
+  magenta: string;
+  cyan: string;
+  white: string;
+  brightBlack: string;
+  brightRed: string;
+  brightGreen: string;
+  brightYellow: string;
+  brightBlue: string;
+  brightMagenta: string;
+  brightCyan: string;
+  brightWhite: string;
+};
+
+export const getTerminalTheme = (colors: Record<string, string>): TerminalTheme => ({
   background: colors["terminal.background"] ?? colors["editor.background"] ?? "#1E1E1E",
   foreground: colors["terminal.foreground"] ?? colors["editor.foreground"] ?? "#CCCCCC",
   cursor: colors["terminalCursor.foreground"] ?? "#AEAFAD",

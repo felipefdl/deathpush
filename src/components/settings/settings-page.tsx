@@ -2,12 +2,12 @@ import { createSignal, For, onSettled, Show, untrack } from "solid-js";
 import { settingsStore } from "../../stores/settings-store";
 import type {
   EditorSettings,
+  FontWeight,
   GitSettings,
   ProjectsSettings,
   TerminalSettings,
   UISettings,
 } from "../../stores/settings-store";
-import type { FontWeight } from "@xterm/xterm";
 import { themeStore } from "../../stores/theme-store";
 import { iconThemeStore } from "../../stores/icon-theme-store";
 import { THEME_ENTRIES } from "../../lib/themes/theme-registry";
@@ -294,7 +294,7 @@ const TerminalSection = (props: {
 
     <div class="settings-subsection-title">Scrolling</div>
     <NumberField
-      label="Scrollback"
+      label="Scrollback for New Terminals (KiB)"
       value={props.settings.scrollback}
       onChange={(v) => props.onUpdate({ scrollback: v })}
       min={500}

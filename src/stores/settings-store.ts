@@ -1,9 +1,10 @@
-import type { FontWeight } from "@xterm/xterm";
 import { createStore } from "zustand/vanilla";
 import { DEFAULT_ICON_THEME_ID } from "../lib/icon-themes/icon-theme-registry";
 import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from "../lib/themes/theme-registry";
 import { iconThemeStore } from "./icon-theme-store";
 import { themeStore } from "./theme-store";
+
+export type FontWeight = "normal" | "bold" | "100" | "200" | "300" | "400" | "500" | "600" | "700" | "800" | "900";
 
 export interface EditorSettings {
   fontSize: number;
@@ -43,7 +44,7 @@ export interface TerminalSettings {
   tabStopWidth: number;
   scrollOnUserInput: boolean;
   rescaleOverlappingGlyphs: boolean;
-  // Non-xterm
+  // App-specific
   shellPath: string;
   bellStyle: "off" | "sound" | "visual" | "both";
   colorSaturation: number;

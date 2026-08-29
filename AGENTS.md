@@ -19,7 +19,7 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 | Backend | Rust (Tauri v2) |
 | State | Zustand vanilla stores with Solid selectors |
 | Diff viewer | Monaco Editor (direct integration) |
-| Terminal | xterm.js + portable-pty (Rust) |
+| Terminal | WTerm DOM + Ghostty core + portable-pty (Rust) |
 | Icons | VS Code Codicon font (@vscode/codicons) |
 | Package manager | Vite+ (`vp`) / pnpm |
 | Linter | `vp lint` |
@@ -90,7 +90,7 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - `components/diff/` -- Monaco DiffEditor with inline/side-by-side + hunk view, diff header, image diff, empty state
 - `components/history/` -- Commit history (commit-list with cherry-pick/reset context menu, commit-detail, commit-file-tree, history-view)
 - `components/branch/` -- Branch picker with search, create, branch item, and tags section (tag-item)
-- `components/terminal/` -- Terminal panel, terminal instance (xterm.js), terminal group view, terminal search bar, git output panel
+- `components/terminal/` -- Terminal panel, WTerm/Ghostty terminal instance, terminal group view, git output panel
 - `components/layout/` -- App layout, main panel (Changes/History/Settings tabs), status bar, title bar (macOS overlay), clone dialog
 - `components/settings/` -- Settings page (UI, editor, terminal, git, projects configuration)
 - `components/welcome/` -- Welcome screen with recent projects and project directory scanner

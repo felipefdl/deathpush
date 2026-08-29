@@ -19,8 +19,9 @@ DeathPush can review repository changes produced by coding agents such as Claude
 - Stash, tags, cherry-pick, and reset
 - Multi-window repositories, each with its own branches and state
 - Built-in themes, including dark, light, and high-contrast variants
+- Integrated terminal built on libghostty, Ghostty's VT engine, with a real PTY
 - Hybrid Git engine: git2 for reads, native git CLI for writes so hooks, signing, credentials, SSH, and LFS keep working
-- Native desktop app on Tauri, Rust, Solid, and Monaco
+- Native desktop app on Tauri, Rust, Solid, Monaco, and libghostty
 
 ## Technical Details
 

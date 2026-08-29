@@ -57,6 +57,12 @@ DeathPush can review repository changes produced by coding agents such as Claude
 - Built-in themes, including dark, light, and high-contrast variants
 - Theme-aware diff highlighting
 
+### Integrated Terminal
+
+- Built on libghostty, Ghostty's VT engine
+- Real PTY sessions
+- Theme-aware terminal colors from the active color theme
+
 ## Installation
 
 Downloads come from GitHub Releases. The release page is the source for the current version and assets.
@@ -112,6 +118,7 @@ DeathPush uses a hybrid Git engine:
 - Native `git` CLI for write operations: commit, push, pull, stash, checkout, reset, clone, so hooks, signing, credentials, SSH config, and LFS keep working
 - Frontend: Solid, TypeScript, Monaco
 - Backend: Rust and Tauri
+- Terminal: libghostty (Ghostty VT engine) with a native PTY
 - Local operation. No telemetry, no accounts.
 
 ## Supported Git Operations

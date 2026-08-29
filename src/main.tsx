@@ -14,7 +14,7 @@ document.addEventListener("contextmenu", (e) => {
   if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) {
     return;
   }
-  if (target.closest(".xterm") || target.closest(".monaco-editor")) {
+  if (target.closest(".wterm") || target.closest(".monaco-editor")) {
     return;
   }
   e.preventDefault();

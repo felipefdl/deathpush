@@ -114,8 +114,8 @@ export default defineConfig({
           if (id.includes("monaco-editor")) {
             return "vendor-monaco";
           }
-          if (id.includes("@xterm/xterm") || id.includes("@xterm/addon-fit") || id.includes("@xterm/addon-web-links")) {
-            return "vendor-xterm";
+          if (id.includes("@wterm/core") || id.includes("@wterm/dom") || id.includes("@wterm/ghostty")) {
+            return "vendor-wterm";
           }
         },
       },
