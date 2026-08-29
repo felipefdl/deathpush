@@ -267,8 +267,8 @@
 
 .file-viewer-breadcrumbs {
   flex: 1;
-  font-size: 12px;
   overflow: hidden;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

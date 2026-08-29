@@ -16,7 +16,6 @@ export const AppLayout = (props: AppLayoutProps) => {
   const terminalVisible = useStore(layoutStore, (s) => s.terminalVisible);
   const terminalHeight = useStore(layoutStore, (s) => s.terminalHeight);
   const terminalMaximized = useStore(layoutStore, (s) => s.terminalMaximized);
-  const mainView = useStore(layoutStore, (s) => s.mainView);
   const sidebarPosition = useStore(settingsStore, (s) => s.settings.ui.sidebarPosition);
   const { setSidebarWidth, setTerminalHeight } = layoutStore.getState();
 
@@ -59,7 +58,6 @@ export const AppLayout = (props: AppLayoutProps) => {
     document.addEventListener("mouseup", handleMouseUp);
   };
 
-  const terminalInMain = () => terminalVisible() && terminalMaximized() && mainView() === "terminal";
   const terminalInBottom = () => terminalVisible() && !terminalMaximized();
 
   return (
@@ -75,21 +73,18 @@ export const AppLayout = (props: AppLayoutProps) => {
           </>
         )}
         <div class="app-layout-main-wrapper">
-          <div class="app-layout-main" style={terminalInMain() ? { flex: "none", overflow: "visible" } : undefined}>
-            {props.main}
-          </div>
+          <div class="app-layout-main">{props.main}</div>
           <div
             class="app-layout-terminal-divider"
             onMouseDown={handleTerminalMouseDown}
             style={{ display: terminalInBottom() ? undefined : "none" }}
           />
           <div
+            class={`app-layout-terminal${terminalMaximized() ? " maximized" : ""}`}
             style={{
               height: terminalInBottom() ? `${terminalHeight()}px` : undefined,
-              flex: terminalInMain() ? 1 : undefined,
               "flex-shrink": terminalInBottom() ? 0 : undefined,
-              "min-height": terminalInMain() ? 0 : undefined,
-              display: terminalInMain() || terminalInBottom() ? undefined : "none",
+              display: terminalVisible() ? undefined : "none",
             }}
           >
             {props.terminal}

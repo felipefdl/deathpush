@@ -1,7 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import { settingsStore } from "./settings-store";
 
-export type MainView = "changes" | "history" | "settings" | "terminal" | "output" | "file";
+export type MainView = "changes" | "history" | "settings" | "file";
 export type SidebarView = "scm" | "explorer";
 
 interface LayoutState {
@@ -70,12 +70,7 @@ const loadLayout = (root: string): PersistedLayout => {
     if (!raw) return { ...DEFAULTS };
     const parsed = JSON.parse(raw);
     const layout: PersistedLayout = { ...DEFAULTS, ...parsed };
-    if (
-      layout.mainView === "settings" ||
-      layout.mainView === "terminal" ||
-      layout.mainView === "output" ||
-      layout.mainView === "file"
-    ) {
+    if (layout.mainView !== "changes" && layout.mainView !== "history") {
       layout.mainView = "changes";
     }
     const { alwaysOpenTerminalOnStart } = settingsStore.getState().settings.ui;
@@ -151,13 +146,7 @@ export const layoutStore = createStore<LayoutState>((set, get) => ({
     saveLayout(get());
   },
   toggleTerminalMaximized: () => {
-    const state = get();
-    const next = !state.terminalMaximized;
-    if (next) {
-      set({ terminalMaximized: true, mainView: "terminal" });
-    } else {
-      set({ terminalMaximized: false, mainView: "changes" });
-    }
+    set((state) => ({ terminalMaximized: !state.terminalMaximized }));
     saveLayout(get());
   },
   setHistoryListWidth: (historyListWidth) => {

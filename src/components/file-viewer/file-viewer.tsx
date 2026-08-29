@@ -199,7 +199,7 @@ export const FileViewer = () => {
           </span>
         )}
       </For>
-      {showDirty && isFileDirty() && <span class="diff-header-dirty"> *</span>}
+      {showDirty && isFileDirty() && <span class="dirty-indicator"> *</span>}
     </span>
   );
 

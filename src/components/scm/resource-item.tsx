@@ -324,7 +324,7 @@ export const ResourceItem = (props: ResourceItemProps) => {
         <span class={`resource-item-icon ${getFileIconClasses(props.file.path, "file")}`} />
         <span class={`resource-item-name${isDeleted() ? " resource-item-deleted" : ""}`}>
           {fileName()}
-          {isSelected() && isDiffDirty() && <span class="diff-header-dirty"> *</span>}
+          {isSelected() && isDiffDirty() && <span class="dirty-indicator"> *</span>}
         </span>
         {dirPath() && (
           <span class={`resource-item-path${isDeleted() ? " resource-item-deleted" : ""}`}>{dirPath()}</span>

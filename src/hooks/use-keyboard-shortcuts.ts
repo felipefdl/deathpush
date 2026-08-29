@@ -109,12 +109,7 @@ export const useKeyboardShortcuts = () => {
       }
       if (isMod && !e.altKey && e.key === "3") {
         e.preventDefault();
-        if (layout.terminalMaximized) {
-          layout.setMainView("terminal");
-          requestAnimationFrame(() => {
-            window.dispatchEvent(new CustomEvent("deathpush:focus-terminal"));
-          });
-        } else if (!layout.terminalVisible) {
+        if (!layout.terminalVisible) {
           if (repo.terminalGroups.length === 0) {
             repo.addTerminalGroup();
           }

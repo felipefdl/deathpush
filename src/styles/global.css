@@ -207,6 +207,7 @@ summary {
 }
 
 .app-layout-main-wrapper {
+  position: relative;
   flex: 1;
   overflow: hidden;
   display: flex;
@@ -217,6 +218,21 @@ summary {
   flex: 1;
   overflow: hidden;
   background: var(--vscode-editor-background);
+}
+
+.app-layout-terminal {
+  min-height: 0;
+}
+
+.app-layout-terminal.maximized {
+  position: absolute;
+  inset: 8px;
+  z-index: 10;
+  overflow: hidden;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius-lg);
+  background: var(--vscode-editor-background);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
 }
 
 .app-layout-statusbar {
@@ -461,13 +477,12 @@ body.vs .linux-title-btn:hover {
   opacity: 0.6;
 }
 
-.diff-header-dirty {
-  opacity: 0.8;
-}
-
 .diff-header-actions {
   display: flex;
   gap: 2px;
+}
+.dirty-indicator {
+  opacity: 0.8;
 }
 
 .diff-empty-state {

@@ -1,9 +1,9 @@
 import { createEffect } from "solid-js";
+import * as commands from "../../lib/tauri-commands";
+import { useStore } from "../../lib/use-store";
+import { layoutStore } from "../../stores/layout-store";
 import { repositoryStore } from "../../stores/repository-store";
 import { settingsStore } from "../../stores/settings-store";
-import { layoutStore } from "../../stores/layout-store";
-import { useStore } from "../../lib/use-store";
-import * as commands from "../../lib/tauri-commands";
 
 export const DiffHeader = (props: { isDirty?: boolean }) => {
   const selectedFile = useStore(repositoryStore, (s) => s.selectedFile);
@@ -44,7 +44,7 @@ export const DiffHeader = (props: { isDirty?: boolean }) => {
         <div class="diff-header">
           <span class="diff-header-path" title={selectedFile()!.path}>
             {selectedFile()!.path.split("/").pop() ?? selectedFile()!.path}
-            {props.isDirty && <span class="diff-header-dirty"> *</span>}
+            {props.isDirty && <span class="dirty-indicator"> *</span>}
             <span class="diff-header-label"> ({selectedFile()!.staged ? "Staged" : "Working Tree"})</span>
           </span>
           <div class="diff-header-actions">

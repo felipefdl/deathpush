@@ -181,19 +181,21 @@ describe("layout store", () => {
   });
 
   describe("toggleTerminalMaximized", () => {
-    it("maximize sets mainView=terminal and terminalMaximized=true", () => {
+    it("maximizing preserves the current main view", () => {
+      layoutStore.getState().setMainView("history");
       layoutStore.getState().toggleTerminalMaximized();
       const state = layoutStore.getState();
       expect(state.terminalMaximized).toBe(true);
-      expect(state.mainView).toBe("terminal");
+      expect(state.mainView).toBe("history");
     });
 
-    it("unmaximize resets mainView to changes", () => {
+    it("restoring preserves the current main view", () => {
+      layoutStore.getState().setMainView("history");
       layoutStore.getState().toggleTerminalMaximized();
       layoutStore.getState().toggleTerminalMaximized();
       const state = layoutStore.getState();
       expect(state.terminalMaximized).toBe(false);
-      expect(state.mainView).toBe("changes");
+      expect(state.mainView).toBe("history");
     });
 
     it("saves to localStorage", () => {
@@ -201,7 +203,7 @@ describe("layout store", () => {
       layoutStore.getState().toggleTerminalMaximized();
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
       expect(stored.terminalMaximized).toBe(true);
-      expect(stored.mainView).toBe("terminal");
+      expect(stored.mainView).toBe("changes");
     });
   });
 });
