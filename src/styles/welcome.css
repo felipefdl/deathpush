@@ -101,20 +101,46 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 20px;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: 13px;
+}
+
+.welcome-action-btn,
+.welcome-configure-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--vscode-button-secondaryBackground, #3a3d41);
+  background: transparent;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
+  font-size: 12px;
+  font-family: inherit;
 }
 
-.welcome-action-btn:hover {
-  background: var(--vscode-button-hoverBackground);
+.welcome-configure-btn {
+  align-self: flex-start;
 }
 
-.welcome-action-btn:focus-visible {
+.welcome-action-btn:hover,
+.welcome-configure-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground, #45494e);
+}
+
+body.vs .welcome-action-btn,
+body.hc-light .welcome-action-btn,
+body.vs .welcome-configure-btn,
+body.hc-light .welcome-configure-btn {
+  border-color: var(--vscode-input-border, #cecece);
+  color: var(--vscode-foreground, #3b3b3b);
+}
+
+body.vs .welcome-action-btn:hover,
+body.hc-light .welcome-action-btn:hover,
+body.vs .welcome-configure-btn:hover,
+body.hc-light .welcome-configure-btn:hover {
+  background: var(--vscode-list-hoverBackground, #e8e8e8);
+}
+
+.welcome-action-btn:focus-visible,
+.welcome-configure-btn:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;
 }
@@ -237,33 +263,6 @@ body.hc-light .welcome-list {
   align-items: center;
   margin-top: 8px;
   gap: 8px;
-}
-
-.welcome-configure-btn {
-  padding: 6px 14px;
-  border: 1px solid var(--vscode-button-secondaryBackground, #3a3d41);
-  background: transparent;
-  color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  font-size: 12px;
-  font-family: inherit;
-  align-self: flex-start;
-}
-
-body.vs .welcome-configure-btn,
-body.hc-light .welcome-configure-btn {
-  border-color: var(--vscode-input-border, #cecece);
-  color: var(--vscode-foreground, #3b3b3b);
-}
-
-.welcome-configure-btn:hover {
-  background: var(--vscode-button-secondaryHoverBackground, #45494e);
-}
-
-body.vs .welcome-configure-btn:hover,
-body.hc-light .welcome-configure-btn:hover {
-  background: var(--vscode-list-hoverBackground, #e8e8e8);
 }
 
 .welcome-filter {
