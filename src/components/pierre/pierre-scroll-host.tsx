@@ -14,6 +14,7 @@ export type PierreScrollHostProps = {
   handleRef?: (handle: PierreScrollHostHandle) => void;
 };
 
+const OVERLAY_SCROLLBAR_SIZE_PX = 11;
 export const PierreScrollHost = (props: PierreScrollHostProps) => {
   let root!: HTMLDivElement;
   let content!: HTMLDivElement;
@@ -108,7 +109,8 @@ export const PierreScrollHost = (props: PierreScrollHostProps) => {
     const hasOverflow = viewportWidth > 0 && trackWidth > 0 && contentWidth > viewportWidth;
     horizontalThumb.hidden = !hasOverflow;
     horizontalTrack.style.pointerEvents = hasOverflow ? "auto" : "none";
-    scrollbarTrack.style.bottom = hasOverflow ? "11px" : "0";
+    scrollbarTrack.style.bottom = hasOverflow ? `${OVERLAY_SCROLLBAR_SIZE_PX}px` : "0";
+    content.style.paddingBottom = hasOverflow ? `${OVERLAY_SCROLLBAR_SIZE_PX}px` : "";
     if (!hasOverflow || !horizontalScroller) return;
 
     const thumbWidth = Math.min(trackWidth, Math.max(24, (viewportWidth / contentWidth) * trackWidth));

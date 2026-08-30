@@ -3,7 +3,6 @@ import { repositoryStore } from "../../stores/repository-store";
 import { useStore } from "../../lib/use-store";
 import { formatRelativeDate } from "../../lib/format-date";
 import { getCommitFileDiff } from "../../lib/tauri-commands";
-import { getFileIconClasses } from "../../lib/icon-themes/get-icon-classes";
 import type { CommitDiffContent } from "../../lib/git-types";
 import { ImageDiff } from "../diff/image-diff";
 import { PierreFileDiff, historyCacheKey } from "../pierre/pierre-file-diff";
@@ -123,7 +122,7 @@ export const CommitDetail = () => {
                     class={["commit-detail-file", { selected: selectedPath() === file().path }]}
                     onClick={() => handleFileClick(commit()!.id, file().path)}
                   >
-                    <span class={["commit-detail-file-icon", getFileIconClasses(file().path, "file")]} />
+                    <span class="codicon codicon-file commit-detail-file-icon" />
                     <span class="commit-detail-file-path" title={file().path}>
                       {file().oldPath ? `${file().oldPath} -> ${file().path}` : file().path}
                     </span>

@@ -3,12 +3,12 @@ import { DEFAULT_VIRTUAL_FILE_METRICS, VirtualizedFile, Virtualizer, type FileOp
 import { Editor } from "@pierre/diffs/edit";
 import { explorerStore } from "../../stores/explorer-store";
 import { repositoryStore } from "../../stores/repository-store";
-import { settingsStore } from "../../stores/settings-store";
+import { settingsStore, type DiffSettings } from "../../stores/settings-store";
 import { themeStore } from "../../stores/theme-store";
 import { writeFile } from "../../lib/tauri-commands";
 import { useStore } from "../../lib/use-store";
 import { buildPierreDiffOptions } from "../../lib/pierre/options";
-import { pierreThemeType } from "../../lib/pierre/theme";
+
 import { normalizeWordWrap, pierreHostStyle } from "../../lib/pierre/normalize-editor-settings";
 import { pierreEditorKeymap } from "../../lib/pierre/keymap";
 import { getPierreWorkerPool } from "../../lib/pierre/worker";
@@ -40,6 +40,7 @@ const fileOptionsFromSettings = (
   themeId: string,
   themeType: "light" | "dark",
   wordWrap: "off" | "on",
+  diffSettings: DiffSettings,
   onPostRender: NonNullable<FileOptions<undefined>["onPostRender"]>
 ): FileOptions<undefined> => {
   const diffOptions = buildPierreDiffOptions({
@@ -48,6 +49,7 @@ const fileOptionsFromSettings = (
     wordWrap,
     diffMode: "inline",
     enableLineSelection: true,
+    ...diffSettings,
   });
   return {
     theme: themeId,
@@ -56,6 +58,7 @@ const fileOptionsFromSettings = (
     disableFileHeader: diffOptions.disableFileHeader,
     overflow: diffOptions.overflow,
     unsafeCSS: diffOptions.unsafeCSS,
+    disableLineNumbers: diffOptions.disableLineNumbers,
     enableLineSelection: diffOptions.enableLineSelection,
     onPostRender,
   };
@@ -63,6 +66,7 @@ const fileOptionsFromSettings = (
 
 export const PierreFile = (props: PierreFileProps) => {
   const editorSettings = useStore(settingsStore, (s) => s.settings.editor);
+  const diffSettings = useStore(settingsStore, (s) => s.settings.diff);
   const currentTheme = useStore(themeStore, (s) => s.currentTheme);
   const [ready, setReady] = createSignal(false);
   const [runtimeReady, setRuntimeReady] = createSignal(false);
@@ -87,7 +91,7 @@ export const PierreFile = (props: PierreFileProps) => {
     (isReady) => {
       if (!isReady) return;
 
-      const settings = settingsStore.getState().settings.editor;
+      const settings = settingsStore.getState().settings;
       const theme = themeStore.getState().currentTheme;
       const virtualizer = new Virtualizer();
       virtualizer.setup(root, content);
@@ -95,14 +99,15 @@ export const PierreFile = (props: PierreFileProps) => {
       const file = new VirtualizedFile(
         fileOptionsFromSettings(
           theme.id,
-          pierreThemeType(theme.kind),
-          normalizeWordWrap(settings.wordWrap),
+          theme.type,
+          normalizeWordWrap(settings.editor.wordWrap),
+          settings.diff,
           finishRender
         ),
         virtualizer,
         {
           ...DEFAULT_VIRTUAL_FILE_METRICS,
-          lineHeight: settings.lineHeight,
+          lineHeight: settings.editor.lineHeight,
           paddingTop: 0,
           paddingBottom: 0,
         },
@@ -234,9 +239,9 @@ export const PierreFile = (props: PierreFileProps) => {
 
   createEffect(
     () =>
-      [currentTheme().id, pierreThemeType(currentTheme().kind), normalizeWordWrap(editorSettings().wordWrap)] as const,
-    ([themeId, themeType, wordWrap]) => {
-      fileRef?.setOptions(fileOptionsFromSettings(themeId, themeType, wordWrap, finishRender));
+      [currentTheme().id, currentTheme().type, normalizeWordWrap(editorSettings().wordWrap), diffSettings()] as const,
+    ([themeId, themeType, wordWrap, currentDiffSettings]) => {
+      fileRef?.setOptions(fileOptionsFromSettings(themeId, themeType, wordWrap, currentDiffSettings, finishRender));
     }
   );
 

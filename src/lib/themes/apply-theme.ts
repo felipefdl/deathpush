@@ -1,4 +1,3 @@
-import { registerDeathPushPierreTheme } from "../pierre/theme";
 import { applyPierrePoolTheme } from "../pierre/worker";
 import { setNativeTheme } from "../tauri-commands";
 import type { ResolvedTheme } from "./theme-types";
@@ -24,17 +23,10 @@ export const applyTheme = (theme: ResolvedTheme, options: ApplyThemeOptions = {}
     root.style.setProperty(cssVar, value);
   }
 
-  const scheme = theme.kind === "dark" || theme.kind === "hc-dark" ? "dark" : "light";
+  const scheme = theme.kind;
   root.style.setProperty("color-scheme", scheme);
-
-  document.body.classList.remove("vs", "hc-black", "hc-light");
-  if (theme.uiTheme === "vs") document.body.classList.add("vs");
-  if (theme.uiTheme === "hc-black") document.body.classList.add("hc-black");
-  if (theme.uiTheme === "hc-light") document.body.classList.add("hc-light");
-
-  void registerDeathPushPierreTheme(theme).then(() => {
-    applyPierrePoolTheme(theme.id);
-  });
+  root.dataset.colorScheme = scheme;
+  applyPierrePoolTheme(theme.id);
 
   if (!options.transient) {
     const isDark = scheme === "dark";
@@ -72,26 +64,37 @@ export type TerminalTheme = {
   brightWhite: string;
 };
 
+const expandHexColor = (value: string): string => {
+  const short = /^#([0-9a-fA-F]{3})$/.exec(value);
+  if (short) {
+    const [r, g, b] = short[1];
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  const withAlpha = /^#([0-9a-fA-F]{8})$/.exec(value);
+  if (withAlpha) return `#${withAlpha[1].slice(0, 6)}`;
+  return value;
+};
+
 export const getTerminalTheme = (colors: Record<string, string>): TerminalTheme => ({
-  background: colors["terminal.background"] ?? colors["editor.background"] ?? "#1E1E1E",
-  foreground: colors["terminal.foreground"] ?? colors["editor.foreground"] ?? "#CCCCCC",
-  cursor: colors["terminalCursor.foreground"] ?? "#AEAFAD",
-  cursorAccent: colors["terminalCursor.background"] ?? "#000000",
+  background: expandHexColor(colors["terminal.background"] ?? colors["editor.background"] ?? "#1E1E1E"),
+  foreground: expandHexColor(colors["terminal.foreground"] ?? colors["editor.foreground"] ?? "#CCCCCC"),
+  cursor: expandHexColor(colors["terminalCursor.foreground"] ?? "#AEAFAD"),
+  cursorAccent: expandHexColor(colors["terminalCursor.background"] ?? "#000000"),
   selectionBackground: colors["terminal.selectionBackground"] ?? "rgba(255, 255, 255, 0.3)",
-  black: colors["terminal.ansiBlack"] ?? "#000000",
-  red: colors["terminal.ansiRed"] ?? "#CD3131",
-  green: colors["terminal.ansiGreen"] ?? "#0DBC79",
-  yellow: colors["terminal.ansiYellow"] ?? "#E5E510",
-  blue: colors["terminal.ansiBlue"] ?? "#2472C8",
-  magenta: colors["terminal.ansiMagenta"] ?? "#BC3FBC",
-  cyan: colors["terminal.ansiCyan"] ?? "#11A8CD",
-  white: colors["terminal.ansiWhite"] ?? "#E5E5E5",
-  brightBlack: colors["terminal.ansiBrightBlack"] ?? "#666666",
-  brightRed: colors["terminal.ansiBrightRed"] ?? "#F14C4C",
-  brightGreen: colors["terminal.ansiBrightGreen"] ?? "#23D18B",
-  brightYellow: colors["terminal.ansiBrightYellow"] ?? "#F5F543",
-  brightBlue: colors["terminal.ansiBrightBlue"] ?? "#3B8EEA",
-  brightMagenta: colors["terminal.ansiBrightMagenta"] ?? "#D670D6",
-  brightCyan: colors["terminal.ansiBrightCyan"] ?? "#29B8DB",
-  brightWhite: colors["terminal.ansiBrightWhite"] ?? "#E5E5E5",
+  black: expandHexColor(colors["terminal.ansiBlack"] ?? "#000000"),
+  red: expandHexColor(colors["terminal.ansiRed"] ?? "#CD3131"),
+  green: expandHexColor(colors["terminal.ansiGreen"] ?? "#0DBC79"),
+  yellow: expandHexColor(colors["terminal.ansiYellow"] ?? "#E5E510"),
+  blue: expandHexColor(colors["terminal.ansiBlue"] ?? "#2472C8"),
+  magenta: expandHexColor(colors["terminal.ansiMagenta"] ?? "#BC3FBC"),
+  cyan: expandHexColor(colors["terminal.ansiCyan"] ?? "#11A8CD"),
+  white: expandHexColor(colors["terminal.ansiWhite"] ?? "#E5E5E5"),
+  brightBlack: expandHexColor(colors["terminal.ansiBrightBlack"] ?? "#666666"),
+  brightRed: expandHexColor(colors["terminal.ansiBrightRed"] ?? "#F14C4C"),
+  brightGreen: expandHexColor(colors["terminal.ansiBrightGreen"] ?? "#23D18B"),
+  brightYellow: expandHexColor(colors["terminal.ansiBrightYellow"] ?? "#F5F543"),
+  brightBlue: expandHexColor(colors["terminal.ansiBrightBlue"] ?? "#3B8EEA"),
+  brightMagenta: expandHexColor(colors["terminal.ansiBrightMagenta"] ?? "#D670D6"),
+  brightCyan: expandHexColor(colors["terminal.ansiBrightCyan"] ?? "#29B8DB"),
+  brightWhite: expandHexColor(colors["terminal.ansiBrightWhite"] ?? "#E5E5E5"),
 });

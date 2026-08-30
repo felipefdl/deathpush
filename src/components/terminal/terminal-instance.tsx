@@ -141,6 +141,46 @@ const spawnSession = async (term: WTerm, session: { id: number }, paneID: number
   repositoryStore.getState().renamePane(paneID, result.shell);
 };
 
+export const shouldFocusTerminal = (activeElement: Element | null): boolean =>
+  !activeElement ||
+  activeElement === document.body ||
+  !!activeElement.closest(".terminal-instance, .terminal-instance-wrapper");
+type TerminalSelectionSettings = Pick<TerminalSettings, "rightClickSelectsWord" | "macOptionClickForcesSelection">;
+
+const selectWordAtPoint = (element: HTMLElement, x: number, y: number): boolean => {
+  const range = document.caretRangeFromPoint(x, y);
+  const selection = window.getSelection();
+  if (!range || !selection || !element.contains(range.startContainer)) return false;
+
+  selection.removeAllRanges();
+  selection.addRange(range);
+  selection.modify("move", "backward", "word");
+  selection.modify("extend", "forward", "word");
+  return true;
+};
+
+export const attachTerminalSelectionHandlers = (
+  element: HTMLElement,
+  getSettings: () => TerminalSelectionSettings
+): (() => void) => {
+  const handleContextMenu = (event: MouseEvent): void => {
+    if (!getSettings().rightClickSelectsWord) return;
+    if (selectWordAtPoint(element, event.clientX, event.clientY)) event.preventDefault();
+  };
+  const handleMouseDown = (event: MouseEvent): void => {
+    if (event.button === 0 && event.altKey && getSettings().macOptionClickForcesSelection) {
+      event.stopImmediatePropagation();
+    }
+  };
+
+  element.addEventListener("contextmenu", handleContextMenu);
+  element.addEventListener("mousedown", handleMouseDown, true);
+  return () => {
+    element.removeEventListener("contextmenu", handleContextMenu);
+    element.removeEventListener("mousedown", handleMouseDown, true);
+  };
+};
+
 export const TerminalInstance = (props: TerminalInstanceProps) => {
   const [termReady, setTermReady] = createSignal(false);
   const terminalSettings = useStore(settingsStore, (state) => state.settings.terminal);
@@ -155,6 +195,10 @@ export const TerminalInstance = (props: TerminalInstanceProps) => {
   onSettled(() => {
     const container = containerEl;
     if (!container) return;
+    const detachSelectionHandlers = attachTerminalSelectionHandlers(
+      container,
+      () => settingsStore.getState().settings.terminal
+    );
 
     const termSettings = settingsStore.getState().settings.terminal;
     const terminalTheme = getTerminalTheme(themeStore.getState().currentTheme.colors);
@@ -260,13 +304,16 @@ export const TerminalInstance = (props: TerminalInstanceProps) => {
       void initTerminal();
     });
 
-    visibilityObserver = new ResizeObserver((entries) => {
-      const { width, height } = entries[0].contentRect;
-      if (width <= 0 || height <= 0 || containerVisible) return;
+    const considerVisible = (width: number, height: number): void => {
+      if (containerVisible || width <= 0 || height <= 0) return;
       containerVisible = true;
       void initTerminal();
+    };
+    visibilityObserver = new ResizeObserver((entries) => {
+      considerVisible(entries[0].contentRect.width, entries[0].contentRect.height);
     });
     visibilityObserver.observe(container);
+    considerVisible(container.clientWidth, container.clientHeight);
 
     const handleSelectionChange = (): void => {
       const { copyOnSelect } = settingsStore.getState().settings.terminal;
@@ -283,6 +330,7 @@ export const TerminalInstance = (props: TerminalInstanceProps) => {
       clearTimeout(resizeTimer);
       visibilityObserver?.disconnect();
       document.removeEventListener("selectionchange", handleSelectionChange);
+      detachSelectionHandlers();
       void unlistenData?.then((unlisten) => unlisten());
       void unlistenExit?.then((unlisten) => unlisten());
       if (session.id) invoke("terminal_kill", { id: session.id }).catch(() => {});
@@ -293,10 +341,12 @@ export const TerminalInstance = (props: TerminalInstanceProps) => {
   });
 
   createEffect(
-    () => [props.isActive, termReady()] as const,
-    ([active, ready]) => {
-      if (!active || !ready || !term) return;
-      requestAnimationFrame(() => term?.focus());
+    () => props.isActive && termReady(),
+    (shouldFocus) => {
+      if (!shouldFocus || !shouldFocusTerminal(document.activeElement)) return;
+      requestAnimationFrame(() => {
+        if (shouldFocusTerminal(document.activeElement)) term?.focus();
+      });
     }
   );
 
@@ -304,7 +354,9 @@ export const TerminalInstance = (props: TerminalInstanceProps) => {
     () => props.isActive,
     (active) => {
       if (!active) return;
-      const handleFocus = () => term?.focus();
+      const handleFocus = () => {
+        if (shouldFocusTerminal(document.activeElement)) term?.focus();
+      };
       window.addEventListener("deathpush:focus-terminal", handleFocus);
       return () => window.removeEventListener("deathpush:focus-terminal", handleFocus);
     }

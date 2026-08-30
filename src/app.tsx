@@ -13,7 +13,6 @@ import { FileViewer } from "./components/file-viewer/file-viewer";
 import { SidebarView } from "./components/layout/sidebar-view";
 import { TerminalPanel } from "./components/terminal/terminal-panel";
 import { ThemePicker } from "./components/theme/theme-picker";
-import { IconThemePicker } from "./components/theme/icon-theme-picker";
 import { QuickOpen } from "./components/quick-open/quick-open";
 import { WelcomeScreen } from "./components/welcome/welcome-screen";
 import { LinuxTitleBar } from "./components/layout/linux-title-bar";
@@ -26,12 +25,10 @@ import { layoutStore } from "./stores/layout-store";
 import * as commands from "./lib/tauri-commands";
 import { settingsStore } from "./stores/settings-store";
 import { explorerStore } from "./stores/explorer-store";
-import { themeStore } from "./stores/theme-store";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { toggleTerminal } from "./lib/toggle-terminal";
 import { confirmWindowClose } from "./lib/window-close";
 import { flushAll } from "./lib/pierre/flush-registry";
-import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from "./lib/themes/theme-registry";
 import { PLATFORM } from "./lib/platform";
 import { useStore } from "./lib/use-store";
 import "./styles/codicons.css";
@@ -39,8 +36,6 @@ import "./styles/scm.css";
 import "./styles/history.css";
 import "./styles/settings.css";
 import "./styles/welcome.css";
-
-const THEME_STORAGE_KEY = "deathpush:theme";
 
 export const App = () => {
   const { openRepo } = useRepository();
@@ -50,7 +45,6 @@ export const App = () => {
   const { saveStash, popStash } = useStash();
   const [showCloneDialog, setShowCloneDialog] = createSignal(false);
   const [showThemePicker, setShowThemePicker] = createSignal(false);
-  const [showIconThemePicker, setShowIconThemePicker] = createSignal(false);
   const [showLicensesModal, setShowLicensesModal] = createSignal(false);
   const [showQuickOpen, setShowQuickOpen] = createSignal(false);
   const [initializing, setInitializing] = createSignal(true);
@@ -82,7 +76,7 @@ export const App = () => {
     (root, previousRoot) => {
       if (root && root !== previousRoot) {
         layoutStore.getState().loadForProject(root);
-        explorerStore.getState().clearCache();
+        explorerStore.getState().reset();
       }
     }
   );
@@ -140,17 +134,14 @@ export const App = () => {
         toggleTerminal();
       }),
       appWindow.listen("menu:toggle-diff", () => {
-        const layout = layoutStore.getState();
-        layout.setDiffMode(layout.diffMode === "inline" ? "sideBySide" : "inline");
+        const { settings, updateDiff } = settingsStore.getState();
+        updateDiff({ layout: settings.diff.layout === "inline" ? "sideBySide" : "inline" });
       }),
       appWindow.listen("menu:zoom-in", () => settingsStore.getState().zoomIn()),
       appWindow.listen("menu:zoom-out", () => settingsStore.getState().zoomOut()),
       appWindow.listen("menu:zoom-reset", () => settingsStore.getState().resetZoom()),
       appWindow.listen("menu:color-theme", () => {
         window.dispatchEvent(new CustomEvent("deathpush:open-theme-picker"));
-      }),
-      appWindow.listen("menu:icon-theme", () => {
-        window.dispatchEvent(new CustomEvent("deathpush:open-icon-theme-picker"));
       }),
       appWindow.listen("menu:git-pull", async () => {
         const branch = repositoryStore.getState().status?.headBranch;
@@ -304,12 +295,6 @@ export const App = () => {
   });
 
   onSettled(() => {
-    const handler = () => setShowIconThemePicker(true);
-    window.addEventListener("deathpush:open-icon-theme-picker", handler);
-    return () => window.removeEventListener("deathpush:open-icon-theme-picker", handler);
-  });
-
-  onSettled(() => {
     const handler = () => {
       if (repositoryStore.getState().status) {
         setShowQuickOpen(true);
@@ -337,18 +322,6 @@ export const App = () => {
         .catch(() => {});
     }
   );
-
-  onSettled(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = (e: MediaQueryListEvent) => {
-      const stored = localStorage.getItem(THEME_STORAGE_KEY);
-      if (stored) return;
-      const id = e.matches ? DEFAULT_DARK_THEME_ID : DEFAULT_LIGHT_THEME_ID;
-      themeStore.getState().setTheme(id);
-    };
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  });
 
   const showWelcome = () => !initializing() && status() === null;
 
@@ -388,7 +361,6 @@ export const App = () => {
       )}
       {showCloneDialog() && <CloneDialog onClose={() => setShowCloneDialog(false)} />}
       {showThemePicker() && <ThemePicker onClose={() => setShowThemePicker(false)} />}
-      {showIconThemePicker() && <IconThemePicker onClose={() => setShowIconThemePicker(false)} />}
       {showQuickOpen() && <QuickOpen onClose={() => setShowQuickOpen(false)} />}
       {showLicensesModal() && <LicensesModal onClose={() => setShowLicensesModal(false)} />}
     </div>

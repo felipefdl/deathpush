@@ -13,13 +13,12 @@ import { Editor } from "@pierre/diffs/edit";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import type { DiffContent, DiffHunk, FileStatus, RepositoryStatus, ResourceGroupKind } from "../../lib/git-types";
 import * as commands from "../../lib/tauri-commands";
-import { layoutStore } from "../../stores/layout-store";
 import { repositoryStore } from "../../stores/repository-store";
 import { settingsStore } from "../../stores/settings-store";
 import { themeStore } from "../../stores/theme-store";
 import { useStore } from "../../lib/use-store";
 import { buildPierreDiffOptions } from "../../lib/pierre/options";
-import { pierreThemeType } from "../../lib/pierre/theme";
+
 import { normalizeWordWrap, pierreHostStyle } from "../../lib/pierre/normalize-editor-settings";
 import { pierreEditorKeymap } from "../../lib/pierre/keymap";
 import { getPierreWorkerPool } from "../../lib/pierre/worker";
@@ -314,8 +313,8 @@ const renderHunkButtons = (
 
 const PierreScmFileDiff = (props: PierreScmDiffProps) => {
   const editorSettings = useStore(settingsStore, (s) => s.settings.editor);
+  const diffSettings = useStore(settingsStore, (s) => s.settings.diff);
   const currentTheme = useStore(themeStore, (s) => s.currentTheme);
-  const diffMode = useStore(layoutStore, (s) => s.diffMode);
   const [ready, setReady] = createSignal(false);
   const [cacheGeneration, setCacheGeneration] = createSignal(0);
   const [viewGeneration, setViewGeneration] = createSignal(0);
@@ -375,11 +374,11 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
       const activeSession = session;
       const { setStatus, setError, setIsDiffDirty, setCursorLine, setDiff } = repositoryStore.getState();
       const theme = themeStore.getState().currentTheme;
-      const settings = settingsStore.getState().settings.editor;
+      const settings = settingsStore.getState().settings;
       const themeId = theme.id;
-      const themeType = pierreThemeType(theme.kind);
-      const wordWrap = normalizeWordWrap(settings.wordWrap);
-      const mode = layoutStore.getState().diffMode;
+      const themeType = theme.type;
+      const wordWrap = normalizeWordWrap(settings.editor.wordWrap);
+      const mode = settings.diff.layout;
 
       let cancelled = false;
       let pendingTimer: ReturnType<typeof setTimeout> | null = null;
@@ -561,6 +560,7 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
             wordWrap,
             diffMode: mode,
             enableLineSelection: enableScmLineSelection(groupKind),
+            ...settings.diff,
           }),
           loadDiffFiles: fileDiff
             ? async () => ({
@@ -569,6 +569,7 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
               })
             : undefined,
           renderAnnotation: (annotation: DiffLineAnnotation) => {
+            if (!settingsStore.getState().settings.diff.showInlineHunkActions) return;
             const identity = annotations.find(
               (item) => item.side === annotation.side && item.lineNumber === annotation.lineNumber
             )?.metadata.identity;
@@ -650,13 +651,8 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
 
   createEffect(
     () =>
-      [
-        currentTheme().id,
-        pierreThemeType(currentTheme().kind),
-        normalizeWordWrap(editorSettings().wordWrap),
-        diffMode(),
-      ] as const,
-    ([themeId, themeType, wordWrap, mode]) => {
+      [currentTheme().id, currentTheme().type, normalizeWordWrap(editorSettings().wordWrap), diffSettings()] as const,
+    ([themeId, themeType, wordWrap, currentDiffSettings]) => {
       if (!fileRef) return;
       fileRef.setOptions({
         ...fileRef.options,
@@ -664,10 +660,12 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
           themeId,
           themeType,
           wordWrap,
-          diffMode: mode,
+          diffMode: currentDiffSettings.layout,
           enableLineSelection: enableScmLineSelection(props.groupKind),
+          ...currentDiffSettings,
         }),
       });
+      fileRef.rerender();
     }
   );
 
@@ -689,8 +687,8 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
 
 const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
   const editorSettings = useStore(settingsStore, (s) => s.settings.editor);
+  const diffSettings = useStore(settingsStore, (s) => s.settings.diff);
   const currentTheme = useStore(themeStore, (s) => s.currentTheme);
-  const diffMode = useStore(layoutStore, (s) => s.diffMode);
   const [ready, setReady] = createSignal(false);
   let root!: HTMLDivElement;
   let content!: HTMLDivElement;
@@ -710,9 +708,9 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
       const { setCursorLine, setError } = repositoryStore.getState();
       const theme = currentTheme();
       const themeId = theme.id;
-      const themeType = pierreThemeType(theme.kind);
+      const themeType = theme.type;
       const wordWrap = normalizeWordWrap(editorSettings().wordWrap);
-      const mode = diffMode();
+      const mode = diffSettings().layout;
 
       let findHost: PierreFindHost | undefined;
       let file: FileDiff | undefined;
@@ -730,6 +728,7 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
               wordWrap,
               diffMode: mode,
               enableLineSelection: false,
+              ...diffSettings(),
             }),
             ...readOnlyBlame(setCursorLine),
             onPostRender: (node: HTMLElement, instance: FileDiff, phase: PostRenderPhase) => {
@@ -757,13 +756,8 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
 
   createEffect(
     () =>
-      [
-        currentTheme().id,
-        pierreThemeType(currentTheme().kind),
-        normalizeWordWrap(editorSettings().wordWrap),
-        diffMode(),
-      ] as const,
-    ([themeId, themeType, wordWrap, mode]) => {
+      [currentTheme().id, currentTheme().type, normalizeWordWrap(editorSettings().wordWrap), diffSettings()] as const,
+    ([themeId, themeType, wordWrap, currentDiffSettings]) => {
       if (!fileRef) return;
       fileRef.setOptions({
         ...fileRef.options,
@@ -771,10 +765,12 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
           themeId,
           themeType,
           wordWrap,
-          diffMode: mode,
+          diffMode: currentDiffSettings.layout,
           enableLineSelection: false,
+          ...currentDiffSettings,
         }),
       });
+      fileRef.rerender();
     }
   );
 

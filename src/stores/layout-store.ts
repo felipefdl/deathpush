@@ -10,8 +10,6 @@ interface LayoutState {
   terminalHeight: number;
   mainView: MainView;
   sidebarView: SidebarView;
-  diffMode: "inline" | "sideBySide";
-  viewMode: "list" | "tree";
   panelTab: "terminal" | "git-output";
   collapsedPanes: string[];
   terminalMaximized: boolean;
@@ -22,8 +20,6 @@ interface LayoutState {
   setTerminalHeight: (height: number) => void;
   setMainView: (view: MainView) => void;
   setSidebarView: (view: SidebarView) => void;
-  setDiffMode: (mode: "inline" | "sideBySide") => void;
-  setViewMode: (mode: "list" | "tree") => void;
   setPanelTab: (tab: "terminal" | "git-output") => void;
   togglePaneCollapsed: (id: string) => void;
   setTerminalMaximized: (maximized: boolean) => void;
@@ -39,8 +35,6 @@ interface PersistedLayout {
   terminalHeight: number;
   mainView: MainView;
   sidebarView: SidebarView;
-  diffMode: "inline" | "sideBySide";
-  viewMode: "list" | "tree";
   panelTab: "terminal" | "git-output";
   collapsedPanes: string[];
   terminalMaximized: boolean;
@@ -53,8 +47,6 @@ const DEFAULTS: PersistedLayout = {
   terminalHeight: 250,
   mainView: "changes",
   sidebarView: "scm",
-  diffMode: "sideBySide",
-  viewMode: "list",
   panelTab: "terminal",
   collapsedPanes: [],
   terminalMaximized: false,
@@ -92,8 +84,6 @@ const saveLayout = (state: LayoutState) => {
     terminalHeight: state.terminalHeight,
     mainView: state.mainView,
     sidebarView: state.sidebarView,
-    diffMode: state.diffMode,
-    viewMode: state.viewMode,
     panelTab: state.panelTab,
     collapsedPanes: state.collapsedPanes,
     terminalMaximized: state.terminalMaximized,
@@ -129,14 +119,6 @@ export const layoutStore = createStore<LayoutState>((set, get) => ({
       update.mainView = sidebarView === "explorer" ? "file" : "changes";
     }
     set(update);
-    saveLayout(get());
-  },
-  setDiffMode: (diffMode) => {
-    set({ diffMode });
-    saveLayout(get());
-  },
-  setViewMode: (viewMode) => {
-    set({ viewMode });
     saveLayout(get());
   },
   setPanelTab: (panelTab) => {

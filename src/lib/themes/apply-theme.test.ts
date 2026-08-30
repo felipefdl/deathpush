@@ -1,14 +1,9 @@
 import { describe, it, expect, vi } from "vite-plus/test";
 import type { ResolvedTheme } from "./theme-types";
 
-const { setNativeThemeMock, registerDeathPushPierreThemeMock, applyPierrePoolThemeMock } = vi.hoisted(() => ({
+const { setNativeThemeMock, applyPierrePoolThemeMock } = vi.hoisted(() => ({
   setNativeThemeMock: vi.fn(() => Promise.resolve()),
-  registerDeathPushPierreThemeMock: vi.fn(() => Promise.resolve()),
   applyPierrePoolThemeMock: vi.fn(),
-}));
-
-vi.mock("../pierre/theme", () => ({
-  registerDeathPushPierreTheme: registerDeathPushPierreThemeMock,
 }));
 
 vi.mock("../pierre/worker", () => ({
@@ -24,9 +19,12 @@ import { applyTheme, getTerminalTheme } from "./apply-theme";
 const previewTheme: ResolvedTheme = {
   id: "preview-theme",
   label: "Preview Theme",
-  uiTheme: "vs-dark",
   kind: "dark",
-  colors: { "editor.background": "#010203" },
+  name: "preview-theme",
+  type: "dark",
+  bg: "#010203",
+  fg: "#f0f0f0",
+  colors: { "editor.background": "#010203", "editor.foreground": "#f0f0f0" },
   tokenColors: [],
 };
 
@@ -34,23 +32,20 @@ describe("applyTheme", () => {
   it("does not persist or update the native window for a transient preview", () => {
     localStorage.clear();
     setNativeThemeMock.mockClear();
-    registerDeathPushPierreThemeMock.mockClear();
     applyPierrePoolThemeMock.mockClear();
 
     applyTheme(previewTheme, { transient: true });
 
     expect(localStorage.getItem("deathpush:theme")).toBeNull();
     expect(setNativeThemeMock).not.toHaveBeenCalled();
+    expect(document.documentElement.dataset.colorScheme).toBe("dark");
   });
 
-  it("registers the Pierre theme and applies it to the worker pool", async () => {
-    registerDeathPushPierreThemeMock.mockClear();
+  it("applies the bundled Shiki theme to the Pierre worker pool", () => {
     applyPierrePoolThemeMock.mockClear();
 
     applyTheme(previewTheme, { transient: true });
 
-    expect(registerDeathPushPierreThemeMock).toHaveBeenCalledWith(previewTheme);
-    await Promise.resolve();
     expect(applyPierrePoolThemeMock).toHaveBeenCalledWith("preview-theme");
   });
 });
@@ -94,6 +89,15 @@ describe("getTerminalTheme", () => {
     expect(result.brightBlue).toBe("#D00000");
     expect(result.brightMagenta).toBe("#E00000");
     expect(result.brightWhite).toBe("#FF0000");
+  });
+
+  it("expands 3-digit hex so Ghostty can load the theme", () => {
+    const result = getTerminalTheme({
+      "editor.background": "#101010",
+      "editor.foreground": "#FFF",
+    });
+    expect(result.background).toBe("#101010");
+    expect(result.foreground).toBe("#FFFFFF");
   });
 
   it("uses all fallback defaults for an empty colors object", () => {

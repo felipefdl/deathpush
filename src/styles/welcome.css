@@ -41,11 +41,11 @@
   flex-direction: column;
   align-items: center;
   flex: 1;
+  min-height: 0;
   width: 100%;
   max-width: 720px;
   padding: 0 32px 32px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .welcome-logo-wrapper {
@@ -124,18 +124,14 @@
   background: var(--vscode-button-secondaryHoverBackground, #45494e);
 }
 
-body.vs .welcome-action-btn,
-body.hc-light .welcome-action-btn,
-body.vs .welcome-configure-btn,
-body.hc-light .welcome-configure-btn {
+:root[data-color-scheme="light"] .welcome-action-btn,
+:root[data-color-scheme="light"] .welcome-configure-btn {
   border-color: var(--vscode-input-border, #cecece);
   color: var(--vscode-foreground, #3b3b3b);
 }
 
-body.vs .welcome-action-btn:hover,
-body.hc-light .welcome-action-btn:hover,
-body.vs .welcome-configure-btn:hover,
-body.hc-light .welcome-configure-btn:hover {
+:root[data-color-scheme="light"] .welcome-action-btn:hover,
+:root[data-color-scheme="light"] .welcome-configure-btn:hover {
   background: var(--vscode-list-hoverBackground, #e8e8e8);
 }
 
@@ -150,6 +146,8 @@ body.hc-light .welcome-configure-btn:hover {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 24px;
   width: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
 .welcome-list-section {
@@ -171,15 +169,15 @@ body.hc-light .welcome-configure-btn:hover {
 .welcome-list {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  height: 320px;
   border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
   border-radius: var(--radius-md);
   background: var(--vscode-sideBar-background, var(--vscode-editor-background));
 }
 
-body.vs .welcome-list,
-body.hc-light .welcome-list {
+:root[data-color-scheme="light"] .welcome-list {
   border-color: var(--vscode-editorWidget-border, var(--vscode-panel-border, #e5e5e5));
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
@@ -480,10 +478,9 @@ body.hc-light .welcome-list {
 }
 
 .welcome-footer {
-  position: fixed;
-  bottom: 10px;
-  left: 0;
-  right: 0;
+  flex-shrink: 0;
+  width: 100%;
+  padding: 0 0 10px;
   display: flex;
   flex-direction: column;
   align-items: center;

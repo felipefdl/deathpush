@@ -4,7 +4,6 @@ import { explorerStore } from "../../stores/explorer-store";
 import { layoutStore } from "../../stores/layout-store";
 import { repositoryStore } from "../../stores/repository-store";
 import { useStore } from "../../lib/use-store";
-import { getFileIconClasses } from "../../lib/icon-themes/get-icon-classes";
 import { getRecentFiles, addRecentFile } from "../../lib/recent-files";
 import * as commands from "../../lib/tauri-commands";
 import type { FuzzyFileResult, ContentSearchResult } from "../../lib/git-types";
@@ -297,7 +296,7 @@ export const QuickOpen = (props: QuickOpenProps) => {
                     }}
                     onClick={() => selectFile(result().path, result().lineNumber)}
                   >
-                    <span class={["quick-open-item-icon", getFileIconClasses(result().path, "file")]} />
+                    <span class="codicon codicon-file quick-open-item-icon" />
                     <span class="quick-open-item-name">
                       {getFileName(result().path)}:<b>{result().lineNumber}</b>
                     </span>
@@ -348,7 +347,7 @@ export const QuickOpen = (props: QuickOpenProps) => {
                       }}
                       onClick={() => selectFile(result().path, goToLine())}
                     >
-                      <span class={["quick-open-item-icon", getFileIconClasses(result().path, "file")]} />
+                      <span class="codicon codicon-file quick-open-item-icon" />
                       <span class="quick-open-item-name">
                         <HighlightedName name={fileName()} positions={namePositions()} />
                       </span>

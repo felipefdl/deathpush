@@ -13,13 +13,11 @@ beforeEach(() => {
     error: null,
     stashes: [],
     amendMode: false,
-    selectedFiles: new Set<string>(),
     fileFilter: "",
     commitLog: [],
     selectedCommit: null,
     commitDetail: null,
     tags: [],
-    focusedIndex: null,
     terminalGroups: [],
     activeGroupId: null,
     terminalIdCounter: 0,
@@ -47,7 +45,6 @@ describe("repository store", () => {
       expect(state.selectedCommit).toBeNull();
       expect(state.commitDetail).toBeNull();
       expect(state.tags).toEqual([]);
-      expect(state.focusedIndex).toBeNull();
       expect(state.terminalGroups).toEqual([]);
       expect(state.activeGroupId).toBeNull();
       expect(state.terminalIdCounter).toBe(0);
@@ -56,55 +53,10 @@ describe("repository store", () => {
       expect(state.cursorLine).toBeNull();
     });
 
-    it("has empty Sets for operations and selectedFiles", () => {
+    it("has an empty operations set", () => {
       const state = repositoryStore.getState();
       expect(state.operations).toBeInstanceOf(Set);
       expect(state.operations.size).toBe(0);
-      expect(state.selectedFiles).toBeInstanceOf(Set);
-      expect(state.selectedFiles.size).toBe(0);
-    });
-  });
-
-  describe("toggleFileSelection", () => {
-    it("selects a single file without ctrl", () => {
-      repositoryStore.getState().toggleFileSelection("file-a", false, false);
-      expect(repositoryStore.getState().selectedFiles).toEqual(new Set(["file-a"]));
-    });
-
-    it("adds a file with ctrl+click", () => {
-      repositoryStore.getState().toggleFileSelection("file-a", false, false);
-      repositoryStore.getState().toggleFileSelection("file-b", true, false);
-      expect(repositoryStore.getState().selectedFiles).toEqual(new Set(["file-a", "file-b"]));
-    });
-
-    it("toggles off a file with ctrl+click", () => {
-      repositoryStore.getState().toggleFileSelection("file-a", false, false);
-      repositoryStore.getState().toggleFileSelection("file-b", true, false);
-      repositoryStore.getState().toggleFileSelection("file-a", true, false);
-      expect(repositoryStore.getState().selectedFiles).toEqual(new Set(["file-b"]));
-    });
-
-    it("replaces selection without ctrl", () => {
-      repositoryStore.getState().toggleFileSelection("file-a", false, false);
-      repositoryStore.getState().toggleFileSelection("file-b", true, false);
-      repositoryStore.getState().toggleFileSelection("file-c", false, false);
-      expect(repositoryStore.getState().selectedFiles).toEqual(new Set(["file-c"]));
-    });
-
-    it("accumulates multiple ctrl+clicks", () => {
-      repositoryStore.getState().toggleFileSelection("a", true, false);
-      repositoryStore.getState().toggleFileSelection("b", true, false);
-      repositoryStore.getState().toggleFileSelection("c", true, false);
-      expect(repositoryStore.getState().selectedFiles).toEqual(new Set(["a", "b", "c"]));
-    });
-  });
-
-  describe("clearFileSelection", () => {
-    it("clears all selected files", () => {
-      repositoryStore.getState().toggleFileSelection("file-a", false, false);
-      repositoryStore.getState().toggleFileSelection("file-b", true, false);
-      repositoryStore.getState().clearFileSelection();
-      expect(repositoryStore.getState().selectedFiles.size).toBe(0);
     });
   });
 
@@ -218,6 +170,13 @@ describe("repository store", () => {
       repositoryStore.getState().renamePane(1, "My Shell");
       const state = repositoryStore.getState();
       expect(state.terminalGroups[0].panes[0].name).toBe("My Shell");
+    });
+
+    it("renamePane does not update when the name is unchanged", () => {
+      repositoryStore.getState().addTerminalGroup();
+      const before = repositoryStore.getState().terminalGroups;
+      repositoryStore.getState().renamePane(1, "Terminal 1");
+      expect(repositoryStore.getState().terminalGroups).toBe(before);
     });
 
     it("setActivePaneInGroup sets active pane", () => {

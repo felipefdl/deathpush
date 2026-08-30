@@ -40,13 +40,11 @@ interface RepositoryState {
   error: string | null;
   stashes: StashEntry[];
   amendMode: boolean;
-  selectedFiles: Set<string>;
   fileFilter: string;
   commitLog: CommitEntry[];
   selectedCommit: string | null;
   commitDetail: CommitDetail | null;
   tags: TagEntry[];
-  focusedIndex: number | null;
   terminalGroups: TerminalGroup[];
   activeGroupId: number | null;
   terminalIdCounter: number;
@@ -66,13 +64,10 @@ interface RepositoryState {
   endOperation: (name: string) => void;
   isOperationRunning: (name: string) => boolean;
   setError: (error: string | null) => void;
-  toggleFileSelection: (path: string, ctrlKey: boolean, shiftKey: boolean) => void;
-  clearFileSelection: () => void;
   setFileFilter: (filter: string) => void;
   setCommitLog: (log: CommitEntry[]) => void;
   setSelectedCommit: (id: string | null) => void;
   setCommitDetail: (detail: CommitDetail | null) => void;
-  setFocusedIndex: (index: number | null) => void;
   addTerminalGroup: () => void;
   removeTerminalGroup: (groupId: number) => void;
   setActiveGroup: (groupId: number) => void;
@@ -97,13 +92,11 @@ export const repositoryStore = createStore<RepositoryState>((set, get) => ({
   error: null,
   stashes: [],
   amendMode: false,
-  selectedFiles: new Set<string>(),
   fileFilter: "",
   commitLog: [],
   selectedCommit: null,
   commitDetail: null,
   tags: [],
-  focusedIndex: null,
   terminalGroups: [],
   activeGroupId: null,
   terminalIdCounter: 0,
@@ -156,26 +149,10 @@ export const repositoryStore = createStore<RepositoryState>((set, get) => ({
     }),
   isOperationRunning: (name) => get().operations.has(name),
   setError: (error) => set({ error }),
-  toggleFileSelection: (key, ctrlKey, _shiftKey) => {
-    set((state) => {
-      if (ctrlKey) {
-        const next = new Set(state.selectedFiles);
-        if (next.has(key)) {
-          next.delete(key);
-        } else {
-          next.add(key);
-        }
-        return { selectedFiles: next };
-      }
-      return { selectedFiles: new Set([key]) };
-    });
-  },
-  clearFileSelection: () => set({ selectedFiles: new Set<string>() }),
   setFileFilter: (filter) => set({ fileFilter: filter }),
   setCommitLog: (log) => set({ commitLog: log }),
   setSelectedCommit: (id) => set({ selectedCommit: id }),
   setCommitDetail: (detail) => set({ commitDetail: detail }),
-  setFocusedIndex: (index) => set({ focusedIndex: index }),
   addTerminalGroup: () =>
     set((state) => {
       const num = state.terminalIdCounter + 1;
@@ -249,13 +226,18 @@ export const repositoryStore = createStore<RepositoryState>((set, get) => ({
       terminalGroups: state.terminalGroups.map((g) => (g.groupId === groupId ? { ...g, panes, activePaneId } : g)),
     });
   },
-  renamePane: (paneId, name) =>
-    set((state) => ({
-      terminalGroups: state.terminalGroups.map((g) => ({
-        ...g,
-        panes: g.panes.map((p) => (p.paneId === paneId ? { ...p, name } : p)),
+  renamePane: (paneId, name) => {
+    const { terminalGroups } = get();
+    if (terminalGroups.some((group) => group.panes.some((pane) => pane.paneId === paneId && pane.name === name))) {
+      return;
+    }
+    set({
+      terminalGroups: terminalGroups.map((group) => ({
+        ...group,
+        panes: group.panes.map((pane) => (pane.paneId === paneId ? { ...pane, name } : pane)),
       })),
-    })),
+    });
+  },
   setActivePaneInGroup: (groupId, paneId) =>
     set((state) => ({
       terminalGroups: state.terminalGroups.map((g) => (g.groupId === groupId ? { ...g, activePaneId: paneId } : g)),

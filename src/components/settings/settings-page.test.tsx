@@ -46,6 +46,36 @@ describe("SettingsPage controls", () => {
     expect(result.getByRole("spinbutton", { name: "Color Saturation" })).toBeTruthy();
   });
 
+  it("offers focused Pierre diff customization controls", () => {
+    const result = render(() => <SettingsPage />);
+
+    expect(result.getByRole("combobox", { name: "Diff Layout" })).toBeTruthy();
+    expect(result.getByRole("switch", { name: "Inline Hunk Actions" })).toBeTruthy();
+    expect(result.getByRole("switch", { name: "Line Numbers" })).toBeTruthy();
+    expect(result.getByRole("switch", { name: "Background Highlighting" })).toBeTruthy();
+    expect(result.getByRole("combobox", { name: "Diff Indicators" })).toBeTruthy();
+    expect(result.getByRole("combobox", { name: "Inline Changes" })).toBeTruthy();
+    expect(result.getByRole("combobox", { name: "Hunk Separators" })).toBeTruthy();
+  });
+
+  it("shows only supported terminal behavior controls", () => {
+    const result = render(() => <SettingsPage />);
+
+    expect(result.getByRole("switch", { name: "Right Click Selects Word" })).toBeTruthy();
+    expect(result.getByRole("switch", { name: "macOS Option Click Forces Selection" })).toBeTruthy();
+    expect(result.queryByRole("spinbutton", { name: "Scroll Sensitivity" })).toBeNull();
+    expect(result.queryByRole("spinbutton", { name: "Fast Scroll Sensitivity" })).toBeNull();
+    expect(result.queryByRole("spinbutton", { name: "Smooth Scroll Duration" })).toBeNull();
+    expect(result.queryByRole("switch", { name: "Scroll on User Input" })).toBeNull();
+    expect(result.queryByRole("switch", { name: "Alt Click Moves Cursor" })).toBeNull();
+    expect(result.queryByRole("switch", { name: "macOS Option as Meta" })).toBeNull();
+    expect(result.queryByRole("switch", { name: "Draw Bold Text in Bright Colors" })).toBeNull();
+    expect(result.queryByRole("spinbutton", { name: "Minimum Contrast Ratio" })).toBeNull();
+    expect(result.queryByRole("switch", { name: "Rescale Overlapping Glyphs" })).toBeNull();
+    expect(result.queryByRole("spinbutton", { name: "Tab Stop Width" })).toBeNull();
+    expect(result.queryByRole("textbox", { name: "Word Separator" })).toBeNull();
+  });
+
   it("limits word wrap to Off and On and drops render whitespace", () => {
     const result = render(() => <SettingsPage />);
     const wrap = result.getByRole("combobox", { name: "Word Wrap" });
@@ -54,6 +84,24 @@ describe("SettingsPage controls", () => {
       ["on", "On"],
     ]);
     expect(result.queryByRole("combobox", { name: "Render Whitespace" })).toBeNull();
+  });
+
+  it("offers the built-in Trees density and icon presets", () => {
+    const result = render(() => <SettingsPage />);
+    const density = result.getByRole("combobox", { name: "Tree Density" });
+    const icons = result.getByRole("combobox", { name: "Tree Icons" });
+
+    expect([...density.querySelectorAll("option")].map((option) => [option.value, option.textContent])).toEqual([
+      ["compact", "Compact"],
+      ["default", "Default"],
+      ["relaxed", "Relaxed"],
+    ]);
+    expect([...icons.querySelectorAll("option")].map((option) => [option.value, option.textContent])).toEqual([
+      ["minimal", "Minimal"],
+      ["standard", "Standard"],
+      ["complete", "Complete"],
+    ]);
+    expect(result.queryByText("File Icon Theme")).toBeNull();
   });
 
   it("does not reset settings when the confirm dialog is cancelled", async () => {

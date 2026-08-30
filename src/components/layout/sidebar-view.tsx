@@ -1,3 +1,4 @@
+import { createEffect, createSignal } from "solid-js";
 import { layoutStore } from "../../stores/layout-store";
 import { useStore } from "../../lib/use-store";
 import { ScmView } from "../scm/scm-view";
@@ -12,6 +13,14 @@ type SidebarViewProps = {
 export const SidebarView = (props: SidebarViewProps) => {
   const sidebarView = useStore(layoutStore, (s) => s.sidebarView);
   const { setSidebarView } = layoutStore.getState();
+  const [explorerMounted, setExplorerMounted] = createSignal(sidebarView() === "explorer");
+
+  createEffect(
+    () => sidebarView() === "explorer",
+    (isExplorerActive) => {
+      if (isExplorerActive) setExplorerMounted(true);
+    }
+  );
 
   return (
     <div style={{ display: "flex", "flex-direction": "column", height: "100%" }}>
@@ -26,15 +35,17 @@ export const SidebarView = (props: SidebarViewProps) => {
           Explorer
         </button>
       </div>
-      <div style={{ flex: 1, "min-height": 0, display: sidebarView() === "scm" ? undefined : "none" }}>
+      <div hidden={sidebarView() !== "scm"} style={{ flex: 1, "min-height": 0 }}>
         <ScmView
           onOpenRepository={() => props.onOpenRepository()}
           onCloneRepository={() => props.onCloneRepository()}
         />
       </div>
-      <div style={{ flex: 1, "min-height": 0, display: sidebarView() === "explorer" ? undefined : "none" }}>
-        <ExplorerView onOpenRepository={() => props.onOpenRepository()} />
-      </div>
+      {explorerMounted() && (
+        <div hidden={sidebarView() !== "explorer"} style={{ flex: 1, "min-height": 0 }}>
+          <ExplorerView onOpenRepository={() => props.onOpenRepository()} />
+        </div>
+      )}
     </div>
   );
 };

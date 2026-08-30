@@ -1,12 +1,9 @@
-import { createMemo, createSignal, For } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import type { FileEntry, ResourceGroup, ResourceGroupKind } from "../../lib/git-types";
 import { repositoryStore } from "../../stores/repository-store";
-import { layoutStore } from "../../stores/layout-store";
-import { useStore } from "../../lib/use-store";
 import { flushPaths } from "../../lib/pierre/flush-registry";
 import * as commands from "../../lib/tauri-commands";
-import { ResourceItem } from "./resource-item";
 import { ResourceTree } from "./resource-tree";
 
 type ResourceGroupHeaderProps = {
@@ -67,41 +64,23 @@ export const ResourceGroupHeader = (props: ResourceGroupHeaderProps) => (
 
 type ResourceGroupBodyProps = {
   files: FileEntry[];
-  viewMode: "list" | "tree";
   groupKind: ResourceGroupKind;
-  flatIndexOffset: number;
-  focusedIndex: number | null;
 };
 
 export const ResourceGroupBody = (props: ResourceGroupBodyProps) => (
   <div class="resource-group-body">
-    {props.viewMode === "tree" ? (
-      <ResourceTree files={props.files} groupKind={props.groupKind} />
-    ) : (
-      <For each={props.files} keyed={(file) => file.path}>
-        {(file, i) => (
-          <ResourceItem
-            file={file()}
-            groupKind={props.groupKind}
-            focused={props.focusedIndex === props.flatIndexOffset + i()}
-          />
-        )}
-      </For>
-    )}
+    <ResourceTree files={props.files} groupKind={props.groupKind} />
   </div>
 );
 
 type ResourceGroupViewProps = {
   group: ResourceGroup;
   filter?: string;
-  flatIndexOffset?: number;
 };
 
 export const ResourceGroupView = (props: ResourceGroupViewProps) => {
   const [collapsed, setCollapsed] = createSignal(false);
   const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
-  const focusedIndex = useStore(repositoryStore, (s) => s.focusedIndex);
-  const viewMode = useStore(layoutStore, (s) => s.viewMode);
 
   const filteredFiles = createMemo(() => {
     if (!props.filter) return props.group.files;
@@ -193,15 +172,7 @@ export const ResourceGroupView = (props: ResourceGroupViewProps) => {
             onUnstageAll={handleUnstageAll}
             onDiscardAll={handleDiscardAll}
           />
-          {!collapsed() && (
-            <ResourceGroupBody
-              files={filteredFiles()}
-              viewMode={viewMode()}
-              groupKind={props.group.kind}
-              flatIndexOffset={props.flatIndexOffset ?? 0}
-              focusedIndex={focusedIndex()}
-            />
-          )}
+          {!collapsed() && <ResourceGroupBody files={filteredFiles()} groupKind={props.group.kind} />}
         </div>
       )}
     </>

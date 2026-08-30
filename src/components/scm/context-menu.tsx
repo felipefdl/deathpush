@@ -14,6 +14,7 @@ type ContextMenuProps = {
   y: number;
   items: ContextMenuItem[];
   onClose: () => void;
+  treeContextRoot?: boolean;
 };
 
 export const ContextMenu = (props: ContextMenuProps) => {
@@ -43,6 +44,7 @@ export const ContextMenu = (props: ContextMenuProps) => {
     <Portal>
       <div
         class="context-menu"
+        data-file-tree-context-menu-root={props.treeContextRoot ? "true" : undefined}
         ref={(el) => {
           menuRef = el;
         }}

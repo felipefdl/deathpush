@@ -17,10 +17,10 @@ DeathPush can review repository changes produced by coding agents such as Claude
 - File-level staging and unstaging
 - Commit and amend from the same view
 
-### Monaco Diff Viewer
+### Pierre Diff Viewer
 
-- Monaco editor for text diffs
-- Syntax highlighting, including custom support for TOML, Justfile, and dotenv files
+- Pierre FileDiff and Editor for text diffs
+- Shiki highlighting
 - Side-by-side and unified views
 - Edit unstaged files directly in the diff
 
@@ -54,7 +54,7 @@ DeathPush can review repository changes produced by coding agents such as Claude
 
 ### Theming
 
-- Built-in themes, including dark, light, and high-contrast variants
+- Built-in dark and light themes
 - Theme-aware diff highlighting
 
 ### Integrated Terminal
@@ -116,7 +116,7 @@ DeathPush uses a hybrid Git engine:
 
 - `git2` for read operations: status, diff, branches, log, tags
 - Native `git` CLI for write operations: commit, push, pull, stash, checkout, reset, clone, so hooks, signing, credentials, SSH config, and LFS keep working
-- Frontend: Solid, TypeScript, Monaco
+- Frontend: Solid, TypeScript, Pierre
 - Backend: Rust and Tauri
 - Terminal: libghostty (Ghostty VT engine) with a native PTY
 - Local operation. No telemetry, no accounts.

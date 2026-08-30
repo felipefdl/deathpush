@@ -20,7 +20,7 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 | State | Zustand vanilla stores with Solid selectors |
 | Diff viewer | Pierre FileDiff + Editor |
 | Terminal | WTerm DOM + Ghostty core + portable-pty (Rust) |
-| Icons | VS Code Codicon font (@vscode/codicons) |
+| Icons and trees | `@pierre/trees` in Explorer/SCM; VS Code Codicons elsewhere |
 | Package manager | Vite+ (`vp`) / pnpm |
 | Linter | `vp lint` |
 | Formatter | `vp fmt` (TS), rustfmt (Rust) |
@@ -63,14 +63,12 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 
 ### Frontend (src/)
 
-- `stores/repository-store.ts` -- Zustand store (status, files, diff, branches, stashes, tags, commitLog, operations, fileFilter, focusedIndex, amendMode, fileHunks, terminalGroups)
-- `stores/layout-store.ts` -- Zustand store for layout (sidebarWidth, terminalVisible, terminalHeight, mainView, diffMode, viewMode, panelTab, collapsedPanes, terminalMaximized) with per-project localStorage persistence
+- `stores/repository-store.ts` -- Zustand store (status, files, diff, branches, stashes, tags, commitLog, operations, fileFilter, amendMode, fileHunks, terminalGroups)
+- `stores/layout-store.ts` -- Zustand store for layout (sidebarWidth, terminalVisible, terminalHeight, mainView, panelTab, collapsedPanes, terminalMaximized) with per-project localStorage persistence
 - `stores/theme-store.ts` -- Zustand store for color theme (currentTheme, setTheme)
-- `stores/icon-theme-store.ts` -- Zustand store for file icon theme (currentIconTheme, setIconTheme)
-- `stores/settings-store.ts` -- Zustand store for app settings (UI, editor, terminal, git, projects) with localStorage persistence
+- `stores/settings-store.ts` -- Zustand store for app settings (UI, editor, diff viewer, terminal, git, projects) with localStorage persistence, including tree density and icon presets
 - `lib/tauri-commands.ts` -- Typed invoke() wrappers for all 62 Tauri commands
 - `lib/git-types.ts` -- TypeScript types matching Rust DTOs (including BlameLineGroup, FileBlame, LastCommitInfo)
-- `lib/flat-file-list.ts` -- Flatten resource groups into indexed file list for keyboard nav
 - `lib/format-date.ts` -- Relative date formatting
 - `lib/status-colors.ts` -- FileStatus -> CSS variable color
 - `lib/status-icons.ts` -- FileStatus -> single letter label
@@ -81,19 +79,20 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - `lib/author-utils.ts` -- Author initials extraction + deterministic avatar color hashing
 - `lib/pierre/` -- Pierre worker pool, theme register, options, keymap, find host, flush, save session, hunk annotations, line map
 - `lib/updater.ts` -- Tauri auto-update check + download wrapper
-- `lib/themes/` -- Color theme infrastructure (types, registry, defaults, apply-theme, json/)
-- `lib/icon-themes/` -- File icon theme infrastructure (types, registry, apply, get-icon-classes, generate-icon-css)
+- `lib/themes/` -- Color theme infrastructure (types, registry, apply-theme)
+- `lib/trees.ts` -- Adapters from DeathPush repository data to Pierre Trees paths and Git status
 - `hooks/` -- use-repository, use-git-status, use-diff, use-branches, use-keyboard-shortcuts, use-tauri-event, use-commit-log, use-stash, use-tags, use-resize-observer, use-color-scheme
-- `components/scm/` -- SCM view, commit input (with amend/undo), resource groups (list + tree), resource item, resource tree, file filter, stash view, stash entry, action button, context menu, merge banner, overflow menu, SCM toolbar, resizable pane container
+- `components/scm/` -- SCM view, commit input (with amend/undo), Pierre Trees resource groups, file filter, stash view, action button, context menu, merge banner, overflow menu, SCM toolbar, resizable pane container
+- `components/trees/` -- Solid lifecycle host and context-menu bridge for `@pierre/trees`
 - `components/pierre/` -- VirtualizedFile + Editor (FileViewer), FileDiff + Editor (SCM and history), UnresolvedFile (merge)
 - `components/diff/` -- Diff header, image/binary/large panes, empty state around Pierre hosts
 - `components/history/` -- Commit history (commit-list with cherry-pick/reset context menu, commit-detail, commit-file-tree, history-view)
 - `components/branch/` -- Branch picker with search, create, branch item, and tags section (tag-item)
 - `components/terminal/` -- Terminal panel, WTerm/Ghostty terminal instance, terminal group view, git output panel
 - `components/layout/` -- App layout, main panel (Changes/History/Settings tabs), status bar, title bar (macOS overlay), clone dialog
-- `components/settings/` -- Settings page (UI, editor, terminal, git, projects configuration)
+- `components/settings/` -- Settings page (UI, editor, diff viewer, terminal, git, projects configuration)
 - `components/welcome/` -- Welcome screen with recent projects and project directory scanner
-- `components/theme/` -- Theme picker, icon theme picker (VS Code command palette style)
+- `components/theme/` -- Color theme picker (VS Code command palette style)
 - `components/shared/` -- Workspace config modal (multi-workspace directory configuration)
 - `components/ui/` -- Spinner
 - `styles/global.css` -- Base styles + theme picker CSS (no hardcoded colors; all set by JS via applyTheme)
@@ -211,12 +210,11 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 - `src-tauri/src/commands/` -- Tauri command handlers (thin, delegate to git/ or pty)
 - `src-tauri/src/git/` -- Git operations (git2 reads, CLI writes, blame)
 - `src-tauri/src/pty.rs` -- PTY session management (portable-pty)
-- `src/components/` -- Solid components organized by feature (scm/, diff/, pierre/, branch/, history/, terminal/, layout/, settings/, welcome/, theme/, shared/, ui/)
+- `src/components/` -- Solid components organized by feature (scm/, explorer/, trees/, diff/, pierre/, branch/, history/, terminal/, layout/, settings/, welcome/, theme/, shared/, ui/)
 - `src/hooks/` -- Custom Solid reactive utilities
-- `src/stores/` -- Zustand stores (repository, layout, theme, icon-theme, settings)
-- `src/lib/` -- Utilities, types, constants, Pierre hosts (`lib/pierre/`)
+- `src/stores/` -- Zustand stores (repository, layout, theme, settings)
+- `src/lib/` -- Utilities, types, constants, Trees adapters, Pierre hosts (`lib/pierre/`)
 - `src/lib/themes/` -- Color theme infrastructure
-- `src/lib/icon-themes/` -- File icon theme infrastructure
 - `src/styles/` -- CSS (global.css, scm.css, history.css, terminal.css, welcome.css, settings.css, codicons.css)
 
 ### Git Operations Pattern
@@ -241,15 +239,12 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 
 ### Themes
 
-- Theme system uses VS Code's native JSON format (`src/lib/themes/json/`)
-- All bundled themes come from VS Code built-in extensions or MIT-licensed community projects
-- When adding new themes, always verify the source license permits redistribution (MIT, Apache-2.0, ISC, BSD, or similar permissive license) -- never bundle themes with restrictive or unclear licenses
-- VS Code built-in themes ship under the VS Code MIT license and can always be used
-- CSS variables are set dynamically by `applyTheme()` at startup (no hardcoded colors in `:root`)
-- Color key conversion: `editor.background` -> `--vscode-editor-background` (dots become hyphens, prefix `--vscode-`)
-- Pierre theme register id equals `theme.id`
-- Terminal theme extracted from resolved theme `colors` at runtime via `getTerminalTheme()`
+- Theme system uses Pierre's shared Shiki catalog through `@pierre/theming`
+- Default themes are `vesper` and `ayu-light`
+- Shiki workbench colors drive app-wide `--vscode-*` variables
+- Pierre Diffs consume Shiki theme IDs directly; Pierre Trees use `themeToTreeStyles()`
 - Theme picker opens via Cmd+K Cmd+T chord or status bar icon
+- Terminal theme extracted from resolved theme `colors` at runtime via `getTerminalTheme()`
 
 ### CLI Tool
 
@@ -265,24 +260,25 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 - Theme register id equals `theme.id`
 - Word wrap is Off/On (`overflow: wrap | scroll`)
 - Editor font family, size, line height, and tab size apply as CSS on Pierre hosts
+- Diff layout, hunk separators, and inline hunk actions come from settings and apply live
 
-### Icon Themes
+### Pierre Trees
 
-- File icon themes use VS Code icon theme JSON format (`src/lib/icon-themes/`)
-- Icon theme registry resolves theme definitions into CSS classes
-- `applyIconTheme()` generates and injects CSS for file/folder icons
-- Icon theme picker available alongside color theme picker
-- Icon theme persisted in localStorage
+- Explorer and SCM Changes use `@pierre/trees` through `components/trees/file-tree-host.tsx`
+- The Explorer backend gets tracked and untracked files through asynchronous `git ls-files`; Trees infers directories from those paths
+- UI settings expose the Trees density presets (compact, default, relaxed) and icon presets (minimal, standard, complete)
+- Default tree density is `compact`; default tree icons are `complete`
+- History and Quick Open use neutral Codicon file and folder icons, not Trees icons
 
 ### Settings
 
 - App settings stored in localStorage under `deathpush:settings`
-- Sections: UI (font, sidebar position), Editor (font, tab size, word wrap), Terminal (font, cursor), Git (blame toggle), Projects (directory, scan depth)
+- Sections: UI (font, sidebar position, tree density, tree icons), Editor (font, tab size, word wrap), Diff Viewer (layout, inline hunk actions, line numbers, indicators, inline highlighting, backgrounds, hunk separators), Terminal (font, cursor, shell, bell, copy on select, right-click word select), Git (blame toggle), Projects (directory, scan depth)
 - Settings page accessible via Cmd+, or DeathPush menu
 
 ### Layout Persistence
 
-- Layout state (sidebar width, terminal visibility/height, diff mode, view mode, panel tab, collapsed panes) persisted per-project in localStorage
+- Layout state (sidebar width, terminal visibility/height, panel tab, collapsed panes) persisted per-project in localStorage
 - Key format: `deathpush:layout:{base64(root)}`
 - Transient views (settings, terminal, output) reset to "changes" on reload
 

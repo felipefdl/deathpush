@@ -24,7 +24,6 @@ const MENU_ITEMS: MenuItem[] = [
   { type: "item", label: "Toggle Diff Mode", shortcut: "Ctrl+Shift+P", event: "menu:toggle-diff", needsRepo: true },
   { type: "separator" },
   { type: "item", label: "Color Theme...", event: "menu:color-theme" },
-  { type: "item", label: "File Icon Theme...", event: "menu:icon-theme" },
   { type: "separator" },
   { type: "item", label: "Zoom In", shortcut: "Ctrl+=", event: "menu:zoom-in" },
   { type: "item", label: "Zoom Out", shortcut: "Ctrl+-", event: "menu:zoom-out" },

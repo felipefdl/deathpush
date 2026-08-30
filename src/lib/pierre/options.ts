@@ -17,17 +17,23 @@ export const buildPierreDiffOptions = (args: {
   wordWrap: "off" | "on";
   diffMode: "inline" | "sideBySide";
   enableLineSelection: boolean;
+  showLineNumbers: boolean;
+  diffIndicators: "classic" | "bars" | "none";
+  lineDiffType: "word-alt" | "word" | "char" | "none";
+  showBackground: boolean;
+  hunkSeparators: "simple" | "metadata" | "line-info" | "line-info-basic";
 }): FileDiffOptions<undefined> => ({
   theme: args.themeId,
   themeType: args.themeType,
   preferredHighlighter: "shiki-js" as const,
   disableFileHeader: true,
+  disableLineNumbers: !args.showLineNumbers,
   diffStyle: args.diffMode === "sideBySide" ? "split" : "unified",
   overflow: args.wordWrap === "on" ? "wrap" : "scroll",
   unsafeCSS: PIERRE_SCROLLBAR_CSS,
-  hunkSeparators: "line-info-basic" as const,
+  hunkSeparators: args.hunkSeparators,
   enableLineSelection: args.enableLineSelection,
-  lineDiffType: "word-alt" as const,
-  disableBackground: false,
-  diffIndicators: "none" as const,
+  lineDiffType: args.lineDiffType,
+  disableBackground: !args.showBackground,
+  diffIndicators: args.diffIndicators,
 });

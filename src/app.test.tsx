@@ -59,7 +59,7 @@ describe("App project refresh", () => {
     }));
     localStorage.clear();
     repositoryStore.setState({ status: null, error: null });
-    explorerStore.getState().clearCache();
+    explorerStore.getState().reset();
     layoutStore.setState({ mainView: "changes", sidebarView: "scm" });
   });
 
@@ -71,14 +71,14 @@ describe("App project refresh", () => {
 
   it("preserves the selected Explorer file when the same repository refreshes", () => {
     const loadForProject = vi.spyOn(layoutStore.getState(), "loadForProject");
-    const clearCache = vi.spyOn(explorerStore.getState(), "clearCache");
+    const resetExplorer = vi.spyOn(explorerStore.getState(), "reset");
     render(() => <App />);
     flush();
 
     repositoryStore.getState().setStatus(STATUS);
     flush();
     expect(loadForProject).toHaveBeenCalledTimes(1);
-    expect(clearCache).toHaveBeenCalledTimes(1);
+    expect(resetExplorer).toHaveBeenCalledTimes(1);
 
     layoutStore.getState().setMainView("file");
     explorerStore.getState().setSelectedPath("src/app.tsx");
@@ -87,7 +87,7 @@ describe("App project refresh", () => {
     flush();
 
     expect(loadForProject).toHaveBeenCalledTimes(1);
-    expect(clearCache).toHaveBeenCalledTimes(1);
+    expect(resetExplorer).toHaveBeenCalledTimes(1);
     expect(layoutStore.getState().mainView).toBe("file");
     expect(explorerStore.getState().selectedPath).toBe("src/app.tsx");
   });

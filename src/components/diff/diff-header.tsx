@@ -10,8 +10,9 @@ export const DiffHeader = (props: { isDirty?: boolean }) => {
   const isDiffDirty = useStore(repositoryStore, (s) => s.isDiffDirty);
   const { setBlame } = repositoryStore.getState();
   const blameEnabled = useStore(settingsStore, (s) => s.settings.git.blame);
-  const diffMode = useStore(layoutStore, (s) => s.diffMode);
-  const { setDiffMode, setMainView } = layoutStore.getState();
+  const diffLayout = useStore(settingsStore, (s) => s.settings.diff.layout);
+  const { updateDiff } = settingsStore.getState();
+  const { setMainView } = layoutStore.getState();
   let fetchedPath: string | null = null;
 
   createEffect(
@@ -56,10 +57,10 @@ export const DiffHeader = (props: { isDirty?: boolean }) => {
             </button>
             <button
               class="scm-toolbar-button"
-              onClick={() => setDiffMode(diffMode() === "inline" ? "sideBySide" : "inline")}
-              title={diffMode() === "inline" ? "Switch to side by side" : "Switch to inline"}
+              onClick={() => updateDiff({ layout: diffLayout() === "inline" ? "sideBySide" : "inline" })}
+              title={diffLayout() === "inline" ? "Switch to side by side" : "Switch to inline"}
             >
-              <span class={`codicon ${diffMode() === "inline" ? "codicon-split-horizontal" : "codicon-list-flat"}`} />
+              <span class={`codicon ${diffLayout() === "inline" ? "codicon-split-horizontal" : "codicon-list-flat"}`} />
             </button>
           </div>
         </div>

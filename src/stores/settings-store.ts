@@ -1,8 +1,7 @@
+import type { FileTreeBuiltInIconSet, FileTreeDensityKeyword } from "@pierre/trees";
 import { createStore } from "zustand/vanilla";
-import { DEFAULT_ICON_THEME_ID } from "../lib/icon-themes/icon-theme-registry";
 import { normalizeWordWrap } from "../lib/pierre/normalize-editor-settings";
 import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from "../lib/themes/theme-registry";
-import { iconThemeStore } from "./icon-theme-store";
 import { themeStore } from "./theme-store";
 
 export type FontWeight = "normal" | "bold" | "100" | "200" | "300" | "400" | "500" | "600" | "700" | "800" | "900";
@@ -15,6 +14,16 @@ export interface EditorSettings {
   wordWrap: "off" | "on";
 }
 
+export interface DiffSettings {
+  layout: "inline" | "sideBySide";
+  showInlineHunkActions: boolean;
+  showLineNumbers: boolean;
+  diffIndicators: "classic" | "bars" | "none";
+  lineDiffType: "word-alt" | "word" | "char" | "none";
+  showBackground: boolean;
+  hunkSeparators: "simple" | "metadata" | "line-info" | "line-info-basic";
+}
+
 export interface TerminalSettings {
   fontSize: number;
   fontFamily: string;
@@ -23,28 +32,13 @@ export interface TerminalSettings {
   cursorStyle: "block" | "underline" | "bar";
   scrollback: number;
   copyOnSelect: boolean;
-  // Tier 1
-  macOptionIsMeta: boolean;
   cursorInactiveStyle: "outline" | "block" | "bar" | "underline" | "none";
-  minimumContrastRatio: number;
-  scrollSensitivity: number;
-  fastScrollSensitivity: number;
   fontWeight: FontWeight;
   fontWeightBold: FontWeight;
-  // Tier 2
   letterSpacing: number;
   cursorWidth: number;
-  smoothScrollDuration: number;
-  drawBoldTextInBrightColors: boolean;
   rightClickSelectsWord: boolean;
   macOptionClickForcesSelection: boolean;
-  altClickMovesCursor: boolean;
-  // Tier 3
-  wordSeparator: string;
-  tabStopWidth: number;
-  scrollOnUserInput: boolean;
-  rescaleOverlappingGlyphs: boolean;
-  // App-specific
   shellPath: string;
   bellStyle: "off" | "sound" | "visual" | "both";
   colorSaturation: number;
@@ -60,6 +54,8 @@ export interface UISettings {
   sidebarPosition: "left" | "right";
   alwaysOpenTerminalOnStart: boolean;
   zoomLevel: number;
+  treeDensity: FileTreeDensityKeyword;
+  treeIcons: FileTreeBuiltInIconSet;
 }
 
 export interface WorkspaceEntry {
@@ -74,6 +70,7 @@ export interface ProjectsSettings {
 export interface AppSettings {
   ui: UISettings;
   editor: EditorSettings;
+  diff: DiffSettings;
   terminal: TerminalSettings;
   git: GitSettings;
   projects: ProjectsSettings;
@@ -83,6 +80,7 @@ interface SettingsState {
   settings: AppSettings;
   updateUI: (partial: Partial<UISettings>) => void;
   updateEditor: (partial: Partial<EditorSettings>) => void;
+  updateDiff: (partial: Partial<DiffSettings>) => void;
   updateTerminal: (partial: Partial<TerminalSettings>) => void;
   updateGit: (partial: Partial<GitSettings>) => void;
   updateProjects: (partial: Partial<ProjectsSettings>) => void;
@@ -101,6 +99,8 @@ const DEFAULTS: AppSettings = {
     sidebarPosition: "left",
     alwaysOpenTerminalOnStart: false,
     zoomLevel: 0,
+    treeDensity: "compact",
+    treeIcons: "complete",
   },
   editor: {
     fontSize: 13,
@@ -108,6 +108,15 @@ const DEFAULTS: AppSettings = {
     lineHeight: 20,
     tabSize: 4,
     wordWrap: "off",
+  },
+  diff: {
+    layout: "sideBySide",
+    showInlineHunkActions: false,
+    showLineNumbers: true,
+    diffIndicators: "none",
+    lineDiffType: "word-alt",
+    showBackground: true,
+    hunkSeparators: "simple",
   },
   terminal: {
     fontSize: 13,
@@ -117,24 +126,13 @@ const DEFAULTS: AppSettings = {
     cursorStyle: "block",
     scrollback: 5000,
     copyOnSelect: false,
-    macOptionIsMeta: false,
     cursorInactiveStyle: "outline",
-    minimumContrastRatio: 1,
-    scrollSensitivity: 1,
-    fastScrollSensitivity: 5,
     fontWeight: "normal",
     fontWeightBold: "bold",
     letterSpacing: 0,
     cursorWidth: 1,
-    smoothScrollDuration: 0,
-    drawBoldTextInBrightColors: true,
     rightClickSelectsWord: false,
     macOptionClickForcesSelection: false,
-    altClickMovesCursor: true,
-    wordSeparator: " ()[]{}',\"`",
-    tabStopWidth: 8,
-    scrollOnUserInput: true,
-    rescaleOverlappingGlyphs: false,
     shellPath: "",
     bellStyle: "off",
     colorSaturation: 1.42,
@@ -153,6 +151,7 @@ const loadSettings = (): AppSettings => {
     if (!raw) return { ...DEFAULTS };
     const parsed = JSON.parse(raw);
     const editor = { ...DEFAULTS.editor, ...parsed.editor };
+    const terminal = { ...DEFAULTS.terminal, ...parsed.terminal };
     return {
       ui: { ...DEFAULTS.ui, ...parsed.ui },
       editor: {
@@ -162,7 +161,26 @@ const loadSettings = (): AppSettings => {
         tabSize: editor.tabSize,
         wordWrap: normalizeWordWrap(editor.wordWrap),
       },
-      terminal: { ...DEFAULTS.terminal, ...parsed.terminal },
+      diff: { ...DEFAULTS.diff, ...parsed.diff },
+      terminal: {
+        fontSize: terminal.fontSize,
+        fontFamily: terminal.fontFamily,
+        lineHeight: terminal.lineHeight,
+        cursorBlink: terminal.cursorBlink,
+        cursorStyle: terminal.cursorStyle,
+        scrollback: terminal.scrollback,
+        copyOnSelect: terminal.copyOnSelect,
+        cursorInactiveStyle: terminal.cursorInactiveStyle,
+        fontWeight: terminal.fontWeight,
+        fontWeightBold: terminal.fontWeightBold,
+        letterSpacing: terminal.letterSpacing,
+        cursorWidth: terminal.cursorWidth,
+        rightClickSelectsWord: terminal.rightClickSelectsWord,
+        macOptionClickForcesSelection: terminal.macOptionClickForcesSelection,
+        shellPath: terminal.shellPath,
+        bellStyle: terminal.bellStyle,
+        colorSaturation: terminal.colorSaturation,
+      },
       git: { ...DEFAULTS.git, ...parsed.git },
       projects: {
         workspaces: Array.isArray(parsed.projects?.workspaces) ? parsed.projects.workspaces : [],
@@ -195,6 +213,16 @@ export const settingsStore = createStore<SettingsState>((set) => ({
       const settings = {
         ...state.settings,
         editor: { ...state.settings.editor, ...partial },
+      };
+      saveSettings(settings);
+      return { settings };
+    }),
+
+  updateDiff: (partial) =>
+    set((state) => {
+      const settings = {
+        ...state.settings,
+        diff: { ...state.settings.diff, ...partial },
       };
       saveSettings(settings);
       return { settings };
@@ -261,11 +289,9 @@ export const settingsStore = createStore<SettingsState>((set) => ({
     localStorage.removeItem("deathpush:theme");
     localStorage.removeItem("deathpush:preferred-dark-theme");
     localStorage.removeItem("deathpush:preferred-light-theme");
-    localStorage.removeItem("deathpush:iconTheme");
 
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     const id = prefersDark ? DEFAULT_DARK_THEME_ID : DEFAULT_LIGHT_THEME_ID;
-    themeStore.getState().setTheme(id);
-    iconThemeStore.getState().setIconTheme(DEFAULT_ICON_THEME_ID);
+    void themeStore.getState().setTheme(id);
   },
 }));

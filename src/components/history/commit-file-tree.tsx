@@ -1,6 +1,5 @@
 import { createMemo, createSignal, For } from "solid-js";
 import type { CommitFileEntry } from "../../lib/git-types";
-import { getFileIconClasses } from "../../lib/icon-themes/get-icon-classes";
 
 type TreeNode = {
   name: string;
@@ -74,7 +73,7 @@ const TreeFolder = (props: TreeFolderProps) => {
           onClick={() => setCollapsed((value) => !value)}
         >
           <span class={["codicon", "codicon-chevron-down", "resource-group-chevron", { collapsed: collapsed() }]} />
-          <span class={["commit-detail-file-icon", getFileIconClasses(props.node.name, "folder")]} />
+          <span class="codicon codicon-folder commit-detail-file-icon" />
           <span class="commit-tree-folder-name">{props.node.name}</span>
         </div>
       )}
@@ -103,7 +102,7 @@ const TreeFolder = (props: TreeFolderProps) => {
                   style={{ "padding-left": `${filePad()}px` }}
                   onClick={() => props.onFileClick(file().path)}
                 >
-                  <span class={["commit-detail-file-icon", getFileIconClasses(file().path, "file")]} />
+                  <span class="codicon codicon-file commit-detail-file-icon" />
                   <span class="commit-detail-file-path" title={file().path}>
                     {oldName() ? `${oldName()} -> ${fileName()}` : fileName()}
                   </span>

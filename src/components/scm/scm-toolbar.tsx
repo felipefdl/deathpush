@@ -1,7 +1,6 @@
 import { createSignal } from "solid-js";
 import { useRepository } from "../../hooks/use-repository";
 import { repositoryStore } from "../../stores/repository-store";
-import { layoutStore } from "../../stores/layout-store";
 import { useStore } from "../../lib/use-store";
 import * as commands from "../../lib/tauri-commands";
 import { ActionButton } from "./action-button";
@@ -17,8 +16,6 @@ export const ScmToolbar = (props: ScmToolbarProps) => {
   const status = useStore(repositoryStore, (s) => s.status);
   const operations = useStore(repositoryStore, (s) => s.operations);
   const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
-  const viewMode = useStore(layoutStore, (s) => s.viewMode);
-  const { setViewMode } = layoutStore.getState();
   const [showOverflow, setShowOverflow] = createSignal(false);
   let overflowRef: HTMLButtonElement | undefined;
 
@@ -44,13 +41,6 @@ export const ScmToolbar = (props: ScmToolbarProps) => {
     <div class="scm-toolbar">
       {status() && (
         <>
-          <button
-            class="scm-toolbar-button"
-            onClick={() => setViewMode(viewMode() === "list" ? "tree" : "list")}
-            title={viewMode() === "list" ? "View as Tree" : "View as List"}
-          >
-            <span class={`codicon ${viewMode() === "list" ? "codicon-list-tree" : "codicon-list-flat"}`} />
-          </button>
           <button class="scm-toolbar-button" onClick={handleStageAll} disabled={isStaging()} title="Stage All Changes">
             <span class="codicon codicon-add" />
           </button>

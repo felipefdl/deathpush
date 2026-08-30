@@ -68,18 +68,6 @@ function collectLicenses(): LicenseEntry[] {
 
   // Manual asset entries
   add({
-    name: "Seti Icon Theme",
-    license: "MIT",
-    url: "https://github.com/jesseweed/seti-ui",
-    category: "asset",
-  });
-  add({
-    name: "Material Icon Theme",
-    license: "MIT",
-    url: "https://github.com/PKief/vscode-material-icon-theme",
-    category: "asset",
-  });
-  add({
     name: "MesloLGS Nerd Font Mono",
     license: "Apache-2.0",
     url: "https://github.com/ryanoasis/nerd-fonts",
@@ -152,8 +140,6 @@ export default defineConfig({
       "imagem/**",
       "src-tauri/**",
       "src/styles/**",
-      "src/lib/themes/json/**",
-      "src/lib/icon-themes/json/**",
       ".temp-vscode/**",
       "dist/**",
       "**/*.md",
@@ -167,15 +153,7 @@ export default defineConfig({
     ],
   },
   lint: {
-    ignorePatterns: [
-      "website/**",
-      "public/**",
-      "imagem/**",
-      "src-tauri/**",
-      "src/lib/themes/json/**",
-      "src/lib/icon-themes/json/**",
-      ".temp-vscode/**",
-    ],
+    ignorePatterns: ["website/**", "public/**", "imagem/**", "src-tauri/**", ".temp-vscode/**"],
     options: {
       typeAware: true,
       typeCheck: true,

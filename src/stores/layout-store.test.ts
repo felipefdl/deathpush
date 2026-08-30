@@ -12,8 +12,6 @@ beforeEach(() => {
     terminalVisible: false,
     terminalHeight: 250,
     mainView: "changes",
-    diffMode: "sideBySide",
-    viewMode: "list",
     panelTab: "terminal",
     collapsedPanes: [],
     terminalMaximized: false,
@@ -30,8 +28,6 @@ describe("layout store", () => {
       expect(state.terminalVisible).toBe(true);
       expect(state.terminalHeight).toBe(250);
       expect(state.mainView).toBe("changes");
-      expect(state.diffMode).toBe("sideBySide");
-      expect(state.viewMode).toBe("list");
       expect(state.panelTab).toBe("terminal");
       expect(state.collapsedPanes).toEqual([]);
       expect(state.terminalMaximized).toBe(false);
@@ -45,8 +41,6 @@ describe("layout store", () => {
           terminalVisible: true,
           terminalHeight: 350,
           mainView: "history",
-          diffMode: "inline",
-          viewMode: "tree",
           panelTab: "git-output",
           collapsedPanes: ["pane-1"],
           terminalMaximized: false,
@@ -58,8 +52,6 @@ describe("layout store", () => {
       expect(state.terminalVisible).toBe(true);
       expect(state.terminalHeight).toBe(350);
       expect(state.mainView).toBe("history");
-      expect(state.diffMode).toBe("inline");
-      expect(state.viewMode).toBe("tree");
       expect(state.panelTab).toBe("git-output");
       expect(state.collapsedPanes).toEqual(["pane-1"]);
     });
@@ -124,22 +116,6 @@ describe("layout store", () => {
       expect(layoutStore.getState().terminalHeight).toBe(400);
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
       expect(stored.terminalHeight).toBe(400);
-    });
-
-    it("setDiffMode saves to localStorage", () => {
-      layoutStore.getState().loadForProject(PROJECT_ROOT);
-      layoutStore.getState().setDiffMode("inline");
-      expect(layoutStore.getState().diffMode).toBe("inline");
-      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
-      expect(stored.diffMode).toBe("inline");
-    });
-
-    it("setViewMode saves to localStorage", () => {
-      layoutStore.getState().loadForProject(PROJECT_ROOT);
-      layoutStore.getState().setViewMode("tree");
-      expect(layoutStore.getState().viewMode).toBe("tree");
-      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
-      expect(stored.viewMode).toBe("tree");
     });
 
     it("setPanelTab saves to localStorage", () => {

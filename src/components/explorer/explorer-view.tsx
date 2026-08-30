@@ -1,18 +1,39 @@
-import { createSignal, onSettled } from "solid-js";
-import { ask } from "@tauri-apps/plugin-dialog";
+import type {
+  ContextMenuItem as TreeContextMenuItem,
+  FileTree,
+  FileTreeDirectoryHandle,
+  FileTreeDropResult,
+  FileTreeRenameEvent,
+} from "@pierre/trees";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { useExplorerGitStatus } from "../../hooks/use-explorer-git-status";
-import { repositoryStore } from "../../stores/repository-store";
-import { explorerStore } from "../../stores/explorer-store";
-import { useStore } from "../../lib/use-store";
+import { ask, confirm } from "@tauri-apps/plugin-dialog";
+import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
 import { useTauriEvent } from "../../hooks/use-tauri-event";
-import { ContextMenu, type ContextMenuItem } from "../scm/context-menu";
-import { ExplorerTree, GitDecorationContext } from "./explorer-tree";
+import { addRecentFile } from "../../lib/recent-files";
+import { explorerEntriesToTreePaths, fileEntriesToTreeGitStatus } from "../../lib/trees";
+import type { ExplorerEntry } from "../../lib/git-types";
 import type { ConflictResolution } from "../../lib/tauri-commands";
 import * as commands from "../../lib/tauri-commands";
+import { useStore } from "../../lib/use-store";
+import { explorerStore } from "../../stores/explorer-store";
+import { layoutStore } from "../../stores/layout-store";
+import { repositoryStore } from "../../stores/repository-store";
 import "../../styles/explorer.css";
+import { ContextMenu, type ContextMenuItem } from "../scm/context-menu";
+import { FileTreeHost, type FileTreeHostProps } from "../trees/file-tree-host";
+import { renderTreeContextMenu } from "../trees/tree-context-menu";
 
-const isAlreadyExistsError = (err: unknown): boolean => typeof err === "string" && err.includes("already exists");
+const isAlreadyExistsError = (error: unknown): boolean => typeof error === "string" && error.includes("already exists");
+
+const stripDirectorySuffix = (path: string): string => (path.endsWith("/") ? path.slice(0, -1) : path);
+
+const getParentPath = (path: string): string => {
+  const normalized = stripDirectorySuffix(path);
+  const separator = normalized.lastIndexOf("/");
+  return separator < 0 ? "" : normalized.slice(0, separator);
+};
+
+const getBaseName = (path: string): string => stripDirectorySuffix(path).split("/").pop() ?? path;
 
 const askConflictResolution = async (): Promise<ConflictResolution | null> => {
   const replace = await ask("A file with this name already exists. Do you want to replace it?", {
@@ -24,136 +45,319 @@ const askConflictResolution = async (): Promise<ConflictResolution | null> => {
     title: "File Conflict",
     kind: "info",
   });
-  if (keepBoth) return "keep-both";
-  return null;
+  return keepBoth ? "keep-both" : null;
 };
 
 type ExplorerViewProps = {
   onOpenRepository: () => void;
 };
 
+type PendingCreate = {
+  path: string;
+  type: "file" | "folder";
+};
+
 export const ExplorerView = (props: ExplorerViewProps) => {
-  const status = useStore(repositoryStore, (s) => s.status);
-  const fileFilter = useStore(explorerStore, (s) => s.fileFilter);
-  const clipboardEntry = useStore(explorerStore, (s) => s.clipboardEntry);
-  const dropTarget = useStore(explorerStore, (s) => s.dropTarget);
-  const dragSource = useStore(explorerStore, (s) => s.dragSource);
-  const gitDecoration = useExplorerGitStatus();
+  const status = useStore(repositoryStore, (state) => state.status);
+  const fileFilter = useStore(explorerStore, (state) => state.fileFilter);
+  const clipboardEntry = useStore(explorerStore, (state) => state.clipboardEntry);
+  const [entries, setEntries] = createSignal<ExplorerEntry[]>([]);
   const [contextMenu, setContextMenu] = createSignal<{ x: number; y: number } | null>(null);
+  let treeModel: FileTree | undefined;
+  let pendingCreate: PendingCreate | undefined;
 
-  const handleRefresh = () => {
-    explorerStore.getState().clearCache();
+  const treePaths = createMemo(() => explorerEntriesToTreePaths(entries()));
+  const treeGitStatus = createMemo(() =>
+    fileEntriesToTreeGitStatus(status()?.groups.flatMap((group) => group.files) ?? [])
+  );
+
+  const refreshTree = async (): Promise<void> => {
+    try {
+      setEntries(await commands.listRepositoryTree());
+    } catch (error) {
+      repositoryStore.getState().setError(String(error));
+    }
   };
 
-  const handleTreeContextMenu = (e: MouseEvent) => {
-    if ((e.target as HTMLElement).closest(".explorer-item")) return;
-    e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY });
+  const openFile = (path: string): void => {
+    const { setSelectedPath, setFileContent } = explorerStore.getState();
+    setSelectedPath(path);
+    const layout = layoutStore.getState();
+    layout.dockTerminal();
+    layout.setMainView("file");
+    commands
+      .readFileContent(path)
+      .then((content) => {
+        setFileContent(content);
+        const root = repositoryStore.getState().status?.root;
+        if (root) addRecentFile(root, path);
+      })
+      .catch((error) => repositoryStore.getState().setError(String(error)));
   };
 
-  const getTreeContextMenuItems = (): ContextMenuItem[] => {
-    const clip = clipboardEntry();
-    const { setCreatingIn, setClipboardEntry, clearCache } = explorerStore.getState();
+  const beginCreate = (parentPath: string | null, type: PendingCreate["type"]): void => {
+    if (!treeModel) return;
+    const parent = parentPath ? stripDirectorySuffix(parentPath) : "";
+    const baseName = type === "folder" ? "New Folder" : "New File";
+    let candidate = parent ? `${parent}/${baseName}` : baseName;
+    let suffix = 2;
+    while (treeModel.getItem(type === "folder" ? `${candidate}/` : candidate)) {
+      candidate = `${parent ? `${parent}/` : ""}${baseName} ${suffix}`;
+      suffix += 1;
+    }
+    const treePath = type === "folder" ? `${candidate}/` : candidate;
+    pendingCreate = { path: treePath, type };
+    treeModel.add(treePath);
+    if (parentPath) {
+      const parentItem = treeModel.getItem(parentPath);
+      if (parentItem?.isDirectory()) (parentItem as FileTreeDirectoryHandle).expand();
+    }
+    treeModel.startRenaming(treePath, { removeIfCanceled: true });
+  };
+
+  const persistRename = async (event: FileTreeRenameEvent): Promise<void> => {
+    try {
+      if (pendingCreate?.path === event.sourcePath) {
+        if (pendingCreate.type === "folder") {
+          await commands.createDirectory(stripDirectorySuffix(event.destinationPath));
+        } else {
+          await commands.writeFile(event.destinationPath, "");
+        }
+        pendingCreate = undefined;
+      } else {
+        await commands.renameEntry(stripDirectorySuffix(event.sourcePath), getBaseName(event.destinationPath));
+        const explorer = explorerStore.getState();
+        if (explorer.selectedPath === stripDirectorySuffix(event.sourcePath)) {
+          explorer.setSelectedPath(stripDirectorySuffix(event.destinationPath));
+        }
+      }
+      await refreshTree();
+    } catch (error) {
+      pendingCreate = undefined;
+      repositoryStore.getState().setError(String(error));
+      await refreshTree();
+    }
+  };
+
+  const moveEntries = async (sources: readonly string[], destination: string): Promise<void> => {
+    const normalizedSources = sources.map(stripDirectorySuffix);
+    const normalizedDestination = stripDirectorySuffix(destination);
+    try {
+      await commands.moveEntries(normalizedSources, normalizedDestination);
+    } catch (error) {
+      if (!isAlreadyExistsError(error)) throw error;
+      const resolution = await askConflictResolution();
+      if (!resolution) return;
+      await commands.moveEntries(normalizedSources, normalizedDestination, resolution);
+    }
+    await refreshTree();
+  };
+
+  const persistDrop = (event: FileTreeDropResult): void => {
+    void moveEntries(event.draggedPaths, event.target.directoryPath ?? "").catch((error) => {
+      repositoryStore.getState().setError(String(error));
+      void refreshTree();
+    });
+  };
+
+  const pasteInto = async (destination: string): Promise<void> => {
+    const clip = explorerStore.getState().clipboardEntry;
+    if (!clip) return;
+    const run = async (resolution?: ConflictResolution): Promise<void> => {
+      if (clip.operation === "copy") {
+        await commands.copyEntries([clip.path], destination, resolution);
+      } else {
+        await commands.moveEntries([clip.path], destination, resolution);
+        explorerStore.getState().setClipboardEntry(null);
+      }
+    };
+    try {
+      await run();
+    } catch (error) {
+      if (!isAlreadyExistsError(error)) throw error;
+      const resolution = await askConflictResolution();
+      if (!resolution) return;
+      await run(resolution);
+    }
+    await refreshTree();
+  };
+
+  const deleteEntry = async (item: TreeContextMenuItem): Promise<void> => {
+    const confirmed = await confirm(
+      `Are you sure you want to delete "${item.name}"?\n\nThis will move it to the trash.`,
+      {
+        title: "Delete",
+        kind: "warning",
+        okLabel: "Move to Trash",
+        cancelLabel: "Cancel",
+      }
+    );
+    if (!confirmed) return;
+    const path = stripDirectorySuffix(item.path);
+    const nextStatus = await commands.deleteFile(path);
+    repositoryStore.getState().setStatus(nextStatus);
+    const explorer = explorerStore.getState();
+    if (explorer.selectedPath === path) {
+      explorer.setSelectedPath(null);
+      explorer.setFileContent(null);
+    }
+    await refreshTree();
+  };
+
+  const getItemContextMenu = (item: TreeContextMenuItem): ContextMenuItem[] => {
+    const path = stripDirectorySuffix(item.path);
+    const isDirectory = item.kind === "directory";
+    const items: ContextMenuItem[] = [];
+    if (isDirectory) {
+      items.push(
+        { label: "New File...", icon: "new-file", action: () => beginCreate(item.path, "file") },
+        { label: "New Folder...", icon: "new-folder", action: () => beginCreate(item.path, "folder") },
+        { label: "", action: () => {}, separator: true }
+      );
+    } else {
+      items.push(
+        {
+          label: "Open in Editor",
+          icon: "go-to-file",
+          action: () =>
+            void commands.openInEditor(path).catch((error) => repositoryStore.getState().setError(String(error))),
+        },
+        { label: "", action: () => {}, separator: true }
+      );
+    }
+    items.push(
+      { label: "Rename", icon: "edit", action: () => treeModel?.startRenaming(item.path) },
+      {
+        label: "Duplicate",
+        icon: "files",
+        action: () =>
+          void commands
+            .duplicateEntry(path)
+            .then(refreshTree)
+            .catch((error) => repositoryStore.getState().setError(String(error))),
+      },
+      { label: "", action: () => {}, separator: true },
+      {
+        label: "Cut",
+        icon: "remove",
+        action: () => explorerStore.getState().setClipboardEntry({ path, isDirectory, operation: "cut" }),
+      },
+      {
+        label: "Copy",
+        icon: "copy",
+        action: () => explorerStore.getState().setClipboardEntry({ path, isDirectory, operation: "copy" }),
+      },
+      {
+        label: "Paste",
+        icon: "clippy",
+        disabled: !clipboardEntry(),
+        action: () => void pasteInto(isDirectory ? path : getParentPath(path)),
+      },
+      { label: "", action: () => {}, separator: true },
+      {
+        label: "Reveal in Finder",
+        icon: "folder-opened",
+        action: () =>
+          void commands.revealInFileManager(path).catch((error) => repositoryStore.getState().setError(String(error))),
+      },
+      {
+        label: "Copy Path",
+        icon: "copy",
+        action: () => {
+          const root = repositoryStore.getState().status?.root;
+          void navigator.clipboard.writeText(root ? `${root}/${path}` : path);
+        },
+      },
+      { label: "Copy Relative Path", icon: "copy", action: () => void navigator.clipboard.writeText(path) },
+      { label: "", action: () => {}, separator: true },
+      {
+        label: "Move to Trash",
+        icon: "trash",
+        action: () => void deleteEntry(item).catch((error) => repositoryStore.getState().setError(String(error))),
+      },
+      {
+        label: "Add to .gitignore",
+        icon: "exclude",
+        action: () =>
+          void commands
+            .addToGitignore(path)
+            .then((nextStatus) => repositoryStore.getState().setStatus(nextStatus))
+            .catch((error) => repositoryStore.getState().setError(String(error))),
+      }
+    );
+    return items;
+  };
+
+  const treeOptions: FileTreeHostProps["options"] = {
+    renaming: {
+      onRename: (event) => void persistRename(event),
+      onError: (error) => repositoryStore.getState().setError(error),
+    },
+    dragAndDrop: {
+      onDropComplete: persistDrop,
+      onDropError: (error) => repositoryStore.getState().setError(error),
+    },
+    onSelectionChange: (selectedPaths) => {
+      if (selectedPaths.length !== 1) {
+        explorerStore.getState().setSelectedTreeEntry(null);
+        return;
+      }
+      const path = stripDirectorySuffix(selectedPaths[0]);
+      const entry = entries().find((candidate) => candidate.path === path);
+      explorerStore.getState().setSelectedTreeEntry(entry ? { path, isDirectory: entry.isDirectory } : null);
+      if (entry && !entry.isDirectory) openFile(path);
+    },
+    composition: {
+      contextMenu: {
+        enabled: true,
+        triggerMode: "both",
+        render: (item, context) => renderTreeContextMenu(getItemContextMenu(item), context),
+      },
+    },
+  };
+
+  const getRootContextMenuItems = (): ContextMenuItem[] => {
     const items: ContextMenuItem[] = [
-      { label: "New File...", icon: "new-file", action: () => setCreatingIn({ parentPath: null, type: "file" }) },
-      { label: "New Folder...", icon: "new-folder", action: () => setCreatingIn({ parentPath: null, type: "folder" }) },
+      { label: "New File...", icon: "new-file", action: () => beginCreate(null, "file") },
+      { label: "New Folder...", icon: "new-folder", action: () => beginCreate(null, "folder") },
     ];
-    if (clip) {
+    if (clipboardEntry()) {
       items.push(
         { label: "", action: () => {}, separator: true },
-        {
-          label: "Paste",
-          icon: "clippy",
-          action: async () => {
-            const doPaste = async (resolution?: ConflictResolution) => {
-              if (clip.operation === "copy") {
-                await commands.copyEntries([clip.path], "", resolution);
-              } else {
-                await commands.moveEntries([clip.path], "", resolution);
-                setClipboardEntry(null);
-              }
-              clearCache();
-            };
-            try {
-              await doPaste();
-            } catch (err) {
-              if (isAlreadyExistsError(err)) {
-                const resolution = await askConflictResolution();
-                if (resolution) {
-                  try {
-                    await doPaste(resolution);
-                  } catch (retryErr) {
-                    repositoryStore.getState().setError(String(retryErr));
-                  }
-                }
-              } else {
-                repositoryStore.getState().setError(String(err));
-              }
-            }
-          },
-        }
+        { label: "Paste", icon: "clippy", action: () => void pasteInto("") }
       );
     }
     return items;
   };
 
-  useTauriEvent("repository-changed", () => {
-    const store = explorerStore.getState();
-    const rootKey = "__root__";
-    commands
-      .listDirectory(null)
-      .then((result) => {
-        store.setDirectoryEntries(rootKey, result);
-      })
-      .catch(() => {});
-    for (const dir of store.expandedDirs) {
-      commands
-        .listDirectory(dir)
-        .then((result) => {
-          store.setDirectoryEntries(dir, result);
-        })
-        .catch(() => {});
-    }
+  useTauriEvent("repository-changed", () => void refreshTree());
+
+  createEffect(
+    () => fileFilter(),
+    (filter) => treeModel?.setSearch(filter || null)
+  );
+
+  onSettled(() => {
+    const handleRename = (): void => {
+      const selected = explorerStore.getState().selectedTreeEntry;
+      if (!selected) return;
+      treeModel?.startRenaming(selected.isDirectory ? `${selected.path}/` : selected.path);
+    };
+    window.addEventListener("deathpush:explorer-rename", handleRename);
+    return () => window.removeEventListener("deathpush:explorer-rename", handleRename);
   });
 
   onSettled(() => {
+    void refreshTree();
     const unlisten = getCurrentWebviewWindow().onDragDropEvent((event) => {
-      if (event.payload.type === "drop") {
-        const { dropTarget: target, clearCache } = explorerStore.getState();
-        const targetDir = target ?? "";
-        const paths = event.payload.paths;
-        commands
-          .importFiles(paths, targetDir)
-          .then(() => {
-            clearCache();
-          })
-          .catch(async (err) => {
-            if (isAlreadyExistsError(err)) {
-              const resolution = await askConflictResolution();
-              if (resolution) {
-                try {
-                  await commands.importFiles(paths, targetDir, resolution);
-                  clearCache();
-                } catch (retryErr) {
-                  repositoryStore.getState().setError(String(retryErr));
-                }
-              }
-            } else {
-              repositoryStore.getState().setError(String(err));
-            }
-          });
-      }
+      if (event.payload.type !== "drop") return;
+      commands
+        .importFiles(event.payload.paths, "")
+        .then(refreshTree)
+        .catch((error) => repositoryStore.getState().setError(String(error)));
     });
-    return () => {
-      void unlisten.then((fn) => fn());
-    };
+    return () => void unlisten.then((dispose) => dispose());
   });
-
-  const handleFilterInput = (e: InputEvent & { currentTarget: HTMLInputElement }) => {
-    explorerStore.getState().setFileFilter(e.currentTarget.value);
-  };
-
-  const treeClass = () => `explorer-tree${dragSource() && dropTarget() === "__root__" ? " root-drop-target" : ""}`;
 
   return (
     <div class="explorer-view">
@@ -167,7 +371,7 @@ export const ExplorerView = (props: ExplorerViewProps) => {
                 type="text"
                 placeholder="Filter files..."
                 value={fileFilter()}
-                onInput={handleFilterInput}
+                onInput={(event) => explorerStore.getState().setFileFilter(event.currentTarget.value)}
                 autocomplete="off"
                 autocorrect="off"
                 autocapitalize="off"
@@ -180,35 +384,40 @@ export const ExplorerView = (props: ExplorerViewProps) => {
               )}
             </div>
             <div class="explorer-header-actions">
-              <button
-                class="scm-toolbar-button"
-                onClick={() => explorerStore.getState().setCreatingIn({ parentPath: null, type: "file" })}
-                title="New File"
-              >
+              <button class="scm-toolbar-button" onClick={() => beginCreate(null, "file")} title="New File">
                 <span class="codicon codicon-new-file" />
               </button>
-              <button
-                class="scm-toolbar-button"
-                onClick={() => explorerStore.getState().setCreatingIn({ parentPath: null, type: "folder" })}
-                title="New Folder"
-              >
+              <button class="scm-toolbar-button" onClick={() => beginCreate(null, "folder")} title="New Folder">
                 <span class="codicon codicon-new-folder" />
               </button>
-              <button class="scm-toolbar-button" onClick={handleRefresh} title="Refresh Explorer">
+              <button class="scm-toolbar-button" onClick={() => void refreshTree()} title="Refresh Explorer">
                 <span class="codicon codicon-refresh" />
               </button>
             </div>
           </div>
-          <div class={treeClass()} onContextMenu={handleTreeContextMenu}>
-            <GitDecorationContext value={gitDecoration}>
-              <ExplorerTree />
-            </GitDecorationContext>
+          <div
+            class="explorer-tree"
+            onContextMenu={(event) => {
+              if (event.target !== event.currentTarget) return;
+              event.preventDefault();
+              setContextMenu({ x: event.clientX, y: event.clientY });
+            }}
+          >
+            <FileTreeHost
+              paths={treePaths()}
+              gitStatus={treeGitStatus()}
+              options={treeOptions}
+              modelRef={(model) => {
+                treeModel = model;
+                model?.setSearch(fileFilter() || null);
+              }}
+            />
           </div>
           {contextMenu() && (
             <ContextMenu
               x={contextMenu()!.x}
               y={contextMenu()!.y}
-              items={getTreeContextMenuItems()}
+              items={getRootContextMenuItems()}
               onClose={() => setContextMenu(null)}
             />
           )}

@@ -1,9 +1,7 @@
 import { render } from "@solidjs/web";
 import { App } from "./app";
-import { themeStore } from "./stores/theme-store";
+import { initializeThemeStore, themeStore } from "./stores/theme-store";
 import { applyTheme } from "./lib/themes/apply-theme";
-import { iconThemeStore } from "./stores/icon-theme-store";
-import { applyIconTheme } from "./lib/icon-themes/apply-icon-theme";
 import { settingsStore } from "./stores/settings-store";
 import "./styles/global.css";
 
@@ -19,8 +17,8 @@ document.addEventListener("contextmenu", (e) => {
   e.preventDefault();
 });
 
+await initializeThemeStore();
 applyTheme(themeStore.getState().currentTheme);
-applyIconTheme(iconThemeStore.getState().currentIconTheme);
 
 const uiSettings = settingsStore.getState().settings.ui;
 document.documentElement.style.setProperty("--vscode-font-family", uiSettings.fontFamily);

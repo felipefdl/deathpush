@@ -2,6 +2,7 @@ import { createSignal, createUniqueId, For, onSettled, Show, untrack } from "sol
 import { settingsStore } from "../../stores/settings-store";
 import type {
   EditorSettings,
+  DiffSettings,
   FontWeight,
   GitSettings,
   ProjectsSettings,
@@ -9,7 +10,6 @@ import type {
   UISettings,
 } from "../../stores/settings-store";
 import { themeStore } from "../../stores/theme-store";
-import { iconThemeStore } from "../../stores/icon-theme-store";
 import { THEME_ENTRIES } from "../../lib/themes/theme-registry";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { getGitConfig, setGitConfig } from "../../lib/tauri-commands";
@@ -20,7 +20,7 @@ import "../../styles/settings.css";
 
 export const SettingsPage = () => {
   const settings = useStore(settingsStore, (s) => s.settings);
-  const { updateUI, updateEditor, updateTerminal, updateGit, updateProjects, resetToDefaults } =
+  const { updateUI, updateEditor, updateDiff, updateTerminal, updateGit, updateProjects, resetToDefaults } =
     settingsStore.getState();
 
   const handleResetToDefaults = async () => {
@@ -45,6 +45,7 @@ export const SettingsPage = () => {
       <div class="settings-content">
         <AppearanceSection settings={settings().ui} onUpdate={updateUI} />
         <EditorSection settings={settings().editor} onUpdate={updateEditor} />
+        <DiffViewerSection settings={settings().diff} onUpdate={updateDiff} />
         <GitSection settings={settings().git} onUpdate={updateGit} />
         <ProjectsSection settings={settings().projects} onUpdate={updateProjects} />
         <TerminalSection
@@ -63,10 +64,9 @@ const AppearanceSection = (props: { settings: UISettings; onUpdate: (partial: Pa
   const preferredDarkThemeId = useStore(themeStore, (s) => s.preferredDarkThemeId);
   const preferredLightThemeId = useStore(themeStore, (s) => s.preferredLightThemeId);
   const { setPreferredDarkTheme, setPreferredLightTheme } = themeStore.getState();
-  const currentIconTheme = useStore(iconThemeStore, (s) => s.currentIconTheme);
 
-  const darkThemes = THEME_ENTRIES.filter((t) => t.kind === "dark" || t.kind === "hc-dark");
-  const lightThemes = THEME_ENTRIES.filter((t) => t.kind === "light" || t.kind === "hc-light");
+  const darkThemes = THEME_ENTRIES.filter((theme) => theme.kind === "dark");
+  const lightThemes = THEME_ENTRIES.filter((theme) => theme.kind === "light");
 
   return (
     <div class="settings-section">
@@ -93,16 +93,26 @@ const AppearanceSection = (props: { settings: UISettings; onUpdate: (partial: Pa
         options={lightThemes.map((t) => ({ value: t.id, label: t.label }))}
         onChange={setPreferredLightTheme}
       />
-      <div class="settings-field">
-        <span class="settings-label">File Icon Theme</span>
-        <button
-          class="settings-input settings-picker-btn"
-          onClick={() => window.dispatchEvent(new CustomEvent("deathpush:open-icon-theme-picker"))}
-        >
-          {currentIconTheme().label}
-          <span class="settings-picker-hint">Cmd+K Cmd+I</span>
-        </button>
-      </div>
+      <SelectField
+        label="Tree Density"
+        value={props.settings.treeDensity}
+        options={[
+          { value: "compact", label: "Compact" },
+          { value: "default", label: "Default" },
+          { value: "relaxed", label: "Relaxed" },
+        ]}
+        onChange={(value) => props.onUpdate({ treeDensity: value as UISettings["treeDensity"] })}
+      />
+      <SelectField
+        label="Tree Icons"
+        value={props.settings.treeIcons}
+        options={[
+          { value: "minimal", label: "Minimal" },
+          { value: "standard", label: "Standard" },
+          { value: "complete", label: "Complete" },
+        ]}
+        onChange={(value) => props.onUpdate({ treeIcons: value as UISettings["treeIcons"] })}
+      />
       <SelectField
         label="Sidebar Position"
         value={props.settings.sidebarPosition}
@@ -171,6 +181,72 @@ const EditorSection = (props: { settings: EditorSettings; onUpdate: (partial: Pa
         { value: "on", label: "On" },
       ]}
       onChange={(v) => props.onUpdate({ wordWrap: v as EditorSettings["wordWrap"] })}
+    />
+  </div>
+);
+
+const DiffViewerSection = (props: { settings: DiffSettings; onUpdate: (partial: Partial<DiffSettings>) => void }) => (
+  <div class="settings-section">
+    <div class="settings-section-title">Diff Viewer</div>
+    <SelectField
+      label="Diff Layout"
+      value={props.settings.layout}
+      options={[
+        { value: "sideBySide", label: "Side by Side" },
+        { value: "inline", label: "Inline" },
+      ]}
+      onChange={(layout) => props.onUpdate({ layout: layout as DiffSettings["layout"] })}
+    />
+    <CheckboxField
+      label="Inline Hunk Actions"
+      checked={props.settings.showInlineHunkActions}
+      onChange={(showInlineHunkActions) => props.onUpdate({ showInlineHunkActions })}
+    />
+    <CheckboxField
+      label="Line Numbers"
+      checked={props.settings.showLineNumbers}
+      onChange={(showLineNumbers) => props.onUpdate({ showLineNumbers })}
+    />
+    <SelectField
+      label="Diff Indicators"
+      value={props.settings.diffIndicators}
+      options={[
+        { value: "none", label: "None" },
+        { value: "bars", label: "Bars" },
+        { value: "classic", label: "Classic (+/−)" },
+      ]}
+      onChange={(diffIndicators) =>
+        props.onUpdate({ diffIndicators: diffIndicators as DiffSettings["diffIndicators"] })
+      }
+    />
+    <SelectField
+      label="Inline Changes"
+      value={props.settings.lineDiffType}
+      options={[
+        { value: "word-alt", label: "Smart Words" },
+        { value: "word", label: "Words" },
+        { value: "char", label: "Characters" },
+        { value: "none", label: "None" },
+      ]}
+      onChange={(lineDiffType) => props.onUpdate({ lineDiffType: lineDiffType as DiffSettings["lineDiffType"] })}
+    />
+    <CheckboxField
+      label="Background Highlighting"
+      checked={props.settings.showBackground}
+      onChange={(showBackground) => props.onUpdate({ showBackground })}
+    />
+    <SelectField
+      label="Hunk Separators"
+      value={props.settings.hunkSeparators}
+      options={[
+        { value: "line-info-basic", label: "Compact Line Info" },
+        { value: "line-info", label: "Line Info" },
+        { value: "metadata", label: "Metadata" },
+        { value: "simple", label: "Simple" },
+      ]}
+      onChange={(hunkSeparators) =>
+        props.onUpdate({ hunkSeparators: hunkSeparators as DiffSettings["hunkSeparators"] })
+      }
     />
   </div>
 );
@@ -299,35 +375,6 @@ const TerminalSection = (props: {
       max={100000}
       step={500}
     />
-    <NumberField
-      label="Scroll Sensitivity"
-      value={props.settings.scrollSensitivity}
-      onChange={(v) => props.onUpdate({ scrollSensitivity: v })}
-      min={0.1}
-      max={10}
-      step={0.1}
-    />
-    <NumberField
-      label="Fast Scroll Sensitivity"
-      value={props.settings.fastScrollSensitivity}
-      onChange={(v) => props.onUpdate({ fastScrollSensitivity: v })}
-      min={1}
-      max={20}
-      step={1}
-    />
-    <NumberField
-      label="Smooth Scroll Duration"
-      value={props.settings.smoothScrollDuration}
-      onChange={(v) => props.onUpdate({ smoothScrollDuration: v })}
-      min={0}
-      max={500}
-      step={25}
-    />
-    <CheckboxField
-      label="Scroll on User Input"
-      checked={props.settings.scrollOnUserInput}
-      onChange={(v) => props.onUpdate({ scrollOnUserInput: v })}
-    />
 
     <div class="settings-subsection-title">Behavior</div>
     <CheckboxField
@@ -341,40 +388,12 @@ const TerminalSection = (props: {
       onChange={(v) => props.onUpdate({ rightClickSelectsWord: v })}
     />
     <CheckboxField
-      label="Alt Click Moves Cursor"
-      checked={props.settings.altClickMovesCursor}
-      onChange={(v) => props.onUpdate({ altClickMovesCursor: v })}
-    />
-    <CheckboxField
-      label="macOS Option as Meta"
-      checked={props.settings.macOptionIsMeta}
-      onChange={(v) => props.onUpdate({ macOptionIsMeta: v })}
-    />
-    <CheckboxField
       label="macOS Option Click Forces Selection"
       checked={props.settings.macOptionClickForcesSelection}
       onChange={(v) => props.onUpdate({ macOptionClickForcesSelection: v })}
     />
 
     <div class="settings-subsection-title">Rendering</div>
-    <CheckboxField
-      label="Draw Bold Text in Bright Colors"
-      checked={props.settings.drawBoldTextInBrightColors}
-      onChange={(v) => props.onUpdate({ drawBoldTextInBrightColors: v })}
-    />
-    <NumberField
-      label="Minimum Contrast Ratio"
-      value={props.settings.minimumContrastRatio}
-      onChange={(v) => props.onUpdate({ minimumContrastRatio: v })}
-      min={1}
-      max={21}
-      step={0.5}
-    />
-    <CheckboxField
-      label="Rescale Overlapping Glyphs"
-      checked={props.settings.rescaleOverlappingGlyphs}
-      onChange={(v) => props.onUpdate({ rescaleOverlappingGlyphs: v })}
-    />
     <NumberField
       label="Color Saturation"
       value={props.settings.colorSaturation}
@@ -396,21 +415,6 @@ const TerminalSection = (props: {
         { value: "both", label: "Both" },
       ]}
       onChange={(v) => props.onUpdate({ bellStyle: v as TerminalSettings["bellStyle"] })}
-    />
-
-    <div class="settings-subsection-title">Advanced</div>
-    <NumberField
-      label="Tab Stop Width"
-      value={props.settings.tabStopWidth}
-      onChange={(v) => props.onUpdate({ tabStopWidth: v })}
-      min={1}
-      max={16}
-      step={1}
-    />
-    <TextField
-      label="Word Separator"
-      value={props.settings.wordSeparator}
-      onChange={(v) => props.onUpdate({ wordSeparator: v })}
     />
   </div>
 );

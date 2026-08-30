@@ -207,5 +207,6 @@ describe("PierreFile navigation", () => {
     expect(thumb.hidden).toBe(false);
     expect(Number.parseFloat(thumb.style.width)).toBeCloseTo(166.67, 1);
     expect(Number.parseFloat(thumb.style.transform.slice("translateX(".length))).toBeCloseTo(166.67, 1);
+    expect(content.style.paddingBottom).toBe("11px");
   });
 });

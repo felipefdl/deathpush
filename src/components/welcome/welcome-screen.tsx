@@ -142,7 +142,7 @@ export const WelcomeScreen = (props: WelcomeScreenProps) => {
   const projectsSettings = useStore(settingsStore, (s) => s.settings.projects);
   const { updateProjects } = settingsStore.getState();
   const themeKind = useStore(themeStore, (s) => s.currentTheme.kind);
-  const isDark = createMemo(() => themeKind() === "dark" || themeKind() === "hc-dark");
+  const isDark = createMemo(() => themeKind() === "dark");
   const opening = useStore(repositoryStore, (s) => s.operations.has("open-repo"));
 
   onSettled(() => {

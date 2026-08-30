@@ -5,10 +5,6 @@ vi.mock("../lib/pierre/worker", () => ({
   applyPierrePoolTheme: vi.fn(),
 }));
 
-vi.mock("../lib/pierre/theme", () => ({
-  registerDeathPushPierreTheme: vi.fn(() => Promise.resolve()),
-}));
-
 import { settingsStore } from "./settings-store";
 
 const STORAGE_KEY = "deathpush:settings";
@@ -20,6 +16,8 @@ const DEFAULTS = {
     sidebarPosition: "left" as const,
     alwaysOpenTerminalOnStart: false,
     zoomLevel: 0,
+    treeDensity: "compact" as const,
+    treeIcons: "complete" as const,
   },
   editor: {
     fontSize: 13,
@@ -27,6 +25,15 @@ const DEFAULTS = {
     lineHeight: 20,
     tabSize: 4,
     wordWrap: "off" as const,
+  },
+  diff: {
+    layout: "sideBySide" as const,
+    showInlineHunkActions: false,
+    showLineNumbers: true,
+    diffIndicators: "none" as const,
+    lineDiffType: "word-alt" as const,
+    showBackground: true,
+    hunkSeparators: "simple" as const,
   },
   terminal: {
     fontSize: 13,
@@ -36,24 +43,13 @@ const DEFAULTS = {
     cursorStyle: "block" as const,
     scrollback: 5000,
     copyOnSelect: false,
-    macOptionIsMeta: false,
     cursorInactiveStyle: "outline" as const,
-    minimumContrastRatio: 1,
-    scrollSensitivity: 1,
-    fastScrollSensitivity: 5,
     fontWeight: "normal" as const,
     fontWeightBold: "bold" as const,
     letterSpacing: 0,
     cursorWidth: 1,
-    smoothScrollDuration: 0,
-    drawBoldTextInBrightColors: true,
     rightClickSelectsWord: false,
     macOptionClickForcesSelection: false,
-    altClickMovesCursor: true,
-    wordSeparator: " ()[]{}',\"`",
-    tabStopWidth: 8,
-    scrollOnUserInput: true,
-    rescaleOverlappingGlyphs: false,
     shellPath: "",
     bellStyle: "off" as const,
     colorSaturation: 1.42,
@@ -77,6 +73,9 @@ describe("settings store", () => {
       const { settings } = settingsStore.getState();
       expect(settings.ui.fontSize).toBe(13);
       expect(settings.editor.tabSize).toBe(4);
+      expect(settings.ui.treeDensity).toBe("compact");
+      expect(settings.ui.treeIcons).toBe("complete");
+      expect(settings.diff).toEqual(DEFAULTS.diff);
       expect(settings.terminal.cursorBlink).toBe(true);
       expect(settings.git.blame).toBe(true);
       expect(settings.projects.workspaces).toEqual([]);
@@ -87,6 +86,7 @@ describe("settings store", () => {
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
       expect(stored.ui.fontSize).toBe(13);
       expect(stored.editor.tabSize).toBe(4);
+      expect(stored.diff).toEqual(DEFAULTS.diff);
     });
 
     it("handles corrupted localStorage gracefully via resetToDefaults", () => {
@@ -100,6 +100,7 @@ describe("settings store", () => {
       const custom = {
         ui: { ...DEFAULTS.ui, fontSize: 16 },
         editor: { ...DEFAULTS.editor, tabSize: 2 },
+        diff: { ...DEFAULTS.diff, diffIndicators: "classic" as const },
         terminal: { ...DEFAULTS.terminal, cursorBlink: false },
         git: { blame: false },
         projects: { workspaces: [{ directory: "/home", scanDepth: 3 }] },
@@ -108,6 +109,7 @@ describe("settings store", () => {
       const { settings } = settingsStore.getState();
       expect(settings.ui.fontSize).toBe(16);
       expect(settings.editor.tabSize).toBe(2);
+      expect(settings.diff.diffIndicators).toBe("classic");
       expect(settings.terminal.cursorBlink).toBe(false);
       expect(settings.git.blame).toBe(false);
       expect(settings.projects.workspaces).toEqual([{ directory: "/home", scanDepth: 3 }]);
@@ -130,6 +132,7 @@ describe("settings store", () => {
         })
       );
       vi.resetModules();
+      // Reloading is the behavior under test; a static import cannot re-read localStorage.
       const { settingsStore: reloaded } = await import("./settings-store");
       const { editor } = reloaded.getState().settings;
       expect(editor.wordWrap).toBe("on");
@@ -192,48 +195,34 @@ describe("settings store", () => {
       expect(stored.terminal.fontSize).toBe(16);
     });
 
-    it("new terminal settings update independently", () => {
-      settingsStore.getState().updateTerminal({ macOptionIsMeta: true, bellStyle: "sound" });
+    it("supported terminal settings update independently", () => {
+      settingsStore
+        .getState()
+        .updateTerminal({ rightClickSelectsWord: true, macOptionClickForcesSelection: true, bellStyle: "sound" });
       const { terminal } = settingsStore.getState().settings;
-      expect(terminal.macOptionIsMeta).toBe(true);
+      expect(terminal.rightClickSelectsWord).toBe(true);
+      expect(terminal.macOptionClickForcesSelection).toBe(true);
       expect(terminal.bellStyle).toBe("sound");
       expect(terminal.cursorBlink).toBe(true);
-      expect(terminal.scrollSensitivity).toBe(1);
     });
 
-    it("old localStorage without new fields loads with defaults", () => {
-      const oldData = {
-        ui: DEFAULTS.ui,
-        editor: DEFAULTS.editor,
-        terminal: {
-          fontSize: 14,
-          fontFamily: DEFAULTS.terminal.fontFamily,
-          lineHeight: 1.2,
-          cursorBlink: false,
-          cursorStyle: "bar",
-          scrollback: 3000,
-          copyOnSelect: true,
-        },
-        git: DEFAULTS.git,
-        projects: DEFAULTS.projects,
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(oldData));
-      // Force re-load by resetting state as if the app just started
-      const { loadSettings } = (() => {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        const parsed = JSON.parse(raw!);
-        return {
-          loadSettings: {
-            ...DEFAULTS,
-            terminal: { ...DEFAULTS.terminal, ...parsed.terminal },
+    it("drops unsupported terminal settings on load", async () => {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          terminal: {
+            ...DEFAULTS.terminal,
+            scrollSensitivity: 2,
+            wordSeparator: " ",
           },
-        };
-      })();
-      expect(loadSettings.terminal.fontSize).toBe(14);
-      expect(loadSettings.terminal.cursorBlink).toBe(false);
-      expect(loadSettings.terminal.macOptionIsMeta).toBe(false);
-      expect(loadSettings.terminal.bellStyle).toBe("off");
-      expect(loadSettings.terminal.shellPath).toBe("");
+        })
+      );
+      vi.resetModules();
+      // Reloading is the behavior under test; a static import cannot re-read localStorage.
+      const { settingsStore: reloaded } = await import("./settings-store");
+      const { terminal } = reloaded.getState().settings;
+      expect(terminal).not.toHaveProperty("scrollSensitivity");
+      expect(terminal).not.toHaveProperty("wordSeparator");
     });
   });
 

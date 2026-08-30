@@ -22,12 +22,12 @@ vi.mock("../pierre/pierre-file", () => ({
 import { FileViewer, isPierreHostReady } from "./file-viewer";
 
 beforeEach(() => {
-  explorerStore.getState().clearCache();
+  explorerStore.getState().reset();
 });
 
 afterEach(() => {
   cleanup();
-  explorerStore.getState().clearCache();
+  explorerStore.getState().reset();
 });
 
 describe("FileViewer", () => {

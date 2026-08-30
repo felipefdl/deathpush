@@ -34,8 +34,7 @@
   align-items: center;
 }
 
-body.vs .settings-reset-btn,
-body.hc-light .settings-reset-btn {
+:root[data-color-scheme="light"] .settings-reset-btn {
   border-color: var(--vscode-input-border, #cecece);
   color: var(--vscode-foreground, #3b3b3b);
 }
@@ -44,8 +43,7 @@ body.hc-light .settings-reset-btn {
   background: var(--vscode-button-secondaryHoverBackground, #45494e);
 }
 
-body.vs .settings-reset-btn:hover,
-body.hc-light .settings-reset-btn:hover {
+:root[data-color-scheme="light"] .settings-reset-btn:hover {
   background: var(--vscode-list-hoverBackground, #e8e8e8);
 }
 

@@ -1,110 +1,106 @@
 import { createStore } from "zustand/vanilla";
-import type { ResolvedTheme } from "../lib/themes/theme-types";
-import { getResolvedTheme, DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID } from "../lib/themes/theme-registry";
+import type { ResolvedTheme, ThemeKind } from "../lib/themes/theme-types";
+import {
+  DEFAULT_DARK_THEME_ID,
+  DEFAULT_LIGHT_THEME_ID,
+  THEME_ENTRIES,
+  getDefaultResolvedTheme,
+  getResolvedTheme,
+} from "../lib/themes/theme-registry";
 import { applyTheme } from "../lib/themes/apply-theme";
 
 const THEME_STORAGE_KEY = "deathpush:theme";
 const PREFERRED_DARK_KEY = "deathpush:preferred-dark-theme";
 const PREFERRED_LIGHT_KEY = "deathpush:preferred-light-theme";
+const themeKinds = new Map(THEME_ENTRIES.map((entry) => [entry.id, entry.kind]));
 
-const getPreferredDarkId = (): string => localStorage.getItem(PREFERRED_DARK_KEY) ?? DEFAULT_DARK_THEME_ID;
-const getPreferredLightId = (): string => localStorage.getItem(PREFERRED_LIGHT_KEY) ?? DEFAULT_LIGHT_THEME_ID;
-
-const resolveInitialTheme = (): ResolvedTheme => {
-  const stored = localStorage.getItem(THEME_STORAGE_KEY);
-  if (stored) {
-    const theme = getResolvedTheme(stored);
-    if (theme) return theme;
-  }
-
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const defaultId = prefersDark ? getPreferredDarkId() : getPreferredLightId();
-  return getResolvedTheme(defaultId) ?? getResolvedTheme(DEFAULT_DARK_THEME_ID)!;
+const storedThemeForKind = (key: string, kind: ThemeKind, fallback: string): string => {
+  const stored = localStorage.getItem(key);
+  return stored && themeKinds.get(stored) === kind ? stored : fallback;
 };
+
+const getPreferredDarkId = (): string => storedThemeForKind(PREFERRED_DARK_KEY, "dark", DEFAULT_DARK_THEME_ID);
+const getPreferredLightId = (): string => storedThemeForKind(PREFERRED_LIGHT_KEY, "light", DEFAULT_LIGHT_THEME_ID);
+const prefersDark = (): boolean => window.matchMedia("(prefers-color-scheme: dark)").matches;
 
 interface ThemeState {
   currentTheme: ResolvedTheme;
   preferredDarkThemeId: string;
   preferredLightThemeId: string;
-  setTheme: (id: string) => void;
-  setPreferredDarkTheme: (id: string) => void;
-  setPreferredLightTheme: (id: string) => void;
+  setTheme: (id: string) => Promise<void>;
+  setPreferredDarkTheme: (id: string) => Promise<void>;
+  setPreferredLightTheme: (id: string) => Promise<void>;
 }
 
+let themeRequest = 0;
+
+const activateTheme = async (id: string, persistPreference: boolean): Promise<void> => {
+  const request = ++themeRequest;
+  const theme = await getResolvedTheme(id);
+  if (!theme || request !== themeRequest) return;
+
+  const updates: Partial<ThemeState> = { currentTheme: theme };
+  if (persistPreference) {
+    const key = theme.kind === "dark" ? PREFERRED_DARK_KEY : PREFERRED_LIGHT_KEY;
+    localStorage.setItem(key, id);
+    if (theme.kind === "dark") updates.preferredDarkThemeId = id;
+    else updates.preferredLightThemeId = id;
+  }
+  themeStore.setState(updates);
+  applyTheme(theme);
+};
+
 export const themeStore = createStore<ThemeState>((set) => ({
-  currentTheme: resolveInitialTheme(),
+  currentTheme: getDefaultResolvedTheme(prefersDark() ? "dark" : "light"),
   preferredDarkThemeId: getPreferredDarkId(),
   preferredLightThemeId: getPreferredLightId(),
 
-  setTheme: (id: string) => {
-    const theme = getResolvedTheme(id);
-    if (!theme) return;
-    applyTheme(theme);
-    const updates: Partial<ThemeState> = { currentTheme: theme };
-    if (theme.kind === "dark" || theme.kind === "hc-dark") {
-      localStorage.setItem(PREFERRED_DARK_KEY, id);
-      updates.preferredDarkThemeId = id;
-    } else {
-      localStorage.setItem(PREFERRED_LIGHT_KEY, id);
-      updates.preferredLightThemeId = id;
-    }
-    set(updates);
-  },
+  setTheme: (id) => activateTheme(id, true),
 
-  setPreferredDarkTheme: (id: string) => {
-    const theme = getResolvedTheme(id);
-    if (!theme) return;
+  setPreferredDarkTheme: async (id) => {
+    if (themeKinds.get(id) !== "dark") return;
     localStorage.setItem(PREFERRED_DARK_KEY, id);
     set({ preferredDarkThemeId: id });
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    if (prefersDark) {
-      applyTheme(theme);
-      set({ currentTheme: theme });
-    }
+    if (prefersDark()) await activateTheme(id, false);
   },
 
-  setPreferredLightTheme: (id: string) => {
-    const theme = getResolvedTheme(id);
-    if (!theme) return;
+  setPreferredLightTheme: async (id) => {
+    if (themeKinds.get(id) !== "light") return;
     localStorage.setItem(PREFERRED_LIGHT_KEY, id);
     set({ preferredLightThemeId: id });
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    if (!prefersDark) {
-      applyTheme(theme);
-      set({ currentTheme: theme });
-    }
+    if (!prefersDark()) await activateTheme(id, false);
   },
 }));
 
-const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-mediaQuery.addEventListener("change", (e) => {
+export const initializeThemeStore = async (): Promise<void> => {
   const state = themeStore.getState();
-  const id = e.matches ? state.preferredDarkThemeId : state.preferredLightThemeId;
-  if (id === state.currentTheme.id) return;
-  const theme = getResolvedTheme(id);
-  if (theme) {
-    applyTheme(theme);
-    themeStore.setState({ currentTheme: theme });
-  }
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
+  const id =
+    stored && themeKinds.has(stored)
+      ? stored
+      : prefersDark()
+        ? state.preferredDarkThemeId
+        : state.preferredLightThemeId;
+  const theme = await getResolvedTheme(id);
+  if (theme) themeStore.setState({ currentTheme: theme });
+};
+
+const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+mediaQuery.addEventListener("change", (event) => {
+  const state = themeStore.getState();
+  const id = event.matches ? state.preferredDarkThemeId : state.preferredLightThemeId;
+  if (id !== state.currentTheme.id) void activateTheme(id, false);
 });
 
-window.addEventListener("storage", (e: StorageEvent) => {
-  if (e.key === THEME_STORAGE_KEY && e.newValue) {
-    const theme = getResolvedTheme(e.newValue);
-    if (!theme) return;
-    applyTheme(theme);
-    themeStore.setState({ currentTheme: theme });
+window.addEventListener("storage", (event: StorageEvent) => {
+  if (event.key === THEME_STORAGE_KEY && event.newValue && themeKinds.has(event.newValue)) {
+    void activateTheme(event.newValue, false);
+    return;
   }
-
-  if (e.key === PREFERRED_DARK_KEY && e.newValue) {
-    if (getResolvedTheme(e.newValue)) {
-      themeStore.setState({ preferredDarkThemeId: e.newValue });
-    }
+  if (event.key === PREFERRED_DARK_KEY && event.newValue && themeKinds.get(event.newValue) === "dark") {
+    themeStore.setState({ preferredDarkThemeId: event.newValue });
   }
-
-  if (e.key === PREFERRED_LIGHT_KEY && e.newValue) {
-    if (getResolvedTheme(e.newValue)) {
-      themeStore.setState({ preferredLightThemeId: e.newValue });
-    }
+  if (event.key === PREFERRED_LIGHT_KEY && event.newValue && themeKinds.get(event.newValue) === "light") {
+    themeStore.setState({ preferredLightThemeId: event.newValue });
   }
 });

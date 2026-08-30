@@ -228,7 +228,7 @@ export const windowConfirmClose = (): Promise<void> => invoke("window_confirm_cl
 
 export const terminalsHaveActiveProcess = (): Promise<boolean> => invoke("terminals_have_active_process");
 
-export const listDirectory = (path: string | null): Promise<ExplorerEntry[]> => invoke("list_directory", { path });
+export const listRepositoryTree = (): Promise<ExplorerEntry[]> => invoke("list_repository_tree");
 
 export const readFileContent = (path: string): Promise<FileContent> => invoke("read_file_content", { path });
 

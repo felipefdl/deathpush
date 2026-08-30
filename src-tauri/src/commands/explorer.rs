@@ -16,76 +16,47 @@ use crate::util::async_command;
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024; // 5MB
 const BINARY_CHECK_SIZE: usize = 8192;
 
+async fn collect_repository_entries(root: &Path) -> Result<Vec<ExplorerEntry>> {
+  let output = GitCli::new(root)
+    .run(&["ls-files", "-z", "--cached", "--others", "--exclude-standard"])
+    .await?;
+  let mut entries = output
+    .split('\0')
+    .filter(|path| !path.is_empty())
+    .map(|path| {
+      let path = Path::new(path);
+      let relative_path = path.to_string_lossy().to_string();
+      let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| relative_path.clone());
+      let is_symlink = fs::symlink_metadata(root.join(path))
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false);
+      ExplorerEntry {
+        name,
+        path: relative_path,
+        is_directory: false,
+        is_symlink,
+      }
+    })
+    .collect::<Vec<_>>();
+  entries.sort_by_cached_key(|entry| entry.path.to_lowercase());
+  Ok(entries)
+}
+
 #[tauri::command]
-pub async fn list_directory(
-  path: Option<String>,
+pub async fn list_repository_tree(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<Vec<ExplorerEntry>> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
-    win_state.cli_root.clone().ok_or(Error::NoRepository)?
+    let window_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    window_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
 
-  let target_dir = match &path {
-    Some(p) => root.join(p),
-    None => root.clone(),
-  };
-
-  if !target_dir.is_dir() {
-    return Ok(vec![]);
-  }
-
-  // Open the repo to check gitignore
-  let repo = git2::Repository::open(&root).ok();
-
-  let mut entries = Vec::new();
-  let read_dir = fs::read_dir(&target_dir)?;
-
-  for entry in read_dir.flatten() {
-    let file_name = entry.file_name();
-    let name = file_name.to_string_lossy().to_string();
-
-    // Skip .git directory
-    if name == ".git" {
-      continue;
-    }
-
-    let entry_path = entry.path();
-    let relative = entry_path
-      .strip_prefix(&root)
-      .unwrap_or(&entry_path)
-      .to_string_lossy()
-      .to_string();
-
-    // Check if ignored by gitignore
-    if let Some(ref r) = repo {
-      if r.status_should_ignore(Path::new(&relative)).unwrap_or(false) {
-        continue;
-      }
-    }
-
-    let metadata = entry.metadata();
-    let is_directory = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
-    let is_symlink = metadata.as_ref().map(|m| m.is_symlink()).unwrap_or(false);
-
-    entries.push(ExplorerEntry {
-      name,
-      path: relative,
-      is_directory,
-      is_symlink,
-    });
-  }
-
-  // Sort: directories first, then files, both alphabetical (case-insensitive)
-  entries.sort_by(|a, b| match (a.is_directory, b.is_directory) {
-    (true, false) => std::cmp::Ordering::Less,
-    (false, true) => std::cmp::Ordering::Greater,
-    _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-  });
-
-  Ok(entries)
+  collect_repository_entries(&root).await
 }
 
 #[tauri::command]
@@ -316,4 +287,40 @@ pub async fn search_file_contents(
   }
 
   Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+  use std::time::{SystemTime, UNIX_EPOCH};
+
+  use super::*;
+
+  #[tokio::test]
+  async fn repository_tree_uses_git_file_listing_and_skips_ignored_paths() {
+    let suffix = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .expect("clock must be after the Unix epoch")
+      .as_nanos();
+    let root = std::env::temp_dir().join(format!("deathpush-explorer-{}-{suffix}", std::process::id()));
+
+    fs::create_dir_all(root.join("src")).expect("src directory should be created");
+    fs::create_dir_all(root.join("empty")).expect("empty directory should be created");
+    fs::create_dir_all(root.join("target")).expect("ignored directory should be created");
+    fs::write(root.join("src/index.ts"), "").expect("source file should be created");
+    fs::write(root.join("target/output.js"), "").expect("ignored file should be created");
+    fs::write(root.join(".gitignore"), "target/\n").expect("gitignore should be created");
+    git2::Repository::init(&root).expect("repository should be initialized");
+
+    let entries = collect_repository_entries(&root)
+      .await
+      .expect("repository tree should be collected");
+    let paths = entries
+      .iter()
+      .map(|entry| (entry.path.as_str(), entry.is_directory))
+      .collect::<Vec<_>>();
+
+    assert_eq!(paths, vec![(".gitignore", false), ("src/index.ts", false)]);
+
+    fs::remove_dir_all(root).expect("temporary repository should be removed");
+  }
 }

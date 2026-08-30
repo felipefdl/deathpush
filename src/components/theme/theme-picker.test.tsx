@@ -4,22 +4,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ResolvedTheme } from "../../lib/themes/theme-types";
 import { ThemePicker } from "./theme-picker";
 
-const { applyThemeMock, events, setThemeMock, themes } = vi.hoisted(() => {
+const { applyThemeMock, events, setStateMock, setThemeMock, themes } = vi.hoisted(() => {
   const eventLog: string[] = [];
   const resolvedThemes: ResolvedTheme[] = [
     {
       id: "test-theme",
       label: "Test Theme",
-      uiTheme: "vs-dark",
       kind: "dark",
+      name: "test-theme",
+      type: "dark",
+      bg: "#000000",
+      fg: "#ffffff",
       colors: {},
       tokenColors: [],
     },
     {
       id: "other-theme",
       label: "Other Theme",
-      uiTheme: "vs-dark",
       kind: "dark",
+      name: "other-theme",
+      type: "dark",
+      bg: "#000000",
+      fg: "#ffffff",
       colors: {},
       tokenColors: [],
     },
@@ -27,7 +33,10 @@ const { applyThemeMock, events, setThemeMock, themes } = vi.hoisted(() => {
   return {
     applyThemeMock: vi.fn(),
     events: eventLog,
-    setThemeMock: vi.fn(() => eventLog.push("setTheme")),
+    setStateMock: vi.fn(),
+    setThemeMock: vi.fn(async () => {
+      eventLog.push("setTheme");
+    }),
     themes: resolvedThemes,
   };
 });
@@ -35,6 +44,7 @@ const { applyThemeMock, events, setThemeMock, themes } = vi.hoisted(() => {
 vi.mock("../../stores/theme-store", () => ({
   themeStore: {
     getState: () => ({ currentTheme: themes[0], setTheme: setThemeMock }),
+    setState: setStateMock,
   },
 }));
 
@@ -44,13 +54,14 @@ vi.mock("../../lib/themes/apply-theme", () => ({
 
 vi.mock("../../lib/themes/theme-registry", () => ({
   THEME_ENTRIES: themes,
-  getResolvedTheme: (id: string) => themes.find((theme) => theme.id === id),
+  getResolvedTheme: async (id: string) => themes.find((theme) => theme.id === id),
 }));
 
 describe("ThemePicker", () => {
   beforeEach(() => {
     events.length = 0;
     setThemeMock.mockClear();
+    setStateMock.mockClear();
     applyThemeMock.mockClear();
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
     vi.stubGlobal("scrollTo", vi.fn());
@@ -83,5 +94,17 @@ describe("ThemePicker", () => {
     flush();
 
     expect(events).toEqual(["close", "setTheme"]);
+  });
+
+  it("updates theme state during keyboard previews", async () => {
+    const result = render(() => <ThemePicker onClose={vi.fn()} />);
+    flush();
+
+    fireEvent.keyDown(result.container.querySelector("input")!, { key: "ArrowDown" });
+
+    await vi.waitFor(() => {
+      expect(setStateMock).toHaveBeenCalledWith({ currentTheme: themes[1] });
+    });
+    expect(applyThemeMock).toHaveBeenCalledWith(themes[1], { transient: true });
   });
 });

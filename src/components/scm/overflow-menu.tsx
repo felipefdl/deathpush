@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onSettled } from "solid-js";
 import { confirm } from "@tauri-apps/plugin-dialog";
+import { Portal } from "@solidjs/web";
 import { repositoryStore } from "../../stores/repository-store";
-import { layoutStore } from "../../stores/layout-store";
 import { useStore } from "../../lib/use-store";
 import { useStash } from "../../hooks/use-stash";
 import { useBranches } from "../../hooks/use-branches";
@@ -22,8 +22,6 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   const branches = useStore(repositoryStore, (s) => s.branches);
   const operations = useStore(repositoryStore, (s) => s.operations);
   const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
-  const viewMode = useStore(layoutStore, (s) => s.viewMode);
-  const { setViewMode } = layoutStore.getState();
   const { saveStash, saveStashIncludeUntracked, saveStashStaged, popStash } = useStash();
   const { loadBranches, mergeBranch, rebaseBranch } = useBranches();
   const [showMergePicker, setShowMergePicker] = createSignal(false);
@@ -39,6 +37,24 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   const noBranch = () => !branch();
   const isNetworkBusy = () => operations().has("push") || operations().has("pull") || operations().has("fetch");
   const showingPicker = () => showMergePicker() || showRebasePicker();
+
+  const menuStyle = () => {
+    const margin = 8;
+    const preferredWidth = showingPicker() ? 260 : 200;
+    const width = Math.min(preferredWidth, Math.max(0, window.innerWidth - margin * 2));
+    const anchor = props.anchorRef?.getBoundingClientRect();
+    const right = anchor?.right ?? window.innerWidth - margin;
+    const maximumLeft = Math.max(margin, window.innerWidth - width - margin);
+    const left = Math.min(Math.max(margin, right - width), maximumLeft);
+    return {
+      position: "fixed" as const,
+      left: `${left}px`,
+      right: "auto",
+      top: `${anchor?.bottom ?? margin}px`,
+      "min-width": `${width}px`,
+      "max-width": `${width}px`,
+    };
+  };
 
   const filteredBranches = createMemo(() => {
     const q = pickerSearch().toLowerCase();
@@ -230,13 +246,14 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   };
 
   return (
-    <>
+    <Portal>
       {showingPicker() ? (
         <div
           class="overflow-menu overflow-menu-wide"
           ref={(el) => {
             menuRef = el;
           }}
+          style={menuStyle()}
         >
           <div class="overflow-menu-picker-header">{showMergePicker() ? "Merge" : "Rebase onto"}</div>
           <input
@@ -287,20 +304,8 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
           ref={(el) => {
             menuRef = el;
           }}
+          style={menuStyle()}
         >
-          <div
-            class="context-menu-item"
-            onClick={() => handleItem(() => setViewMode(viewMode() === "list" ? "tree" : "list"))}
-          >
-            <span
-              class={`codicon ${viewMode() === "list" ? "codicon-list-tree" : "codicon-list-flat"}`}
-              style={{ "margin-right": "8px", "font-size": "14px" }}
-            />
-            {viewMode() === "list" ? "View as Tree" : "View as List"}
-          </div>
-
-          <div class="context-menu-separator" />
-
           <div
             class={`context-menu-item${noBranch() || isNetworkBusy() ? " disabled" : ""}`}
             onClick={() => handleItem(() => handlePull(), noBranch() || isNetworkBusy())}
@@ -423,6 +428,6 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
           )}
         </div>
       )}
-    </>
+    </Portal>
   );
 };

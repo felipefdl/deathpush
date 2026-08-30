@@ -18,14 +18,10 @@ type GroupedThemes = {
 const GROUP_LABELS: Record<ThemeKind, string> = {
   dark: "dark themes",
   light: "light themes",
-  "hc-dark": "high contrast",
-  "hc-light": "high contrast",
 };
 
-const getGroupOrder = (): ThemeKind[] => {
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  return prefersDark ? ["dark", "light", "hc-dark", "hc-light"] : ["light", "dark", "hc-dark", "hc-light"];
-};
+const getGroupOrder = (): ThemeKind[] =>
+  window.matchMedia("(prefers-color-scheme: dark)").matches ? ["dark", "light"] : ["light", "dark"];
 
 const groupThemes = (entries: ThemeEntry[]): GroupedThemes[] => {
   const order = getGroupOrder();
@@ -41,22 +37,13 @@ const groupThemes = (entries: ThemeEntry[]): GroupedThemes[] => {
     list.sort((a, b) => a.label.localeCompare(b.label));
   }
 
-  const hcDark = groups.get("hc-dark") ?? [];
-  const hcLight = groups.get("hc-light") ?? [];
-  const hcCombined = [...hcDark, ...hcLight];
-  hcCombined.sort((a, b) => a.label.localeCompare(b.label));
-
   return order
-    .filter((kind, _i, arr) => {
-      if (kind === "hc-light" && arr.includes("hc-dark")) return false;
-      return true;
-    })
     .map((kind) => ({
       kind,
       label: GROUP_LABELS[kind],
-      themes: kind === "hc-dark" ? hcCombined : (groups.get(kind) ?? []),
+      themes: groups.get(kind) ?? [],
     }))
-    .filter((g) => g.themes.length > 0);
+    .filter((group) => group.themes.length > 0);
 };
 
 export const ThemePicker = (props: ThemePickerProps) => {
@@ -74,6 +61,7 @@ export const ThemePicker = (props: ThemePickerProps) => {
   let listRef: HTMLDivElement | undefined;
   let inputRef: HTMLInputElement | undefined;
   let isKeyboardNav = false;
+  let previewRequest = 0;
 
   const filtered = createMemo(() => {
     const query = search();
@@ -95,17 +83,24 @@ export const ThemePicker = (props: ThemePickerProps) => {
     return offsets;
   });
 
-  const previewTheme = (id: string) => {
-    const resolved = getResolvedTheme(id);
-    if (resolved) applyTheme(resolved, { transient: true });
+  const previewTheme = async (id: string): Promise<void> => {
+    const request = ++previewRequest;
+    const resolved = await getResolvedTheme(id);
+    if (resolved && request === previewRequest) {
+      themeStore.setState({ currentTheme: resolved });
+      applyTheme(resolved, { transient: true });
+    }
   };
 
-  const confirmTheme = (id: string) => {
+  const confirmTheme = (id: string): void => {
+    previewRequest += 1;
     props.onClose();
-    setTheme(id);
+    void setTheme(id);
   };
 
-  const cancel = () => {
+  const cancel = (): void => {
+    previewRequest += 1;
+    themeStore.setState({ currentTheme: originalTheme });
     applyTheme(originalTheme);
     props.onClose();
   };
@@ -117,7 +112,7 @@ export const ThemePicker = (props: ThemePickerProps) => {
       return idx >= 0 && idx < list.length ? list[idx].id : null;
     },
     (id) => {
-      if (id && isKeyboardNav) previewTheme(id);
+      if (id && isKeyboardNav) void previewTheme(id);
     }
   );
 
@@ -208,7 +203,6 @@ export const ThemePicker = (props: ThemePickerProps) => {
                       onClick={() => confirmTheme(theme().id)}
                     >
                       <span class="theme-picker-item-label">{theme().label}</span>
-                      {theme().description && <span class="theme-picker-item-description">{theme().description}</span>}
                     </div>
                   )}
                 </For>

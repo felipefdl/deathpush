@@ -2,7 +2,6 @@ import { createEffect, createMemo } from "solid-js";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import type { FileEntry } from "../../lib/git-types";
 import { repositoryStore } from "../../stores/repository-store";
-import { layoutStore } from "../../stores/layout-store";
 import { useStore } from "../../lib/use-store";
 import { useColorScheme } from "../../hooks/use-color-scheme";
 import { useGitStatus } from "../../hooks/use-git-status";
@@ -36,9 +35,7 @@ export const ScmView = (props: ScmViewProps) => {
   const status = useStore(repositoryStore, (s) => s.status);
   const stashes = useStore(repositoryStore, (s) => s.stashes);
   const fileFilter = useStore(repositoryStore, (s) => s.fileFilter);
-  const focusedIndex = useStore(repositoryStore, (s) => s.focusedIndex);
   const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
-  const viewMode = useStore(layoutStore, (s) => s.viewMode);
   const colorScheme = useColorScheme();
   const isDark = () => colorScheme() === "dark";
   useGitStatus();
@@ -64,16 +61,6 @@ export const ScmView = (props: ScmViewProps) => {
         return { group, files };
       })
       .filter(({ files }) => files.length > 0);
-  });
-
-  const groupOffsets = createMemo(() => {
-    const offsets: number[] = [];
-    let offset = 0;
-    for (const { files } of filteredGroups()) {
-      offsets.push(offset);
-      offset += files.length;
-    }
-    return offsets;
   });
 
   const handleStageAll = async (paths: string[]) => {
@@ -145,16 +132,12 @@ export const ScmView = (props: ScmViewProps) => {
   const panes = createMemo((): PaneDefinition[] => {
     const result: PaneDefinition[] = [];
     const groups = filteredGroups();
-    const offsets = groupOffsets();
     const stashList = stashes();
     const nested = subRepos();
     const root = status()?.root;
-    const mode = viewMode();
-    const focused = focusedIndex();
 
     for (let i = 0; i < groups.length; i++) {
       const { group, files } = groups[i];
-      const offset = offsets[i];
       const isIndex = group.kind === "index";
       const paths = files.map((f) => f.path);
 
@@ -173,15 +156,7 @@ export const ScmView = (props: ScmViewProps) => {
             onDiscardAll={() => handleDiscardAll(files)}
           />
         ),
-        body: () => (
-          <ResourceGroupBody
-            files={files}
-            viewMode={mode}
-            groupKind={group.kind}
-            flatIndexOffset={offset}
-            focusedIndex={focused}
-          />
-        ),
+        body: () => <ResourceGroupBody files={files} groupKind={group.kind} />,
       });
     }
 

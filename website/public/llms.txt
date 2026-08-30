@@ -11,17 +11,17 @@ DeathPush can review repository changes produced by coding agents such as Claude
 ## Key Features
 
 - VS Code Source Control UX with file-level staging
-- Monaco diffs with syntax highlighting, side-by-side or unified views, and editing of unstaged files
+- Pierre diffs with syntax highlighting, side-by-side or unified views, and editing of unstaged files
 - Side-by-side image diffs for PNG, JPG, GIF, WebP, AVIF, SVG, and more
 - Branch create, switch, merge, rebase, rename, delete, push, and pull
 - Current-line blame in the status bar, plus file history and commit diffs
 - Merge continue or abort, and rebase continue, skip, or abort when conflicts stop the operation
 - Stash, tags, cherry-pick, and reset
 - Multi-window repositories, each with its own branches and state
-- Built-in themes, including dark, light, and high-contrast variants
+- Built-in dark and light themes
 - Integrated terminal built on libghostty, Ghostty's VT engine, with a real PTY
 - Hybrid Git engine: git2 for reads, native git CLI for writes so hooks, signing, credentials, SSH, and LFS keep working
-- Native desktop app on Tauri, Rust, Solid, Monaco, and libghostty
+- Native desktop app on Tauri, Rust, Solid, Pierre, and libghostty
 
 ## Technical Details
 

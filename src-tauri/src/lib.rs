@@ -301,7 +301,6 @@ pub fn run() {
         .build(app)?;
 
       let color_theme_item = MenuItemBuilder::with_id("color-theme", "Color Theme...").build(app)?;
-      let icon_theme_item = MenuItemBuilder::with_id("icon-theme", "File Icon Theme...").build(app)?;
 
       let licenses_item = MenuItemBuilder::with_id("open-source-licenses", "Open Source Licenses").build(app)?;
 
@@ -372,7 +371,6 @@ pub fn run() {
         .item(&toggle_diff_item)
         .separator()
         .item(&color_theme_item)
-        .item(&icon_theme_item)
         .separator()
         .item(&zoom_in_item)
         .item(&zoom_out_item)
@@ -518,7 +516,6 @@ pub fn run() {
             || id == zoom_out_item.id()
             || id == zoom_reset_item.id()
             || id == color_theme_item.id()
-            || id == icon_theme_item.id()
             || id == git_pull_item.id()
             || id == git_push_item.id()
             || id == git_fetch_item.id()
@@ -675,7 +672,7 @@ pub fn run() {
       tag::delete_tag,
       tag::push_tag,
       tag::delete_remote_tag,
-      explorer::list_directory,
+      explorer::list_repository_tree,
       explorer::read_file_content,
       explorer::fuzzy_find_files,
       explorer::search_file_contents,

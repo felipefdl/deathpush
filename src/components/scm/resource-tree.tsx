@@ -1,83 +1,29 @@
-import { createMemo, createSignal, For } from "solid-js";
+import type { ContextMenuItem as TreeContextMenuItem, FileTree } from "@pierre/trees";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import type { FileEntry, ResourceGroupKind } from "../../lib/git-types";
-import { ResourceItem } from "./resource-item";
-import { getFileIconClasses } from "../../lib/icon-themes/get-icon-classes";
+import { fileEntriesToTreeGitStatus } from "../../lib/trees";
+import { flushPath, flushPaths } from "../../lib/pierre/flush-registry";
+import { layoutStore } from "../../stores/layout-store";
+import { repositoryStore } from "../../stores/repository-store";
+import { useDiff } from "../../hooks/use-diff";
+import * as commands from "../../lib/tauri-commands";
+import { FileTreeHost, type FileTreeHostProps } from "../trees/file-tree-host";
+import { renderTreeContextMenu } from "../trees/tree-context-menu";
+import type { ContextMenuItem } from "./context-menu";
 
-type TreeNode = {
-  name: string;
-  fullPath: string;
-  children: Map<string, TreeNode>;
-  files: FileEntry[];
-};
-
-const buildTree = (files: FileEntry[]): TreeNode => {
-  const root: TreeNode = { name: "", fullPath: "", children: new Map(), files: [] };
-
-  for (const file of files) {
-    const parts = file.path.split("/");
-    let current = root;
-
-    for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i];
-      if (!current.children.has(part)) {
-        const fullPath = parts.slice(0, i + 1).join("/");
-        current.children.set(part, { name: part, fullPath, children: new Map(), files: [] });
+export const resolveResourcePaths = (files: readonly FileEntry[], selectedPaths: readonly string[]): string[] => {
+  const resolved: string[] = [];
+  for (const selectedPath of selectedPaths) {
+    if (selectedPath.endsWith("/")) {
+      const prefix = selectedPath;
+      for (const file of files) {
+        if (file.path.startsWith(prefix) && !resolved.includes(file.path)) resolved.push(file.path);
       }
-      current = current.children.get(part)!;
+    } else if (files.some((file) => file.path === selectedPath) && !resolved.includes(selectedPath)) {
+      resolved.push(selectedPath);
     }
-
-    current.files.push(file);
   }
-
-  return root;
-};
-
-type TreeFolderProps = {
-  node: TreeNode;
-  groupKind: ResourceGroupKind;
-  depth: number;
-};
-
-const TreeFolder = (props: TreeFolderProps) => {
-  const [collapsed, setCollapsed] = createSignal(false);
-
-  const sortedChildren = createMemo(() =>
-    Array.from(props.node.children.values()).sort((a, b) => a.name.localeCompare(b.name))
-  );
-  const sortedFiles = createMemo(() =>
-    [...props.node.files].sort((a, b) => {
-      const nameA = a.path.split("/").pop() ?? a.path;
-      const nameB = b.path.split("/").pop() ?? b.path;
-      return nameA.localeCompare(nameB);
-    })
-  );
-  const childDepth = () => (props.node.name ? props.depth + 1 : props.depth);
-
-  return (
-    <div>
-      {props.node.name && (
-        <div
-          class="resource-tree-folder"
-          style={{ "padding-left": `${12 + props.depth * 12}px` }}
-          onClick={() => setCollapsed(!collapsed())}
-        >
-          <span class={`codicon codicon-chevron-down resource-group-chevron ${collapsed() ? "collapsed" : ""}`} />
-          <span class={`resource-item-icon ${getFileIconClasses(props.node.name, "folder")}`} />
-          <span class="resource-tree-folder-name">{props.node.name}</span>
-        </div>
-      )}
-      {!collapsed() && (
-        <>
-          <For each={sortedChildren()} keyed={(child) => child.fullPath}>
-            {(child) => <TreeFolder node={child()} groupKind={props.groupKind} depth={childDepth()} />}
-          </For>
-          <For each={sortedFiles()} keyed={(file) => file.path}>
-            {(file) => <ResourceItem file={file()} groupKind={props.groupKind} treeDepth={childDepth()} />}
-          </For>
-        </>
-      )}
-    </div>
-  );
+  return resolved;
 };
 
 type ResourceTreeProps = {
@@ -86,6 +32,224 @@ type ResourceTreeProps = {
 };
 
 export const ResourceTree = (props: ResourceTreeProps) => {
-  const tree = createMemo(() => buildTree(props.files));
-  return <TreeFolder node={tree()} groupKind={props.groupKind} depth={0} />;
+  const { loadDiff } = useDiff();
+  const isStaged = props.groupKind === "index";
+  let treeModel: FileTree | undefined;
+
+  const setError = (error: unknown): void => repositoryStore.getState().setError(String(error));
+
+  const finishOperation = (operation: string): void => repositoryStore.getState().endOperation(operation);
+
+  const selectedPathsForItem = (item: TreeContextMenuItem): string[] => {
+    const selected = treeModel?.getSelectedPaths() ?? [];
+    const paths = selected.includes(item.path) ? selected : [item.path];
+    return resolveResourcePaths(props.files, paths);
+  };
+
+  const showDiff = (file: FileEntry): void => {
+    void loadDiff(file.path, isStaged, props.groupKind);
+    const layout = layoutStore.getState();
+    layout.dockTerminal();
+    if (layout.mainView !== "changes") layout.setMainView("changes");
+  };
+
+  const stage = async (paths: string[]): Promise<void> => {
+    const store = repositoryStore.getState();
+    store.startOperation("stage");
+    try {
+      await flushPaths(paths);
+      store.setStatus(await commands.stageFiles(paths));
+    } catch (error) {
+      setError(error);
+    } finally {
+      finishOperation("stage");
+    }
+  };
+
+  const unstage = async (paths: string[]): Promise<void> => {
+    const store = repositoryStore.getState();
+    store.startOperation("unstage");
+    try {
+      await flushPaths(paths);
+      store.setStatus(await commands.unstageFiles(paths));
+    } catch (error) {
+      setError(error);
+    } finally {
+      finishOperation("unstage");
+    }
+  };
+
+  const discard = async (paths: string[]): Promise<void> => {
+    const store = repositoryStore.getState();
+    const untrackedPaths = paths.filter((path) => {
+      const file = props.files.find((candidate) => candidate.path === path);
+      return props.groupKind === "untracked" || file?.status === "untracked";
+    });
+    const trackedPaths = paths.filter((path) => !untrackedPaths.includes(path));
+
+    let message: string;
+    let title: string;
+    let okLabel: string;
+    if (trackedPaths.length > 0 && untrackedPaths.length > 0) {
+      message = `Are you sure you want to discard changes in ${trackedPaths.length} tracked file(s) and DELETE ${untrackedPaths.length} untracked file(s)?\n\nTracked changes are irreversible. Untracked files can be restored from the Trash.`;
+      title = "Discard Changes";
+      okLabel = "Discard & Delete";
+    } else if (untrackedPaths.length > 0) {
+      message =
+        untrackedPaths.length === 1
+          ? `Are you sure you want to DELETE the following untracked file: '${untrackedPaths[0].split("/").pop()}'?\n\nYou can restore this file from the Trash.`
+          : `Are you sure you want to DELETE ${untrackedPaths.length} untracked file(s)?\n\nYou can restore them from the Trash.`;
+      title = "Delete Untracked File";
+      okLabel = "Move to Trash";
+    } else {
+      message =
+        paths.length === 1
+          ? `Are you sure you want to discard changes in "${paths[0].split("/").pop()}"?\n\nThis action is irreversible.`
+          : `Are you sure you want to discard changes in ${paths.length} file(s)?\n\nThis action is irreversible.`;
+      title = "Discard Changes";
+      okLabel = "Discard";
+    }
+    if (!(await confirm(message, { title, kind: "warning", okLabel, cancelLabel: "Cancel" }))) return;
+
+    store.startOperation("discard");
+    try {
+      await flushPaths(paths);
+      let nextStatus;
+      if (trackedPaths.length > 0) nextStatus = await commands.discardChanges(trackedPaths);
+      if (untrackedPaths.length > 0) nextStatus = await commands.deleteFiles(untrackedPaths);
+      if (nextStatus) store.setStatus(nextStatus);
+    } catch (error) {
+      setError(error);
+    } finally {
+      finishOperation("discard");
+    }
+  };
+
+  const deleteFile = async (file: FileEntry): Promise<void> => {
+    const confirmed = await confirm(`Are you sure you want to move "${file.path.split("/").pop()}" to the trash?`, {
+      title: "Move to Trash",
+      kind: "warning",
+      okLabel: "Move to Trash",
+      cancelLabel: "Cancel",
+    });
+    if (!confirmed) return;
+    const store = repositoryStore.getState();
+    store.startOperation("delete");
+    try {
+      await flushPath(file.path);
+      store.setStatus(await commands.deleteFile(file.path));
+    } catch (error) {
+      setError(error);
+    } finally {
+      finishOperation("delete");
+    }
+  };
+
+  const getContextMenuItems = (item: TreeContextMenuItem): ContextMenuItem[] => {
+    const paths = selectedPathsForItem(item);
+    const file = props.files.find((candidate) => candidate.path === item.path);
+    const items: ContextMenuItem[] = [];
+    if (file) {
+      items.push(
+        { label: "Open Changes", icon: "diff", action: () => showDiff(file) },
+        {
+          label: "Open File",
+          icon: "go-to-file",
+          action: () => void commands.openInEditor(file.path).catch(setError),
+        },
+        {
+          label: "Show File History",
+          icon: "history",
+          action: () => {
+            layoutStore.getState().setMainView("history");
+            window.dispatchEvent(new CustomEvent("deathpush:file-history", { detail: { path: file.path } }));
+          },
+        },
+        { label: "", action: () => {}, separator: true }
+      );
+    }
+    items.push(
+      isStaged
+        ? { label: "Unstage Changes", icon: "remove", action: () => void unstage(paths) }
+        : { label: "Stage Changes", icon: "add", action: () => void stage(paths) },
+      { label: "", action: () => {}, separator: true }
+    );
+    if (!isStaged) {
+      items.push({
+        label: file?.status === "untracked" || props.groupKind === "untracked" ? "Delete" : "Discard Changes",
+        icon: file?.status === "untracked" || props.groupKind === "untracked" ? "trash" : "discard",
+        action: () => void discard(paths),
+      });
+    }
+    if (file) {
+      items.push(
+        { label: "", action: () => {}, separator: true },
+        {
+          label: "Copy Path",
+          icon: "copy",
+          action: () => {
+            const root = repositoryStore.getState().status?.root;
+            void navigator.clipboard.writeText(root ? `${root}/${file.path}` : file.path);
+          },
+        },
+        { label: "Copy Relative Path", icon: "copy", action: () => void navigator.clipboard.writeText(file.path) },
+        {
+          label: "Reveal in Finder",
+          icon: "folder-opened",
+          action: () => void commands.revealInFileManager(file.path).catch(setError),
+        }
+      );
+      const isDeleted = ["deleted", "indexDeleted", "bothDeleted", "deletedByThem", "deletedByUs"].includes(
+        file.status
+      );
+      if (!isStaged && !isDeleted && file.status !== "untracked") {
+        items.push(
+          { label: "", action: () => {}, separator: true },
+          { label: "Move to Trash", icon: "trash", action: () => void deleteFile(file) }
+        );
+      }
+      if (file.status === "untracked") {
+        items.push(
+          { label: "", action: () => {}, separator: true },
+          {
+            label: "Add to .gitignore",
+            icon: "exclude",
+            action: () =>
+              void commands
+                .addToGitignore(file.path)
+                .then((nextStatus) => repositoryStore.getState().setStatus(nextStatus))
+                .catch(setError),
+          }
+        );
+      }
+    }
+    return items;
+  };
+
+  const treeOptions: FileTreeHostProps["options"] = {
+    onSelectionChange: (selectedPaths) => {
+      if (selectedPaths.length !== 1) return;
+      const file = props.files.find((candidate) => candidate.path === selectedPaths[0]);
+      if (file) showDiff(file);
+    },
+    composition: {
+      contextMenu: {
+        enabled: true,
+        triggerMode: "both",
+        render: (item, context) => renderTreeContextMenu(getContextMenuItems(item), context),
+      },
+    },
+  };
+
+  return (
+    <FileTreeHost
+      paths={props.files.map((file) => file.path)}
+      gitStatus={fileEntriesToTreeGitStatus(props.files)}
+      options={treeOptions}
+      modelRef={(model) => {
+        treeModel = model;
+      }}
+      class="resource-tree"
+    />
+  );
 };

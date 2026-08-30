@@ -6,8 +6,6 @@ import { settingsStore } from "../stores/settings-store";
 import { explorerStore } from "../stores/explorer-store";
 import { toggleTerminal } from "../lib/toggle-terminal";
 import { handleTerminalShortcut } from "../lib/terminal-shortcuts";
-import { buildFlatFileList } from "../lib/flat-file-list";
-import { flushPath } from "../lib/pierre/flush-registry";
 import { isPierreFindHostOpen } from "../lib/pierre/find-host";
 import * as commands from "../lib/tauri-commands";
 
@@ -20,17 +18,7 @@ export const useKeyboardShortcuts = () => {
       const isMod = e.metaKey || e.ctrlKey;
       const repo = repositoryStore.getState();
       const layout = layoutStore.getState();
-      const {
-        setStatus,
-        setError,
-        setFocusedIndex,
-        setSelectedFile,
-        setDiff,
-        clearFileSelection,
-        startOperation,
-        endOperation,
-      } = repo;
-      const { setDiffMode, diffMode } = layout;
+      const { setStatus, setError, setSelectedFile, setDiff } = repo;
 
       // Chord: Cmd+K Cmd+T -> open theme picker
       if (chordK && isMod && e.key === "t") {
@@ -38,15 +26,6 @@ export const useKeyboardShortcuts = () => {
         chordK = false;
         if (chordTimer) clearTimeout(chordTimer);
         window.dispatchEvent(new CustomEvent("deathpush:open-theme-picker"));
-        return;
-      }
-
-      // Chord: Cmd+K Cmd+I -> open icon theme picker
-      if (chordK && isMod && e.key === "i") {
-        e.preventDefault();
-        chordK = false;
-        if (chordTimer) clearTimeout(chordTimer);
-        window.dispatchEvent(new CustomEvent("deathpush:open-icon-theme-picker"));
         return;
       }
 
@@ -157,10 +136,11 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
-      // Ctrl/Cmd+Shift+P: Toggle diff mode
+      // Ctrl/Cmd+Shift+P: Toggle diff layout
       if (isMod && e.shiftKey && e.key === "P") {
         e.preventDefault();
-        setDiffMode(diffMode === "inline" ? "sideBySide" : "inline");
+        const { settings, updateDiff } = settingsStore.getState();
+        updateDiff({ layout: settings.diff.layout === "inline" ? "sideBySide" : "inline" });
         return;
       }
 
@@ -170,19 +150,17 @@ export const useKeyboardShortcuts = () => {
 
       if (inExplorer) {
         const explorer = explorerStore.getState();
-        const selectedPath = explorer.selectedPath;
+        const selected = explorer.selectedTreeEntry;
 
-        // F2 or Enter: start rename
-        if ((e.key === "F2" || e.key === "Enter") && selectedPath) {
+        if (e.key === "F2" && selected) {
           e.preventDefault();
-          explorer.setRenamingPath(selectedPath);
+          window.dispatchEvent(new CustomEvent("deathpush:explorer-rename"));
           return;
         }
 
-        // Delete / Cmd+Backspace: move to trash
-        if ((e.key === "Delete" || (isMod && e.key === "Backspace")) && selectedPath) {
+        if ((e.key === "Delete" || (isMod && e.key === "Backspace")) && selected) {
           e.preventDefault();
-          const fileName = selectedPath.split("/").pop() ?? selectedPath;
+          const fileName = selected.path.split("/").pop() ?? selected.path;
           void confirm(`Are you sure you want to delete "${fileName}"?\n\nThis will move it to the trash.`, {
             title: "Delete",
             kind: "warning",
@@ -191,63 +169,39 @@ export const useKeyboardShortcuts = () => {
           }).then((confirmed) => {
             if (!confirmed) return;
             commands
-              .deleteFile(selectedPath)
+              .deleteFile(selected.path)
               .then((status) => {
                 setStatus(status);
-                explorer.setSelectedPath(null);
-                explorer.setFileContent(null);
-                explorer.clearCache();
+                explorer.setSelectedTreeEntry(null);
+                if (explorer.selectedPath === selected.path) {
+                  explorer.setSelectedPath(null);
+                  explorer.setFileContent(null);
+                }
               })
-              .catch((err) => setError(String(err)));
+              .catch((error) => setError(String(error)));
           });
           return;
         }
 
-        // Cmd+C: copy
-        if (isMod && e.key === "c" && selectedPath) {
+        if (isMod && (e.key === "c" || e.key === "x") && selected) {
           e.preventDefault();
-          const rootEntries = explorer.directoryCache.get("__root__");
-          const findEntry = (entries: typeof rootEntries, path: string): boolean => {
-            if (!entries) return false;
-            for (const entry of entries) {
-              if (entry.path === path) return entry.isDirectory;
-              if (entry.isDirectory && path.startsWith(entry.path + "/")) {
-                const children = explorer.directoryCache.get(entry.path);
-                if (children) return findEntry(children, path);
-              }
-            }
-            return false;
-          };
-          const isDir = findEntry(rootEntries, selectedPath);
-          explorer.setClipboardEntry({ path: selectedPath, isDirectory: isDir, operation: "copy" });
+          explorer.setClipboardEntry({
+            path: selected.path,
+            isDirectory: selected.isDirectory,
+            operation: e.key === "c" ? "copy" : "cut",
+          });
           return;
         }
 
-        // Cmd+X: cut
-        if (isMod && e.key === "x" && selectedPath) {
-          e.preventDefault();
-          const rootEntries = explorer.directoryCache.get("__root__");
-          const findEntry = (entries: typeof rootEntries, path: string): boolean => {
-            if (!entries) return false;
-            for (const entry of entries) {
-              if (entry.path === path) return entry.isDirectory;
-              if (entry.isDirectory && path.startsWith(entry.path + "/")) {
-                const children = explorer.directoryCache.get(entry.path);
-                if (children) return findEntry(children, path);
-              }
-            }
-            return false;
-          };
-          const isDir = findEntry(rootEntries, selectedPath);
-          explorer.setClipboardEntry({ path: selectedPath, isDirectory: isDir, operation: "cut" });
-          return;
-        }
-
-        // Cmd+V: paste
         if (isMod && e.key === "v" && explorer.clipboardEntry) {
           e.preventDefault();
           const clip = explorer.clipboardEntry;
-          const targetDir = selectedPath ?? "";
+          const separator = selected?.path.lastIndexOf("/") ?? -1;
+          const targetDir = selected?.isDirectory
+            ? selected.path
+            : separator >= 0
+              ? (selected?.path.slice(0, separator) ?? "")
+              : "";
           const pasteOp =
             clip.operation === "copy"
               ? commands.copyEntries([clip.path], targetDir)
@@ -255,13 +209,13 @@ export const useKeyboardShortcuts = () => {
           pasteOp
             .then(() => {
               if (clip.operation === "cut") explorer.setClipboardEntry(null);
-              explorer.clearCache();
             })
-            .catch((err) => setError(String(err)));
+            .catch((error) => setError(String(error)));
           return;
         }
       }
 
+      if ((e.target as HTMLElement).closest("file-tree-container")) return;
       if (e.key === "Escape" && isPierreFindHostOpen()) return;
 
       // Skip navigation keys when focus is in an input
@@ -270,100 +224,11 @@ export const useKeyboardShortcuts = () => {
       // Escape: clear focus and selection
       if (e.key === "Escape") {
         e.preventDefault();
-        setFocusedIndex(null);
         setSelectedFile(null);
         setDiff(null);
-        clearFileSelection();
         const explorer = explorerStore.getState();
         explorer.setSelectedPath(null);
         explorer.setFileContent(null);
-        return;
-      }
-
-      const { status, fileFilter, focusedIndex } = repo;
-      if (!status) return;
-
-      const flatList = buildFlatFileList(status.groups, fileFilter);
-      if (flatList.length === 0) return;
-
-      // Arrow Down: move focus down
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        const next = focusedIndex === null ? 0 : Math.min(focusedIndex + 1, flatList.length - 1);
-        setFocusedIndex(next);
-        return;
-      }
-
-      // Arrow Up: move focus up
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        const next = focusedIndex === null ? flatList.length - 1 : Math.max(focusedIndex - 1, 0);
-        setFocusedIndex(next);
-        return;
-      }
-
-      // Following keys require a focused item
-      if (focusedIndex === null || focusedIndex >= flatList.length) return;
-      const focused = flatList[focusedIndex];
-      const isStaged = focused.groupKind === "index";
-
-      if (e.key === "Enter") {
-        e.preventDefault();
-        layout.dockTerminal();
-        setSelectedFile({ path: focused.path, staged: isStaged, groupKind: focused.groupKind });
-        const loadId = repositoryStore.getState().selectedLoadId;
-        commands
-          .getFileDiff(focused.path, isStaged)
-          .then((diff) => {
-            if (repositoryStore.getState().selectedLoadId !== loadId) return;
-            setDiff(diff);
-          })
-          .catch((err) => {
-            if (repositoryStore.getState().selectedLoadId !== loadId) return;
-            setError(String(err));
-          });
-        return;
-      }
-
-      // Space: toggle stage/unstage
-      if (e.key === " ") {
-        e.preventDefault();
-        if (isStaged) {
-          startOperation("unstage");
-          void flushPath(focused.path)
-            .then(() => commands.unstageFiles([focused.path]))
-            .then(setStatus)
-            .catch((err) => setError(String(err)))
-            .finally(() => endOperation("unstage"));
-        } else {
-          startOperation("stage");
-          void flushPath(focused.path)
-            .then(() => commands.stageFiles([focused.path]))
-            .then(setStatus)
-            .catch((err) => setError(String(err)))
-            .finally(() => endOperation("stage"));
-        }
-        return;
-      }
-
-      // Delete/Backspace: discard changes (unstaged only)
-      if ((e.key === "Delete" || e.key === "Backspace") && !isStaged) {
-        e.preventDefault();
-        const fileName = focused.path.split("/").pop() ?? focused.path;
-        void confirm(`Are you sure you want to discard changes in "${fileName}"?\n\nThis action is irreversible.`, {
-          title: "Discard Changes",
-          kind: "warning",
-          okLabel: "Discard",
-          cancelLabel: "Cancel",
-        }).then((confirmed) => {
-          if (!confirmed) return;
-          startOperation("discard");
-          void flushPath(focused.path)
-            .then(() => commands.discardChanges([focused.path]))
-            .then(setStatus)
-            .catch((err) => setError(String(err)))
-            .finally(() => endOperation("discard"));
-        });
         return;
       }
     };

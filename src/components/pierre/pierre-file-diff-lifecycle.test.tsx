@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   fileConstructed: vi.fn(),
   fileCleaned: vi.fn(),
   fileRendered: vi.fn(),
+  fileRerendered: vi.fn(),
+  fileOptionsUpdated: vi.fn(),
   editorConstructed: vi.fn(),
   mountingDuringRender: vi.fn(),
 }));
@@ -15,7 +17,7 @@ vi.mock("@pierre/diffs", () => ({
     options: Record<string, unknown>;
     constructor(options: Record<string, unknown>) {
       this.options = options;
-      mocks.fileConstructed();
+      mocks.fileConstructed(options);
     }
     render(props: { containerWrapper: HTMLElement }) {
       mocks.mountingDuringRender(props.containerWrapper.hasAttribute("data-pierre-mounting"));
@@ -27,13 +29,17 @@ vi.mock("@pierre/diffs", () => ({
     }
     setOptions(options: Record<string, unknown>) {
       this.options = options;
+      mocks.fileOptionsUpdated(options);
+    }
+    rerender() {
+      mocks.fileRerendered();
     }
     cleanUp() {
       mocks.fileCleaned();
     }
   },
   parseDiffFromFile: vi.fn(),
-  parsePatchFiles: vi.fn(),
+  parsePatchFiles: vi.fn(() => [{ files: [{ hunks: [] }] }]),
 }));
 
 vi.mock("@pierre/diffs/edit", () => ({
@@ -59,8 +65,19 @@ vi.mock("../../lib/tauri-commands", () => ({
     modified: `contents:${path}`,
     fileType: "text",
   })),
-  getFilePatch: vi.fn(async () => ""),
-  getFileHunks: vi.fn(async () => ({ hunks: [] })),
+  getFilePatch: vi.fn(async () => "patch"),
+  getFileHunks: vi.fn(async () => ({
+    hunks: [
+      {
+        header: "@@ -1,0 +1,1 @@",
+        oldStart: 1,
+        oldLines: 0,
+        newStart: 1,
+        newLines: 1,
+        lines: [{ content: "new", lineType: "add", oldLineNumber: null, newLineNumber: 1 }],
+      },
+    ],
+  })),
   writeFile: vi.fn(async () => undefined),
 }));
 
@@ -72,11 +89,13 @@ vi.mock("../../lib/pierre/flush-registry", () => ({
   trackPendingFlush: (_path: string, promise: Promise<void>) => promise,
 }));
 
+import { settingsStore } from "../../stores/settings-store";
 import { PierreFileDiff } from "./pierre-file-diff";
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  settingsStore.getState().updateDiff({ layout: "sideBySide", showInlineHunkActions: true });
 });
 
 describe("PierreFileDiff navigation", () => {
@@ -97,5 +116,31 @@ describe("PierreFileDiff navigation", () => {
     expect(mocks.editorConstructed).toHaveBeenCalledTimes(1);
     expect(mocks.mountingDuringRender).toHaveBeenCalledTimes(2);
     expect(mocks.mountingDuringRender).toHaveBeenCalledWith(true);
+  });
+
+  it("rerenders the mounted diff when switching layouts", async () => {
+    settingsStore.getState().updateDiff({ layout: "sideBySide" });
+    render(() => <PierreFileDiff path="NOTICE" staged={false} groupKind="workingTree" />);
+    await waitFor(() => expect(mocks.fileRendered).toHaveBeenCalledTimes(1));
+
+    settingsStore.getState().updateDiff({ layout: "inline" });
+
+    await waitFor(() =>
+      expect(mocks.fileOptionsUpdated).toHaveBeenLastCalledWith(expect.objectContaining({ diffStyle: "unified" }))
+    );
+  });
+
+  it("turns inline hunk actions off and on without remounting", async () => {
+    settingsStore.getState().updateDiff({ showInlineHunkActions: false });
+    render(() => <PierreFileDiff path="NOTICE" staged={false} groupKind="workingTree" />);
+    await waitFor(() => expect(mocks.fileRendered).toHaveBeenCalledTimes(1));
+    const options = mocks.fileConstructed.mock.calls[0][0] as {
+      renderAnnotation: (annotation: { side: "additions"; lineNumber: number }) => HTMLElement | undefined;
+    };
+    const annotation = { side: "additions" as const, lineNumber: 1 };
+
+    expect(options.renderAnnotation(annotation)).toBeUndefined();
+    settingsStore.getState().updateDiff({ showInlineHunkActions: true });
+    expect(options.renderAnnotation(annotation)).toBeInstanceOf(HTMLElement);
   });
 });

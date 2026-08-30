@@ -7,6 +7,11 @@ const base = {
   wordWrap: "off" as const,
   diffMode: "inline" as const,
   enableLineSelection: true,
+  showLineNumbers: false,
+  diffIndicators: "bars" as const,
+  lineDiffType: "char" as const,
+  showBackground: false,
+  hunkSeparators: "metadata" as const,
 };
 
 describe("buildPierreDiffOptions", () => {
@@ -30,7 +35,15 @@ describe("buildPierreDiffOptions", () => {
     expect(options.themeType).toBe("dark");
     expect(buildPierreDiffOptions({ ...base, themeType: "light" }).themeType).toBe("light");
     expect(options.preferredHighlighter).toBe("shiki-js");
-    expect(options.lineDiffType).toBe("word-alt");
     expect(options.enableLineSelection).toBe(true);
+  });
+
+  it("maps user-facing diff preferences", () => {
+    const options = buildPierreDiffOptions(base);
+    expect(options.disableLineNumbers).toBe(true);
+    expect(options.diffIndicators).toBe("bars");
+    expect(options.lineDiffType).toBe("char");
+    expect(options.disableBackground).toBe(true);
+    expect(options.hunkSeparators).toBe("metadata");
   });
 });
