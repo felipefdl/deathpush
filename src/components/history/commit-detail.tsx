@@ -1,18 +1,12 @@
-import { createEffect, createMemo, createSignal, For, onSettled } from "solid-js";
-import type * as monaco from "monaco-editor";
+import { createMemo, createSignal, For } from "solid-js";
 import { repositoryStore } from "../../stores/repository-store";
-import { layoutStore } from "../../stores/layout-store";
-import { settingsStore } from "../../stores/settings-store";
-import { themeStore } from "../../stores/theme-store";
 import { useStore } from "../../lib/use-store";
 import { formatRelativeDate } from "../../lib/format-date";
 import { getCommitFileDiff } from "../../lib/tauri-commands";
 import { getFileIconClasses } from "../../lib/icon-themes/get-icon-classes";
 import type { CommitDiffContent } from "../../lib/git-types";
-import { applyDiffModelOptions } from "../../lib/monaco-models";
-import { buildDiffModelOptions, buildDiffOptions } from "../../lib/diff-options";
 import { ImageDiff } from "../diff/image-diff";
-import { MonacoDiffEditor } from "../monaco/monaco-diff-editor";
+import { PierreFileDiff } from "../pierre/pierre-file-diff";
 import { CommitFileTree } from "./commit-file-tree";
 
 const statusLetter = (status: string): string => {
@@ -40,84 +34,14 @@ const copyToClipboard = (text: string) => {
 
 export const CommitDetail = () => {
   const commitDetail = useStore(repositoryStore, (s) => s.commitDetail);
-  const diffMode = useStore(layoutStore, (s) => s.diffMode);
-  const editorSettings = useStore(settingsStore, (s) => s.settings.editor);
-  const currentTheme = useStore(themeStore, (s) => s.currentTheme);
   const [fileDiff, setFileDiff] = createSignal<CommitDiffContent | null>(null);
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const [filesViewMode, setFilesViewMode] = createSignal<"list" | "tree">("list");
-  let editorRef: monaco.editor.IStandaloneDiffEditor | undefined;
-  let disposeActions: (() => void) | undefined;
 
   const commit = createMemo(() => commitDetail()?.commit);
   const files = createMemo(() => commitDetail()?.files ?? []);
   const firstLine = createMemo(() => commit()?.message.split("\n")[0] ?? "");
   const bodyLines = createMemo(() => commit()?.message.split("\n").slice(1).join("\n").trim() ?? "");
-  const diffOptions = createMemo(() => ({
-    ...buildDiffOptions(editorSettings(), diffMode()),
-    readOnly: true,
-    domReadOnly: true,
-    tabSize: editorSettings().tabSize,
-  }));
-
-  const handleDiffMount = (editor: monaco.editor.IStandaloneDiffEditor, monacoApi: typeof monaco) => {
-    editorRef = editor;
-    disposeActions?.();
-
-    const chordKT = monacoApi.KeyMod.chord(
-      monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyK,
-      monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyT
-    );
-    const chordKI = monacoApi.KeyMod.chord(
-      monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyK,
-      monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyI
-    );
-
-    const disposables: { dispose: () => void }[] = [];
-    for (const sub of [editor.getModifiedEditor(), editor.getOriginalEditor()]) {
-      disposables.push(
-        sub.addAction({
-          id: "deathpush.openThemePicker",
-          label: "Open Theme Picker",
-          keybindings: [chordKT],
-          run: () => {
-            window.dispatchEvent(new CustomEvent("deathpush:open-theme-picker"));
-          },
-        }),
-        sub.addAction({
-          id: "deathpush.openIconThemePicker",
-          label: "Open Icon Theme Picker",
-          keybindings: [chordKI],
-          run: () => {
-            window.dispatchEvent(new CustomEvent("deathpush:open-icon-theme-picker"));
-          },
-        })
-      );
-    }
-
-    disposeActions = () => {
-      for (const disposable of disposables) disposable.dispose();
-    };
-
-    applyDiffModelOptions(editor, buildDiffModelOptions(settingsStore.getState().settings.editor));
-  };
-
-  createEffect(
-    () => editorSettings(),
-    (editor) => {
-      const instance = editorRef;
-      if (!instance) return;
-      applyDiffModelOptions(instance, buildDiffModelOptions(editor));
-    }
-  );
-
-  onSettled(() => {
-    return () => {
-      disposeActions?.();
-      editorRef = undefined;
-    };
-  });
-
   const handleFileClick = async (commitId: string, path: string) => {
     setSelectedPath(path);
     try {
@@ -216,15 +140,10 @@ export const CommitDetail = () => {
                 <ImageDiff original={fileDiff()!.original} modified={fileDiff()!.modified} />
               ) : (
                 <div class="commit-detail-diff-editor">
-                  <MonacoDiffEditor
+                  <PierreFileDiff
+                    path={fileDiff()!.path}
                     original={fileDiff()!.original}
                     modified={fileDiff()!.modified}
-                    originalPath={`commit-original/${fileDiff()!.path}`}
-                    modifiedPath={`commit-modified/${fileDiff()!.path}`}
-                    language={fileDiff()!.language ?? undefined}
-                    theme={currentTheme().id}
-                    onMount={handleDiffMount}
-                    options={diffOptions()}
                   />
                 </div>
               )}

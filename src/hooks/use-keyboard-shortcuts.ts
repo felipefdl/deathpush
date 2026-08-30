@@ -8,6 +8,7 @@ import { toggleTerminal } from "../lib/toggle-terminal";
 import { handleTerminalShortcut } from "../lib/terminal-shortcuts";
 import { buildFlatFileList } from "../lib/flat-file-list";
 import { flushPath } from "../lib/pierre/flush-registry";
+import { isPierreFindHostOpen } from "../lib/pierre/find-host";
 import * as commands from "../lib/tauri-commands";
 
 export const useKeyboardShortcuts = () => {
@@ -260,6 +261,8 @@ export const useKeyboardShortcuts = () => {
           return;
         }
       }
+
+      if (e.key === "Escape" && isPierreFindHostOpen()) return;
 
       // Skip navigation keys when focus is in an input
       if (isInput) return;

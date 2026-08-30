@@ -1,6 +1,7 @@
 import { createEffect, createSignal, onSettled } from "solid-js";
 import {
   FileDiff,
+  parseDiffFromFile,
   parsePatchFiles,
   type DiffLineAnnotation,
   type FileContents,
@@ -25,17 +26,38 @@ import { hunkActionAnchor, hunkIdentity, reidentifyHunk, type HunkIdentity } fro
 import { mapSelectionToStageLines, normalizeSelectionRange, type StageLinesCall } from "../../lib/pierre/line-map";
 import { isDirty, sessionCacheKey, type SaveSession } from "../../lib/pierre/save-session";
 import { sha256Utf8 } from "../../lib/pierre/sha";
+import { createPierreFindHost, type PierreFindHost } from "../../lib/pierre/find-host";
 import { selectionIsInPierreHost } from "./pierre-file";
 
 const SAVE_MS = 1000;
 
 export type HunkAnnotationMeta = { hunkIndex: number; identity: HunkIdentity };
 
-export type PierreFileDiffProps = {
+export type PierreScmDiffProps = {
   path: string;
   staged: boolean;
   groupKind: ResourceGroupKind;
 };
+
+export type PierreHistoryDiffProps = {
+  path: string;
+  original: string;
+  modified: string;
+};
+
+export type PierreFileDiffProps = PierreScmDiffProps | PierreHistoryDiffProps;
+
+const pierreShadowRoot = (content: HTMLElement): ShadowRoot | undefined =>
+  content.querySelector("diffs-container")?.shadowRoot ?? undefined;
+
+const readOnlyBlame = (setCursorLine: (lineNumber: number) => void) => ({
+  onLineClick: (props: { lineNumber: number }) => {
+    setCursorLine(props.lineNumber);
+  },
+  onLineSelected: (range: SelectedLineRange | null) => {
+    if (range) setCursorLine(range.end);
+  },
+});
 
 export type ScmSessionHandle = {
   session: SaveSession;
@@ -181,7 +203,7 @@ const renderHunkButtons = (
   return row;
 };
 
-export const PierreFileDiff = (props: PierreFileDiffProps) => {
+const PierreScmFileDiff = (props: PierreScmDiffProps) => {
   const editorSettings = useStore(settingsStore, (s) => s.settings.editor);
   const currentTheme = useStore(themeStore, (s) => s.currentTheme);
   const diffMode = useStore(layoutStore, (s) => s.diffMode);
@@ -240,6 +262,7 @@ export const PierreFileDiff = (props: PierreFileDiffProps) => {
       let writeTail: Promise<void> = Promise.resolve();
       let unregisterFlush: (() => void) | undefined;
       let disposeEdit: (() => void) | undefined;
+      let findHost: PierreFindHost | undefined;
       let file: FileDiff | undefined;
       let editor: Editor<undefined> | undefined;
       let busy = false;
@@ -415,6 +438,7 @@ export const PierreFileDiff = (props: PierreFileDiffProps) => {
             if (!range) return;
             void runLineSelection(range);
           },
+          ...(editable ? {} : readOnlyBlame(setCursorLine)),
         };
 
         file = new FileDiff(options, getPierreWorkerPool());
@@ -444,6 +468,11 @@ export const PierreFileDiff = (props: PierreFileDiffProps) => {
           });
           disposeEdit = editor.edit(file);
           document.addEventListener("selectionchange", onSelectionChange);
+        } else {
+          findHost = createPierreFindHost({
+            getRoot: () => pierreShadowRoot(content),
+            wrapper: root,
+          });
         }
       })().catch((error: unknown) => {
         if (!cancelled) setError(String(error));
@@ -458,6 +487,7 @@ export const PierreFileDiff = (props: PierreFileDiffProps) => {
           clearTimeout(pendingTimer);
         }
         unregisterFlush?.();
+        findHost?.dispose();
         fileRef = undefined;
         disposeEdit?.();
         editor?.cleanUp();
@@ -499,3 +529,98 @@ export const PierreFileDiff = (props: PierreFileDiffProps) => {
     </div>
   );
 };
+
+const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
+  const editorSettings = useStore(settingsStore, (s) => s.settings.editor);
+  const currentTheme = useStore(themeStore, (s) => s.currentTheme);
+  const diffMode = useStore(layoutStore, (s) => s.diffMode);
+  const [ready, setReady] = createSignal(false);
+  let root!: HTMLDivElement;
+  let content!: HTMLDivElement;
+  let fileRef: FileDiff | undefined;
+
+  onSettled(() => {
+    setReady(true);
+    return () => setReady(false);
+  });
+
+  createEffect(
+    () => (ready() ? ([props.path, props.original, props.modified] as const) : null),
+    (deps) => {
+      if (!deps) return;
+      const [path, original, modified] = deps;
+      const { setCursorLine, setError } = repositoryStore.getState();
+      const themeId = currentTheme().id;
+      const wordWrap = normalizeWordWrap(editorSettings().wordWrap);
+      const mode = diffMode();
+
+      let findHost: PierreFindHost | undefined;
+      let file: FileDiff | undefined;
+      try {
+        const fileDiff = parseDiffFromFile({ name: path, contents: original }, { name: path, contents: modified });
+        file = new FileDiff(
+          {
+            ...buildPierreDiffOptions({
+              themeId,
+              wordWrap,
+              diffMode: mode,
+              enableLineSelection: false,
+            }),
+            ...readOnlyBlame(setCursorLine),
+          },
+          getPierreWorkerPool()
+        );
+        file.render({ fileDiff, containerWrapper: content });
+        fileRef = file;
+        findHost = createPierreFindHost({
+          getRoot: () => pierreShadowRoot(content),
+          wrapper: root,
+        });
+      } catch (error) {
+        setError(String(error));
+      }
+
+      return () => {
+        findHost?.dispose();
+        fileRef = undefined;
+        file?.cleanUp();
+      };
+    }
+  );
+
+  createEffect(
+    () => [currentTheme().id, normalizeWordWrap(editorSettings().wordWrap), diffMode()] as const,
+    ([themeId, wordWrap, mode]) => {
+      if (!fileRef) return;
+      fileRef.setOptions({
+        ...fileRef.options,
+        ...buildPierreDiffOptions({
+          themeId,
+          wordWrap,
+          diffMode: mode,
+          enableLineSelection: false,
+        }),
+      });
+    }
+  );
+
+  return (
+    <div
+      ref={(element) => {
+        root = element;
+      }}
+      class="pierre-file-host"
+      style={{ width: "100%", height: "100%", overflow: "auto" }}
+    >
+      <div
+        ref={(element) => {
+          content = element;
+        }}
+        class="pierre-file-content"
+      />
+    </div>
+  );
+};
+
+export const PierreFileDiff = (props: PierreFileDiffProps) =>
+  "original" in props ? <PierreHistoryFileDiff {...props} /> : <PierreScmFileDiff {...props} />;
