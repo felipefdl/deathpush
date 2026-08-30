@@ -6,6 +6,7 @@ import { themeStore } from "../../stores/theme-store";
 import { useStore } from "../../lib/use-store";
 import { buildPierreDiffOptions } from "../../lib/pierre/options";
 import { normalizeWordWrap, pierreHostStyle } from "../../lib/pierre/normalize-editor-settings";
+import { pierreThemeType } from "../../lib/pierre/theme";
 import { getPierreWorkerPool } from "../../lib/pierre/worker";
 import { sessionCacheKey, type SaveSession } from "../../lib/pierre/save-session";
 import { sha256Utf8 } from "../../lib/pierre/sha";
@@ -42,9 +43,14 @@ export const enqueueMergeResolve = (path: string, work: () => Promise<void>): Pr
   return next;
 };
 
-const unresolvedOptions = (themeId: string, wordWrap: "off" | "on"): UnresolvedFileOptions<undefined> => {
+const unresolvedOptions = (
+  themeId: string,
+  themeType: "light" | "dark",
+  wordWrap: "off" | "on"
+): UnresolvedFileOptions<undefined> => {
   const { diffStyle: _diffStyle, ...options } = buildPierreDiffOptions({
     themeId,
+    themeType,
     wordWrap,
     diffMode: "inline",
     enableLineSelection: false,
@@ -72,7 +78,9 @@ export const PierreUnresolved = (props: PierreUnresolvedProps) => {
 
       const [path, contents] = deps;
       const { setStatus, setError } = repositoryStore.getState();
-      const themeId = currentTheme().id;
+      const theme = currentTheme();
+      const themeId = theme.id;
+      const themeType = pierreThemeType(theme.kind);
       const wordWrap = normalizeWordWrap(editorSettings().wordWrap);
       session = { path, diskSha: "", pendingSha: null, cacheGeneration: 0 };
       void sha256Utf8(contents).then((sha) => {
@@ -80,7 +88,7 @@ export const PierreUnresolved = (props: PierreUnresolvedProps) => {
       });
 
       const options: UnresolvedFileOptions<undefined> = {
-        ...unresolvedOptions(themeId, wordWrap),
+        ...unresolvedOptions(themeId, themeType, wordWrap),
         mergeConflictActionsType: "default",
         onMergeConflictResolve: (file: FileContents) => {
           void enqueueMergeResolve(path, async () => {
@@ -111,12 +119,13 @@ export const PierreUnresolved = (props: PierreUnresolvedProps) => {
   );
 
   createEffect(
-    () => [currentTheme().id, normalizeWordWrap(editorSettings().wordWrap)] as const,
-    ([themeId, wordWrap]) => {
+    () =>
+      [currentTheme().id, pierreThemeType(currentTheme().kind), normalizeWordWrap(editorSettings().wordWrap)] as const,
+    ([themeId, themeType, wordWrap]) => {
       if (!fileRef) return;
       fileRef.setOptions({
         ...fileRef.options,
-        ...unresolvedOptions(themeId, wordWrap),
+        ...unresolvedOptions(themeId, themeType, wordWrap),
       });
     }
   );

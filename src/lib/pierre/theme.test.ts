@@ -11,12 +11,19 @@ vi.mock("@pierre/diffs", () => ({
 
 import { registerDeathPushPierreTheme } from "./theme";
 
+const uiThemeByKind = {
+  dark: "vs-dark",
+  light: "vs",
+  "hc-dark": "hc-black",
+  "hc-light": "hc-light",
+} as const;
+
 const theme = (kind: ThemeKind, id = "deathpush-theme"): ResolvedTheme => ({
   id,
   label: "DeathPush Display Label",
-  uiTheme: kind === "light" || kind === "hc-light" ? "vs" : "vs-dark",
+  uiTheme: uiThemeByKind[kind],
   kind,
-  colors: { "editor.background": "#010203" },
+  colors: { "editor.background": "#010203", "editor.foreground": "#CCCCCC" },
   tokenColors: [{ scope: "comment", settings: { foreground: "#6A9955" } }],
 });
 
@@ -29,6 +36,8 @@ const loadRegisteredTheme = async (kind: ThemeKind, id?: string) => {
   const loader = registerCustomThemeMock.mock.calls[0]?.[1] as () => Promise<{
     name: string;
     type: "dark" | "light";
+    bg: string;
+    fg: string;
     colors: ResolvedTheme["colors"];
     tokenColors: ResolvedTheme["tokenColors"];
   }>;
@@ -41,7 +50,28 @@ describe("registerDeathPushPierreTheme", () => {
     expect(loaded.name).toBe("preview-theme");
     expect(loaded.name).not.toBe(resolved.label);
     expect(loaded.colors).toEqual(resolved.colors);
-    expect(loaded.tokenColors).toEqual(resolved.tokenColors);
+    expect(loaded.tokenColors.slice(0, resolved.tokenColors.length)).toEqual(resolved.tokenColors);
+  });
+
+  it.each([
+    ["dark", ["#9CDCFE", "#CE9178", "#B5CEA8", "#CE9178"]],
+    ["light", ["#A31515", "#0451A5", "#098658", "#0451A5"]],
+    ["hc-dark", ["#9CDCFE", "#CE9178", "#FFFFFF", "#569CD6"]],
+    ["hc-light", ["#A31515", "#0451A5", "#098658", "#0000FF"]],
+  ] as const)("preserves Monaco JSON colors for %s themes", async (kind, foregrounds) => {
+    const { loaded } = await loadRegisteredTheme(kind);
+    expect(loaded.tokenColors.slice(-4)).toEqual([
+      { scope: "support.type.property-name.json", settings: { foreground: foregrounds[0] } },
+      { scope: "string.quoted.double.json", settings: { foreground: foregrounds[1] } },
+      { scope: "constant.numeric.json", settings: { foreground: foregrounds[2] } },
+      { scope: "constant.language.json", settings: { foreground: foregrounds[3] } },
+    ]);
+  });
+
+  it("uses the editor surface as Pierre's base colors", async () => {
+    const { loaded } = await loadRegisteredTheme("dark");
+    expect(loaded.bg).toBe("#010203");
+    expect(loaded.fg).toBe("#CCCCCC");
   });
 
   it("maps light and hc-light kinds to type light", async () => {

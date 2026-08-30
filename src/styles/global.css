@@ -151,6 +151,15 @@ summary {
   cursor: pointer;
 }
 
+.pierre-file-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--vscode-editor-background);
+}
+
 .pierre-file-host,
 .pierre-file-host * {
   -webkit-user-select: text;
@@ -159,6 +168,98 @@ summary {
 
 .pierre-file-host {
   --vscode-focusBorder: transparent !important;
+}
+
+.pierre-file-host {
+  scrollbar-width: none;
+}
+
+.pierre-file-host::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.pierre-file-scrollbar {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 1px;
+  bottom: 0;
+  width: 10px;
+  user-select: none;
+}
+
+.pierre-file-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  right: 1px;
+  left: 1px;
+  min-height: 24px;
+  border-radius: 4px;
+  background: var(--vscode-scrollbarSlider-background);
+  cursor: default;
+  will-change: transform;
+}
+
+.pierre-file-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+.pierre-file-scrollbar-thumb:active {
+  background: var(--vscode-scrollbarSlider-activeBackground);
+}
+
+.pierre-file-scrollbar-horizontal {
+  position: absolute;
+  z-index: 1;
+  right: 11px;
+  bottom: 1px;
+  left: 0;
+  height: 10px;
+  user-select: none;
+}
+
+.pierre-file-scrollbar-horizontal-thumb {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 0;
+  min-width: 24px;
+  border-radius: 4px;
+  background: var(--vscode-scrollbarSlider-background);
+  cursor: default;
+  will-change: transform;
+}
+
+.pierre-file-scrollbar-horizontal-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+.pierre-file-scrollbar-horizontal-thumb:active {
+  background: var(--vscode-scrollbarSlider-activeBackground);
+}
+
+.pierre-file-content {
+  display: flex;
+  flex: 1 0 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  width: 100%;
+  flex-direction: column;
+}
+
+.pierre-file-content[data-pierre-mounting] {
+  visibility: hidden;
+}
+
+.pierre-file-content > diffs-container {
+  flex: 1 0 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  width: 100%;
 }
 
 * {
@@ -488,11 +589,14 @@ body.vs .linux-title-btn:hover {
 .diff-viewer {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   height: 100%;
 }
 
 .diff-editor-container {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
 

@@ -26,50 +26,49 @@ export const FileViewer = () => {
   const isFileDirty = useStore(explorerStore, (s) => s.isFileDirty);
   const revealLine = useStore(explorerStore, (s) => s.revealLine);
   const colorScheme = useColorScheme();
-  const [sessionTick, setSessionTick] = createSignal(0);
+  const [session, setSession] = createSignal<SaveSession | null>(null);
   const [cacheGeneration, setCacheGeneration] = createSignal(0);
-  let session: SaveSession | null = null;
 
   createEffect(
     () => fileContent()?.path,
     (path) => {
       const content = explorerStore.getState().fileContent;
       if (!path || !content) {
-        session = null;
+        setSession(null);
         setCacheGeneration(0);
-        setSessionTick((tick) => tick + 1);
         return;
       }
-      session = { path, diskSha: "", pendingSha: null, cacheGeneration: 0 };
+      const nextSession: SaveSession = { path, diskSha: "", pendingSha: null, cacheGeneration: 0 };
+      setSession(nextSession);
       setCacheGeneration(0);
-      setSessionTick((tick) => tick + 1);
       explorerStore.getState().setIsFileDirty(false);
       void sha256Utf8(content.content).then((sha) => {
-        if (session?.path === path && session.cacheGeneration === 0 && session.diskSha === "") {
-          session.diskSha = sha;
+        if (session() === nextSession && nextSession.cacheGeneration === 0 && nextSession.diskSha === "") {
+          nextSession.diskSha = sha;
         }
       });
     }
   );
 
   useDiskGuard({
-    getSession: () => session,
+    getSession: session,
     onReload: (content, incomingSha) => {
-      if (!session || session.path !== content.path) return;
-      session.diskSha = incomingSha;
-      session.pendingSha = null;
-      session.cacheGeneration += 1;
-      setCacheGeneration(session.cacheGeneration);
+      const currentSession = session();
+      if (!currentSession || currentSession.path !== content.path) return;
+      currentSession.diskSha = incomingSha;
+      currentSession.pendingSha = null;
+      currentSession.cacheGeneration += 1;
+      setCacheGeneration(currentSession.cacheGeneration);
       explorerStore.getState().setFileContent(content);
       explorerStore.getState().setIsFileDirty(false);
     },
   });
 
   const hostCacheKey = createMemo(() => {
-    sessionTick();
     cacheGeneration();
-    if (!session) return "";
-    return sessionCacheKey(session);
+    const currentSession = session();
+    if (!currentSession) return "";
+    return sessionCacheKey(currentSession);
   });
 
   const loadedContent = createMemo(() => {
@@ -188,13 +187,13 @@ export const FileViewer = () => {
             {headerActions(true)}
           </div>
           <div class="diff-editor-container">
-            {isPierreHostReady(selectedPath(), loadedContent(), session) && hostCacheKey() && (
+            {isPierreHostReady(selectedPath(), loadedContent(), session()) && hostCacheKey() && (
               <PierreFile
                 path={loadedContent()!.path}
                 contents={loadedContent()!.content}
                 cacheKey={hostCacheKey()}
                 revealLine={revealLine()}
-                session={session!}
+                session={session()!}
               />
             )}
           </div>

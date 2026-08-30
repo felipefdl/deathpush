@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vite-plus/test";
-import type { DiffHunk, RepositoryStatus } from "../../lib/git-types";
+import type { DiffContent, DiffHunk, RepositoryStatus } from "../../lib/git-types";
 import { hunkIdentity } from "../../lib/pierre/hunk-annotations";
 import {
   emptyPatchSides,
@@ -7,6 +7,7 @@ import {
   historyCacheKey,
   historyFileDiff,
   hunkAnnotations,
+  loadScmDiffSources,
   isNonPierreFileType,
   isScmDiffEditable,
   runStageLineCalls,
@@ -281,5 +282,37 @@ describe("historyFileDiff", () => {
     const diff = historyFileDiff("src/a.ts", "hello\n", "hello\nworld\n", "def:src/a.ts");
     expect(diff.hunks[0].hunkContent.some((block) => block.type === "change")).toBe(true);
     expect(diff.cacheKey).toBe("def:src/a.ts");
+  });
+});
+
+describe("loadScmDiffSources", () => {
+  it("starts the content and patch requests together", async () => {
+    const diff: DiffContent = {
+      path: "README.md",
+      original: "",
+      modified: "contents",
+      originalLanguage: null,
+      fileType: "text",
+    };
+    let resolveDiff!: (value: DiffContent) => void;
+    const getFileDiff = vi.fn(
+      () =>
+        new Promise<DiffContent>((resolve) => {
+          resolveDiff = resolve;
+        })
+    );
+    const getFilePatch = vi.fn(async () => "patch");
+
+    const loading = loadScmDiffSources({
+      path: "README.md",
+      staged: false,
+      getFileDiff,
+      getFilePatch,
+    });
+
+    expect(getFileDiff).toHaveBeenCalledTimes(1);
+    expect(getFilePatch).toHaveBeenCalledTimes(1);
+    resolveDiff(diff);
+    await expect(loading).resolves.toEqual({ diff, patch: "patch" });
   });
 });

@@ -19,6 +19,7 @@ import { settingsStore } from "../../stores/settings-store";
 import { themeStore } from "../../stores/theme-store";
 import { useStore } from "../../lib/use-store";
 import { buildPierreDiffOptions } from "../../lib/pierre/options";
+import { pierreThemeType } from "../../lib/pierre/theme";
 import { normalizeWordWrap, pierreHostStyle } from "../../lib/pierre/normalize-editor-settings";
 import { pierreEditorKeymap } from "../../lib/pierre/keymap";
 import { getPierreWorkerPool } from "../../lib/pierre/worker";
@@ -30,6 +31,7 @@ import { isDirty, sessionCacheKey, type SaveSession } from "../../lib/pierre/sav
 import { sha256Utf8 } from "../../lib/pierre/sha";
 import { createPierreFindHost, type PierreFindHost } from "../../lib/pierre/find-host";
 import { selectionIsInPierreHost } from "./pierre-file";
+import { PierreScrollHost, type PierreScrollHostHandle } from "./pierre-scroll-host";
 
 const SAVE_MS = 1000;
 
@@ -157,6 +159,19 @@ export const enableScmLineSelection = (groupKind: ResourceGroupKind): boolean =>
 
 export const isNonPierreFileType = (fileType: string): boolean =>
   fileType === "image" || fileType === "binary" || fileType === "large";
+
+export const loadScmDiffSources = async (input: {
+  path: string;
+  staged: boolean;
+  getFileDiff: (path: string, staged: boolean) => Promise<DiffContent>;
+  getFilePatch: (path: string, staged: boolean) => Promise<string>;
+}): Promise<{ diff: DiffContent; patch: string }> => {
+  const [diff, patch] = await Promise.all([
+    input.getFileDiff(input.path, input.staged),
+    input.getFilePatch(input.path, input.staged),
+  ]);
+  return { diff, patch };
+};
 
 export type EmptyPatchSides =
   | { oldFile: null; newFile: FileContents }
@@ -308,10 +323,23 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
   let content!: HTMLDivElement;
   let session: SaveSession | null = null;
   let fileRef: FileDiff | undefined;
+  let editorRef: Editor<undefined> | undefined;
+  let disposeEditRef: (() => void) | undefined;
+  let activeSchedule: ((text: string) => void) | undefined;
+  let scrollHost: PierreScrollHostHandle | undefined;
 
   onSettled(() => {
     setReady(true);
-    return () => setReady(false);
+    return () => {
+      setReady(false);
+      activeSchedule = undefined;
+      disposeEditRef?.();
+      disposeEditRef = undefined;
+      editorRef?.cleanUp();
+      editorRef = undefined;
+      fileRef?.cleanUp();
+      fileRef = undefined;
+    };
   });
 
   createEffect(
@@ -346,19 +374,19 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
       const mountedGeneration = session.cacheGeneration;
       const activeSession = session;
       const { setStatus, setError, setIsDiffDirty, setCursorLine, setDiff } = repositoryStore.getState();
-      const themeId = currentTheme().id;
-      const wordWrap = normalizeWordWrap(editorSettings().wordWrap);
-      const mode = diffMode();
+      const theme = themeStore.getState().currentTheme;
+      const settings = settingsStore.getState().settings.editor;
+      const themeId = theme.id;
+      const themeType = pierreThemeType(theme.kind);
+      const wordWrap = normalizeWordWrap(settings.wordWrap);
+      const mode = layoutStore.getState().diffMode;
 
       let cancelled = false;
       let pendingTimer: ReturnType<typeof setTimeout> | null = null;
       const pending = { text: null as string | null };
       let writeTail: Promise<void> = Promise.resolve();
       let unregisterFlush: (() => void) | undefined;
-      let disposeEdit: (() => void) | undefined;
       let findHost: PierreFindHost | undefined;
-      let file: FileDiff | undefined;
-      let editor: Editor<undefined> | undefined;
       let busy = false;
 
       const syncDirty = (): void => {
@@ -478,16 +506,21 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
       };
 
       const onSelectionChange = (): void => {
-        if (!editor) return;
+        if (!editorRef) return;
         const node = document.getSelection()?.anchorNode;
         if (!node) return;
         if (!selectionIsInPierreHost(root, node)) return;
-        const start = editor.getState().selections?.[0]?.start;
+        const start = editorRef.getState().selections?.[0]?.start;
         if (start) setCursorLine(start.line + 1);
       };
 
       void (async () => {
-        const diff = await commands.getFileDiff(path, staged);
+        const { diff, patch } = await loadScmDiffSources({
+          path,
+          staged,
+          getFileDiff: commands.getFileDiff,
+          getFilePatch: commands.getFilePatch,
+        });
         if (cancelled) return;
         if (isNonPierreFileType(diff.fileType)) return;
         if (activeSession.diskSha === "") {
@@ -495,9 +528,6 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
         }
         if (cancelled) return;
         setDiff(diff);
-
-        const patch = await commands.getFilePatch(path, staged);
-        if (cancelled) return;
 
         const cacheKey = sessionCacheKey(activeSession);
         const sides = emptyPatchSides(
@@ -527,6 +557,7 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
         const options = {
           ...buildPierreDiffOptions({
             themeId,
+            themeType,
             wordWrap,
             diffMode: mode,
             enableLineSelection: enableScmLineSelection(groupKind),
@@ -551,10 +582,25 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
             void runLineSelection(range);
           },
           ...(editable ? {} : readOnlyBlame(setCursorLine)),
-          onPostRender: refreshFindAfterRender(findHost),
+          onPostRender: (node: HTMLElement, instance: FileDiff, phase: PostRenderPhase) => {
+            refreshFindAfterRender(findHost)(node, instance, phase);
+            if (phase !== "unmount") scrollHost?.finishRender();
+          },
         };
 
-        file = new FileDiff(options, getPierreWorkerPool());
+        const file = fileRef ?? new FileDiff(options, getPierreWorkerPool());
+        if (fileRef) {
+          file.setOptions({ ...file.options, ...options });
+        } else {
+          fileRef = file;
+        }
+        if (!editable && disposeEditRef) {
+          disposeEditRef();
+          disposeEditRef = undefined;
+          activeSchedule = undefined;
+        }
+
+        scrollHost?.beginRender();
         if (fileDiff) {
           file.render({
             fileDiff,
@@ -568,18 +614,19 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
         } else {
           file.render({ oldFile: sides.oldFile, newFile: sides.newFile, containerWrapper: content });
         }
-        fileRef = file;
+        scrollHost?.sync();
 
         if (editable) {
           unregisterFlush = registerFlusher(path, flush);
-          editor = new Editor<undefined>({
-            persistState: false,
+          activeSchedule = scheduleSave;
+          editorRef ??= new Editor<undefined>({
+            persistState: true,
             keymap: pierreEditorKeymap,
             onChange(next) {
-              scheduleSave(next.contents);
+              activeSchedule?.(next.contents);
             },
           });
-          disposeEdit = editor.edit(file);
+          disposeEditRef ??= editorRef.edit(file);
           document.addEventListener("selectionchange", onSelectionChange);
         }
       })().catch((error: unknown) => {
@@ -596,22 +643,26 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
         }
         unregisterFlush?.();
         findHost?.dispose();
-        fileRef = undefined;
-        disposeEdit?.();
-        editor?.cleanUp();
-        file?.cleanUp();
+        if (activeSchedule === scheduleSave) activeSchedule = undefined;
       };
     }
   );
 
   createEffect(
-    () => [currentTheme().id, normalizeWordWrap(editorSettings().wordWrap), diffMode()] as const,
-    ([themeId, wordWrap, mode]) => {
+    () =>
+      [
+        currentTheme().id,
+        pierreThemeType(currentTheme().kind),
+        normalizeWordWrap(editorSettings().wordWrap),
+        diffMode(),
+      ] as const,
+    ([themeId, themeType, wordWrap, mode]) => {
       if (!fileRef) return;
       fileRef.setOptions({
         ...fileRef.options,
         ...buildPierreDiffOptions({
           themeId,
+          themeType,
           wordWrap,
           diffMode: mode,
           enableLineSelection: enableScmLineSelection(props.groupKind),
@@ -621,20 +672,18 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
   );
 
   return (
-    <div
-      ref={(element) => {
+    <PierreScrollHost
+      style={pierreHostStyle(editorSettings())}
+      rootRef={(element) => {
         root = element;
       }}
-      class="pierre-file-host"
-      style={pierreHostStyle(editorSettings())}
-    >
-      <div
-        ref={(element) => {
-          content = element;
-        }}
-        class="pierre-file-content"
-      />
-    </div>
+      contentRef={(element) => {
+        content = element;
+      }}
+      handleRef={(handle) => {
+        scrollHost = handle;
+      }}
+    />
   );
 };
 
@@ -646,6 +695,7 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
   let root!: HTMLDivElement;
   let content!: HTMLDivElement;
   let fileRef: FileDiff | undefined;
+  let scrollHost: PierreScrollHostHandle | undefined;
 
   onSettled(() => {
     setReady(true);
@@ -658,7 +708,9 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
       if (!deps) return;
       const [path, original, modified, cacheKey] = deps;
       const { setCursorLine, setError } = repositoryStore.getState();
-      const themeId = currentTheme().id;
+      const theme = currentTheme();
+      const themeId = theme.id;
+      const themeType = pierreThemeType(theme.kind);
       const wordWrap = normalizeWordWrap(editorSettings().wordWrap);
       const mode = diffMode();
 
@@ -674,16 +726,22 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
           {
             ...buildPierreDiffOptions({
               themeId,
+              themeType,
               wordWrap,
               diffMode: mode,
               enableLineSelection: false,
             }),
             ...readOnlyBlame(setCursorLine),
-            onPostRender: refreshFindAfterRender(findHost),
+            onPostRender: (node: HTMLElement, instance: FileDiff, phase: PostRenderPhase) => {
+              refreshFindAfterRender(findHost)(node, instance, phase);
+              if (phase !== "unmount") scrollHost?.finishRender();
+            },
           },
           getPierreWorkerPool()
         );
+        scrollHost?.beginRender();
         file.render({ fileDiff, containerWrapper: content });
+        scrollHost?.sync();
         fileRef = file;
       } catch (error) {
         setError(String(error));
@@ -698,13 +756,20 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
   );
 
   createEffect(
-    () => [currentTheme().id, normalizeWordWrap(editorSettings().wordWrap), diffMode()] as const,
-    ([themeId, wordWrap, mode]) => {
+    () =>
+      [
+        currentTheme().id,
+        pierreThemeType(currentTheme().kind),
+        normalizeWordWrap(editorSettings().wordWrap),
+        diffMode(),
+      ] as const,
+    ([themeId, themeType, wordWrap, mode]) => {
       if (!fileRef) return;
       fileRef.setOptions({
         ...fileRef.options,
         ...buildPierreDiffOptions({
           themeId,
+          themeType,
           wordWrap,
           diffMode: mode,
           enableLineSelection: false,
@@ -714,20 +779,18 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
   );
 
   return (
-    <div
-      ref={(element) => {
+    <PierreScrollHost
+      style={pierreHostStyle(editorSettings())}
+      rootRef={(element) => {
         root = element;
       }}
-      class="pierre-file-host"
-      style={pierreHostStyle(editorSettings())}
-    >
-      <div
-        ref={(element) => {
-          content = element;
-        }}
-        class="pierre-file-content"
-      />
-    </div>
+      contentRef={(element) => {
+        content = element;
+      }}
+      handleRef={(handle) => {
+        scrollHost = handle;
+      }}
+    />
   );
 };
 

@@ -3,6 +3,7 @@ import { buildPierreDiffOptions } from "./options";
 
 const base = {
   themeId: "preview-theme",
+  themeType: "dark" as const,
   wordWrap: "off" as const,
   diffMode: "inline" as const,
   enableLineSelection: true,
@@ -19,10 +20,15 @@ describe("buildPierreDiffOptions", () => {
     expect(buildPierreDiffOptions(base).overflow).toBe("scroll");
   });
 
-  it("keeps themeType undefined and pins shiki-js", () => {
+  it("hides Pierre's bottom-only native horizontal scrollbar", () => {
+    expect(buildPierreDiffOptions(base).unsafeCSS).toContain("[data-code]::-webkit-scrollbar");
+  });
+
+  it("pins the selected theme type and shiki-js", () => {
     const options = buildPierreDiffOptions(base);
     expect(options.theme).toBe("preview-theme");
-    expect(options.themeType).toBeUndefined();
+    expect(options.themeType).toBe("dark");
+    expect(buildPierreDiffOptions({ ...base, themeType: "light" }).themeType).toBe("light");
     expect(options.preferredHighlighter).toBe("shiki-js");
     expect(options.lineDiffType).toBe("word-alt");
     expect(options.enableLineSelection).toBe(true);
