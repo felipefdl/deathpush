@@ -28,20 +28,20 @@ const diff = (modified: string): DiffContent => ({
 });
 
 describe("isScmWatcherTarget", () => {
-  it("watches working-tree and untracked files", () => {
+  it("watches working-tree, untracked, and index files", () => {
     expect(isScmWatcherTarget(selected())).toBe(true);
     expect(isScmWatcherTarget(selected({ groupKind: "untracked" }))).toBe(true);
+    expect(isScmWatcherTarget(selected({ groupKind: "index", staged: true }))).toBe(true);
   });
 
-  it("ignores index, merge, and an empty selection", () => {
-    expect(isScmWatcherTarget(selected({ groupKind: "index", staged: true }))).toBe(false);
+  it("ignores merge and an empty selection", () => {
     expect(isScmWatcherTarget(selected({ groupKind: "merge" }))).toBe(false);
     expect(isScmWatcherTarget(null)).toBe(false);
   });
 });
 
 describe("runScmDiskGuard", () => {
-  it("ignores when pendingSha is set", async () => {
+  it("ignores when pendingSha is set on a working-tree file", async () => {
     const getFileDiff = vi.fn();
     const onReload = vi.fn();
 
@@ -57,12 +57,12 @@ describe("runScmDiskGuard", () => {
     expect(onReload).not.toHaveBeenCalled();
   });
 
-  it("ignores staged and merge selections", async () => {
+  it("ignores merge selections", async () => {
     const getFileDiff = vi.fn();
     const onReload = vi.fn();
 
     await runScmDiskGuard({
-      selectedFile: selected({ groupKind: "index", staged: true }),
+      selectedFile: selected({ groupKind: "merge" }),
       session: session(),
       getFileDiff,
       sha256Utf8: async () => "bbb",
@@ -71,6 +71,36 @@ describe("runScmDiskGuard", () => {
 
     expect(getFileDiff).not.toHaveBeenCalled();
     expect(onReload).not.toHaveBeenCalled();
+  });
+
+  it("reloads a staged selection when the index hash differs", async () => {
+    const onReload = vi.fn();
+    const next = diff("staged-changed");
+
+    await runScmDiskGuard({
+      selectedFile: selected({ groupKind: "index", staged: true }),
+      session: session(),
+      getFileDiff: async () => next,
+      sha256Utf8: async () => "ccc",
+      onReload,
+    });
+
+    expect(onReload).toHaveBeenCalledWith(next, "ccc");
+  });
+
+  it("reloads a staged selection even when pendingSha is set", async () => {
+    const onReload = vi.fn();
+    const next = diff("staged-changed");
+
+    await runScmDiskGuard({
+      selectedFile: selected({ groupKind: "index", staged: true }),
+      session: session({ pendingSha: "pending" }),
+      getFileDiff: async () => next,
+      sha256Utf8: async () => "ccc",
+      onReload,
+    });
+
+    expect(onReload).toHaveBeenCalledWith(next, "ccc");
   });
 
   it("reloads when getFileDiff.modified hashes differently", async () => {

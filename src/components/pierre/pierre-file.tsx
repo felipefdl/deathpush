@@ -8,12 +8,13 @@ import { themeStore } from "../../stores/theme-store";
 import { writeFile } from "../../lib/tauri-commands";
 import { useStore } from "../../lib/use-store";
 import { buildPierreDiffOptions } from "../../lib/pierre/options";
-import { normalizeWordWrap } from "../../lib/pierre/normalize-editor-settings";
+import { normalizeWordWrap, pierreHostStyle } from "../../lib/pierre/normalize-editor-settings";
 import { pierreEditorKeymap } from "../../lib/pierre/keymap";
 import { getPierreWorkerPool } from "../../lib/pierre/worker";
 import { registerFlusher, trackPendingFlush } from "../../lib/pierre/flush-registry";
 import { isDirty, type SaveSession } from "../../lib/pierre/save-session";
 import { sha256Utf8 } from "../../lib/pierre/sha";
+import { commitPierreWrite } from "../../lib/pierre/buffered-write";
 
 const SAVE_MS = 1000;
 
@@ -94,7 +95,7 @@ export const PierreFile = (props: PierreFileProps) => {
       fileRef = file;
 
       let pendingTimer: ReturnType<typeof setTimeout> | null = null;
-      let pendingText: string | null = null;
+      const pending = { text: null as string | null };
       let writeTail: Promise<void> = Promise.resolve();
 
       const syncDirty = (): void => {
@@ -102,30 +103,35 @@ export const PierreFile = (props: PierreFileProps) => {
       };
 
       const writeOnce = (text: string): Promise<void> => {
-        writeTail = writeTail.then(async () => {
-          session.pendingSha = await sha256Utf8(text);
-          syncDirty();
+        const work = async (): Promise<void> => {
           try {
-            await writeFile(path, text);
-            session.diskSha = session.pendingSha;
-            session.pendingSha = null;
-            if (pendingText === text) pendingText = null;
-            syncDirty();
+            await commitPierreWrite({
+              writeFile: () => writeFile(path, text),
+              pending,
+              text,
+              session,
+              sha256Utf8,
+              syncDirty,
+            });
           } catch (error) {
             setError(String(error));
-            session.pendingSha = null;
-            syncDirty();
+            throw error;
           }
-        });
-        return writeTail;
+        };
+        const run = writeTail.then(work, work);
+        writeTail = run.then(
+          () => undefined,
+          () => undefined
+        );
+        return run;
       };
 
       const scheduleSave = (text: string): void => {
-        pendingText = text;
+        pending.text = text;
         if (pendingTimer) clearTimeout(pendingTimer);
         pendingTimer = setTimeout(() => {
           pendingTimer = null;
-          const next = pendingText;
+          const next = pending.text;
           if (next === null) {
             syncDirty();
             return;
@@ -140,8 +146,8 @@ export const PierreFile = (props: PierreFileProps) => {
           clearTimeout(pendingTimer);
           pendingTimer = null;
         }
-        if (pendingText !== null) {
-          await writeOnce(pendingText);
+        if (pending.text !== null) {
+          await writeOnce(pending.text);
           return;
         }
         await writeTail;
@@ -178,7 +184,7 @@ export const PierreFile = (props: PierreFileProps) => {
       return () => {
         document.removeEventListener("selectionchange", onSelectionChange);
         if (session.cacheGeneration === mountedGeneration) {
-          void trackPendingFlush(flush());
+          void trackPendingFlush(path, flush()).catch(() => undefined);
         } else if (pendingTimer) {
           clearTimeout(pendingTimer);
         }
@@ -215,7 +221,7 @@ export const PierreFile = (props: PierreFileProps) => {
         root = element;
       }}
       class="pierre-file-host"
-      style={{ width: "100%", height: "100%", overflow: "auto" }}
+      style={pierreHostStyle(editorSettings())}
     >
       <div
         ref={(element) => {

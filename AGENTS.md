@@ -264,6 +264,7 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 - Highlighter: `shiki-js` via the Pierre worker pool (`worker.format: "es"`)
 - Theme register id equals `theme.id`
 - Word wrap is Off/On (`overflow: wrap | scroll`)
+- Editor font family, size, line height, and tab size apply as CSS on Pierre hosts
 
 ### Icon Themes
 

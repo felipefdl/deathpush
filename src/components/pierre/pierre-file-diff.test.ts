@@ -4,11 +4,14 @@ import { hunkIdentity } from "../../lib/pierre/hunk-annotations";
 import {
   emptyPatchSides,
   enableScmLineSelection,
+  historyCacheKey,
   historyFileDiff,
   hunkAnnotations,
   isNonPierreFileType,
   isScmDiffEditable,
   runStageLineCalls,
+  scmPatchPresence,
+  statusForPath,
 } from "./pierre-file-diff";
 
 describe("isScmDiffEditable", () => {
@@ -25,13 +28,13 @@ describe("isScmDiffEditable", () => {
 });
 
 describe("enableScmLineSelection", () => {
-  it("is true for workingTree, untracked, and index", () => {
+  it("is true for workingTree and index", () => {
     expect(enableScmLineSelection("workingTree")).toBe(true);
-    expect(enableScmLineSelection("untracked")).toBe(true);
     expect(enableScmLineSelection("index")).toBe(true);
   });
 
-  it("is false for merge", () => {
+  it("is false for untracked and merge", () => {
+    expect(enableScmLineSelection("untracked")).toBe(false);
     expect(enableScmLineSelection("merge")).toBe(false);
   });
 });
@@ -46,22 +49,69 @@ describe("isNonPierreFileType", () => {
 });
 
 describe("emptyPatchSides", () => {
-  it("nulls the missing side for add and delete", () => {
-    expect(emptyPatchSides("src/a.ts", "cache", "", "new")).toEqual({
-      oldFile: null,
-      newFile: { name: "src/a.ts", contents: "new", cacheKey: "cache" },
-    });
-    expect(emptyPatchSides("src/a.ts", "cache", "old", "")).toEqual({
+  it("keeps empty blobs when both sides exist", () => {
+    expect(emptyPatchSides("src/a.ts", "cache", "old", "", { oldExists: true, newExists: true })).toEqual({
       oldFile: { name: "src/a.ts", contents: "old", cacheKey: "cache" },
-      newFile: null,
+      newFile: { name: "src/a.ts", contents: "", cacheKey: "cache" },
+    });
+    expect(emptyPatchSides("src/a.ts", "cache", "", "", { oldExists: true, newExists: true })).toEqual({
+      oldFile: { name: "src/a.ts", contents: "", cacheKey: "cache" },
+      newFile: { name: "src/a.ts", contents: "", cacheKey: "cache" },
     });
   });
 
-  it("keeps an empty new side when both blobs are empty", () => {
-    expect(emptyPatchSides("src/a.ts", "cache", "", "")).toEqual({
+  it("nulls only a missing side from git status", () => {
+    expect(emptyPatchSides("src/a.ts", "cache", "", "new", { oldExists: false, newExists: true })).toEqual({
       oldFile: null,
-      newFile: { name: "src/a.ts", contents: "", cacheKey: "cache" },
+      newFile: { name: "src/a.ts", contents: "new", cacheKey: "cache" },
     });
+    expect(emptyPatchSides("src/a.ts", "cache", "", "", { oldExists: true, newExists: false })).toEqual({
+      oldFile: { name: "src/a.ts", contents: "", cacheKey: "cache" },
+      newFile: null,
+    });
+  });
+});
+
+describe("scmPatchPresence", () => {
+  it("treats untracked and added files as missing the old side", () => {
+    expect(scmPatchPresence("untracked", "untracked")).toEqual({ oldExists: false, newExists: true });
+    expect(scmPatchPresence("workingTree", "added")).toEqual({ oldExists: false, newExists: true });
+    expect(scmPatchPresence("index", "indexAdded")).toEqual({ oldExists: false, newExists: true });
+  });
+
+  it("treats deleted files as missing the new side", () => {
+    expect(scmPatchPresence("workingTree", "deleted")).toEqual({ oldExists: true, newExists: false });
+    expect(scmPatchPresence("index", "indexDeleted")).toEqual({ oldExists: true, newExists: false });
+  });
+
+  it("keeps both sides for a tracked empty-file change", () => {
+    expect(scmPatchPresence("workingTree", "modified")).toEqual({ oldExists: true, newExists: true });
+  });
+});
+
+describe("statusForPath", () => {
+  it("reads the file status from the matching git group", () => {
+    expect(
+      statusForPath(
+        {
+          root: "/repo",
+          headBranch: "main",
+          headCommit: "abc",
+          ahead: 0,
+          behind: 0,
+          operationState: "none",
+          groups: [
+            {
+              kind: "workingTree",
+              label: "Changes",
+              files: [{ path: "src/a.ts", status: "deleted", renamePath: null }],
+            },
+          ],
+        },
+        "src/a.ts",
+        "workingTree"
+      )
+    ).toBe("deleted");
   });
 });
 
@@ -207,9 +257,16 @@ describe("runStageLineCalls", () => {
   });
 });
 
+describe("historyCacheKey", () => {
+  it("includes the commit id so the same path does not reuse tokens", () => {
+    expect(historyCacheKey("abc123", "src/a.ts")).toBe("abc123:src/a.ts");
+    expect(historyCacheKey("abc123", "src/a.ts")).not.toBe(historyCacheKey("def456", "src/a.ts"));
+  });
+});
+
 describe("historyFileDiff", () => {
   it("keeps a context hunk when both sides are identical", () => {
-    const diff = historyFileDiff("src/a.ts", "hello\n", "hello\n");
+    const diff = historyFileDiff("src/a.ts", "hello\n", "hello\n", "abc:src/a.ts");
     expect(diff.hunks).toHaveLength(1);
     expect(diff.hunks[0].hunkContent).toEqual([
       { type: "context", lines: 1, additionLineIndex: 0, deletionLineIndex: 0 },
@@ -217,10 +274,12 @@ describe("historyFileDiff", () => {
     expect(diff.additionLines).toEqual(["hello\n"]);
     expect(diff.deletionLines).toEqual(["hello\n"]);
     expect(diff.splitLineCount).toBe(1);
+    expect(diff.cacheKey).toBe("abc:src/a.ts");
   });
 
   it("parses a change when the sides differ", () => {
-    const diff = historyFileDiff("src/a.ts", "hello\n", "hello\nworld\n");
+    const diff = historyFileDiff("src/a.ts", "hello\n", "hello\nworld\n", "def:src/a.ts");
     expect(diff.hunks[0].hunkContent.some((block) => block.type === "change")).toBe(true);
+    expect(diff.cacheKey).toBe("def:src/a.ts");
   });
 });

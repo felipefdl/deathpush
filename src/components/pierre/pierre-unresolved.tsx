@@ -5,7 +5,7 @@ import { settingsStore } from "../../stores/settings-store";
 import { themeStore } from "../../stores/theme-store";
 import { useStore } from "../../lib/use-store";
 import { buildPierreDiffOptions } from "../../lib/pierre/options";
-import { normalizeWordWrap } from "../../lib/pierre/normalize-editor-settings";
+import { normalizeWordWrap, pierreHostStyle } from "../../lib/pierre/normalize-editor-settings";
 import { getPierreWorkerPool } from "../../lib/pierre/worker";
 import { sessionCacheKey, type SaveSession } from "../../lib/pierre/save-session";
 import { sha256Utf8 } from "../../lib/pierre/sha";
@@ -122,7 +122,7 @@ export const PierreUnresolved = (props: PierreUnresolvedProps) => {
   );
 
   return (
-    <div class="pierre-file-host" style={{ width: "100%", height: "100%", overflow: "auto" }}>
+    <div class="pierre-file-host" style={pierreHostStyle(editorSettings())}>
       <div
         ref={(element) => {
           content = element;

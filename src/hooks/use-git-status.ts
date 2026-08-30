@@ -9,8 +9,7 @@ import type { DiffContent } from "../lib/git-types";
 import type { SelectedFile } from "../stores/repository-store";
 import { getScmSession } from "../components/pierre/pierre-file-diff";
 
-export const isScmWatcherTarget = (file: SelectedFile | null): boolean =>
-  file !== null && file.groupKind !== "index" && file.groupKind !== "merge";
+export const isScmWatcherTarget = (file: SelectedFile | null): boolean => file !== null && file.groupKind !== "merge";
 
 export type ScmDiskGuardInput = {
   selectedFile: SelectedFile | null;
@@ -26,12 +25,14 @@ export const runScmDiskGuard = async (input: ScmDiskGuardInput): Promise<void> =
   if (!file || !input.session) return;
   if (!isScmWatcherTarget(file)) return;
   if (input.session.path !== file.path) return;
-  if (input.session.pendingSha !== null) return;
+  const ignorePendingSha = file.groupKind === "index";
+  if (!ignorePendingSha && input.session.pendingSha !== null) return;
 
   const diff = await input.getFileDiff(file.path, file.staged);
   const incomingSha = await input.sha256Utf8(diff.modified);
   if (input.isCurrent && !input.isCurrent()) return;
-  if (watcherAction(input.session, incomingSha) === "reload") {
+  const session = ignorePendingSha ? { ...input.session, pendingSha: null } : input.session;
+  if (watcherAction(session, incomingSha) === "reload") {
     input.onReload(diff, incomingSha);
   }
 };

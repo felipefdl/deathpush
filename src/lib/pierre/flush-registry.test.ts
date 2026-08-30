@@ -38,6 +38,59 @@ describe("flush-registry", () => {
     expect(current).toHaveBeenCalledTimes(1);
   });
 
+  it("flushPath runs every flusher registered for the same path", async () => {
+    const first = vi.fn(async () => undefined);
+    const second = vi.fn(async () => undefined);
+    const dropFirst = registerFlusher("src/a.ts", first);
+    const dropSecond = registerFlusher("src/a.ts", second);
+
+    await flushPath("src/a.ts");
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+
+    dropFirst();
+    dropSecond();
+  });
+
+  it("unregistering one instance keeps the other path flusher", async () => {
+    const first = vi.fn(async () => undefined);
+    const second = vi.fn(async () => undefined);
+    const dropFirst = registerFlusher("src/a.ts", first);
+    const dropSecond = registerFlusher("src/a.ts", second);
+    dropFirst();
+
+    await flushPath("src/a.ts");
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+
+    dropSecond();
+  });
+
+  it("flushPath awaits a cleanup write after unregister", async () => {
+    let resolveFlush: (() => void) | undefined;
+    const flush = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFlush = resolve;
+        })
+    );
+    const unregister = registerFlusher("src/a.ts", flush);
+    void trackPendingFlush("src/a.ts", flush());
+    unregister();
+
+    let flushPathDone = false;
+    const pending = flushPath("src/a.ts").then(() => {
+      flushPathDone = true;
+    });
+
+    await Promise.resolve();
+    expect(flushPathDone).toBe(false);
+
+    resolveFlush?.();
+    await pending;
+    expect(flushPathDone).toBe(true);
+  });
+
   it("flushPath is a no-op when the path has no flusher", async () => {
     await expect(flushPath("missing.ts")).resolves.toBeUndefined();
   });
@@ -51,7 +104,7 @@ describe("flush-registry", () => {
         })
     );
     const unregister = registerFlusher("src/a.ts", flush);
-    void trackPendingFlush(flush());
+    void trackPendingFlush("src/a.ts", flush());
     unregister();
 
     let flushAllDone = false;

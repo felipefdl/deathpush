@@ -11,7 +11,7 @@ import {
 } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/edit";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import type { DiffContent, DiffHunk, RepositoryStatus, ResourceGroupKind } from "../../lib/git-types";
+import type { DiffContent, DiffHunk, FileStatus, RepositoryStatus, ResourceGroupKind } from "../../lib/git-types";
 import * as commands from "../../lib/tauri-commands";
 import { layoutStore } from "../../stores/layout-store";
 import { repositoryStore } from "../../stores/repository-store";
@@ -19,10 +19,11 @@ import { settingsStore } from "../../stores/settings-store";
 import { themeStore } from "../../stores/theme-store";
 import { useStore } from "../../lib/use-store";
 import { buildPierreDiffOptions } from "../../lib/pierre/options";
-import { normalizeWordWrap } from "../../lib/pierre/normalize-editor-settings";
+import { normalizeWordWrap, pierreHostStyle } from "../../lib/pierre/normalize-editor-settings";
 import { pierreEditorKeymap } from "../../lib/pierre/keymap";
 import { getPierreWorkerPool } from "../../lib/pierre/worker";
 import { flushPath, registerFlusher, trackPendingFlush } from "../../lib/pierre/flush-registry";
+import { commitPierreWrite } from "../../lib/pierre/buffered-write";
 import { hunkActionAnchor, hunkIdentity, reidentifyHunk, type HunkIdentity } from "../../lib/pierre/hunk-annotations";
 import { mapSelectionToStageLines, normalizeSelectionRange, type StageLinesCall } from "../../lib/pierre/line-map";
 import { isDirty, sessionCacheKey, type SaveSession } from "../../lib/pierre/save-session";
@@ -44,6 +45,7 @@ export type PierreHistoryDiffProps = {
   path: string;
   original: string;
   modified: string;
+  cacheKey: string;
 };
 
 export type PierreFileDiffProps = PierreScmDiffProps | PierreHistoryDiffProps;
@@ -68,9 +70,19 @@ const refreshFindAfterRender =
 
 const splitHistoryLines = (contents: string): string[] => (contents === "" ? [] : contents.split(/(?<=\n)/));
 
-export const historyFileDiff = (path: string, original: string, modified: string): FileDiffMetadata => {
+export const historyCacheKey = (commitId: string, path: string): string => `${commitId}:${path}`;
+
+export const historyFileDiff = (
+  path: string,
+  original: string,
+  modified: string,
+  cacheKey: string
+): FileDiffMetadata => {
   if (original !== modified) {
-    return parseDiffFromFile({ name: path, contents: original }, { name: path, contents: modified });
+    return {
+      ...parseDiffFromFile({ name: path, contents: original, cacheKey }, { name: path, contents: modified, cacheKey }),
+      cacheKey,
+    };
   }
   const lines = splitHistoryLines(original);
   const count = lines.length;
@@ -84,7 +96,7 @@ export const historyFileDiff = (path: string, original: string, modified: string
       isPartial: false,
       additionLines: [],
       deletionLines: [],
-      cacheKey: `${path}:${path}`,
+      cacheKey,
     };
   }
   const noEof = !original.endsWith("\n");
@@ -117,7 +129,7 @@ export const historyFileDiff = (path: string, original: string, modified: string
     isPartial: false,
     additionLines: lines,
     deletionLines: lines,
-    cacheKey: `${path}:${path}`,
+    cacheKey,
   };
 };
 
@@ -141,7 +153,7 @@ export const isScmDiffEditable = (groupKind: ResourceGroupKind, hasWorkingTreeSi
   groupKind !== "index" && groupKind !== "merge" && hasWorkingTreeSide;
 
 export const enableScmLineSelection = (groupKind: ResourceGroupKind): boolean =>
-  groupKind === "workingTree" || groupKind === "untracked" || groupKind === "index";
+  groupKind === "workingTree" || groupKind === "index";
 
 export const isNonPierreFileType = (fileType: string): boolean =>
   fileType === "image" || fileType === "binary" || fileType === "large";
@@ -151,16 +163,36 @@ export type EmptyPatchSides =
   | { oldFile: FileContents; newFile: null }
   | { oldFile: FileContents; newFile: FileContents };
 
+export const statusForPath = (
+  status: RepositoryStatus | null,
+  path: string,
+  groupKind: ResourceGroupKind
+): FileStatus | null =>
+  status?.groups.find((group) => group.kind === groupKind)?.files.find((file) => file.path === path)?.status ?? null;
+
+export const scmPatchPresence = (
+  groupKind: ResourceGroupKind,
+  status: FileStatus | null
+): { oldExists: boolean; newExists: boolean } => {
+  if (groupKind === "untracked") return { oldExists: false, newExists: true };
+  if (status === "deleted" || status === "indexDeleted") return { oldExists: true, newExists: false };
+  if (status === "added" || status === "indexAdded" || status === "intentToAdd") {
+    return { oldExists: false, newExists: true };
+  }
+  return { oldExists: true, newExists: true };
+};
+
 export const emptyPatchSides = (
   path: string,
   cacheKey: string,
   original: string,
-  modified: string
+  modified: string,
+  presence: { oldExists: boolean; newExists: boolean }
 ): EmptyPatchSides => {
-  if (original === "") {
+  if (!presence.oldExists) {
     return { oldFile: null, newFile: { name: path, contents: modified, cacheKey } };
   }
-  if (modified === "") {
+  if (!presence.newExists) {
     return { oldFile: { name: path, contents: original, cacheKey }, newFile: null };
   }
   return {
@@ -320,7 +352,7 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
 
       let cancelled = false;
       let pendingTimer: ReturnType<typeof setTimeout> | null = null;
-      let pendingText: string | null = null;
+      const pending = { text: null as string | null };
       let writeTail: Promise<void> = Promise.resolve();
       let unregisterFlush: (() => void) | undefined;
       let disposeEdit: (() => void) | undefined;
@@ -334,30 +366,35 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
       };
 
       const writeOnce = (text: string): Promise<void> => {
-        writeTail = writeTail.then(async () => {
-          activeSession.pendingSha = await sha256Utf8(text);
-          syncDirty();
+        const work = async (): Promise<void> => {
           try {
-            await commands.writeFile(path, text);
-            activeSession.diskSha = activeSession.pendingSha;
-            activeSession.pendingSha = null;
-            if (pendingText === text) pendingText = null;
-            syncDirty();
+            await commitPierreWrite({
+              writeFile: () => commands.writeFile(path, text),
+              pending,
+              text,
+              session: activeSession,
+              sha256Utf8,
+              syncDirty,
+            });
           } catch (error) {
             setError(String(error));
-            activeSession.pendingSha = null;
-            syncDirty();
+            throw error;
           }
-        });
-        return writeTail;
+        };
+        const run = writeTail.then(work, work);
+        writeTail = run.then(
+          () => undefined,
+          () => undefined
+        );
+        return run;
       };
 
       const scheduleSave = (text: string): void => {
-        pendingText = text;
+        pending.text = text;
         if (pendingTimer) clearTimeout(pendingTimer);
         pendingTimer = setTimeout(() => {
           pendingTimer = null;
-          const next = pendingText;
+          const next = pending.text;
           if (next === null) {
             syncDirty();
             return;
@@ -372,8 +409,8 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
           clearTimeout(pendingTimer);
           pendingTimer = null;
         }
-        if (pendingText !== null) {
-          await writeOnce(pendingText);
+        if (pending.text !== null) {
+          await writeOnce(pending.text);
           return;
         }
         await writeTail;
@@ -463,7 +500,13 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
         if (cancelled) return;
 
         const cacheKey = sessionCacheKey(activeSession);
-        const sides = emptyPatchSides(path, cacheKey, diff.original, diff.modified);
+        const sides = emptyPatchSides(
+          path,
+          cacheKey,
+          diff.original,
+          diff.modified,
+          scmPatchPresence(groupKind, statusForPath(repositoryStore.getState().status, path, groupKind))
+        );
         const editable = isScmDiffEditable(groupKind, sides.newFile !== null);
         let fileDiff: FileDiffMetadata | undefined;
         let annotations: DiffLineAnnotation<HunkAnnotationMeta>[] = [];
@@ -547,7 +590,7 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
         cancelled = true;
         document.removeEventListener("selectionchange", onSelectionChange);
         if (activeSession.cacheGeneration === mountedGeneration) {
-          void trackPendingFlush(flush());
+          void trackPendingFlush(path, flush()).catch(() => undefined);
         } else if (pendingTimer) {
           clearTimeout(pendingTimer);
         }
@@ -583,7 +626,7 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
         root = element;
       }}
       class="pierre-file-host"
-      style={{ width: "100%", height: "100%", overflow: "auto" }}
+      style={pierreHostStyle(editorSettings())}
     >
       <div
         ref={(element) => {
@@ -610,10 +653,10 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
   });
 
   createEffect(
-    () => (ready() ? ([props.path, props.original, props.modified] as const) : null),
+    () => (ready() ? ([props.path, props.original, props.modified, props.cacheKey] as const) : null),
     (deps) => {
       if (!deps) return;
-      const [path, original, modified] = deps;
+      const [path, original, modified, cacheKey] = deps;
       const { setCursorLine, setError } = repositoryStore.getState();
       const themeId = currentTheme().id;
       const wordWrap = normalizeWordWrap(editorSettings().wordWrap);
@@ -626,7 +669,7 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
         wrapper: root,
       });
       try {
-        const fileDiff = historyFileDiff(path, original, modified);
+        const fileDiff = historyFileDiff(path, original, modified, cacheKey);
         file = new FileDiff(
           {
             ...buildPierreDiffOptions({
@@ -676,7 +719,7 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
         root = element;
       }}
       class="pierre-file-host"
-      style={{ width: "100%", height: "100%", overflow: "auto" }}
+      style={pierreHostStyle(editorSettings())}
     >
       <div
         ref={(element) => {

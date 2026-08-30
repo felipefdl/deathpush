@@ -6,7 +6,7 @@ import { getCommitFileDiff } from "../../lib/tauri-commands";
 import { getFileIconClasses } from "../../lib/icon-themes/get-icon-classes";
 import type { CommitDiffContent } from "../../lib/git-types";
 import { ImageDiff } from "../diff/image-diff";
-import { PierreFileDiff } from "../pierre/pierre-file-diff";
+import { PierreFileDiff, historyCacheKey } from "../pierre/pierre-file-diff";
 import { CommitFileTree } from "./commit-file-tree";
 
 const statusLetter = (status: string): string => {
@@ -144,6 +144,7 @@ export const CommitDetail = () => {
                     path={fileDiff()!.path}
                     original={fileDiff()!.original}
                     modified={fileDiff()!.modified}
+                    cacheKey={historyCacheKey(commit()?.id ?? "history", fileDiff()!.path)}
                   />
                 </div>
               )}
