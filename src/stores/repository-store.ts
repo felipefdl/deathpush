@@ -32,7 +32,9 @@ export interface TerminalGroup {
 interface RepositoryState {
   status: RepositoryStatus | null;
   selectedFile: SelectedFile | null;
+  selectedLoadId: number;
   diff: DiffContent | null;
+  diffLoadId: number | null;
   branches: BranchEntry[];
   operations: Set<string>;
   error: string | null;
@@ -58,6 +60,7 @@ interface RepositoryState {
   setStatus: (status: RepositoryStatus | null) => void;
   setSelectedFile: (file: SelectedFile | null) => void;
   setDiff: (diff: DiffContent | null) => void;
+  bindDiffToCurrentLoad: () => void;
   setBranches: (branches: BranchEntry[]) => void;
   startOperation: (name: string) => void;
   endOperation: (name: string) => void;
@@ -86,7 +89,9 @@ interface RepositoryState {
 export const repositoryStore = createStore<RepositoryState>((set, get) => ({
   status: null,
   selectedFile: null,
+  selectedLoadId: 0,
   diff: null,
+  diffLoadId: null,
   branches: [],
   operations: new Set<string>(),
   error: null,
@@ -114,14 +119,28 @@ export const repositoryStore = createStore<RepositoryState>((set, get) => ({
     if (selectedFile && status) {
       const stillExists = status.groups.some((g) => g.files.some((f) => f.path === selectedFile.path));
       if (!stillExists) {
-        set({ status, selectedFile: null, diff: null, blame: null, cursorLine: null });
+        set({ status, selectedFile: null, diff: null, diffLoadId: null, blame: null, cursorLine: null });
         return;
       }
     }
     set({ status });
   },
-  setSelectedFile: (selectedFile) => set({ selectedFile, blame: null, cursorLine: null }),
-  setDiff: (diff) => set({ diff }),
+  setSelectedFile: (selectedFile) =>
+    set((state) => ({
+      selectedFile,
+      selectedLoadId: selectedFile ? state.selectedLoadId + 1 : state.selectedLoadId,
+      blame: null,
+      cursorLine: null,
+    })),
+  setDiff: (diff) =>
+    set((state) => ({
+      diff,
+      diffLoadId: diff ? state.selectedLoadId : null,
+    })),
+  bindDiffToCurrentLoad: () =>
+    set((state) => ({
+      diffLoadId: state.diff ? state.selectedLoadId : null,
+    })),
   setBranches: (branches) => set({ branches }),
   startOperation: (name) =>
     set((state) => {

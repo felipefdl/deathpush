@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vite-plus/test";
+import { describe, it, expect, vi } from "vite-plus/test";
 import type { DiffHunk, RepositoryStatus } from "../../lib/git-types";
 import { hunkIdentity } from "../../lib/pierre/hunk-annotations";
 import {
@@ -133,6 +133,7 @@ describe("runStageLineCalls", () => {
     };
     const statuses: string[] = [];
     const stageIndexes: number[] = [];
+    const onWrote = vi.fn();
 
     const last = await runStageLineCalls({
       path: "src/a.ts",
@@ -150,11 +151,13 @@ describe("runStageLineCalls", () => {
       onStatus: (status) => {
         statuses.push(status.root);
       },
+      onWrote,
     });
 
     expect(stageIndexes).toEqual([0, 0]);
     expect(statuses).toEqual(["status-1", "status-2"]);
     expect(last?.root).toBe("status-2");
+    expect(onWrote).toHaveBeenCalledTimes(1);
   });
 
   it("still publishes the successful write when a later call fails", async () => {
@@ -175,6 +178,7 @@ describe("runStageLineCalls", () => {
       lines: [{ content: "b", lineType: "add", oldLineNumber: null, newLineNumber: 11 }],
     };
     const statuses: string[] = [];
+    const onWrote = vi.fn();
 
     await expect(
       runStageLineCalls({
@@ -193,9 +197,11 @@ describe("runStageLineCalls", () => {
         onStatus: (status) => {
           statuses.push(status.root);
         },
+        onWrote,
       })
     ).rejects.toThrow("later failed");
 
     expect(statuses).toEqual(["ok"]);
+    expect(onWrote).toHaveBeenCalledTimes(1);
   });
 });

@@ -18,8 +18,14 @@ export type PierreUnresolvedProps = {
 
 export const shouldMountMergePane = (
   selectedFile: { path: string; groupKind: string } | null,
-  diff: { path: string } | null
-): boolean => selectedFile?.groupKind === "merge" && diff !== null && diff.path === selectedFile.path;
+  selectedLoadId: number,
+  diff: { path: string } | null,
+  diffLoadId: number | null
+): boolean =>
+  selectedFile?.groupKind === "merge" &&
+  diff !== null &&
+  diff.path === selectedFile.path &&
+  diffLoadId === selectedLoadId;
 
 const mergeResolveTails = new Map<string, Promise<void>>();
 

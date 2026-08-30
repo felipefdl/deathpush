@@ -5,7 +5,9 @@ beforeEach(() => {
   repositoryStore.setState({
     status: null,
     selectedFile: null,
+    selectedLoadId: 0,
     diff: null,
+    diffLoadId: null,
     branches: [],
     operations: new Set<string>(),
     error: null,
@@ -33,7 +35,9 @@ describe("repository store", () => {
       const state = repositoryStore.getState();
       expect(state.status).toBeNull();
       expect(state.selectedFile).toBeNull();
+      expect(state.selectedLoadId).toBe(0);
       expect(state.diff).toBeNull();
+      expect(state.diffLoadId).toBeNull();
       expect(state.branches).toEqual([]);
       expect(state.error).toBeNull();
       expect(state.stashes).toEqual([]);
@@ -292,6 +296,22 @@ describe("repository store", () => {
       const diff = { hunks: [], raw: "diff" } as never;
       repositoryStore.getState().setDiff(diff);
       expect(repositoryStore.getState().diff).toBe(diff);
+    });
+
+    it("tags the stored diff with the current selected load", () => {
+      const { setSelectedFile, setDiff, bindDiffToCurrentLoad } = repositoryStore.getState();
+      setSelectedFile({ path: "conflict.ts", staged: false, groupKind: "merge" });
+      expect(repositoryStore.getState().selectedLoadId).toBe(1);
+
+      setDiff({ path: "conflict.ts", original: "", modified: "old", originalLanguage: "ts", fileType: "text" });
+      expect(repositoryStore.getState().diffLoadId).toBe(1);
+
+      setSelectedFile({ path: "conflict.ts", staged: false, groupKind: "merge" });
+      expect(repositoryStore.getState().selectedLoadId).toBe(2);
+      expect(repositoryStore.getState().diffLoadId).toBe(1);
+
+      bindDiffToCurrentLoad();
+      expect(repositoryStore.getState().diffLoadId).toBe(2);
     });
 
     it("setBranches updates branches", () => {

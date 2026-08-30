@@ -308,10 +308,17 @@ export const useKeyboardShortcuts = () => {
         e.preventDefault();
         layout.dockTerminal();
         setSelectedFile({ path: focused.path, staged: isStaged, groupKind: focused.groupKind });
+        const loadId = repositoryStore.getState().selectedLoadId;
         commands
           .getFileDiff(focused.path, isStaged)
-          .then(setDiff)
-          .catch((err) => setError(String(err)));
+          .then((diff) => {
+            if (repositoryStore.getState().selectedLoadId !== loadId) return;
+            setDiff(diff);
+          })
+          .catch((err) => {
+            if (repositoryStore.getState().selectedLoadId !== loadId) return;
+            setError(String(err));
+          });
         return;
       }
 

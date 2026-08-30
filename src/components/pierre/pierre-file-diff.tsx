@@ -113,6 +113,7 @@ export const runStageLineCalls = async (input: {
     staged: boolean
   ) => Promise<RepositoryStatus>;
   onStatus: (status: RepositoryStatus) => void;
+  onWrote?: () => void;
 }): Promise<RepositoryStatus | null> => {
   const pending = input.calls.map((call) => ({
     identity: hunkIdentity(input.hunks[call.hunkIndex]),
@@ -121,16 +122,20 @@ export const runStageLineCalls = async (input: {
   }));
   let current = input.hunks;
   let last: RepositoryStatus | null = null;
-  for (const [index, call] of pending.entries()) {
-    const hunkIndex = reidentifyHunk(current, call.identity);
-    if (hunkIndex === null) continue;
-    last = await input.stageLines(input.path, hunkIndex, call.lineStart, call.lineEnd, input.staged);
-    input.onStatus(last);
-    if (index < pending.length - 1) {
-      current = (await input.getFileHunks(input.path, input.staged)).hunks;
+  try {
+    for (const [index, call] of pending.entries()) {
+      const hunkIndex = reidentifyHunk(current, call.identity);
+      if (hunkIndex === null) continue;
+      last = await input.stageLines(input.path, hunkIndex, call.lineStart, call.lineEnd, input.staged);
+      input.onStatus(last);
+      if (index < pending.length - 1) {
+        current = (await input.getFileHunks(input.path, input.staged)).hunks;
+      }
     }
+    return last;
+  } finally {
+    if (last) input.onWrote?.();
   }
-  return last;
 };
 
 const hunkButton = (label: string, onClick: () => void): HTMLButtonElement => {
@@ -329,12 +334,11 @@ export const PierreFileDiff = (props: PierreFileDiffProps) => {
       const runLineSelection = async (range: SelectedLineRange): Promise<void> => {
         if (busy) return;
         busy = true;
-        let status: RepositoryStatus | null = null;
         try {
           await flushPath(path);
           const { hunks } = await commands.getFileHunks(path, staged);
           const calls = mapSelectionToStageLines(hunks, normalizeSelectionRange(range));
-          status = await runStageLineCalls({
+          await runStageLineCalls({
             path,
             staged: groupKind === "index",
             hunks,
@@ -342,11 +346,10 @@ export const PierreFileDiff = (props: PierreFileDiffProps) => {
             getFileHunks: commands.getFileHunks,
             stageLines: commands.stageLines,
             onStatus: setStatus,
+            onWrote: () => setViewGeneration((value) => value + 1),
           });
-          if (status) setViewGeneration((value) => value + 1);
         } catch (error) {
           setError(String(error));
-          if (status) setViewGeneration((value) => value + 1);
         } finally {
           busy = false;
         }

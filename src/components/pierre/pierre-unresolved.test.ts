@@ -2,11 +2,14 @@ import { describe, it, expect } from "vite-plus/test";
 import { enqueueMergeResolve, shouldMountMergePane } from "./pierre-unresolved";
 
 describe("shouldMountMergePane", () => {
-  it("mounts only when the stored diff belongs to the selected merge file", () => {
-    expect(shouldMountMergePane({ path: "src/a.ts", groupKind: "merge" }, { path: "src/a.ts" })).toBe(true);
-    expect(shouldMountMergePane({ path: "src/b.ts", groupKind: "merge" }, { path: "src/a.ts" })).toBe(false);
-    expect(shouldMountMergePane({ path: "src/a.ts", groupKind: "workingTree" }, { path: "src/a.ts" })).toBe(false);
-    expect(shouldMountMergePane({ path: "src/a.ts", groupKind: "merge" }, null)).toBe(false);
+  it("mounts only when the stored diff belongs to the selected merge load", () => {
+    expect(shouldMountMergePane({ path: "src/a.ts", groupKind: "merge" }, 1, { path: "src/a.ts" }, 1)).toBe(true);
+    expect(shouldMountMergePane({ path: "src/b.ts", groupKind: "merge" }, 1, { path: "src/a.ts" }, 1)).toBe(false);
+    expect(shouldMountMergePane({ path: "src/a.ts", groupKind: "workingTree" }, 1, { path: "src/a.ts" }, 1)).toBe(
+      false
+    );
+    expect(shouldMountMergePane({ path: "src/a.ts", groupKind: "merge" }, 1, null, 1)).toBe(false);
+    expect(shouldMountMergePane({ path: "src/a.ts", groupKind: "merge" }, 2, { path: "src/a.ts" }, 1)).toBe(false);
   });
 });
 

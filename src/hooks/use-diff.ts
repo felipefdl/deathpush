@@ -15,13 +15,18 @@ export const useDiff = () => {
   const loadDiff = async (path: string, staged: boolean, groupKind: ResourceGroupKind = "workingTree") => {
     const { setDiff, setSelectedFile, setError } = repositoryStore.getState();
     setSelectedFile({ path, staged, groupKind });
+    const loadId = repositoryStore.getState().selectedLoadId;
     try {
       const diff = await commands.getFileDiff(path, staged);
-      const current = repositoryStore.getState().diff;
-      if (!isDiffEqual(current, diff)) {
+      const current = repositoryStore.getState();
+      if (current.selectedLoadId !== loadId) return;
+      if (!isDiffEqual(current.diff, diff)) {
         setDiff(diff);
+      } else {
+        current.bindDiffToCurrentLoad();
       }
     } catch (err) {
+      if (repositoryStore.getState().selectedLoadId !== loadId) return;
       setError(String(err));
       setDiff(null);
     }

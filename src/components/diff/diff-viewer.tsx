@@ -37,6 +37,8 @@ const NonPierreMessage = (props: { fileType: "binary" | "large" }) => (
 export const DiffViewer = () => {
   const diff = useStore(repositoryStore, (s) => s.diff);
   const selectedFile = useStore(repositoryStore, (s) => s.selectedFile);
+  const selectedLoadId = useStore(repositoryStore, (s) => s.selectedLoadId);
+  const diffLoadId = useStore(repositoryStore, (s) => s.diffLoadId);
   const isDiffDirty = useStore(repositoryStore, (s) => s.isDiffDirty);
 
   return (
@@ -53,7 +55,7 @@ export const DiffViewer = () => {
           <DiffHeader isDirty={isDiffDirty()} />
           <NonPierreMessage fileType={diff()!.fileType === "large" ? "large" : "binary"} />
         </div>
-      ) : shouldMountMergePane(selectedFile(), diff()) ? (
+      ) : shouldMountMergePane(selectedFile(), selectedLoadId(), diff(), diffLoadId()) ? (
         <div class="diff-viewer">
           <DiffHeader isDirty={isDiffDirty()} />
           <div class="diff-editor-container">
