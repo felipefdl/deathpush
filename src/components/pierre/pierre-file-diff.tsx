@@ -6,6 +6,7 @@ import {
   type DiffLineAnnotation,
   type FileContents,
   type FileDiffMetadata,
+  type PostRenderPhase,
   type SelectedLineRange,
 } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/edit";
@@ -58,6 +59,67 @@ const readOnlyBlame = (setCursorLine: (lineNumber: number) => void) => ({
     if (range) setCursorLine(range.end);
   },
 });
+
+const refreshFindAfterRender =
+  (findHost: PierreFindHost | undefined) =>
+  (_node: HTMLElement, _instance: FileDiff, phase: PostRenderPhase): void => {
+    if (phase !== "unmount") findHost?.refresh();
+  };
+
+const splitHistoryLines = (contents: string): string[] => (contents === "" ? [] : contents.split(/(?<=\n)/));
+
+export const historyFileDiff = (path: string, original: string, modified: string): FileDiffMetadata => {
+  if (original !== modified) {
+    return parseDiffFromFile({ name: path, contents: original }, { name: path, contents: modified });
+  }
+  const lines = splitHistoryLines(original);
+  const count = lines.length;
+  if (count === 0) {
+    return {
+      name: path,
+      type: "change",
+      hunks: [],
+      splitLineCount: 0,
+      unifiedLineCount: 0,
+      isPartial: false,
+      additionLines: [],
+      deletionLines: [],
+      cacheKey: `${path}:${path}`,
+    };
+  }
+  const noEof = !original.endsWith("\n");
+  return {
+    name: path,
+    type: "change",
+    hunks: [
+      {
+        collapsedBefore: 0,
+        splitLineCount: count,
+        splitLineStart: 0,
+        unifiedLineCount: count,
+        unifiedLineStart: 0,
+        additionCount: count,
+        additionStart: 1,
+        additionLines: 0,
+        deletionCount: count,
+        deletionStart: 1,
+        deletionLines: 0,
+        deletionLineIndex: 0,
+        additionLineIndex: 0,
+        hunkContent: [{ type: "context", lines: count, additionLineIndex: 0, deletionLineIndex: 0 }],
+        hunkSpecs: `@@ -1,${count} +1,${count} @@\n`,
+        noEOFCRAdditions: noEof,
+        noEOFCRDeletions: noEof,
+      },
+    ],
+    splitLineCount: count,
+    unifiedLineCount: count,
+    isPartial: false,
+    additionLines: lines,
+    deletionLines: lines,
+    cacheKey: `${path}:${path}`,
+  };
+};
 
 export type ScmSessionHandle = {
   session: SaveSession;
@@ -412,6 +474,13 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
           if (cancelled) return;
         }
 
+        if (!editable) {
+          findHost = createPierreFindHost({
+            getRoot: () => pierreShadowRoot(content),
+            wrapper: root,
+          });
+        }
+
         const options = {
           ...buildPierreDiffOptions({
             themeId,
@@ -439,6 +508,7 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
             void runLineSelection(range);
           },
           ...(editable ? {} : readOnlyBlame(setCursorLine)),
+          onPostRender: refreshFindAfterRender(findHost),
         };
 
         file = new FileDiff(options, getPierreWorkerPool());
@@ -468,11 +538,6 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
           });
           disposeEdit = editor.edit(file);
           document.addEventListener("selectionchange", onSelectionChange);
-        } else {
-          findHost = createPierreFindHost({
-            getRoot: () => pierreShadowRoot(content),
-            wrapper: root,
-          });
         }
       })().catch((error: unknown) => {
         if (!cancelled) setError(String(error));
@@ -556,8 +621,12 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
 
       let findHost: PierreFindHost | undefined;
       let file: FileDiff | undefined;
+      findHost = createPierreFindHost({
+        getRoot: () => pierreShadowRoot(content),
+        wrapper: root,
+      });
       try {
-        const fileDiff = parseDiffFromFile({ name: path, contents: original }, { name: path, contents: modified });
+        const fileDiff = historyFileDiff(path, original, modified);
         file = new FileDiff(
           {
             ...buildPierreDiffOptions({
@@ -567,15 +636,12 @@ const PierreHistoryFileDiff = (props: PierreHistoryDiffProps) => {
               enableLineSelection: false,
             }),
             ...readOnlyBlame(setCursorLine),
+            onPostRender: refreshFindAfterRender(findHost),
           },
           getPierreWorkerPool()
         );
         file.render({ fileDiff, containerWrapper: content });
         fileRef = file;
-        findHost = createPierreFindHost({
-          getRoot: () => pierreShadowRoot(content),
-          wrapper: root,
-        });
       } catch (error) {
         setError(String(error));
       }

@@ -1,6 +1,4 @@
 const FIND_SELECTOR = "[data-content] [data-line], [data-column-content]";
-const HIGHLIGHT_ALL = "deathpush-find";
-const HIGHLIGHT_CURRENT = "deathpush-find-current";
 
 export type PierreFindScanRoot = {
   querySelectorAll: (selectors: string) => ArrayLike<Element>;
@@ -10,14 +8,21 @@ export type PierreFindHost = {
   open: () => void;
   close: () => void;
   next: (dir?: 1 | -1) => void;
+  refresh: () => void;
   isOpen: () => boolean;
   dispose: () => void;
 };
 
-type HostEntry = PierreFindHost & { wrapper: HTMLElement };
+type HostEntry = PierreFindHost & {
+  wrapper: HTMLElement;
+  highlightAll: string;
+  highlightCurrent: string;
+};
 
 const hosts = new Set<HostEntry>();
 let listenerCount = 0;
+let hostSeq = 0;
+let lastActiveHost: HostEntry | undefined;
 let highlightStyle: HTMLStyleElement | null = null;
 
 type HighlightSet = { set: (name: string, highlight: Highlight) => void; delete: (name: string) => void };
@@ -30,16 +35,20 @@ const cssHighlights = (): HighlightSet | null => {
   return highlightCtor() && api ? api : null;
 };
 
-const ensureHighlightStyle = (): void => {
-  if (highlightStyle || typeof document === "undefined") return;
-  highlightStyle = document.createElement("style");
+const refreshHighlightStyle = (): void => {
+  if (typeof document === "undefined") return;
+  if (!highlightStyle) {
+    highlightStyle = document.createElement("style");
+    document.head.append(highlightStyle);
+  }
   const matchBg = "var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33))";
   const currentBg = "var(--vscode-editor-findMatchBackground, rgba(234, 92, 0, 0.66))";
-  highlightStyle.textContent = [
-    `::highlight(${HIGHLIGHT_ALL}) { background-color: ${matchBg}; }`,
-    `::highlight(${HIGHLIGHT_CURRENT}) { background-color: ${currentBg}; }`,
-  ].join("\n");
-  document.head.append(highlightStyle);
+  highlightStyle.textContent = [...hosts]
+    .flatMap((host) => [
+      `::highlight(${host.highlightAll}) { background-color: ${matchBg}; }`,
+      `::highlight(${host.highlightCurrent}) { background-color: ${currentBg}; }`,
+    ])
+    .join("\n");
 };
 
 const locate = (nodes: Text[], ends: number[], offset: number): { node: Text; offset: number } => {
@@ -53,6 +62,24 @@ const locate = (nodes: Text[], ends: number[], offset: number): { node: Text; of
   return { node: nodes[lo], offset: offset - (lo === 0 ? 0 : ends[lo - 1]) };
 };
 
+const foldSearch = (text: string): { folded: string; sourceStart: number[]; sourceEnd: number[] } => {
+  let folded = "";
+  const sourceStart: number[] = [];
+  const sourceEnd: number[] = [];
+  for (let i = 0; i < text.length;) {
+    const code = text.codePointAt(i)!;
+    const srcLen = code > 0xffff ? 2 : 1;
+    const lower = String.fromCodePoint(code).toLowerCase();
+    folded += lower;
+    for (let j = 0; j < lower.length; j++) {
+      sourceStart.push(i);
+      sourceEnd.push(i + srcLen);
+    }
+    i += srcLen;
+  }
+  return { folded, sourceStart, sourceEnd };
+};
+
 export const scanPierreFind = (root: PierreFindScanRoot, query: string): Range[] => {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
@@ -63,7 +90,7 @@ export const scanPierreFind = (root: PierreFindScanRoot, query: string): Range[]
     const text = col.textContent;
     if (!text) continue;
 
-    const hay = text.toLowerCase();
+    const { folded: hay, sourceStart, sourceEnd } = foldSearch(text);
     let at = hay.indexOf(needle);
     if (at === -1) continue;
 
@@ -83,8 +110,8 @@ export const scanPierreFind = (root: PierreFindScanRoot, query: string): Range[]
     if (nodes.length === 0) continue;
 
     while (at !== -1) {
-      const start = locate(nodes, ends, at);
-      const end = locate(nodes, ends, at + needle.length);
+      const start = locate(nodes, ends, sourceStart[at]);
+      const end = locate(nodes, ends, sourceEnd[at + needle.length - 1]);
       const range = document.createRange();
       range.setStart(start.node, start.offset);
       range.setEnd(end.node, end.offset);
@@ -108,33 +135,64 @@ export const isPierreEditorFocused = (node: Element | null = document.activeElem
 
 export const isPierreFindHostOpen = (): boolean => [...hosts].some((host) => host.isOpen());
 
-const hostForFocus = (): HostEntry | undefined => {
-  const active = document.activeElement;
-  if (active) {
-    for (const host of hosts) {
-      if (host.wrapper.contains(active)) return host;
-    }
+const hostContaining = (node: Node | null): HostEntry | undefined => {
+  if (!node) return undefined;
+  for (const host of hosts) {
+    if (host.wrapper.contains(node)) return host;
   }
-  return [...hosts].find((host) => host.wrapper.isConnected);
+  return undefined;
 };
 
-const clearHighlights = (): void => {
+const rememberActive = (host: HostEntry): void => {
+  lastActiveHost = host;
+};
+
+const isShown = (element: HTMLElement): boolean => {
+  let current: HTMLElement | null = element;
+  while (current) {
+    const style = getComputedStyle(current);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+    current = current.parentElement;
+  }
+  return element.isConnected;
+};
+
+const hostForFocus = (): HostEntry | undefined => {
+  const contained = hostContaining(document.activeElement);
+  if (contained) return contained;
+  if (lastActiveHost && hosts.has(lastActiveHost) && isShown(lastActiveHost.wrapper)) return lastActiveHost;
+  return undefined;
+};
+
+const hostForEscape = (): HostEntry | undefined => {
+  const contained = hostContaining(document.activeElement);
+  if (contained?.isOpen()) return contained;
+  if (lastActiveHost?.isOpen() && isShown(lastActiveHost.wrapper)) return lastActiveHost;
+  return undefined;
+};
+
+const clearHostHighlights = (highlightAll: string, highlightCurrent: string): void => {
   const api = cssHighlights();
   if (!api) return;
-  api.delete(HIGHLIGHT_ALL);
-  api.delete(HIGHLIGHT_CURRENT);
+  api.delete(highlightAll);
+  api.delete(highlightCurrent);
 };
 
-const applyHighlights = (ranges: Range[], currentIndex: number): boolean => {
+const applyHighlights = (
+  highlightAll: string,
+  highlightCurrent: string,
+  ranges: Range[],
+  currentIndex: number
+): boolean => {
   const api = cssHighlights();
   if (!api) return false;
-  clearHighlights();
+  clearHostHighlights(highlightAll, highlightCurrent);
   const HighlightAPI = highlightCtor();
   if (!HighlightAPI) return false;
   const active = ranges[currentIndex];
-  if (active) api.set(HIGHLIGHT_CURRENT, new HighlightAPI(active));
+  if (active) api.set(highlightCurrent, new HighlightAPI(active));
   const rest = ranges.filter((_, index) => index !== currentIndex);
-  if (rest.length > 0) api.set(HIGHLIGHT_ALL, new HighlightAPI(...rest));
+  if (rest.length > 0) api.set(highlightAll, new HighlightAPI(...rest));
   return true;
 };
 
@@ -196,7 +254,7 @@ const button = (label: string, title: string, onClick: () => void): HTMLButtonEl
 
 const onWindowKeyDown = (event: KeyboardEvent): void => {
   if (event.key === "Escape") {
-    const open = [...hosts].find((host) => host.isOpen());
+    const open = hostForEscape();
     if (!open) return;
     event.preventDefault();
     open.close();
@@ -227,6 +285,8 @@ export const createPierreFindHost = (opts: {
   wrapper: HTMLElement;
 }): PierreFindHost => {
   const { getRoot, wrapper } = opts;
+  const highlightAll = `deathpush-find-${++hostSeq}`;
+  const highlightCurrent = `deathpush-find-current-${hostSeq}`;
   let open = false;
   let query = "";
   let index = 0;
@@ -275,11 +335,11 @@ export const createPierreFindHost = (opts: {
   };
 
   const paint = (): void => {
-    if (cssHighlights() && applyHighlights(hits, index)) {
+    if (cssHighlights() && applyHighlights(highlightAll, highlightCurrent, hits, index)) {
       overlay.replaceChildren();
       return;
     }
-    clearHighlights();
+    clearHostHighlights(highlightAll, highlightCurrent);
     paintOverlay(overlay, wrapper, hits, index);
   };
 
@@ -304,7 +364,7 @@ export const createPierreFindHost = (opts: {
     input.value = "";
     bar.style.display = "none";
     overlay.replaceChildren();
-    clearHighlights();
+    clearHostHighlights(highlightAll, highlightCurrent);
     syncCount();
   };
 
@@ -319,13 +379,22 @@ export const createPierreFindHost = (opts: {
     el?.scrollIntoView({ block: "center", inline: "nearest" });
   };
 
+  const refresh = (): void => {
+    if (open) apply(false);
+  };
+
   const openHost = (): void => {
     open = true;
+    rememberActive(host);
     if (getComputedStyle(wrapper).position === "static") wrapper.style.position = "relative";
     bar.style.display = "inline-flex";
     apply(false);
     input.focus();
     input.select();
+  };
+
+  const onPointerDown = (): void => {
+    rememberActive(host);
   };
 
   input.addEventListener("input", () => {
@@ -351,25 +420,31 @@ export const createPierreFindHost = (opts: {
     button("x", "Close", close)
   );
   wrapper.append(bar, overlay);
+  wrapper.addEventListener("pointerdown", onPointerDown, true);
   syncCount();
 
   const host: HostEntry = {
     wrapper,
+    highlightAll,
+    highlightCurrent,
     open: openHost,
     close,
     next,
+    refresh,
     isOpen: () => open,
     dispose: () => {
       close();
+      wrapper.removeEventListener("pointerdown", onPointerDown, true);
       bar.remove();
       overlay.remove();
       hosts.delete(host);
+      if (lastActiveHost === host) lastActiveHost = undefined;
+      refreshHighlightStyle();
       releaseListener();
     },
   };
-
-  ensureHighlightStyle();
   hosts.add(host);
+  refreshHighlightStyle();
   retainListener();
   return host;
 };

@@ -4,6 +4,7 @@ import { hunkIdentity } from "../../lib/pierre/hunk-annotations";
 import {
   emptyPatchSides,
   enableScmLineSelection,
+  historyFileDiff,
   hunkAnnotations,
   isNonPierreFileType,
   isScmDiffEditable,
@@ -203,5 +204,23 @@ describe("runStageLineCalls", () => {
 
     expect(statuses).toEqual(["ok"]);
     expect(onWrote).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("historyFileDiff", () => {
+  it("keeps a context hunk when both sides are identical", () => {
+    const diff = historyFileDiff("src/a.ts", "hello\n", "hello\n");
+    expect(diff.hunks).toHaveLength(1);
+    expect(diff.hunks[0].hunkContent).toEqual([
+      { type: "context", lines: 1, additionLineIndex: 0, deletionLineIndex: 0 },
+    ]);
+    expect(diff.additionLines).toEqual(["hello\n"]);
+    expect(diff.deletionLines).toEqual(["hello\n"]);
+    expect(diff.splitLineCount).toBe(1);
+  });
+
+  it("parses a change when the sides differ", () => {
+    const diff = historyFileDiff("src/a.ts", "hello\n", "hello\nworld\n");
+    expect(diff.hunks[0].hunkContent.some((block) => block.type === "change")).toBe(true);
   });
 });
