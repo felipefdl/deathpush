@@ -30,9 +30,9 @@ const hunks: DiffHunk[] = [
 
 describe("mapSelectionToStageLines", () => {
   it("maps a new-side range inside one hunk to 0-based hunk.lines indexes", () => {
-    expect(
-      mapSelectionToStageLines(hunks, { start: 2, end: 2, side: "additions" })
-    ).toEqual([{ hunkIndex: 0, lineStart: 1, lineEnd: 1 }]);
+    expect(mapSelectionToStageLines(hunks, { start: 2, end: 2, side: "additions" })).toEqual([
+      { hunkIndex: 0, lineStart: 1, lineEnd: 1 },
+    ]);
   });
 
   it("splits a range that spans two hunks", () => {
@@ -50,9 +50,9 @@ describe("mapSelectionToStageLines", () => {
   });
 
   it("maps deletions by oldLineNumber", () => {
-    expect(
-      mapSelectionToStageLines(hunks, { start: 10, end: 10, side: "deletions" })
-    ).toEqual([{ hunkIndex: 1, lineStart: 0, lineEnd: 0 }]);
+    expect(mapSelectionToStageLines(hunks, { start: 10, end: 10, side: "deletions" })).toEqual([
+      { hunkIndex: 1, lineStart: 0, lineEnd: 0 },
+    ]);
   });
 
   it("maps a reverse drag after endpoints are normalized", () => {
@@ -67,8 +67,11 @@ describe("mapSelectionToStageLines", () => {
 
 describe("normalizeSelectionRange", () => {
   it("keeps sides when the drag is upward", () => {
-    expect(
-      normalizeSelectionRange({ start: 11, end: 2, side: "additions", endSide: "additions" })
-    ).toEqual({ start: 2, end: 11, side: "additions", endSide: "additions" });
+    expect(normalizeSelectionRange({ start: 11, end: 2, side: "additions", endSide: "additions" })).toEqual({
+      start: 2,
+      end: 11,
+      side: "additions",
+      endSide: "additions",
+    });
   });
 });

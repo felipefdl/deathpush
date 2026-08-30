@@ -46,6 +46,16 @@ describe("SettingsPage controls", () => {
     expect(result.getByRole("spinbutton", { name: "Color Saturation" })).toBeTruthy();
   });
 
+  it("limits word wrap to Off and On and drops render whitespace", () => {
+    const result = render(() => <SettingsPage />);
+    const wrap = result.getByRole("combobox", { name: "Word Wrap" });
+    expect([...wrap.querySelectorAll("option")].map((option) => [option.value, option.textContent])).toEqual([
+      ["off", "Off"],
+      ["on", "On"],
+    ]);
+    expect(result.queryByRole("combobox", { name: "Render Whitespace" })).toBeNull();
+  });
+
   it("does not reset settings when the confirm dialog is cancelled", async () => {
     confirmMock.mockResolvedValue(false);
     const resetToDefaults = vi.spyOn(settingsStore.getState(), "resetToDefaults").mockImplementation(() => {});

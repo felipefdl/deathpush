@@ -43,6 +43,5 @@ export const handleTerminalShortcut = (event: KeyboardEvent): boolean => {
     return true;
   }
 
-
   return false;
 };

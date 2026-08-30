@@ -151,15 +151,13 @@ summary {
   cursor: pointer;
 }
 
-.monaco-editor,
-.monaco-editor * {
+.pierre-file-host,
+.pierre-file-host * {
   -webkit-user-select: text;
   user-select: text;
 }
 
-.monaco-editor,
-.monaco-diff-editor,
-.monaco-component {
+.pierre-file-host {
   --vscode-focusBorder: transparent !important;
 }
 

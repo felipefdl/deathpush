@@ -169,22 +169,8 @@ const EditorSection = (props: { settings: EditorSettings; onUpdate: (partial: Pa
       options={[
         { value: "off", label: "Off" },
         { value: "on", label: "On" },
-        { value: "wordWrapColumn", label: "Word Wrap Column" },
-        { value: "bounded", label: "Bounded" },
       ]}
       onChange={(v) => props.onUpdate({ wordWrap: v as EditorSettings["wordWrap"] })}
-    />
-    <SelectField
-      label="Render Whitespace"
-      value={props.settings.renderWhitespace}
-      options={[
-        { value: "none", label: "None" },
-        { value: "boundary", label: "Boundary" },
-        { value: "selection", label: "Selection" },
-        { value: "trailing", label: "Trailing" },
-        { value: "all", label: "All" },
-      ]}
-      onChange={(v) => props.onUpdate({ renderWhitespace: v as EditorSettings["renderWhitespace"] })}
     />
   </div>
 );

@@ -2,13 +2,12 @@ import { repositoryStore } from "../stores/repository-store";
 import { addRecentProject } from "../lib/recent-projects";
 import * as commands from "../lib/tauri-commands";
 
-const yieldToPaint = (): Promise<void> => {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => resolve());
+const yieldToPaint = (): Promise<void> =>
+  new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => resolve());
+    });
   });
-  return promise;
-};
 
 export const useRepository = () => {
   const openRepo = async (path: string) => {

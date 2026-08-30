@@ -8,7 +8,7 @@ import { repositoryStore } from "./stores/repository-store";
 import { App } from "./app";
 
 const { getInitialPathMock, listenMock, openRepoMock, setRepoMenuEnabledMock, setZoomMock } = vi.hoisted(() => ({
-  getInitialPathMock: vi.fn(async () => null),
+  getInitialPathMock: vi.fn(async (): Promise<string | null> => null),
   listenMock: vi.fn(async () => vi.fn()),
   openRepoMock: vi.fn(async () => {}),
   setRepoMenuEnabledMock: vi.fn(async () => {}),
@@ -93,8 +93,7 @@ describe("App project refresh", () => {
   });
 
   it("shows the skull while the app is starting", () => {
-    const { promise } = Promise.withResolvers<string | null>();
-    getInitialPathMock.mockReturnValue(promise);
+    getInitialPathMock.mockReturnValue(new Promise<string | null>(() => {}));
     const result = render(() => <App />);
     flush();
 
@@ -103,7 +102,7 @@ describe("App project refresh", () => {
 
   it("leaves the splash without waiting for a startup repo to finish opening", async () => {
     getInitialPathMock.mockResolvedValue("/test/project");
-    openRepoMock.mockReturnValue(Promise.withResolvers<void>().promise);
+    openRepoMock.mockReturnValue(new Promise<void>(() => {}));
     const result = render(() => <App />);
     flush();
     await Promise.resolve();

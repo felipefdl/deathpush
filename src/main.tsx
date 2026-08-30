@@ -1,4 +1,3 @@
-import "./lib/monaco-setup";
 import { render } from "@solidjs/web";
 import { App } from "./app";
 import { themeStore } from "./stores/theme-store";
@@ -14,7 +13,7 @@ document.addEventListener("contextmenu", (e) => {
   if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) {
     return;
   }
-  if (target.closest(".wterm") || target.closest(".monaco-editor")) {
+  if (target.closest(".wterm") || target.closest(".pierre-file-host")) {
     return;
   }
   e.preventDefault();

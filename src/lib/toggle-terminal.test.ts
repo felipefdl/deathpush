@@ -9,7 +9,9 @@ beforeEach(() => {
     terminalMaximized: false,
   });
   repositoryStore.setState({
-    terminalGroups: [{ groupId: 1, panes: [{ paneId: 1, name: "Terminal 1" }], activePaneId: 1, splitDirection: "horizontal" }],
+    terminalGroups: [
+      { groupId: 1, panes: [{ paneId: 1, name: "Terminal 1" }], activePaneId: 1, splitDirection: "horizontal" },
+    ],
     activeGroupId: 1,
     terminalIdCounter: 1,
   });

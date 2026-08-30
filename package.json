@@ -26,7 +26,6 @@
     "@vscode/codicons": "^0.0.46-24",
     "@wterm/dom": "^0.3.4",
     "@wterm/ghostty": "^0.3.4",
-    "monaco-editor": "^0.56.0",
     "solid-js": "2.0.0-rc.4",
     "zustand": "^5.0.15"
   },

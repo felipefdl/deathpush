@@ -18,7 +18,7 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 | Frontend | Solid 2 + TypeScript |
 | Backend | Rust (Tauri v2) |
 | State | Zustand vanilla stores with Solid selectors |
-| Diff viewer | Monaco Editor (direct integration) |
+| Diff viewer | Pierre FileDiff + Editor |
 | Terminal | WTerm DOM + Ghostty core + portable-pty (Rust) |
 | Icons | VS Code Codicon font (@vscode/codicons) |
 | Package manager | Vite+ (`vp`) / pnpm |
@@ -49,7 +49,7 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - `pty.rs` -- PTY session management via portable-pty (spawn shell, read/write, resize, per-window sessions)
 - `git/repository.rs` -- git2::Repository wrapper (open, head, ahead/behind)
 - `git/status.rs` -- git2 status flags -> resource groups + operation state detection
-- `git/diff.rs` -- Blob reads via git2 for Monaco diff (HEAD, index, working tree)
+- `git/diff.rs` -- Blob reads via git2 for Pierre FileDiff (HEAD, index, working tree)
 - `git/branch.rs` -- Branch listing via git2 with ahead/behind counts
 - `git/log.rs` -- Commit history via git2 revwalk (sorted by time)
 - `git/tag.rs` -- Tag listing via git2
@@ -59,7 +59,7 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - `git/cli.rs` -- Async git CLI runner for all write ops
 - `git/watcher.rs` -- FS watcher (notify + debouncer, 500ms) emitting Tauri events, per-window
 - `commands/` -- Thin Tauri command handlers (repository, status, staging, commit, branch, remote, log, stash, tag, file_ops, lifecycle, terminal, blame, config, cli)
-- `lib.rs` -- App builder with managed state (AppRepoState, TerminalState, WatcherState), native menu system, multi-window support, 61 commands registered
+- `lib.rs` -- App builder with managed state (AppRepoState, TerminalState, WatcherState), native menu system, multi-window support, 62 commands registered
 
 ### Frontend (src/)
 
@@ -68,7 +68,7 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - `stores/theme-store.ts` -- Zustand store for color theme (currentTheme, setTheme)
 - `stores/icon-theme-store.ts` -- Zustand store for file icon theme (currentIconTheme, setIconTheme)
 - `stores/settings-store.ts` -- Zustand store for app settings (UI, editor, terminal, git, projects) with localStorage persistence
-- `lib/tauri-commands.ts` -- Typed invoke() wrappers for all 61 Tauri commands
+- `lib/tauri-commands.ts` -- Typed invoke() wrappers for all 62 Tauri commands
 - `lib/git-types.ts` -- TypeScript types matching Rust DTOs (including BlameLineGroup, FileBlame, LastCommitInfo)
 - `lib/flat-file-list.ts` -- Flatten resource groups into indexed file list for keyboard nav
 - `lib/format-date.ts` -- Relative date formatting
@@ -79,15 +79,14 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - `lib/toggle-terminal.ts` -- Terminal toggle logic
 - `lib/workspace-tree.ts` -- Build tree structure from scanned projects for welcome screen
 - `lib/author-utils.ts` -- Author initials extraction + deterministic avatar color hashing
-- `lib/diff-options.ts` -- Monaco diff editor options builder from settings
-- `lib/monaco-setup.ts` -- Monaco worker registration, custom language registration, diagnostics suppression
+- `lib/pierre/` -- Pierre worker pool, theme register, options, keymap, find host, flush, save session, hunk annotations, line map
 - `lib/updater.ts` -- Tauri auto-update check + download wrapper
-- `lib/languages/` -- Custom Monaco language definitions (toml, justfile, dotenv)
 - `lib/themes/` -- Color theme infrastructure (types, registry, defaults, apply-theme, json/)
 - `lib/icon-themes/` -- File icon theme infrastructure (types, registry, apply, get-icon-classes, generate-icon-css)
 - `hooks/` -- use-repository, use-git-status, use-diff, use-branches, use-keyboard-shortcuts, use-tauri-event, use-commit-log, use-stash, use-tags, use-resize-observer, use-color-scheme
 - `components/scm/` -- SCM view, commit input (with amend/undo), resource groups (list + tree), resource item, resource tree, file filter, stash view, stash entry, action button, context menu, merge banner, overflow menu, SCM toolbar, resizable pane container
-- `components/diff/` -- Monaco DiffEditor with inline/side-by-side + hunk view, diff header, image diff, empty state
+- `components/pierre/` -- VirtualizedFile + Editor (FileViewer), FileDiff + Editor (SCM and history), UnresolvedFile (merge)
+- `components/diff/` -- Diff header, image/binary/large panes, empty state around Pierre hosts
 - `components/history/` -- Commit history (commit-list with cherry-pick/reset context menu, commit-detail, commit-file-tree, history-view)
 - `components/branch/` -- Branch picker with search, create, branch item, and tags section (tag-item)
 - `components/terminal/` -- Terminal panel, WTerm/Ghostty terminal instance, terminal group view, git output panel
@@ -105,7 +104,7 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - `styles/settings.css` -- Settings page styles
 - `styles/codicons.css` -- VS Code Codicon font styles
 
-### Tauri Commands (API Surface - 61 total)
+### Tauri Commands (API Surface - 62 total)
 
 | Command | Returns | Method |
 |---------|---------|--------|
@@ -147,6 +146,7 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 | `write_file(path, content)` | () | filesystem |
 | `delete_file(path)` | RepositoryStatus | filesystem |
 | `get_file_hunks(path, staged)` | FileDiffWithHunks | CLI + parse |
+| `get_file_patch(path, staged)` | String | CLI |
 | `stage_hunk(path, hunk_index, staged)` | RepositoryStatus | CLI apply |
 | `clone_repository(url, path)` | RepositoryStatus | CLI |
 | `merge_continue()` | RepositoryStatus | CLI |
@@ -211,10 +211,10 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 - `src-tauri/src/commands/` -- Tauri command handlers (thin, delegate to git/ or pty)
 - `src-tauri/src/git/` -- Git operations (git2 reads, CLI writes, blame)
 - `src-tauri/src/pty.rs` -- PTY session management (portable-pty)
-- `src/components/` -- Solid components organized by feature (scm/, diff/, branch/, history/, terminal/, layout/, settings/, welcome/, theme/, shared/, ui/)
+- `src/components/` -- Solid components organized by feature (scm/, diff/, pierre/, branch/, history/, terminal/, layout/, settings/, welcome/, theme/, shared/, ui/)
 - `src/hooks/` -- Custom Solid reactive utilities
 - `src/stores/` -- Zustand stores (repository, layout, theme, icon-theme, settings)
-- `src/lib/` -- Utilities, types, constants
+- `src/lib/` -- Utilities, types, constants, Pierre hosts (`lib/pierre/`)
 - `src/lib/themes/` -- Color theme infrastructure
 - `src/lib/icon-themes/` -- File icon theme infrastructure
 - `src/styles/` -- CSS (global.css, scm.css, history.css, terminal.css, welcome.css, settings.css, codicons.css)
@@ -247,7 +247,7 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 - VS Code built-in themes ship under the VS Code MIT license and can always be used
 - CSS variables are set dynamically by `applyTheme()` at startup (no hardcoded colors in `:root`)
 - Color key conversion: `editor.background` -> `--vscode-editor-background` (dots become hyphens, prefix `--vscode-`)
-- Monaco themes registered via `defineTheme()` with `tokenColors` from the JSON
+- Pierre theme register id equals `theme.id`
 - Terminal theme extracted from resolved theme `colors` at runtime via `getTerminalTheme()`
 - Theme picker opens via Cmd+K Cmd+T chord or status bar icon
 
@@ -257,11 +257,13 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 - Install/uninstall managed via `commands/cli.rs` with elevated permissions when needed
 - CLI opens DeathPush with the given repo path: `dp /path/to/repo`
 
-### Monaco Setup
+### Pierre Diffs
 
-- Monaco workers configured in `lib/monaco-setup.ts` (no CDN, all local)
-- Custom languages registered: TOML, Justfile, dotenv
-- All diagnostics (TS, JS, JSON, CSS, HTML) suppressed -- diff viewer only
+- File viewer: Pierre VirtualizedFile + Editor
+- SCM and history: Pierre FileDiff + Editor
+- Highlighter: `shiki-js` via the Pierre worker pool (`worker.format: "es"`)
+- Theme register id equals `theme.id`
+- Word wrap is Off/On (`overflow: wrap | scroll`)
 
 ### Icon Themes
 
@@ -274,7 +276,7 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 ### Settings
 
 - App settings stored in localStorage under `deathpush:settings`
-- Sections: UI (font, sidebar position), Editor (font, tab size, word wrap, minimap, whitespace), Terminal (font, cursor), Git (blame toggle), Projects (directory, scan depth)
+- Sections: UI (font, sidebar position), Editor (font, tab size, word wrap), Terminal (font, cursor), Git (blame toggle), Projects (directory, scan depth)
 - Settings page accessible via Cmd+, or DeathPush menu
 
 ### Layout Persistence
