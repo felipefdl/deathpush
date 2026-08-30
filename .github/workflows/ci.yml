@@ -61,4 +61,4 @@ jobs:
       - name: Test Rust
         run: cd src-tauri && cargo test
       - name: Build
-        run: vp run tauri -- build --no-bundle ${{ matrix.args }}
+        run: vp run tauri build --no-bundle ${{ matrix.args }}

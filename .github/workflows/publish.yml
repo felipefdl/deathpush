@@ -68,7 +68,7 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
         with:
-          tauriScript: vp run tauri --
+          tauriScript: vp run tauri
           tagName: v__VERSION__
           releaseName: "DeathPush v__VERSION__"
           releaseBody: ""
