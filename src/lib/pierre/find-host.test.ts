@@ -47,6 +47,12 @@ describe("scanPierreFind", () => {
     expect(ranges).toHaveLength(1);
     expect(ranges[0].toString()).toBe("İ");
   });
+
+  it("matches context-sensitive lowercase of the whole query", () => {
+    const ranges = scanPierreFind(root([line("ΟΣ")]), "ΟΣ");
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0].toString()).toBe("ΟΣ");
+  });
 });
 
 describe("createPierreFindHost", () => {

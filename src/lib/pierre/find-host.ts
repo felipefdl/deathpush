@@ -63,19 +63,25 @@ const locate = (nodes: Text[], ends: number[], offset: number): { node: Text; of
 };
 
 const foldSearch = (text: string): { folded: string; sourceStart: number[]; sourceEnd: number[] } => {
-  let folded = "";
+  const folded = text.toLowerCase();
   const sourceStart: number[] = [];
   const sourceEnd: number[] = [];
-  for (let i = 0; i < text.length;) {
-    const code = text.codePointAt(i)!;
+  let src = 0;
+  for (let i = 0; i < folded.length && src < text.length;) {
+    const code = text.codePointAt(src)!;
     const srcLen = code > 0xffff ? 2 : 1;
-    const lower = String.fromCodePoint(code).toLowerCase();
-    folded += lower;
-    for (let j = 0; j < lower.length; j++) {
-      sourceStart.push(i);
-      sourceEnd.push(i + srcLen);
+    const take = String.fromCodePoint(code).toLowerCase().length;
+    if (take === 0) {
+      src += srcLen;
+      continue;
     }
-    i += srcLen;
+    const consume = Math.min(take, folded.length - i);
+    for (let j = 0; j < consume; j++) {
+      sourceStart.push(src);
+      sourceEnd.push(src + srcLen);
+    }
+    src += srcLen;
+    i += consume;
   }
   return { folded, sourceStart, sourceEnd };
 };
