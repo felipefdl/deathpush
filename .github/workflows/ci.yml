@@ -52,8 +52,11 @@ jobs:
       - run: vp install --frozen-lockfile
       - name: Lint frontend
         run: vp lint src/
+      - name: Format frontend
+        if: matrix.platform == 'ubuntu-22.04'
+        run: vp fmt src vite.config.ts --check
       - name: Typecheck frontend
-        run: vp check --no-lint src vite.config.ts
+        run: vp check --no-lint --no-fmt src vite.config.ts
       - name: Test frontend
         run: vp test run
       - name: Clippy
