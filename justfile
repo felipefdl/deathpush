@@ -27,7 +27,7 @@ test-watch:
   vp test watch
 
 release version:
-  sed -i '' 's/"version": "[^"]*"/"version": "{{version}}"/' package.json
+  sed -i '' 's/^  "version": "[^"]*"/  "version": "{{version}}"/' package.json
   sed -i '' 's/"version": "[^"]*"/"version": "{{version}}"/' src-tauri/tauri.conf.json
   sed -i '' 's/^version = "[^"]*"/version = "{{version}}"/' src-tauri/Cargo.toml
   cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
