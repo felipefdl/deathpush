@@ -38,6 +38,13 @@ const TREE_STATUS_PRIORITY: Record<GitStatus, number> = {
 export const explorerEntriesToTreePaths = (entries: readonly ExplorerEntry[]): string[] =>
   entries.map((entry) => (entry.isDirectory ? `${entry.path}/` : entry.path));
 
+export const sameTreePaths = (left: readonly string[], right: readonly string[]): boolean => {
+  if (left.length !== right.length) return false;
+  const other = new Set(right);
+  for (const path of left) if (!other.has(path)) return false;
+  return true;
+};
+
 export const fileEntriesToTreeGitStatus = (files: readonly FileEntry[]): GitStatusEntry[] => {
   const statusByPath = new Map<string, GitStatus>();
   for (const file of files) {

@@ -90,7 +90,7 @@ vi.mock("../../lib/pierre/flush-registry", () => ({
 }));
 
 import { settingsStore } from "../../stores/settings-store";
-import { PierreFileDiff } from "./pierre-file-diff";
+import { getScmSession, PierreFileDiff } from "./pierre-file-diff";
 
 afterEach(() => {
   cleanup();
@@ -142,5 +142,44 @@ describe("PierreFileDiff navigation", () => {
     expect(options.renderAnnotation(annotation)).toBeUndefined();
     settingsStore.getState().updateDiff({ showInlineHunkActions: true });
     expect(options.renderAnnotation(annotation)).toBeInstanceOf(HTMLElement);
+  });
+});
+
+describe("PierreFileDiff disk reload", () => {
+  it("stamps a unique persist cache key on each disk-won reload", async () => {
+    render(() => <PierreFileDiff path="NOTICE" staged={false} groupKind="workingTree" />);
+    await waitFor(() => expect(mocks.fileRendered).toHaveBeenCalledTimes(1));
+
+    const handle = getScmSession();
+    expect(handle).not.toBeNull();
+
+    handle!.reload(
+      {
+        path: "NOTICE",
+        original: "",
+        modified: "second",
+        originalLanguage: null,
+        fileType: "text",
+      },
+      "sha-second"
+    );
+    await waitFor(() => expect(mocks.fileRendered).toHaveBeenCalledTimes(2));
+
+    handle!.reload(
+      {
+        path: "NOTICE",
+        original: "",
+        modified: "third",
+        originalLanguage: null,
+        fileType: "text",
+      },
+      "sha-third"
+    );
+    await waitFor(() => expect(mocks.fileRendered).toHaveBeenCalledTimes(3));
+
+    const keys = mocks.fileRendered.mock.calls.map(
+      (call) => (call[0] as { fileDiff?: { cacheKey?: string } }).fileDiff?.cacheKey
+    );
+    expect(keys).toEqual(["NOTICE", "NOTICE#1", "NOTICE#2"]);
   });
 });

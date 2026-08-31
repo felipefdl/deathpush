@@ -1,5 +1,5 @@
 import { cleanup, render } from "@solidjs/testing-library";
-import { flush } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { Mock } from "vite-plus/test";
 import { settingsStore } from "../../stores/settings-store";
@@ -23,6 +23,7 @@ vi.mock("@pierre/trees", () => ({
     resetPaths = vi.fn();
     setGitStatus = vi.fn();
     setIcons = vi.fn();
+    subscribe = vi.fn(() => () => undefined);
 
     constructor(public options: Record<string, unknown>) {
       treeMocks.instances.push(this);
@@ -85,5 +86,24 @@ describe("FileTreeHost", () => {
     expect(treeMocks.instances).toHaveLength(2);
     expect(treeMocks.instances[0].cleanUp).toHaveBeenCalledTimes(1);
     expect(treeMocks.instances[1].options).toMatchObject({ density: "default", icons: "complete" });
+  });
+
+  it("applies files that arrive after an empty first paint", () => {
+    let setPaths!: (paths: string[]) => void;
+    const Harness = () => {
+      const [paths, set] = createSignal<string[]>([]);
+      setPaths = set;
+      return <FileTreeHost paths={paths()} />;
+    };
+    render(() => <Harness />);
+    flush();
+
+    expect(treeMocks.instances).toHaveLength(1);
+    expect(treeMocks.instances[0].resetPaths).not.toHaveBeenCalled();
+
+    setPaths(["README.md"]);
+    flush();
+
+    expect(treeMocks.instances[0].resetPaths).toHaveBeenCalledTimes(1);
   });
 });

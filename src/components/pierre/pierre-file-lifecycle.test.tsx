@@ -18,6 +18,9 @@ vi.mock("@pierre/diffs", () => ({
     diffHeaderHeight: 0,
     spacing: 8,
   },
+  getFiletypeFromFileName: () => "text",
+  areLanguagesAttached: () => true,
+  getSharedHighlighter: vi.fn(async () => ({})),
   Virtualizer: class {
     constructor() {
       mocks.virtualizerConstructed();

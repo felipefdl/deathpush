@@ -542,6 +542,7 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
 
         if (patch.trim() !== "") {
           fileDiff = parsePatchFiles(patch)[0]?.files[0];
+          if (fileDiff) fileDiff.cacheKey = cacheKey;
           annotations = hunkAnnotations((await commands.getFileHunks(path, staged)).hunks);
           if (cancelled) return;
         }

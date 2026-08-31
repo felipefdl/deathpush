@@ -20,6 +20,7 @@ interface ExplorerState {
   clipboardEntry: ClipboardEntry | null;
   isFileDirty: boolean;
   revealLine: number | null;
+  treeExpandedPaths: string[];
 
   setSelectedPath: (path: string | null) => void;
   setSelectedTreeEntry: (entry: SelectedTreeEntry | null) => void;
@@ -28,6 +29,7 @@ interface ExplorerState {
   setFileFilter: (filter: string) => void;
   setClipboardEntry: (entry: ClipboardEntry | null) => void;
   setIsFileDirty: (dirty: boolean) => void;
+  setTreeExpandedPaths: (paths: string[]) => void;
   reset: () => void;
 }
 
@@ -39,6 +41,7 @@ export const explorerStore = createStore<ExplorerState>((set) => ({
   clipboardEntry: null,
   isFileDirty: false,
   revealLine: null,
+  treeExpandedPaths: [],
 
   setSelectedPath: (selectedPath) => set({ selectedPath }),
   setSelectedTreeEntry: (selectedTreeEntry) => set({ selectedTreeEntry }),
@@ -47,6 +50,7 @@ export const explorerStore = createStore<ExplorerState>((set) => ({
   setFileFilter: (fileFilter) => set({ fileFilter }),
   setClipboardEntry: (clipboardEntry) => set({ clipboardEntry }),
   setIsFileDirty: (isFileDirty) => set({ isFileDirty }),
+  setTreeExpandedPaths: (treeExpandedPaths) => set({ treeExpandedPaths }),
   reset: () =>
     set({
       selectedPath: null,
@@ -56,5 +60,6 @@ export const explorerStore = createStore<ExplorerState>((set) => ({
       clipboardEntry: null,
       isFileDirty: false,
       revealLine: null,
+      treeExpandedPaths: [],
     }),
 }));

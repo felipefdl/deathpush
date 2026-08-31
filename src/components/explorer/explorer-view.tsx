@@ -10,7 +10,9 @@ import { ask, confirm } from "@tauri-apps/plugin-dialog";
 import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
 import { useTauriEvent } from "../../hooks/use-tauri-event";
 import { addRecentFile } from "../../lib/recent-files";
-import { explorerEntriesToTreePaths, fileEntriesToTreeGitStatus } from "../../lib/trees";
+import { dockTerminalIfCurrentFile, shouldReloadOpenFile } from "../../lib/explorer-file-activate";
+import { explorerEntriesToTreePaths, fileEntriesToTreeGitStatus, sameTreePaths } from "../../lib/trees";
+import { throttle } from "../../lib/throttle";
 import type { ExplorerEntry } from "../../lib/git-types";
 import type { ConflictResolution } from "../../lib/tauri-commands";
 import * as commands from "../../lib/tauri-commands";
@@ -73,18 +75,25 @@ export const ExplorerView = (props: ExplorerViewProps) => {
 
   const refreshTree = async (): Promise<void> => {
     try {
-      setEntries(await commands.listRepositoryTree());
+      const next = await commands.listRepositoryTree();
+      if (sameTreePaths(explorerEntriesToTreePaths(entries()), explorerEntriesToTreePaths(next))) return;
+      setEntries(next);
     } catch (error) {
       repositoryStore.getState().setError(String(error));
     }
   };
 
+  const scheduleRefreshTree = throttle(() => {
+    void refreshTree();
+  }, 1000);
+
   const openFile = (path: string): void => {
     const { setSelectedPath, setFileContent } = explorerStore.getState();
-    setSelectedPath(path);
     const layout = layoutStore.getState();
     layout.dockTerminal();
     layout.setMainView("file");
+    if (!shouldReloadOpenFile(explorerStore.getState().selectedPath, path)) return;
+    setSelectedPath(path);
     commands
       .readFileContent(path)
       .then((content) => {
@@ -330,7 +339,7 @@ export const ExplorerView = (props: ExplorerViewProps) => {
     return items;
   };
 
-  useTauriEvent("repository-changed", () => void refreshTree());
+  useTauriEvent("repository-changed", () => scheduleRefreshTree());
 
   createEffect(
     () => fileFilter(),
@@ -407,6 +416,7 @@ export const ExplorerView = (props: ExplorerViewProps) => {
               paths={treePaths()}
               gitStatus={treeGitStatus()}
               options={treeOptions}
+              onFileActivate={(path) => dockTerminalIfCurrentFile(stripDirectorySuffix(path))}
               modelRef={(model) => {
                 treeModel = model;
                 model?.setSearch(fileFilter() || null);

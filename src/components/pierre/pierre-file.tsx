@@ -1,5 +1,12 @@
 import { createEffect, createSignal, onSettled } from "solid-js";
-import { DEFAULT_VIRTUAL_FILE_METRICS, VirtualizedFile, Virtualizer, type FileOptions } from "@pierre/diffs";
+import {
+  DEFAULT_VIRTUAL_FILE_METRICS,
+  getFiletypeFromFileName,
+  getSharedHighlighter,
+  VirtualizedFile,
+  Virtualizer,
+  type FileOptions,
+} from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/edit";
 import { explorerStore } from "../../stores/explorer-store";
 import { repositoryStore } from "../../stores/repository-store";
@@ -12,6 +19,7 @@ import { buildPierreDiffOptions } from "../../lib/pierre/options";
 import { normalizeWordWrap, pierreHostStyle } from "../../lib/pierre/normalize-editor-settings";
 import { pierreEditorKeymap } from "../../lib/pierre/keymap";
 import { getPierreWorkerPool } from "../../lib/pierre/worker";
+import { isPierreLanguageReady, pierreFileRenderInput } from "../../lib/pierre/file-render-input";
 import { registerFlusher, trackPendingFlush } from "../../lib/pierre/flush-registry";
 import { isDirty, type SaveSession } from "../../lib/pierre/save-session";
 import { sha256Utf8 } from "../../lib/pierre/sha";
@@ -218,12 +226,28 @@ export const PierreFile = (props: PierreFileProps) => {
       const save = { path, schedule };
       activeSave = save;
       const unregister = registerFlusher(path, flush);
+      const languageReady = isPierreLanguageReady(path);
       scrollHost?.beginRender();
       fileRef.render({
-        file: { name: path, contents, cacheKey },
+        file: pierreFileRenderInput(path, contents, cacheKey, languageReady),
         containerWrapper: content,
       });
+      scrollHost?.finishRender();
       scrollHost?.sync();
+      if (!languageReady) {
+        const lang = getFiletypeFromFileName(path);
+        void getSharedHighlighter({
+          langs: [lang],
+          themes: [themeStore.getState().currentTheme.id],
+          preferredHighlighter: "shiki-js",
+        }).then(() => {
+          if (activeSave !== save || !fileRef) return;
+          fileRef.render({
+            file: pierreFileRenderInput(path, contents, cacheKey, true),
+            containerWrapper: content,
+          });
+        });
+      }
 
       return () => {
         if (activeSave === save) activeSave = undefined;

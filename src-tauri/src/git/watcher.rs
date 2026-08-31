@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use notify_debouncer_mini::{DebouncedEventKind, new_debouncer};
+use notify_debouncer_mini::{DebouncedEvent, new_debouncer};
 use tauri::{Emitter, WebviewWindow};
 
 pub type WatcherState = Mutex<HashMap<String, WatcherHandle>>;
@@ -38,6 +38,12 @@ fn is_relevant_change(path: &str) -> bool {
   true
 }
 
+fn has_relevant_change(events: &[DebouncedEvent]) -> bool {
+  events
+    .iter()
+    .any(|event| is_relevant_change(&event.path.to_string_lossy()))
+}
+
 pub fn start_watcher(window: &WebviewWindow, repo_root: &Path, watcher_state: &WatcherState) -> notify::Result<()> {
   let (tx, rx) = mpsc::channel();
   let (stop_tx, stop_rx) = mpsc::channel();
@@ -53,13 +59,7 @@ pub fn start_watcher(window: &WebviewWindow, repo_root: &Path, watcher_state: &W
       match rx.recv_timeout(Duration::from_millis(200)) {
         Ok(events) => {
           if let Ok(events) = events {
-            let has_relevant = events.iter().any(|e| {
-              if e.kind != DebouncedEventKind::Any {
-                return false;
-              }
-              let path = e.path.to_string_lossy();
-              is_relevant_change(&path)
-            });
+            let has_relevant = has_relevant_change(&events);
             if has_relevant {
               let _ = window_clone.emit("repository-changed", ());
             }
@@ -80,4 +80,33 @@ pub fn start_watcher(window: &WebviewWindow, repo_root: &Path, watcher_state: &W
   watchers.insert(label, WatcherHandle { stop_tx });
 
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use std::path::PathBuf;
+
+  use notify_debouncer_mini::{DebouncedEvent, DebouncedEventKind};
+
+  use super::has_relevant_change;
+
+  #[test]
+  fn continuous_write_is_relevant() {
+    let events = [DebouncedEvent::new(
+      PathBuf::from("/repo/src/file.ts"),
+      DebouncedEventKind::AnyContinuous,
+    )];
+
+    assert!(has_relevant_change(&events));
+  }
+
+  #[test]
+  fn git_object_write_is_ignored() {
+    let events = [DebouncedEvent::new(
+      PathBuf::from("/repo/.git/objects/ab/cdef"),
+      DebouncedEventKind::AnyContinuous,
+    )];
+
+    assert!(!has_relevant_change(&events));
+  }
 }

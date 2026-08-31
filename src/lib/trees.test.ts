@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { ExplorerEntry, FileEntry } from "./git-types";
-import { explorerEntriesToTreePaths, fileEntriesToTreeGitStatus } from "./trees";
+import { explorerEntriesToTreePaths, fileEntriesToTreeGitStatus, sameTreePaths } from "./trees";
 
 describe("tree adapters", () => {
   it("marks explicit directories with the Trees trailing slash contract", () => {
@@ -30,5 +30,10 @@ describe("tree adapters", () => {
       { path: "untracked.ts", status: "untracked" },
       { path: "ignored.ts", status: "ignored" },
     ]);
+  });
+
+  it("treats the same path set as unchanged even when order differs", () => {
+    expect(sameTreePaths(["src/", "README.md"], ["README.md", "src/"])).toBe(true);
+    expect(sameTreePaths(["src/", "README.md"], ["src/", "vite.config.ts"])).toBe(false);
   });
 });

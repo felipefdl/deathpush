@@ -4,14 +4,25 @@ import {
   themeToTreeStyles,
   type FileTreeBuiltInIconSet,
   type FileTreeDensityKeyword,
-  type FileTreeDirectoryHandle,
   type FileTreeOptions,
   type GitStatusEntry,
 } from "@pierre/trees";
 import { createEffect, createSignal, onSettled } from "solid-js";
+import { fileTreeClickedFilePath } from "../../lib/explorer-file-activate";
+import { throttle } from "../../lib/throttle";
+import {
+  ancestorDirectoryPaths,
+  nextPersistedExpandedPaths,
+  restoreExpandedDirectoryPaths,
+  restoreSelectedFilePath,
+  snapshotExpandedDirectoryPaths,
+  type TreeStateModel,
+} from "../../lib/tree-state";
+import { explorerStore } from "../../stores/explorer-store";
 import { themeStore } from "../../stores/theme-store";
 import { settingsStore } from "../../stores/settings-store";
 import { useStore } from "../../lib/use-store";
+import { sameTreePaths } from "../../lib/trees";
 
 type ManagedFileTreeOptions = Omit<
   FileTreeOptions,
@@ -24,47 +35,27 @@ export type FileTreeHostProps = {
   options?: ManagedFileTreeOptions;
   class?: string;
   modelRef?: (model: FileTree | undefined) => void;
+  onFileActivate?: (path: string) => void;
 };
 
-type TreeStateSnapshot = {
-  expandedPaths: readonly string[];
-  focusedPath: string | null;
-  selectedPaths: readonly string[];
-};
-
-const EMPTY_TREE_STATE: TreeStateSnapshot = {
-  expandedPaths: [],
-  focusedPath: null,
-  selectedPaths: [],
-};
-
-const collectDirectoryPaths = (paths: readonly string[]): string[] => {
-  const directories = new Set<string>();
-  for (const path of paths) {
-    const normalized = path.endsWith("/") ? path.slice(0, -1) : path;
-    const segments = normalized.split("/");
-    const parentCount = path.endsWith("/") ? segments.length : segments.length - 1;
-    for (let index = 1; index <= parentCount; index += 1) {
-      directories.add(`${segments.slice(0, index).join("/")}/`);
-    }
-  }
-  return [...directories];
-};
 const cssPropertyName = (property: string): string =>
   property.startsWith("--") ? property : property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+const asTreeState = (model: FileTree): TreeStateModel => model as unknown as TreeStateModel;
 
-const snapshotTreeState = (model: FileTree, paths: readonly string[]): TreeStateSnapshot => ({
-  expandedPaths: collectDirectoryPaths(paths).filter((path) => {
-    const item = model.getItem(path);
-    return item?.isDirectory() === true && (item as FileTreeDirectoryHandle).isExpanded();
-  }),
-  focusedPath: model.getFocusedPath(),
-  selectedPaths: model.getSelectedPaths(),
-});
+const persistTreeUi = (model: FileTree, paths: readonly string[]): void => {
+  const explorer = explorerStore.getState();
+  explorer.setTreeExpandedPaths(
+    nextPersistedExpandedPaths(explorer.treeExpandedPaths, snapshotExpandedDirectoryPaths(asTreeState(model), paths))
+  );
+};
 
-const restoreSelection = (model: FileTree, snapshot: TreeStateSnapshot): void => {
-  for (const path of snapshot.selectedPaths) model.getItem(path)?.select();
-  if (snapshot.focusedPath) model.focusPath(snapshot.focusedPath);
+const applyPersistedTreeUi = (model: FileTree): void => {
+  const explorer = explorerStore.getState();
+  restoreExpandedDirectoryPaths(asTreeState(model), [
+    ...explorer.treeExpandedPaths,
+    ...ancestorDirectoryPaths(explorer.selectedPath ?? ""),
+  ]);
+  restoreSelectedFilePath(asTreeState(model), explorer.selectedPath);
 };
 
 export const FileTreeHost = (props: FileTreeHostProps) => {
@@ -75,7 +66,6 @@ export const FileTreeHost = (props: FileTreeHostProps) => {
   let container!: HTMLDivElement;
   let model: FileTree | undefined;
   let currentPaths: readonly string[] = [];
-  let retainedState = EMPTY_TREE_STATE;
   let appliedThemeProperties: string[] = [];
 
   onSettled(() => {
@@ -88,25 +78,36 @@ export const FileTreeHost = (props: FileTreeHostProps) => {
     ([isReady, currentDensity]) => {
       if (!isReady) return;
 
+      const explorer = explorerStore.getState();
       const tree = new FileTree({
         ...props.options,
         preparedInput: prepareFileTreeInput(props.paths),
         density: currentDensity as FileTreeDensityKeyword,
         icons: icons() as FileTreeBuiltInIconSet,
         gitStatus: props.gitStatus,
-        initialExpandedPaths: retainedState.expandedPaths,
-        initialSelectedPaths: retainedState.selectedPaths,
+        initialExpandedPaths: [...explorer.treeExpandedPaths, ...ancestorDirectoryPaths(explorer.selectedPath ?? "")],
+        initialSelectedPaths: explorer.selectedPath ? [explorer.selectedPath] : [],
       });
       model = tree;
       currentPaths = props.paths;
       tree.render({ containerWrapper: container });
       const treeContainer = tree.getFileTreeContainer();
       if (treeContainer) treeContainer.style.height = "100%";
-      if (retainedState.focusedPath) tree.focusPath(retainedState.focusedPath);
+      const clickRoot = treeContainer?.shadowRoot ?? treeContainer;
+      const handleClick = (event: Event): void => {
+        const path = fileTreeClickedFilePath(event);
+        if (path) props.onFileActivate?.(path);
+      };
+      clickRoot?.addEventListener("click", handleClick);
+      const persist = throttle(() => persistTreeUi(tree, currentPaths), 100);
+      const unsubscribe = tree.subscribe(persist);
+      applyPersistedTreeUi(tree);
       props.modelRef?.(tree);
 
       return () => {
-        retainedState = snapshotTreeState(tree, currentPaths);
+        persist();
+        unsubscribe();
+        clickRoot?.removeEventListener("click", handleClick);
         if (model === tree) {
           model = undefined;
           props.modelRef?.(undefined);
@@ -120,13 +121,18 @@ export const FileTreeHost = (props: FileTreeHostProps) => {
     () => props.paths,
     (paths) => {
       if (!model || paths === currentPaths) return;
-      const snapshot = snapshotTreeState(model, currentPaths);
+      if (sameTreePaths(paths, currentPaths)) {
+        currentPaths = paths;
+        return;
+      }
+      const snapshotExpanded = snapshotExpandedDirectoryPaths(asTreeState(model), currentPaths);
+      persistTreeUi(model, currentPaths);
       model.resetPaths({
         preparedInput: prepareFileTreeInput(paths),
-        initialExpandedPaths: snapshot.expandedPaths,
+        initialExpandedPaths: snapshotExpanded,
       });
       currentPaths = paths;
-      restoreSelection(model, snapshot);
+      applyPersistedTreeUi(model);
     }
   );
 
@@ -137,7 +143,13 @@ export const FileTreeHost = (props: FileTreeHostProps) => {
 
   createEffect(
     () => props.gitStatus,
-    (gitStatus) => model?.setGitStatus(gitStatus)
+    (gitStatus) => {
+      if (!model) return;
+      persistTreeUi(model, currentPaths);
+      model.setGitStatus(gitStatus);
+      applyPersistedTreeUi(model);
+      persistTreeUi(model, currentPaths);
+    }
   );
 
   createEffect(

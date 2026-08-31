@@ -13,6 +13,7 @@ vi.mock("@wterm/dom", () => ({
   WTerm: class {
     cols = 80;
     rows = 24;
+    element = document.createElement("div");
     constructor() {}
     async init() {
       return this;

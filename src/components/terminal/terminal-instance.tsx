@@ -8,6 +8,7 @@ import { themeStore } from "../../stores/theme-store";
 import { type TerminalSettings, settingsStore } from "../../stores/settings-store";
 import { useStore } from "../../lib/use-store";
 import { getTerminalTheme, type TerminalTheme } from "../../lib/themes/apply-theme";
+import { closeExitedTerminalPane } from "../../lib/close-exited-terminal-pane";
 import "@wterm/dom/src/terminal.css";
 
 type TerminalDataEvent = {
@@ -64,6 +65,16 @@ const applyGhosttyPalette = (term: WTerm, theme: TerminalTheme): void => {
   term.write(`\x1b]4;${palette}\x1b\\`);
 };
 
+export const isUsableTerminalGrid = (cols: number, rows: number): boolean => cols >= 2 && rows >= 2;
+
+export const guardTerminalResize = (term: { resize: (cols: number, rows: number) => void }): void => {
+  const resize = term.resize.bind(term);
+  term.resize = (cols: number, rows: number): void => {
+    if (!isUsableTerminalGrid(cols, rows)) return;
+    resize(cols, rows);
+  };
+};
+
 const fitTerminal = (term: WTerm): void => {
   const probe = document.createElement("span");
   probe.textContent = "W";
@@ -90,7 +101,10 @@ const fitTerminal = (term: WTerm): void => {
     term.element.clientHeight -
     (Number.parseFloat(styles.paddingTop) || 0) -
     (Number.parseFloat(styles.paddingBottom) || 0);
-  term.resize(Math.max(1, Math.floor(width / charWidth)), Math.max(1, Math.floor(heightAvailable / rowHeight)));
+  const cols = Math.floor(width / charWidth);
+  const rows = Math.floor(heightAvailable / rowHeight);
+  if (!isUsableTerminalGrid(cols, rows)) return;
+  term.resize(cols, rows);
 };
 
 const applyTerminalSettings = (element: HTMLElement, settings: TerminalSettings): void => {
@@ -144,7 +158,16 @@ const spawnSession = async (term: WTerm, session: { id: number }, paneID: number
 export const shouldFocusTerminal = (activeElement: Element | null): boolean =>
   !activeElement ||
   activeElement === document.body ||
-  !!activeElement.closest(".terminal-instance, .terminal-instance-wrapper");
+  !!activeElement.closest(".terminal-instance, .terminal-instance-wrapper, .app-layout-terminal");
+
+export const requestTerminalFocus = (): void => {
+  window.dispatchEvent(new CustomEvent("deathpush:focus-terminal"));
+};
+
+export const retainTerminalButtonFocus = (event: MouseEvent): void => {
+  event.preventDefault();
+};
+
 type TerminalSelectionSettings = Pick<TerminalSettings, "rightClickSelectsWord" | "macOptionClickForcesSelection">;
 
 const selectWordAtPoint = (element: HTMLElement, x: number, y: number): boolean => {
@@ -188,7 +211,6 @@ export const TerminalInstance = (props: TerminalInstanceProps) => {
   let containerEl: HTMLDivElement | undefined;
   let term: WTerm | undefined;
   const session = { id: 0 };
-  let exited = false;
   let terminalMetricsSignature = "";
   let fontLoadGeneration = 0;
 
@@ -213,6 +235,15 @@ export const TerminalInstance = (props: TerminalInstanceProps) => {
     let fontReady = false;
     let containerVisible = false;
     let initialized = false;
+    let sessionSpawned = false;
+
+    const spawnWhenFitted = (): void => {
+      if (sessionSpawned || aborted || !term) return;
+      fitTerminal(term);
+      if (!isUsableTerminalGrid(term.cols, term.rows)) return;
+      sessionSpawned = true;
+      void spawnSession(term, session, props.paneId);
+    };
 
     const initTerminal = async (): Promise<void> => {
       if (initialized || aborted || !fontReady || !containerVisible || !container.isConnected) return;
@@ -234,24 +265,12 @@ export const TerminalInstance = (props: TerminalInstanceProps) => {
         core,
         cursorBlink: termSettings.cursorBlink,
         onData: (data) => {
-          if (exited) {
-            exited = false;
-            nextTerm.write("\x1bc");
-            const oldID = session.id;
-            if (oldID) {
-              invoke("terminal_kill", { id: oldID })
-                .then(() => spawnSession(nextTerm, session, props.paneId))
-                .catch((error) => console.error("terminal_kill failed:", error));
-            } else {
-              void spawnSession(nextTerm, session, props.paneId);
-            }
-            return;
-          }
           if (session.id) {
             invoke("terminal_write", { id: session.id, data }).catch(() => {});
           }
         },
         onResize: (cols, rows) => {
+          if (!isUsableTerminalGrid(cols, rows)) return;
           clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {
             if (session.id) {
@@ -260,6 +279,7 @@ export const TerminalInstance = (props: TerminalInstanceProps) => {
           }, 150);
         },
       });
+      guardTerminalResize(nextTerm);
       term = nextTerm;
 
       try {
@@ -284,10 +304,10 @@ export const TerminalInstance = (props: TerminalInstanceProps) => {
       });
 
       unlistenExit = appWindow.listen<number>("terminal:exit", (event) => {
-        if (event.payload === session.id) exited = true;
+        if (event.payload === session.id) closeExitedTerminalPane(props.paneId);
       });
 
-      void spawnSession(nextTerm, session, props.paneId);
+      spawnWhenFitted();
       if (props.isActive) nextTerm.focus();
       setTermReady(true);
     };
@@ -311,6 +331,7 @@ export const TerminalInstance = (props: TerminalInstanceProps) => {
     };
     visibilityObserver = new ResizeObserver((entries) => {
       considerVisible(entries[0].contentRect.width, entries[0].contentRect.height);
+      spawnWhenFitted();
     });
     visibilityObserver.observe(container);
     considerVisible(container.clientWidth, container.clientHeight);
@@ -367,7 +388,7 @@ export const TerminalInstance = (props: TerminalInstanceProps) => {
     (paneID) => {
       const interval = setInterval(async () => {
         const sessionID = session.id;
-        if (!sessionID || exited) return;
+        if (!sessionID) return;
         const name = await invoke<string>("terminal_foreground_process", { id: sessionID });
         repositoryStore.getState().renamePane(paneID, name);
       }, 1000);

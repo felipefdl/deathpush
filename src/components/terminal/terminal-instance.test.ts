@@ -35,6 +35,24 @@ describe("shouldFocusTerminal", () => {
     expect(terminalInstance.shouldFocusTerminal(document.body)).toBe(true);
     expect(terminalInstance.shouldFocusTerminal(null)).toBe(true);
   });
+
+  it("returns focus when a terminal toolbar button is active", () => {
+    const panel = document.createElement("div");
+    panel.className = "app-layout-terminal";
+    const button = document.createElement("button");
+    button.className = "terminal-panel-btn";
+    panel.append(button);
+    document.body.append(panel);
+    button.focus();
+
+    expect(terminalInstance.shouldFocusTerminal(document.activeElement)).toBe(true);
+  });
+
+  it("keeps the terminal from losing focus to a toolbar mousedown", () => {
+    const event = new MouseEvent("mousedown", { cancelable: true });
+    terminalInstance.retainTerminalButtonFocus(event);
+    expect(event.defaultPrevented).toBe(true);
+  });
 });
 describe("terminal selection settings", () => {
   it("selects the word under a right click when enabled", () => {
@@ -81,5 +99,30 @@ describe("terminal selection settings", () => {
     element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
     expect(wtermMouseDown).toHaveBeenCalledTimes(1);
     detach();
+  });
+});
+
+describe("isUsableTerminalGrid", () => {
+  it("rejects the collapsed grid produced when the panel is display none", () => {
+    expect(terminalInstance.isUsableTerminalGrid(1, 1)).toBe(false);
+    expect(terminalInstance.isUsableTerminalGrid(80, 1)).toBe(false);
+  });
+
+  it("accepts a normal terminal size", () => {
+    expect(terminalInstance.isUsableTerminalGrid(80, 24)).toBe(true);
+  });
+});
+
+describe("guardTerminalResize", () => {
+  it("does not apply a collapsed resize", () => {
+    const resize = vi.fn();
+    const term = { resize };
+    terminalInstance.guardTerminalResize(term);
+
+    term.resize(1, 1);
+    expect(resize).not.toHaveBeenCalled();
+
+    term.resize(80, 24);
+    expect(resize).toHaveBeenCalledWith(80, 24);
   });
 });

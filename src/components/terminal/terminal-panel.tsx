@@ -5,8 +5,11 @@ import { settingsStore } from "../../stores/settings-store";
 import { useStore } from "../../lib/use-store";
 import { toggleTerminal } from "../../lib/toggle-terminal";
 import { GitOutput } from "./git-output";
+import { requestTerminalFocus, retainTerminalButtonFocus } from "./terminal-instance";
 import { TerminalGroupView } from "./terminal-group-view";
 import "../../styles/terminal.css";
+
+export const shouldShowTerminalSidebar = (paneCount: number): boolean => paneCount > 1;
 
 export const TerminalPanel = () => {
   const terminalGroups = useStore(repositoryStore, (s) => s.terminalGroups);
@@ -45,7 +48,7 @@ export const TerminalPanel = () => {
 
   const isTerminal = createMemo(() => panelTab() === "terminal");
   const totalPanes = createMemo(() => terminalGroups().reduce((sum, group) => sum + group.panes.length, 0));
-  const showSidebar = createMemo(() => isTerminal() && (terminalMaximized() || totalPanes() > 1));
+  const showSidebar = createMemo(() => isTerminal() && shouldShowTerminalSidebar(totalPanes()));
   const headerStyle = () => (sidebarRight() ? { "flex-direction": "row-reverse" as const } : undefined);
 
   const splitActive = (vertical: boolean) => {
@@ -68,7 +71,10 @@ export const TerminalPanel = () => {
           </div>
           <div
             class={["panel-tab", { active: isTerminal() }]}
-            onClick={() => layoutStore.getState().setPanelTab("terminal")}
+            onClick={() => {
+              layoutStore.getState().setPanelTab("terminal");
+              requestAnimationFrame(() => requestTerminalFocus());
+            }}
           >
             Terminal
           </div>
@@ -79,6 +85,7 @@ export const TerminalPanel = () => {
               <>
                 <button
                   class="terminal-panel-btn"
+                  onMouseDown={retainTerminalButtonFocus}
                   onClick={() => repositoryStore.getState().addTerminalGroup()}
                   title="New Terminal"
                 >
@@ -87,24 +94,39 @@ export const TerminalPanel = () => {
                 <span class="terminal-header-separator" />
                 <button
                   class="terminal-panel-btn"
+                  onMouseDown={retainTerminalButtonFocus}
                   onClick={() => splitActive(false)}
                   title="Split Terminal Horizontally"
                 >
                   <span class="codicon codicon-split-horizontal" />
                 </button>
-                <button class="terminal-panel-btn" onClick={() => splitActive(true)} title="Split Terminal Vertically">
+                <button
+                  class="terminal-panel-btn"
+                  onMouseDown={retainTerminalButtonFocus}
+                  onClick={() => splitActive(true)}
+                  title="Split Terminal Vertically"
+                >
                   <span class="codicon codicon-split-vertical" />
                 </button>
               </>
             )}
             <button
               class="terminal-panel-btn"
-              onClick={() => layoutStore.getState().toggleTerminalMaximized()}
+              onMouseDown={retainTerminalButtonFocus}
+              onClick={() => {
+                layoutStore.getState().toggleTerminalMaximized();
+                requestAnimationFrame(() => requestTerminalFocus());
+              }}
               title={terminalMaximized() ? "Restore Panel Size" : "Maximize Panel Size"}
             >
               <span class={`codicon ${terminalMaximized() ? "codicon-chrome-restore" : "codicon-chrome-maximize"}`} />
             </button>
-            <button class="terminal-panel-btn" onClick={() => toggleTerminal()} title="Close Panel">
+            <button
+              class="terminal-panel-btn"
+              onMouseDown={retainTerminalButtonFocus}
+              onClick={() => toggleTerminal()}
+              title="Close Panel"
+            >
               <span class="codicon codicon-close" />
             </button>
           </div>
@@ -112,14 +134,18 @@ export const TerminalPanel = () => {
       </div>
       <div class="terminal-panel-body" style={headerStyle()}>
         <div class="terminal-panel-content">
-          <div class="terminal-panel-main" style={{ display: isTerminal() ? undefined : "none" }}>
+          <div class={`terminal-panel-main${!isTerminal() ? " is-inactive" : ""}`}>
             <For each={terminalGroups()} keyed={(group) => group.groupId}>
               {(group) => (
-                <TerminalGroupView group={group()} isActive={isTerminal() && group().groupId === activeGroupId()} />
+                <TerminalGroupView
+                  group={group()}
+                  isActive={group().groupId === activeGroupId()}
+                  isFocused={isTerminal() && group().groupId === activeGroupId()}
+                />
               )}
             </For>
           </div>
-          <div class="terminal-panel-main" style={{ display: isTerminal() ? "none" : undefined }}>
+          <div class={`terminal-panel-main${isTerminal() ? " is-inactive" : ""}`}>
             <GitOutput />
           </div>
         </div>

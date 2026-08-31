@@ -5,6 +5,7 @@ import { TerminalInstance } from "./terminal-instance";
 type TerminalGroupViewProps = {
   group: TerminalGroup;
   isActive: boolean;
+  isFocused: boolean;
 };
 
 export const TerminalGroupView = (props: TerminalGroupViewProps) => {
@@ -97,7 +98,7 @@ export const TerminalGroupView = (props: TerminalGroupViewProps) => {
             >
               <TerminalInstance
                 paneId={pane().paneId}
-                isActive={props.isActive && pane().paneId === props.group.activePaneId}
+                isActive={props.isFocused && pane().paneId === props.group.activePaneId}
               />
             </div>
           </div>
