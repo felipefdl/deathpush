@@ -106,14 +106,13 @@ describe("App project refresh", () => {
     expect(result.container.querySelector(".boot-splash")).toBeTruthy();
   });
 
-  it("paints cached repository identity before the initial path resolves", async () => {
+  it("keeps cached repository identity display-only after startup", async () => {
     let resolveInitialPath!: (path: string | null) => void;
     getInitialPathMock.mockReturnValue(
       new Promise<string | null>((resolve) => {
         resolveInitialPath = resolve;
       })
     );
-    openRepoMock.mockReturnValue(new Promise<void>(() => {}));
     localStorage.setItem(
       "deathpush:recentProjects",
       JSON.stringify([
@@ -139,7 +138,7 @@ describe("App project refresh", () => {
     await Promise.resolve();
     flush();
 
-    expect(openRepoMock).toHaveBeenCalledWith("/test/cached-project");
+    expect(openRepoMock).not.toHaveBeenCalled();
     expect(result.container.querySelector(".cached-repository-chrome")).toBeTruthy();
   });
 

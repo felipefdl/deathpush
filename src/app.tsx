@@ -51,7 +51,6 @@ const CachedRepositoryChrome = (props: { identity: CachedRepositoryIdentity }) =
       <div class="app-layout-divider" />
     </>
   );
-  const branch = props.identity.branch ?? "No branch";
 
   return (
     <div class="app-layout cached-repository-chrome">
@@ -68,7 +67,7 @@ const CachedRepositoryChrome = (props: { identity: CachedRepositoryIdentity }) =
           <span class="status-bar-item">
             <span class="codicon codicon-source-control" />
             <span class="status-bar-text">{props.identity.name}</span>
-            <span class="status-bar-text">{branch}</span>
+            <span class="status-bar-text">{props.identity.branch ?? "No branch"}</span>
           </span>
           <div class="status-bar-spacer" />
         </div>
@@ -99,16 +98,11 @@ export const App = () => {
 
   onSettled(() => {
     const init = async () => {
-      const cached = cachedIdentity();
       try {
         const cliPath = await commands.getInitialPath();
         if (cliPath) {
           setCachedIdentity(null);
           void openRepo(cliPath);
-        } else if (cached) {
-          void openRepo(cached.path).then(() => {
-            if (repositoryStore.getState().status === null) setCachedIdentity(null);
-          });
         }
       } catch {
         setCachedIdentity(null);
