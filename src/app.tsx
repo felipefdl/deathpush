@@ -9,6 +9,7 @@ import { MainPanel } from "./components/layout/main-panel";
 import { SidebarView } from "./components/layout/sidebar-view";
 import { WelcomeScreen } from "./components/welcome/welcome-screen";
 import { LinuxTitleBar } from "./components/layout/linux-title-bar";
+import { TitleBar } from "./components/layout/title-bar";
 import { BootSplash } from "./components/layout/boot-splash";
 import { confirm, message } from "@tauri-apps/plugin-dialog";
 import { useRepository } from "./hooks/use-repository";
@@ -24,6 +25,7 @@ import { confirmWindowClose } from "./lib/window-close";
 import { flushAll } from "./lib/pierre/flush-registry";
 import { PLATFORM } from "./lib/platform";
 import { useStore } from "./lib/use-store";
+import { getRecentProjects, type RecentProject } from "./lib/recent-projects";
 import "./styles/codicons.css";
 import "./styles/scm.css";
 import "./styles/history.css";
@@ -38,6 +40,43 @@ const TerminalPanel = lazy(() => import("./components/terminal/terminal-panel"),
 const ThemePicker = lazy(() => import("./components/theme/theme-picker"), { export: "ThemePicker" });
 const QuickOpen = lazy(() => import("./components/quick-open/quick-open"), { export: "QuickOpen" });
 
+type CachedRepositoryIdentity = Pick<RecentProject, "path" | "name" | "branch">;
+
+const CachedRepositoryChrome = (props: { identity: CachedRepositoryIdentity }) => {
+  const sidebarWidth = layoutStore.getState().sidebarWidth;
+  const sidebarPosition = settingsStore.getState().settings.ui.sidebarPosition;
+  const sidebar = (
+    <>
+      <div class="app-layout-sidebar" style={{ width: `${sidebarWidth}px` }} />
+      <div class="app-layout-divider" />
+    </>
+  );
+  const branch = props.identity.branch ?? "No branch";
+
+  return (
+    <div class="app-layout cached-repository-chrome">
+      <TitleBar root={props.identity.path} branch={props.identity.branch} />
+      <div class="app-layout-body">
+        {sidebarPosition === "left" && sidebar}
+        <div class="app-layout-main-wrapper">
+          <div class="app-layout-main" />
+        </div>
+        {sidebarPosition === "right" && sidebar}
+      </div>
+      <div class="app-layout-statusbar">
+        <div class="status-bar">
+          <span class="status-bar-item">
+            <span class="codicon codicon-source-control" />
+            <span class="status-bar-text">{props.identity.name}</span>
+            <span class="status-bar-text">{branch}</span>
+          </span>
+          <div class="status-bar-spacer" />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const App = () => {
   const { openRepo } = useRepository();
   const error = useStore(repositoryStore, (s) => s.error);
@@ -49,6 +88,7 @@ export const App = () => {
   const [showLicensesModal, setShowLicensesModal] = createSignal(false);
   const [showQuickOpen, setShowQuickOpen] = createSignal(false);
   const [initializing, setInitializing] = createSignal(true);
+  const [cachedIdentity, setCachedIdentity] = createSignal<RecentProject | null>(getRecentProjects()[0] ?? null);
   const terminalVisible = useStore(layoutStore, (s) => s.terminalVisible);
 
   useKeyboardShortcuts();
@@ -59,13 +99,19 @@ export const App = () => {
 
   onSettled(() => {
     const init = async () => {
+      const cached = cachedIdentity();
       try {
         const cliPath = await commands.getInitialPath();
         if (cliPath) {
+          setCachedIdentity(null);
           void openRepo(cliPath);
+        } else if (cached) {
+          void openRepo(cached.path).then(() => {
+            if (repositoryStore.getState().status === null) setCachedIdentity(null);
+          });
         }
       } catch {
-        // Fall through to welcome screen
+        setCachedIdentity(null);
       } finally {
         setInitializing(false);
       }
@@ -77,6 +123,7 @@ export const App = () => {
     () => status()?.root,
     (root, previousRoot) => {
       if (root && root !== previousRoot) {
+        setCachedIdentity(null);
         layoutStore.getState().loadForProject(root);
         explorerStore.getState().reset();
       }
@@ -93,6 +140,7 @@ export const App = () => {
   const handleOpenRepository = async () => {
     const selected = await open({ directory: true, title: "Open Git Repository" });
     if (selected) {
+      setCachedIdentity(null);
       void openRepo(selected);
     }
   };
@@ -325,11 +373,11 @@ export const App = () => {
     }
   );
 
-  const showWelcome = () => !initializing() && status() === null;
+  const showWelcome = () => !initializing() && status() === null && cachedIdentity() === null;
 
   return (
     <div class="app">
-      <LinuxTitleBar />
+      <LinuxTitleBar root={cachedIdentity()?.path} branch={cachedIdentity()?.branch} />
       {error() && (
         <div class="error-toast" onClick={handleDismissError}>
           <span class="codicon codicon-error" style={{ "margin-right": "6px" }} />
@@ -380,6 +428,8 @@ export const App = () => {
           }
           statusBar={<StatusBar />}
         />
+      ) : cachedIdentity() ? (
+        <CachedRepositoryChrome identity={cachedIdentity()!} />
       ) : (
         <BootSplash />
       )}

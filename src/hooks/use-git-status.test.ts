@@ -1,4 +1,14 @@
 import { describe, it, expect, vi } from "vite-plus/test";
+
+const { pierreHostModuleLoaded } = vi.hoisted(() => ({
+  pierreHostModuleLoaded: vi.fn(),
+}));
+
+vi.mock("../components/pierre/pierre-file-diff", () => {
+  pierreHostModuleLoaded();
+  return { getScmSession: () => null };
+});
+
 import { createScmDiskGuard, isScmWatcherTarget, runScmDiskGuard } from "./use-git-status";
 import type { SaveSession } from "../lib/pierre/save-session";
 import type { DiffContent } from "../lib/git-types";
@@ -27,6 +37,11 @@ const diff = (modified: string): DiffContent => ({
   fileType: "text",
 });
 
+describe("boot graph", () => {
+  it("does not load the Pierre diff host through repository status", () => {
+    expect(pierreHostModuleLoaded).not.toHaveBeenCalled();
+  });
+});
 describe("isScmWatcherTarget", () => {
   it("watches working-tree, untracked, and index files", () => {
     expect(isScmWatcherTarget(selected())).toBe(true);

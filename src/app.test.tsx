@@ -29,9 +29,11 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(async () => null),
 }));
 
-vi.mock("./components/layout/app-layout", () => ({ AppLayout: () => <div /> }));
+vi.mock("./components/layout/app-layout", () => ({ AppLayout: () => <div data-testid="app-layout" /> }));
 vi.mock("./components/layout/linux-title-bar", () => ({ LinuxTitleBar: () => null }));
-vi.mock("./components/welcome/welcome-screen", () => ({ WelcomeScreen: () => <div /> }));
+vi.mock("./components/welcome/welcome-screen", () => ({
+  WelcomeScreen: () => <div data-testid="welcome-screen" />,
+}));
 vi.mock("./hooks/use-keyboard-shortcuts", () => ({ useKeyboardShortcuts: vi.fn() }));
 vi.mock("./hooks/use-repository", () => ({ useRepository: () => ({ openRepo: openRepoMock }) }));
 vi.mock("./hooks/use-stash", () => ({ useStash: () => ({ popStash: vi.fn(), saveStash: vi.fn() }) }));
@@ -58,6 +60,10 @@ describe("App project refresh", () => {
       removeEventListener: vi.fn(),
     }));
     localStorage.clear();
+    getInitialPathMock.mockReset();
+    getInitialPathMock.mockResolvedValue(null);
+    openRepoMock.mockReset();
+    openRepoMock.mockResolvedValue();
     repositoryStore.setState({ status: null, error: null });
     explorerStore.getState().reset();
     layoutStore.setState({ mainView: "changes", sidebarView: "scm" });
@@ -98,6 +104,79 @@ describe("App project refresh", () => {
     flush();
 
     expect(result.container.querySelector(".boot-splash")).toBeTruthy();
+  });
+
+  it("paints cached repository identity before the initial path resolves", async () => {
+    let resolveInitialPath!: (path: string | null) => void;
+    getInitialPathMock.mockReturnValue(
+      new Promise<string | null>((resolve) => {
+        resolveInitialPath = resolve;
+      })
+    );
+    openRepoMock.mockReturnValue(new Promise<void>(() => {}));
+    localStorage.setItem(
+      "deathpush:recentProjects",
+      JSON.stringify([
+        {
+          path: "/test/cached-project",
+          name: "cached-project",
+          branch: "feat/cached",
+          lastOpened: "2026-08-31T12:00:00.000Z",
+        },
+      ])
+    );
+
+    const result = render(() => <App />);
+    flush();
+
+    const cachedChrome = result.container.querySelector(".cached-repository-chrome");
+    expect(cachedChrome?.textContent).toContain("cached-project");
+    expect(cachedChrome?.textContent).toContain("feat/cached");
+    expect(openRepoMock).not.toHaveBeenCalled();
+
+    resolveInitialPath(null);
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(openRepoMock).toHaveBeenCalledWith("/test/cached-project");
+    expect(result.container.querySelector(".cached-repository-chrome")).toBeTruthy();
+  });
+
+  it("shows welcome after startup when no cached identity exists", async () => {
+    const result = render(() => <App />);
+    flush();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(result.getByTestId("welcome-screen")).toBeTruthy();
+  });
+
+  it("lets a CLI path supersede cached identity", async () => {
+    localStorage.setItem(
+      "deathpush:recentProjects",
+      JSON.stringify([
+        {
+          path: "/test/cached-project",
+          name: "cached-project",
+          branch: "feat/cached",
+          lastOpened: "2026-08-31T12:00:00.000Z",
+        },
+      ])
+    );
+    getInitialPathMock.mockResolvedValue("/test/cli-project");
+    openRepoMock.mockReturnValue(new Promise<void>(() => {}));
+
+    const result = render(() => <App />);
+    flush();
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+
+    expect(openRepoMock).toHaveBeenCalledOnce();
+    expect(openRepoMock).toHaveBeenCalledWith("/test/cli-project");
+    expect(result.container.querySelector(".cached-repository-chrome")).toBeNull();
   });
 
   it("leaves the splash without waiting for a startup repo to finish opening", async () => {

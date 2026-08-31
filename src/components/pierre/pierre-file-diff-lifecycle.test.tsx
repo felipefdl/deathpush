@@ -90,7 +90,8 @@ vi.mock("../../lib/pierre/flush-registry", () => ({
 }));
 
 import { settingsStore } from "../../stores/settings-store";
-import { getScmSession, PierreFileDiff } from "./pierre-file-diff";
+import { PierreFileDiff } from "./pierre-file-diff";
+import { getScmSession } from "../../lib/pierre/scm-session-registry";
 
 afterEach(() => {
   cleanup();

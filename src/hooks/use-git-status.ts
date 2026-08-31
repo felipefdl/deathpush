@@ -7,7 +7,7 @@ import { sha256Utf8 } from "../lib/pierre/sha";
 import { watcherAction, type SaveSession } from "../lib/pierre/save-session";
 import type { DiffContent } from "../lib/git-types";
 import type { SelectedFile } from "../stores/repository-store";
-import { getScmSession } from "../components/pierre/pierre-file-diff";
+import { getScmSession } from "../lib/pierre/scm-session-registry";
 
 export const isScmWatcherTarget = (file: SelectedFile | null): boolean => file !== null && file.groupKind !== "merge";
 

@@ -5,6 +5,11 @@ import { repositoryStore } from "../../stores/repository-store";
 import { useStore } from "../../lib/use-store";
 import { IS_LINUX } from "../../lib/platform";
 
+type LinuxTitleBarProps = {
+  root?: string;
+  branch?: string | null;
+};
+
 type MenuItem = {
   type: "item" | "separator";
   label?: string;
@@ -47,7 +52,7 @@ const MENU_ITEMS: MenuItem[] = [
   { type: "item", label: "Quit", action: () => invoke("quit_app") },
 ];
 
-export const LinuxTitleBar = () => {
+export const LinuxTitleBar = (props: LinuxTitleBarProps) => {
   if (!IS_LINUX) return null;
 
   const [menuOpen, setMenuOpen] = createSignal(false);
@@ -57,11 +62,11 @@ export const LinuxTitleBar = () => {
   const hasRepo = useStore(repositoryStore, (s) => s.status !== null);
   const status = useStore(repositoryStore, (s) => s.status);
 
-  const repoName = () => (status()?.root ? status()!.root.split("/").filter(Boolean).pop() : undefined);
-  const branch = () => status()?.headBranch;
   const titleText = () => {
-    const name = repoName();
-    return name ? `${name}${branch() ? ` - ${branch()}` : ""}` : "DeathPush";
+    const root = status()?.root ?? props.root;
+    const repoName = root ? root.split("/").filter(Boolean).pop() : undefined;
+    const branch = status()?.headBranch ?? props.branch;
+    return repoName ? `${repoName}${branch ? ` - ${branch}` : ""}` : "DeathPush";
   };
 
   onSettled(() => {

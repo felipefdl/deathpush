@@ -29,6 +29,7 @@ import { mapSelectionToStageLines, normalizeSelectionRange, type StageLinesCall 
 import { isDirty, sessionCacheKey, type SaveSession } from "../../lib/pierre/save-session";
 import { sha256Utf8 } from "../../lib/pierre/sha";
 import { createPierreFindHost, type PierreFindHost } from "../../lib/pierre/find-host";
+import { registerScmSession } from "../../lib/pierre/scm-session-registry";
 import { selectionIsInPierreHost } from "./pierre-file";
 import { PierreScrollHost, type PierreScrollHostHandle } from "./pierre-scroll-host";
 
@@ -133,22 +134,6 @@ export const historyFileDiff = (
     cacheKey,
   };
 };
-
-export type ScmSessionHandle = {
-  session: SaveSession;
-  reload: (diff: DiffContent, incomingSha: string) => void;
-};
-
-let scmHandle: ScmSessionHandle | null = null;
-
-export const registerScmSession = (handle: ScmSessionHandle): (() => void) => {
-  scmHandle = handle;
-  return () => {
-    if (scmHandle === handle) scmHandle = null;
-  };
-};
-
-export const getScmSession = (): ScmSessionHandle | null => scmHandle;
 
 export const isScmDiffEditable = (groupKind: ResourceGroupKind, hasWorkingTreeSide: boolean): boolean =>
   groupKind !== "index" && groupKind !== "merge" && hasWorkingTreeSide;
