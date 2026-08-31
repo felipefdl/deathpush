@@ -11,7 +11,7 @@ use crate::error::{Error, Result};
 use crate::git::cli::GitCli;
 use crate::git::diff::{blob_to_data_uri, detect_language, is_image_file};
 use crate::types::{ContentSearchResult, ExplorerEntry, FileContent, FuzzyFileResult};
-use crate::util::async_command;
+use crate::util::async_command_ready;
 
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024; // 5MB
 const BINARY_CHECK_SIZE: usize = 8192;
@@ -226,7 +226,8 @@ pub async fn search_file_contents(
     win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
 
-  let output = async_command("git")
+  let output = async_command_ready("git")
+    .await
     .args([
       "grep",
       "-n",

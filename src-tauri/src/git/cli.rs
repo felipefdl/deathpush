@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::error::{Error, Result};
 use crate::types::StashEntry;
-use crate::util::{async_command, async_command_ready};
+use crate::util::async_command_ready;
 
 fn map_git_not_found(err: std::io::Error) -> Error {
   if err.kind() == std::io::ErrorKind::NotFound {
@@ -240,7 +240,8 @@ impl GitCli {
 
   pub async fn clone_repo(url: &str, path: &Path) -> Result<()> {
     let start = Instant::now();
-    let output = async_command("git")
+    let output = async_command_ready("git")
+      .await
       .args(["clone", url, &path.to_string_lossy()])
       .output()
       .await
@@ -345,7 +346,8 @@ impl GitCli {
 
   pub async fn init_repository(path: &std::path::Path) -> Result<()> {
     let start = Instant::now();
-    let output = async_command("git")
+    let output = async_command_ready("git")
+      .await
       .args(["init", &path.to_string_lossy()])
       .output()
       .await
@@ -384,7 +386,8 @@ impl GitCli {
     let args_str = args.join(" ");
     let start = Instant::now();
 
-    let mut child = async_command(&self.git_path)
+    let mut child = async_command_ready(&self.git_path)
+      .await
       .args(&args)
       .current_dir(&self.repo_root)
       .stdin(std::process::Stdio::piped())

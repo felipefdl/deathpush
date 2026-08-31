@@ -4,10 +4,11 @@ use std::path::Path;
 use crate::error::{Error, Result};
 use crate::git::log::compute_avatar_url;
 use crate::types::{BlameLineGroup, CommitEntry, FileBlame, LastCommitInfo};
-use crate::util::async_command;
+use crate::util::async_command_ready;
 
 pub async fn get_file_blame(repo_root: &Path, path: &str) -> Result<FileBlame> {
-  let output = async_command("git")
+  let output = async_command_ready("git")
+    .await
     .args(["blame", "--porcelain", "--", path])
     .current_dir(repo_root)
     .output()
@@ -128,7 +129,8 @@ fn parse_porcelain_blame(output: &str) -> Vec<BlameLineGroup> {
 }
 
 pub async fn get_file_log(repo_root: &Path, path: &str, skip: usize, limit: usize) -> Result<Vec<CommitEntry>> {
-  let output = async_command("git")
+  let output = async_command_ready("git")
+    .await
     .args([
       "log",
       "--follow",
@@ -184,7 +186,8 @@ pub async fn get_file_log(repo_root: &Path, path: &str, skip: usize, limit: usiz
 }
 
 pub async fn get_last_commit_info(repo_root: &Path) -> Result<LastCommitInfo> {
-  let output = async_command("git")
+  let output = async_command_ready("git")
+    .await
     .args(["log", "-1", "--format=%h|%s|%aI"])
     .current_dir(repo_root)
     .output()

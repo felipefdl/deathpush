@@ -1,9 +1,10 @@
 use crate::error::Error;
-use crate::util::async_command;
+use crate::util::async_command_ready;
 
 #[tauri::command]
 pub async fn get_git_config(key: String) -> Result<String, Error> {
-  let output = async_command("git")
+  let output = async_command_ready("git")
+    .await
     .args(["config", "--global", "--get", &key])
     .output()
     .await
@@ -18,7 +19,8 @@ pub async fn get_git_config(key: String) -> Result<String, Error> {
 
 #[tauri::command]
 pub async fn set_git_config(key: String, value: String) -> Result<(), Error> {
-  let output = async_command("git")
+  let output = async_command_ready("git")
+    .await
     .args(["config", "--global", &key, &value])
     .output()
     .await
