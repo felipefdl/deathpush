@@ -35,7 +35,7 @@ describe("openRepo", () => {
     getStatusMock.mockReset();
   });
 
-  it("keeps the welcome screen up until full status is ready", async () => {
+  it("shows repository identity while full status is pending", async () => {
     let resolveOpen!: (value: typeof basicStatus) => void;
     let resolveStatus!: (value: typeof fullStatus) => void;
     const openGate = new Promise<typeof basicStatus>((resolve) => {
@@ -57,7 +57,8 @@ describe("openRepo", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(repositoryStore.getState().status).toBeNull();
+    expect(repositoryStore.getState().status).toEqual(basicStatus);
+    expect(getStatusMock).toHaveBeenCalledOnce();
     expect(repositoryStore.getState().operations.has("open-repo")).toBe(true);
 
     resolveStatus(fullStatus);

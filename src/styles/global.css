@@ -1,33 +1,33 @@
 @font-face {
   font-family: "MesloLGS Nerd Font Mono";
-  src: url("/fonts/nerd-font/MesloLGSDZNerdFontMono-Regular.ttf") format("truetype");
+  src: url("/fonts/nerd-font/MesloLGSDZNerdFontMono-Regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
 }
 
 @font-face {
   font-family: "MesloLGS Nerd Font Mono";
-  src: url("/fonts/nerd-font/MesloLGSDZNerdFontMono-Bold.ttf") format("truetype");
+  src: url("/fonts/nerd-font/MesloLGSDZNerdFontMono-Bold.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
 }
 
 @font-face {
   font-family: "MesloLGS Nerd Font Mono";
-  src: url("/fonts/nerd-font/MesloLGSDZNerdFontMono-Italic.ttf") format("truetype");
+  src: url("/fonts/nerd-font/MesloLGSDZNerdFontMono-Italic.woff2") format("woff2");
   font-weight: 400;
   font-style: italic;
-  font-display: swap;
+  font-display: block;
 }
 
 @font-face {
   font-family: "MesloLGS Nerd Font Mono";
-  src: url("/fonts/nerd-font/MesloLGSDZNerdFontMono-BoldItalic.ttf") format("truetype");
+  src: url("/fonts/nerd-font/MesloLGSDZNerdFontMono-BoldItalic.woff2") format("woff2");
   font-weight: 700;
   font-style: italic;
-  font-display: swap;
+  font-display: block;
 }
 
 :root {

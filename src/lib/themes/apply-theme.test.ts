@@ -41,12 +41,12 @@ describe("applyTheme", () => {
     expect(document.documentElement.dataset.colorScheme).toBe("dark");
   });
 
-  it("applies the bundled Shiki theme to the Pierre worker pool", () => {
+  it("does not start the Pierre worker pool", () => {
     applyPierrePoolThemeMock.mockClear();
 
     applyTheme(previewTheme, { transient: true });
 
-    expect(applyPierrePoolThemeMock).toHaveBeenCalledWith("preview-theme");
+    expect(applyPierrePoolThemeMock).not.toHaveBeenCalled();
   });
 });
 

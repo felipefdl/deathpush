@@ -97,15 +97,6 @@ export default defineConfig({
   worker: { format: "es" },
   build: {
     chunkSizeWarningLimit: 4000,
-    rollupOptions: {
-      output: {
-        manualChunks(id: string): string | undefined {
-          if (id.includes("@wterm/core") || id.includes("@wterm/dom") || id.includes("@wterm/ghostty")) {
-            return "vendor-wterm";
-          }
-        },
-      },
-    },
   },
   server: {
     port: 1420,

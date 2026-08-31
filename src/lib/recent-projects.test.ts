@@ -64,6 +64,12 @@ describe("recent-projects", () => {
       expect(result[0].lastOpened).toBe("2025-06-15T12:00:00.000Z");
     });
 
+    it("persists the last known branch", () => {
+      addRecentProject("/home/user/project", "feat/instant-open");
+
+      expect(getRecentProjects()[0].branch).toBe("feat/instant-open");
+    });
+
     it("deduplicates normalized paths", () => {
       addRecentProject("/home/user/project");
       vi.setSystemTime(new Date("2025-06-15T13:00:00Z"));

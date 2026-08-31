@@ -40,7 +40,7 @@ export const CloneDialog = (props: CloneDialogProps) => {
     setCloning(true);
     try {
       const status = await commands.cloneRepository(urlValue, targetPath);
-      addRecentProject(status.root);
+      addRecentProject(status.root, status.headBranch ?? undefined);
       setStatus(status);
       props.onClose();
     } catch (err) {

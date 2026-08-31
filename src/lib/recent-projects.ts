@@ -2,6 +2,7 @@ export interface RecentProject {
   path: string;
   name: string;
   lastOpened: string;
+  branch?: string;
 }
 
 const STORAGE_KEY = "deathpush:recentProjects";
@@ -24,11 +25,11 @@ export const getRecentProjects = (): RecentProject[] => {
   }
 };
 
-export const addRecentProject = (path: string): void => {
+export const addRecentProject = (path: string, branch?: string): void => {
   const normalized = normalizePath(path);
   const projects = getRecentProjects().filter((p) => p.path !== normalized);
   const name = nameFromPath(normalized);
-  projects.unshift({ path: normalized, name, lastOpened: new Date().toISOString() });
+  projects.unshift({ path: normalized, name, lastOpened: new Date().toISOString(), branch });
   localStorage.setItem(STORAGE_KEY, JSON.stringify(projects.slice(0, MAX)));
 };
 

@@ -1,4 +1,3 @@
-import { applyPierrePoolTheme } from "../pierre/worker";
 import { setNativeTheme } from "../tauri-commands";
 import type { ResolvedTheme } from "./theme-types";
 
@@ -26,7 +25,6 @@ export const applyTheme = (theme: ResolvedTheme, options: ApplyThemeOptions = {}
   const scheme = theme.kind;
   root.style.setProperty("color-scheme", scheme);
   root.dataset.colorScheme = scheme;
-  applyPierrePoolTheme(theme.id);
 
   if (!options.transient) {
     const isDark = scheme === "dark";

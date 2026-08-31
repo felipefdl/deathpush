@@ -17,7 +17,8 @@ export const useRepository = () => {
     await yieldToPaint();
     try {
       const basicStatus = await commands.openRepository(path);
-      addRecentProject(basicStatus.root);
+      setStatus(basicStatus);
+      addRecentProject(basicStatus.root, basicStatus.headBranch ?? undefined);
       try {
         const fullStatus = await commands.getStatus();
         setStatus(fullStatus);

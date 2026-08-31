@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vp dev",
-    "build": "tsc && vp build",
+    "build": "node scripts/subset-codicon.mjs && tsc && vp build",
     "preview": "vp preview",
     "tauri": "tauri",
     "lint": "vp lint src/",

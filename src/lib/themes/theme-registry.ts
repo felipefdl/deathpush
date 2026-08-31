@@ -1,12 +1,9 @@
 import { createThemeCatalog } from "@pierre/theming";
-import { normalizeThemeColors } from "@pierre/theming/color";
 import { shikiThemes } from "@pierre/theming/themes";
-import vesper from "@shikijs/themes/vesper";
-import ayuLight from "@shikijs/themes/ayu-light";
-import type { ResolvedTheme, ThemeEntry, ThemeKind, TokenColor } from "./theme-types";
-
-export const DEFAULT_DARK_THEME_ID = "vesper";
-export const DEFAULT_LIGHT_THEME_ID = "ayu-light";
+import type { ShikiTheme } from "./boot-theme";
+import { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID, getBootTheme, resolveTheme } from "./boot-theme";
+import type { ResolvedTheme, ThemeEntry, ThemeKind } from "./theme-types";
+export { DEFAULT_DARK_THEME_ID, DEFAULT_LIGHT_THEME_ID };
 
 const catalog = createThemeCatalog({
   themes: shikiThemes,
@@ -29,43 +26,10 @@ export const THEME_ENTRIES: ThemeEntry[] = catalog.getThemes().map((descriptor) 
 
 const entriesById = new Map(THEME_ENTRIES.map((entry) => [entry.id, entry]));
 
-type ShikiTheme = {
-  name?: string;
-  type?: ThemeKind;
-  bg?: string;
-  fg?: string;
-  colors?: Record<string, string>;
-  tokenColors?: TokenColor[];
-};
-
-const resolveTheme = (entry: ThemeEntry, rawTheme: ShikiTheme): ResolvedTheme => {
-  const normalized = normalizeThemeColors(rawTheme);
-  const colors = normalized.colors ?? rawTheme.colors ?? {};
-  const bg =
-    normalized.bg ?? rawTheme.bg ?? colors["editor.background"] ?? (entry.kind === "dark" ? "#000000" : "#ffffff");
-  const fg =
-    normalized.fg ?? rawTheme.fg ?? colors["editor.foreground"] ?? (entry.kind === "dark" ? "#ffffff" : "#000000");
-  return {
-    id: entry.id,
-    label: entry.label,
-    kind: entry.kind,
-    name: rawTheme.name ?? entry.id,
-    type: rawTheme.type ?? entry.kind,
-    bg,
-    fg,
-    colors: {
-      ...colors,
-      "editor.background": colors["editor.background"] ?? bg,
-      "editor.foreground": colors["editor.foreground"] ?? fg,
-    },
-    tokenColors: rawTheme.tokenColors ?? [],
-  };
-};
-
 const resolvedCache = new Map<string, ResolvedTheme>();
 
-const defaultDarkTheme = resolveTheme(entriesById.get(DEFAULT_DARK_THEME_ID)!, vesper);
-const defaultLightTheme = resolveTheme(entriesById.get(DEFAULT_LIGHT_THEME_ID)!, ayuLight);
+const defaultDarkTheme = getBootTheme("dark");
+const defaultLightTheme = getBootTheme("light");
 resolvedCache.set(DEFAULT_DARK_THEME_ID, defaultDarkTheme);
 resolvedCache.set(DEFAULT_LIGHT_THEME_ID, defaultLightTheme);
 

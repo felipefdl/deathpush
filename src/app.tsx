@@ -1,19 +1,12 @@
-import { createEffect, createSignal, onSettled } from "solid-js";
+import { createEffect, createSignal, lazy, Loading, onSettled } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { AppLayout } from "./components/layout/app-layout";
 import { CloneDialog } from "./components/layout/clone-dialog";
 import { LicensesModal } from "./components/layout/licenses-modal";
 import { StatusBar } from "./components/layout/status-bar";
-import { DiffViewer } from "./components/diff/diff-viewer";
-import { HistoryView } from "./components/history/history-view";
 import { MainPanel } from "./components/layout/main-panel";
-import { SettingsPage } from "./components/settings/settings-page";
-import { FileViewer } from "./components/file-viewer/file-viewer";
 import { SidebarView } from "./components/layout/sidebar-view";
-import { TerminalPanel } from "./components/terminal/terminal-panel";
-import { ThemePicker } from "./components/theme/theme-picker";
-import { QuickOpen } from "./components/quick-open/quick-open";
 import { WelcomeScreen } from "./components/welcome/welcome-screen";
 import { LinuxTitleBar } from "./components/layout/linux-title-bar";
 import { BootSplash } from "./components/layout/boot-splash";
@@ -37,6 +30,14 @@ import "./styles/history.css";
 import "./styles/settings.css";
 import "./styles/welcome.css";
 
+const DiffViewer = lazy(() => import("./components/diff/diff-viewer"), { export: "DiffViewer" });
+const HistoryView = lazy(() => import("./components/history/history-view"), { export: "HistoryView" });
+const SettingsPage = lazy(() => import("./components/settings/settings-page"), { export: "SettingsPage" });
+const FileViewer = lazy(() => import("./components/file-viewer/file-viewer"), { export: "FileViewer" });
+const TerminalPanel = lazy(() => import("./components/terminal/terminal-panel"), { export: "TerminalPanel" });
+const ThemePicker = lazy(() => import("./components/theme/theme-picker"), { export: "ThemePicker" });
+const QuickOpen = lazy(() => import("./components/quick-open/quick-open"), { export: "QuickOpen" });
+
 export const App = () => {
   const { openRepo } = useRepository();
   const error = useStore(repositoryStore, (s) => s.error);
@@ -48,6 +49,7 @@ export const App = () => {
   const [showLicensesModal, setShowLicensesModal] = createSignal(false);
   const [showQuickOpen, setShowQuickOpen] = createSignal(false);
   const [initializing, setInitializing] = createSignal(true);
+  const terminalVisible = useStore(layoutStore, (s) => s.terminalVisible);
 
   useKeyboardShortcuts();
 
@@ -347,21 +349,51 @@ export const App = () => {
           }
           main={
             <MainPanel
-              changesView={<DiffViewer />}
-              historyView={<HistoryView />}
-              settingsView={<SettingsPage />}
-              fileView={<FileViewer />}
+              changesView={
+                <Loading fallback={null}>
+                  <DiffViewer />
+                </Loading>
+              }
+              historyView={
+                <Loading fallback={null}>
+                  <HistoryView />
+                </Loading>
+              }
+              settingsView={
+                <Loading fallback={null}>
+                  <SettingsPage />
+                </Loading>
+              }
+              fileView={
+                <Loading fallback={null}>
+                  <FileViewer />
+                </Loading>
+              }
             />
           }
-          terminal={<TerminalPanel />}
+          terminal={
+            terminalVisible() ? (
+              <Loading fallback={null}>
+                <TerminalPanel />
+              </Loading>
+            ) : null
+          }
           statusBar={<StatusBar />}
         />
       ) : (
         <BootSplash />
       )}
       {showCloneDialog() && <CloneDialog onClose={() => setShowCloneDialog(false)} />}
-      {showThemePicker() && <ThemePicker onClose={() => setShowThemePicker(false)} />}
-      {showQuickOpen() && <QuickOpen onClose={() => setShowQuickOpen(false)} />}
+      {showThemePicker() && (
+        <Loading fallback={null}>
+          <ThemePicker onClose={() => setShowThemePicker(false)} />
+        </Loading>
+      )}
+      {showQuickOpen() && (
+        <Loading fallback={null}>
+          <QuickOpen onClose={() => setShowQuickOpen(false)} />
+        </Loading>
+      )}
       {showLicensesModal() && <LicensesModal onClose={() => setShowLicensesModal(false)} />}
     </div>
   );
