@@ -64,7 +64,7 @@ impl PtySession {
     for arg in args_str.split_whitespace() {
       cmd.arg(arg);
     }
-    if let Some(resolved) = crate::shell_env::get() {
+    if let Some(resolved) = crate::shell_env::wait_for_resolved_env_blocking() {
       cmd.env_clear();
       for (key, value) in resolved {
         cmd.env(key, value);

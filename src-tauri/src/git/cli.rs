@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::error::{Error, Result};
 use crate::types::StashEntry;
-use crate::util::async_command;
+use crate::util::{async_command, async_command_ready};
 
 fn map_git_not_found(err: std::io::Error) -> Error {
   if err.kind() == std::io::ErrorKind::NotFound {
@@ -60,7 +60,8 @@ impl GitCli {
     let args_str = args.join(" ");
     let start = Instant::now();
 
-    let output = async_command(&self.git_path)
+    let output = async_command_ready(&self.git_path)
+      .await
       .args(args)
       .current_dir(&self.repo_root)
       .output()

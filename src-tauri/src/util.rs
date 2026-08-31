@@ -9,6 +9,12 @@ pub fn async_command<S: AsRef<std::ffi::OsStr>>(program: S) -> tokio::process::C
   apply_no_window(cmd)
 }
 
+/// Wait for the resolved shell environment, then create an async command.
+pub async fn async_command_ready<S: AsRef<std::ffi::OsStr>>(program: S) -> tokio::process::Command {
+  crate::shell_env::wait_for_resolved_env().await;
+  async_command(program)
+}
+
 /// Create a `std::process::Command` with the resolved shell environment
 /// and hidden console window on Windows.
 pub fn sync_command<S: AsRef<std::ffi::OsStr>>(program: S) -> std::process::Command {

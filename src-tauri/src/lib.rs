@@ -210,7 +210,7 @@ fn hide_gtk_menu_bar(window: &tauri::WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tracing_subscriber::fmt::init();
-  shell_env::init();
+  shell_env::ShellEnvResolver::start();
 
   let mut builder = tauri::Builder::default()
     .manage(Mutex::new(AppRepoState::default()))
