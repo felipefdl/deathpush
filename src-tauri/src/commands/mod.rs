@@ -22,16 +22,15 @@ use tauri::{Manager, WebviewWindow};
 use crate::error::{Error, Result};
 use crate::git::repository_runtime::RepositoryRuntimeRegistry;
 use crate::git::status::StatusScope;
-use crate::types::RepositoryStatus;
 
 use self::repository::AppRepoState;
 
-pub fn update_window_title(window: &WebviewWindow, status: &RepositoryStatus) {
-  let repo_name = std::path::Path::new(&status.root)
+pub fn update_window_title(window: &WebviewWindow, root: &str, head_branch: Option<&str>) {
+  let repo_name = std::path::Path::new(root)
     .file_name()
     .map(|n| n.to_string_lossy().to_string())
     .unwrap_or_else(|| "DeathPush".into());
-  let branch = status.head_branch.as_deref().unwrap_or("");
+  let branch = head_branch.unwrap_or("");
   let title = if branch.is_empty() {
     format!("{} - DeathPush", repo_name)
   } else {
@@ -40,33 +39,40 @@ pub fn update_window_title(window: &WebviewWindow, status: &RepositoryStatus) {
   let _ = window.set_title(&title);
 }
 
-pub fn refresh_status(app_state: &Mutex<AppRepoState>, window: &WebviewWindow) -> Result<RepositoryStatus> {
-  refresh_status_with(app_state, window, |runtime| runtime.invalidate_and_snapshot(StatusScope::Repository))
+pub fn invalidate_status(app_state: &Mutex<AppRepoState>, window: &WebviewWindow) -> Result<()> {
+  invalidate_status_with(app_state, window, |runtime| {
+    runtime.invalidate(StatusScope::Repository);
+    Ok(())
+  })
 }
 
-pub fn refresh_status_paths(
-  app_state: &Mutex<AppRepoState>,
-  window: &WebviewWindow,
-  paths: &[String],
-) -> Result<RepositoryStatus> {
-  refresh_status_with(app_state, window, |runtime| runtime.invalidate_paths_and_snapshot(paths))
+pub fn invalidate_status_paths(app_state: &Mutex<AppRepoState>, window: &WebviewWindow, paths: &[String]) -> Result<()> {
+  invalidate_status_with(app_state, window, |runtime| {
+    runtime.invalidate_paths(paths);
+    Ok(())
+  })
 }
 
-fn refresh_status_with(
+fn invalidate_status_with(
   app_state: &Mutex<AppRepoState>,
   window: &WebviewWindow,
-  invalidate: impl FnOnce(&crate::git::repository_runtime::RepositoryRuntime) -> Result<RepositoryStatus>,
-) -> Result<RepositoryStatus> {
+  invalidate: impl FnOnce(&crate::git::repository_runtime::RepositoryRuntime) -> Result<()>,
+) -> Result<()> {
   let label = window.label();
   let runtime = window
     .state::<RepositoryRuntimeRegistry>()
     .runtime_for_window(label)
     .ok_or(Error::NoRepository)?;
-  let status = invalidate(&runtime)?;
+  invalidate(&runtime)?;
   let repo = runtime.open_repository()?;
+  update_window_title(
+    window,
+    &repo.root().to_string_lossy(),
+    repo.head_branch().as_deref(),
+  );
 
   let mut app_state = app_state.lock().map_err(|err| Error::Other(err.to_string()))?;
   let win_state = app_state.windows.get_mut(label).ok_or(Error::NoRepository)?;
   win_state.repo = Some(repo);
-  Ok(status)
+  Ok(())
 }

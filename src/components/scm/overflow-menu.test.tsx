@@ -9,7 +9,7 @@ const { repositoryState } = vi.hoisted(() => ({
     stashes: [],
     branches: [],
     operations: new Set<string>(),
-    setStatus: vi.fn(),
+    setIdentity: vi.fn(),
     setError: vi.fn(),
     startOperation: vi.fn(),
     endOperation: vi.fn(),

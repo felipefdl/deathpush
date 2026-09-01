@@ -2,19 +2,19 @@ use std::sync::Mutex;
 
 use tauri::{State, WebviewWindow};
 
-use crate::commands::{refresh_status, refresh_status_paths};
+use crate::commands::{invalidate_status, invalidate_status_paths};
 use crate::commands::repository::AppRepoState;
 use crate::error::{Error, Result};
 use crate::git::cli::GitCli;
 use crate::git::hunk;
-use crate::types::{FileDiffWithHunks, RepositoryStatus};
+use crate::types::FileDiffWithHunks;
 
 #[tauri::command]
 pub async fn stage_files(
   paths: Vec<String>,
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+) -> Result<()> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
@@ -22,11 +22,11 @@ pub async fn stage_files(
   };
   let cli = GitCli::new(&root);
   cli.stage_files(&paths).await?;
-  refresh_status_paths(state.inner(), &window, &paths)
+  invalidate_status_paths(state.inner(), &window, &paths)
 }
 
 #[tauri::command]
-pub async fn stage_all(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
+pub async fn stage_all(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<()> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
@@ -34,7 +34,7 @@ pub async fn stage_all(state: State<'_, Mutex<AppRepoState>>, window: WebviewWin
   };
   let cli = GitCli::new(&root);
   cli.stage_all().await?;
-  refresh_status(state.inner(), &window)
+  invalidate_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -42,7 +42,7 @@ pub async fn unstage_files(
   paths: Vec<String>,
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+) -> Result<()> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
@@ -50,11 +50,11 @@ pub async fn unstage_files(
   };
   let cli = GitCli::new(&root);
   cli.unstage_files(&paths).await?;
-  refresh_status_paths(state.inner(), &window, &paths)
+  invalidate_status_paths(state.inner(), &window, &paths)
 }
 
 #[tauri::command]
-pub async fn unstage_all(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
+pub async fn unstage_all(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<()> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
@@ -62,7 +62,7 @@ pub async fn unstage_all(state: State<'_, Mutex<AppRepoState>>, window: WebviewW
   };
   let cli = GitCli::new(&root);
   cli.unstage_all().await?;
-  refresh_status(state.inner(), &window)
+  invalidate_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -70,7 +70,7 @@ pub async fn discard_changes(
   paths: Vec<String>,
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+) -> Result<()> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
@@ -78,7 +78,7 @@ pub async fn discard_changes(
   };
   let cli = GitCli::new(&root);
   cli.discard_changes(&paths).await?;
-  refresh_status_paths(state.inner(), &window, &paths)
+  invalidate_status_paths(state.inner(), &window, &paths)
 }
 
 #[tauri::command]
@@ -122,7 +122,7 @@ pub async fn stage_hunk(
   staged: bool,
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+) -> Result<()> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
@@ -138,7 +138,7 @@ pub async fn stage_hunk(
     cli.apply_patch(&patch, true, false).await?;
   }
 
-  refresh_status_paths(state.inner(), &window, std::slice::from_ref(&path))
+  invalidate_status_paths(state.inner(), &window, std::slice::from_ref(&path))
 }
 
 #[tauri::command]
@@ -147,7 +147,7 @@ pub async fn discard_hunk(
   hunk_index: usize,
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+) -> Result<()> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
@@ -157,10 +157,9 @@ pub async fn discard_hunk(
   let diff_output = cli.get_unified_diff(&path, false).await?;
   let patch = hunk::generate_hunk_patch(&path, &diff_output, hunk_index)?;
 
-  // Apply the patch in reverse to the working tree (not cached)
   cli.apply_patch(&patch, false, true).await?;
 
-  refresh_status_paths(state.inner(), &window, std::slice::from_ref(&path))
+  invalidate_status_paths(state.inner(), &window, std::slice::from_ref(&path))
 }
 
 #[tauri::command]
@@ -172,7 +171,7 @@ pub async fn stage_lines(
   staged: bool,
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+) -> Result<()> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
@@ -188,5 +187,5 @@ pub async fn stage_lines(
     cli.apply_patch(&patch, true, false).await?;
   }
 
-  refresh_status_paths(state.inner(), &window, std::slice::from_ref(&path))
+  invalidate_status_paths(state.inner(), &window, std::slice::from_ref(&path))
 }

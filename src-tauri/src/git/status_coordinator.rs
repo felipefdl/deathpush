@@ -12,7 +12,7 @@ use crate::git::status::{
 use crate::git::watcher::{ClassifiedPath, WatcherMessage, should_watch_path};
 use crate::types::{
   PathChangeKind, PathChangeScope, PathsChanged, RepoOperationState, RepositoryMetadata, RepositoryStatus, StatusEntry,
-  StatusKey, StatusPatch, StatusPhase,
+  StatusKey, StatusPatch, StatusPhase, StatusSnapshot,
 };
 
 pub const COALESCE_MS: u64 = 75;
@@ -126,6 +126,7 @@ struct CoordinatorState {
   revision: u64,
   entries: BTreeMap<StatusKey, StatusEntry>,
   metadata: Option<RepositoryMetadata>,
+  phase: StatusPhase,
   dirty: HashSet<StatusScope>,
   overflow: bool,
   storm: StormMachine,
@@ -142,6 +143,7 @@ impl Default for CoordinatorState {
       revision: 0,
       entries: BTreeMap::new(),
       metadata: None,
+      phase: StatusPhase::Settled,
       dirty: HashSet::new(),
       overflow: false,
       storm: StormMachine::new(),
@@ -217,6 +219,25 @@ impl StatusCoordinator {
     repository_status_from_entries(metadata, &entries)
   }
 
+  pub fn snapshot_cursor(&self) -> StatusSnapshot {
+    let state = self.lock();
+    let metadata = state.metadata.clone().unwrap_or_else(|| RepositoryMetadata {
+      root: self.root.to_string_lossy().to_string(),
+      head_branch: None,
+      head_commit: None,
+      ahead: 0,
+      behind: 0,
+      operation_state: RepoOperationState::None,
+    });
+    StatusSnapshot {
+      generation: state.generation,
+      revision: state.revision,
+      phase: state.phase,
+      entries: state.entries.values().cloned().collect(),
+      metadata,
+    }
+  }
+
   pub fn ensure_baseline(&self) -> Result<()> {
     let _scan_guard = self.scan_mutex.lock().unwrap_or_else(|err| err.into_inner());
     if self.lock().metadata.is_some() {
@@ -251,13 +272,14 @@ impl StatusCoordinator {
       self.queue_scope(&mut state, StatusScope::Exact(path.as_ref().to_string()));
     }
   }
-
+  #[cfg(test)]
   pub fn invalidate_paths_and_snapshot(&self, paths: &[String]) -> Result<RepositoryStatus> {
     self.invalidate_paths(paths.iter().map(String::as_str));
     self.scan_dirty_uncapped()?;
     Ok(self.snapshot())
   }
 
+  #[cfg(test)]
   pub fn invalidate_and_snapshot(&self, scope: StatusScope) -> Result<RepositoryStatus> {
     self.invalidate(scope);
     self.scan_dirty()?;
@@ -576,10 +598,12 @@ impl StatusCoordinator {
     self.lock().scan_in_flight = false;
   }
 
+  #[cfg(test)]
   fn scan_dirty(&self) -> Result<()> {
     self.scan_dirty_inner(|| false, true)
   }
 
+  #[cfg(test)]
   fn scan_dirty_uncapped(&self) -> Result<()> {
     self.scan_dirty_inner(|| false, false)
   }
@@ -794,6 +818,7 @@ impl StatusCoordinator {
       self.emit_patch(patch);
       state = self.lock();
     }
+    state.phase = end_phase;
     state.scan_in_flight = false;
   }
 

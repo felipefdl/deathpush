@@ -9,11 +9,12 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { ask, confirm } from "@tauri-apps/plugin-dialog";
 import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
 import { useTauriEvent } from "../../hooks/use-tauri-event";
+import { shouldRefreshExplorer } from "../../hooks/use-repository-events";
 import { addRecentFile } from "../../lib/recent-files";
 import { dockTerminalIfCurrentFile, shouldReloadOpenFile } from "../../lib/explorer-file-activate";
 import { explorerEntriesToTreePaths, fileEntriesToTreeGitStatus, sameTreePaths } from "../../lib/trees";
 import { throttle } from "../../lib/throttle";
-import type { ExplorerEntry } from "../../lib/git-types";
+import type { ExplorerEntry, PathsChanged } from "../../lib/git-types";
 import type { ConflictResolution } from "../../lib/tauri-commands";
 import * as commands from "../../lib/tauri-commands";
 import { useStore } from "../../lib/use-store";
@@ -203,8 +204,7 @@ export const ExplorerView = (props: ExplorerViewProps) => {
     );
     if (!confirmed) return;
     const path = stripDirectorySuffix(item.path);
-    const nextStatus = await commands.deleteFile(path);
-    repositoryStore.getState().setStatus(nextStatus);
+    await commands.deleteFile(path);
     const explorer = explorerStore.getState();
     if (explorer.selectedPath === path) {
       explorer.setSelectedPath(null);
@@ -288,11 +288,8 @@ export const ExplorerView = (props: ExplorerViewProps) => {
         label: "Add to .gitignore",
         icon: "exclude",
         action: () =>
-          void commands
-            .addToGitignore(path)
-            .then((nextStatus) => repositoryStore.getState().setStatus(nextStatus))
-            .catch((error) => repositoryStore.getState().setError(String(error))),
-      }
+          void commands.addToGitignore(path).catch((error) => repositoryStore.getState().setError(String(error))),
+      },
     );
     return items;
   };
@@ -339,7 +336,10 @@ export const ExplorerView = (props: ExplorerViewProps) => {
     return items;
   };
 
-  useTauriEvent("repository-changed", () => scheduleRefreshTree());
+  useTauriEvent<PathsChanged>("repository:paths-changed", (event) => {
+    if (!shouldRefreshExplorer(event)) return;
+    scheduleRefreshTree();
+  });
 
   createEffect(
     () => fileFilter(),

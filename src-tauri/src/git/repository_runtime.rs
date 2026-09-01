@@ -31,16 +31,16 @@ impl RepositoryRuntime {
     Ok(self.coordinator.snapshot())
   }
 
-  pub fn snapshot(&self) -> RepositoryStatus {
-    self.coordinator.snapshot()
+  pub fn invalidate(&self, scope: StatusScope) {
+    self.coordinator.invalidate(scope);
   }
 
-  pub fn invalidate_and_snapshot(&self, scope: StatusScope) -> Result<RepositoryStatus> {
-    self.coordinator.invalidate_and_snapshot(scope)
+  pub fn invalidate_paths(&self, paths: &[String]) {
+    self.coordinator.invalidate_paths(paths.iter().map(String::as_str));
   }
 
-  pub fn invalidate_paths_and_snapshot(&self, paths: &[String]) -> Result<RepositoryStatus> {
-    self.coordinator.invalidate_paths_and_snapshot(paths)
+  pub fn snapshot_cursor(&self) -> crate::types::StatusSnapshot {
+    self.coordinator.snapshot_cursor()
   }
 }
 

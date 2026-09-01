@@ -13,6 +13,7 @@ import { TitleBar } from "./components/layout/title-bar";
 import { BootSplash } from "./components/layout/boot-splash";
 import { confirm, message } from "@tauri-apps/plugin-dialog";
 import { useRepository } from "./hooks/use-repository";
+import { useRepositoryEvents } from "./hooks/use-repository-events";
 import { useStash } from "./hooks/use-stash";
 import { repositoryStore } from "./stores/repository-store";
 import { layoutStore } from "./stores/layout-store";
@@ -78,9 +79,10 @@ const CachedRepositoryChrome = (props: { identity: CachedRepositoryIdentity }) =
 
 export const App = () => {
   const { openRepo } = useRepository();
+  useRepositoryEvents();
   const error = useStore(repositoryStore, (s) => s.error);
   const status = useStore(repositoryStore, (s) => s.status);
-  const { setError, setStatus, startOperation, endOperation } = repositoryStore.getState();
+  const { setError, startOperation, endOperation } = repositoryStore.getState();
   const { saveStash, popStash } = useStash();
   const [showCloneDialog, setShowCloneDialog] = createSignal(false);
   const [showThemePicker, setShowThemePicker] = createSignal(false);
@@ -192,8 +194,7 @@ export const App = () => {
         if (!branch) return;
         startOperation("pull");
         try {
-          const newStatus = await commands.pull("origin", branch);
-          setStatus(newStatus);
+          await commands.pull("origin", branch);
         } catch (err) {
           setError(String(err));
         } finally {
@@ -205,8 +206,7 @@ export const App = () => {
         if (!branch) return;
         startOperation("push");
         try {
-          const newStatus = await commands.push("origin", branch);
-          setStatus(newStatus);
+          await commands.push("origin", branch);
         } catch (err) {
           setError(String(err));
         } finally {
@@ -216,8 +216,7 @@ export const App = () => {
       appWindow.listen("menu:git-fetch", async () => {
         startOperation("fetch");
         try {
-          const newStatus = await commands.fetchRemote("origin", true);
-          setStatus(newStatus);
+          await commands.fetchRemote("origin", true);
         } catch (err) {
           setError(String(err));
         } finally {
@@ -227,8 +226,7 @@ export const App = () => {
       appWindow.listen("menu:git-stage-all", async () => {
         startOperation("stage");
         try {
-          const newStatus = await commands.stageAll();
-          setStatus(newStatus);
+          await commands.stageAll();
         } catch (err) {
           setError(String(err));
         } finally {
@@ -238,8 +236,7 @@ export const App = () => {
       appWindow.listen("menu:git-unstage-all", async () => {
         startOperation("unstage");
         try {
-          const newStatus = await commands.unstageAll();
-          setStatus(newStatus);
+          await commands.unstageAll();
         } catch (err) {
           setError(String(err));
         } finally {
@@ -259,8 +256,7 @@ export const App = () => {
         });
         if (!confirmed) return;
         try {
-          const newStatus = await commands.undoLastCommit();
-          setStatus(newStatus);
+          await commands.undoLastCommit();
         } catch (err) {
           setError(String(err));
         }

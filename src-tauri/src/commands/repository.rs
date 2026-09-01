@@ -7,10 +7,9 @@ use tauri::{State, WebviewWindow};
 
 use crate::commands::update_window_title;
 use crate::error::{Error, Result};
-use crate::git::repo_state::detect_operation_state;
 use crate::git::repository::GitRepository;
 use crate::git::repository_runtime::RepositoryRuntimeRegistry;
-use crate::types::{ProjectInfo, RepositoryStatus};
+use crate::types::{ProjectInfo, RepositoryIdentity};
 
 pub struct CliPaths {
   pub paths: Mutex<HashMap<String, String>>,
@@ -47,32 +46,24 @@ pub fn open_repository(
   state: State<'_, Mutex<AppRepoState>>,
   registry: State<'_, RepositoryRuntimeRegistry>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+) -> Result<RepositoryIdentity> {
   let label = window.label().to_string();
   let repo_root = registry.open_for_window(&label, &PathBuf::from(&path), &window)?;
   let repo = registry.with_runtime(&label, |runtime| runtime.open_repository())?;
 
-  // Build a fast status without scanning the working tree (groups are empty).
-  // The frontend will follow up with get_status() to populate file lists.
-  let (ahead, behind) = repo.ahead_behind();
-  let status = RepositoryStatus {
+  let identity = RepositoryIdentity {
     root: repo.root().to_string_lossy().to_string(),
     head_branch: repo.head_branch(),
-    head_commit: repo.head_commit_id(),
-    ahead,
-    behind,
-    groups: vec![],
-    operation_state: detect_operation_state(repo.root()),
   };
 
-  update_window_title(&window, &status);
+  update_window_title(&window, &identity.root, identity.head_branch.as_deref());
 
   let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
   let win_state = guard.get_mut(&label);
   win_state.cli_root = Some(repo_root);
   win_state.repo = Some(repo);
 
-  Ok(status)
+  Ok(identity)
 }
 
 #[tauri::command]

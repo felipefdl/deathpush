@@ -3,10 +3,9 @@ use std::sync::Mutex;
 
 use tauri::{State, WebviewWindow};
 
-use crate::commands::refresh_status;
+use crate::commands::invalidate_status;
 use crate::commands::repository::AppRepoState;
 use crate::error::{Error, Result};
-use crate::types::RepositoryStatus;
 use crate::util::async_command;
 
 fn get_repo_root(state: &State<'_, Mutex<AppRepoState>>, window: &WebviewWindow) -> Result<std::path::PathBuf> {
@@ -202,7 +201,7 @@ pub async fn delete_file(
   path: String,
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+) -> Result<()> {
   let root = get_repo_root(&state, &window)?;
   let canon_root = root
     .canonicalize()
@@ -215,7 +214,7 @@ pub async fn delete_file(
     return Err(Error::Other("Path traversal denied".into()));
   }
   trash::delete(&full_path).map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(state.inner(), &window)
+  invalidate_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -223,7 +222,7 @@ pub async fn delete_files(
   paths: Vec<String>,
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+) -> Result<()> {
   let root = get_repo_root(&state, &window)?;
   let canon_root = root
     .canonicalize()
@@ -239,7 +238,7 @@ pub async fn delete_files(
     trash::delete(&full_path).map_err(|e| Error::Other(e.to_string()))?;
   }
 
-  refresh_status(state.inner(), &window)
+  invalidate_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -247,7 +246,7 @@ pub async fn add_to_gitignore(
   pattern: String,
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+) -> Result<()> {
   let root = get_repo_root(&state, &window)?;
   let gitignore_path = root.join(".gitignore");
   let mut content = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
@@ -257,7 +256,7 @@ pub async fn add_to_gitignore(
   content.push_str(&pattern);
   content.push('\n');
   std::fs::write(&gitignore_path, content)?;
-  refresh_status(state.inner(), &window)
+  invalidate_status(state.inner(), &window)
 }
 
 #[tauri::command]

@@ -80,7 +80,7 @@ export const PierreUnresolved = (props: PierreUnresolvedProps) => {
       if (!deps) return;
 
       const [path, contents] = deps;
-      const { setStatus, setError } = repositoryStore.getState();
+      const { setError } = repositoryStore.getState();
       const theme = currentTheme();
       const themeId = theme.id;
       const themeType = theme.type;
@@ -98,8 +98,7 @@ export const PierreUnresolved = (props: PierreUnresolvedProps) => {
             try {
               await writeFile(path, file.contents);
               if (session) session.diskSha = await sha256Utf8(file.contents);
-              const status = await stageFiles([path]);
-              setStatus(status);
+              await stageFiles([path]);
             } catch (error) {
               setError(String(error));
             }

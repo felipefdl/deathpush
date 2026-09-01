@@ -13,10 +13,9 @@ export const useStash = () => {
   };
 
   const saveStash = async (message?: string) => {
-    const { setStatus, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const status = await commands.stashSave(message);
-      setStatus(status);
+      await commands.stashSave(message);
       await loadStashes();
     } catch (err) {
       setError(String(err));
@@ -24,10 +23,9 @@ export const useStash = () => {
   };
 
   const saveStashIncludeUntracked = async (message?: string) => {
-    const { setStatus, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const status = await commands.stashSaveIncludeUntracked(message);
-      setStatus(status);
+      await commands.stashSaveIncludeUntracked(message);
       await loadStashes();
     } catch (err) {
       setError(String(err));
@@ -35,10 +33,9 @@ export const useStash = () => {
   };
 
   const saveStashStaged = async (message?: string) => {
-    const { setStatus, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const status = await commands.stashSaveStaged(message);
-      setStatus(status);
+      await commands.stashSaveStaged(message);
       await loadStashes();
     } catch (err) {
       setError(String(err));
@@ -46,20 +43,18 @@ export const useStash = () => {
   };
 
   const applyStash = async (index: number) => {
-    const { setStatus, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const status = await commands.stashApply(index);
-      setStatus(status);
+      await commands.stashApply(index);
     } catch (err) {
       setError(String(err));
     }
   };
 
   const popStash = async (index: number) => {
-    const { setStatus, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const status = await commands.stashPop(index);
-      setStatus(status);
+      await commands.stashPop(index);
       await loadStashes();
     } catch (err) {
       setError(String(err));

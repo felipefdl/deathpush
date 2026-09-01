@@ -58,7 +58,7 @@ export const ResourceTree = (props: ResourceTreeProps) => {
     store.startOperation("stage");
     try {
       await flushPaths(paths);
-      store.setStatus(await commands.stageFiles(paths));
+      await commands.stageFiles(paths);
     } catch (error) {
       setError(error);
     } finally {
@@ -71,7 +71,7 @@ export const ResourceTree = (props: ResourceTreeProps) => {
     store.startOperation("unstage");
     try {
       await flushPaths(paths);
-      store.setStatus(await commands.unstageFiles(paths));
+      await commands.unstageFiles(paths);
     } catch (error) {
       setError(error);
     } finally {
@@ -114,10 +114,8 @@ export const ResourceTree = (props: ResourceTreeProps) => {
     store.startOperation("discard");
     try {
       await flushPaths(paths);
-      let nextStatus;
-      if (trackedPaths.length > 0) nextStatus = await commands.discardChanges(trackedPaths);
-      if (untrackedPaths.length > 0) nextStatus = await commands.deleteFiles(untrackedPaths);
-      if (nextStatus) store.setStatus(nextStatus);
+      if (trackedPaths.length > 0) await commands.discardChanges(trackedPaths);
+      if (untrackedPaths.length > 0) await commands.deleteFiles(untrackedPaths);
     } catch (error) {
       setError(error);
     } finally {
@@ -137,7 +135,7 @@ export const ResourceTree = (props: ResourceTreeProps) => {
     store.startOperation("delete");
     try {
       await flushPath(file.path);
-      store.setStatus(await commands.deleteFile(file.path));
+      await commands.deleteFile(file.path);
     } catch (error) {
       setError(error);
     } finally {
@@ -215,10 +213,7 @@ export const ResourceTree = (props: ResourceTreeProps) => {
             label: "Add to .gitignore",
             icon: "exclude",
             action: () =>
-              void commands
-                .addToGitignore(file.path)
-                .then((nextStatus) => repositoryStore.getState().setStatus(nextStatus))
-                .catch(setError),
+              void commands.addToGitignore(file.path).catch(setError),
           }
         );
       }

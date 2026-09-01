@@ -7,7 +7,7 @@ import { Spinner } from "../ui/spinner";
 export const ActionButton = () => {
   const status = useStore(repositoryStore, (s) => s.status);
   const operations = useStore(repositoryStore, (s) => s.operations);
-  const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
+  const { setError, startOperation, endOperation } = repositoryStore.getState();
 
   const branch = createMemo(() => status()?.headBranch);
   const ahead = createMemo(() => status()?.ahead ?? 0);
@@ -18,19 +18,17 @@ export const ActionButton = () => {
 
   const handleSync = async () => {
     if (!branch()) return;
-    let newStatus;
     try {
       if (behind() > 0) {
         startOperation("pull");
-        newStatus = await commands.pull("origin", branch()!);
+        await commands.pull("origin", branch()!);
         endOperation("pull");
       }
       if (ahead() > 0) {
         startOperation("push");
-        newStatus = await commands.push("origin", branch()!);
+        await commands.push("origin", branch()!);
         endOperation("push");
       }
-      if (newStatus) setStatus(newStatus);
     } catch (err) {
       endOperation("pull");
       endOperation("push");
@@ -41,8 +39,7 @@ export const ActionButton = () => {
   const handleFetch = async () => {
     startOperation("fetch");
     try {
-      const newStatus = await commands.fetchRemote("origin", true);
-      setStatus(newStatus);
+      await commands.fetchRemote("origin", true);
     } catch (err) {
       setError(String(err));
     } finally {

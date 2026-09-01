@@ -81,7 +81,7 @@ describe("App project refresh", () => {
     render(() => <App />);
     flush();
 
-    repositoryStore.getState().setStatus(STATUS);
+    repositoryStore.getState().setIdentity({ root: STATUS.root, headBranch: STATUS.headBranch });
     flush();
     expect(loadForProject).toHaveBeenCalledTimes(1);
     expect(resetExplorer).toHaveBeenCalledTimes(1);
@@ -89,7 +89,7 @@ describe("App project refresh", () => {
     layoutStore.getState().setMainView("file");
     explorerStore.getState().setSelectedPath("src/app.tsx");
 
-    repositoryStore.getState().setStatus({ ...STATUS });
+    repositoryStore.getState().setIdentity({ root: STATUS.root, headBranch: STATUS.headBranch });
     flush();
 
     expect(loadForProject).toHaveBeenCalledTimes(1);

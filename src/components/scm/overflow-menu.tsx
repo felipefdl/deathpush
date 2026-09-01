@@ -21,7 +21,7 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   const stashes = useStore(repositoryStore, (s) => s.stashes);
   const branches = useStore(repositoryStore, (s) => s.branches);
   const operations = useStore(repositoryStore, (s) => s.operations);
-  const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
+  const { setError, startOperation, endOperation } = repositoryStore.getState();
   const { saveStash, saveStashIncludeUntracked, saveStashStaged, popStash } = useStash();
   const { loadBranches, mergeBranch, rebaseBranch } = useBranches();
   const [showMergePicker, setShowMergePicker] = createSignal(false);
@@ -111,8 +111,7 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
     if (!current) return;
     startOperation("pull");
     try {
-      const newStatus = await commands.pull("origin", current, rebase);
-      setStatus(newStatus);
+      await commands.pull("origin", current, rebase);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -134,8 +133,7 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
     }
     startOperation("push");
     try {
-      const newStatus = await commands.push("origin", current, force);
-      setStatus(newStatus);
+      await commands.push("origin", current, force);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -146,8 +144,7 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   const handleFetch = async () => {
     startOperation("fetch");
     try {
-      const newStatus = await commands.fetchRemote("origin", true);
-      setStatus(newStatus);
+      await commands.fetchRemote("origin", true);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -160,9 +157,8 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
     if (!current) return;
     startOperation("pull");
     try {
-      let newStatus = await commands.pull("origin", current);
-      newStatus = await commands.push("origin", current);
-      setStatus(newStatus);
+      await commands.pull("origin", current);
+      await commands.push("origin", current);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -174,8 +170,7 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
     startOperation("stage");
     try {
       await flushAll();
-      const newStatus = await commands.stageAll();
-      setStatus(newStatus);
+      await commands.stageAll();
     } catch (err) {
       setError(String(err));
     } finally {
@@ -186,8 +181,7 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   const handleUnstageAll = async () => {
     startOperation("unstage");
     try {
-      const newStatus = await commands.unstageAll();
-      setStatus(newStatus);
+      await commands.unstageAll();
     } catch (err) {
       setError(String(err));
     } finally {
@@ -210,8 +204,7 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
     startOperation("discard");
     try {
       await flushAll();
-      const newStatus = await commands.discardChanges(paths);
-      setStatus(newStatus);
+      await commands.discardChanges(paths);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -226,8 +219,7 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
     });
     if (!confirmed) return;
     try {
-      const newStatus = await commands.undoLastCommit();
-      setStatus(newStatus);
+      await commands.undoLastCommit();
     } catch (err) {
       setError(String(err));
     }

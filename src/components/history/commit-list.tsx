@@ -74,10 +74,9 @@ export const CommitList = (props: CommitListProps) => {
   const [contextMenu, setContextMenu] = createSignal<{ x: number; y: number; commitId: string } | null>(null);
 
   const handleCherryPick = async (commitId: string) => {
-    const { setStatus, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const status = await commands.cherryPick(commitId);
-      setStatus(status);
+      await commands.cherryPick(commitId);
     } catch (err) {
       setError(String(err));
     }
@@ -91,10 +90,9 @@ export const CommitList = (props: CommitListProps) => {
       );
       if (!confirmed) return;
     }
-    const { setStatus, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const status = await commands.resetToCommit(commitId, mode);
-      setStatus(status);
+      await commands.resetToCommit(commitId, mode);
     } catch (err) {
       setError(String(err));
     }

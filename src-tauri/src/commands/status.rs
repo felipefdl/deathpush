@@ -6,7 +6,7 @@ use crate::commands::repository::AppRepoState;
 use crate::error::{Error, Result};
 use crate::git::diff;
 use crate::git::repository_runtime::RepositoryRuntimeRegistry;
-use crate::types::{DiffContent, RepositoryStatus};
+use crate::types::{DiffContent, RepositoryStatus, StatusSnapshot};
 
 #[tauri::command]
 pub fn get_status(registry: State<'_, RepositoryRuntimeRegistry>, window: WebviewWindow) -> Result<RepositoryStatus> {
@@ -17,8 +17,8 @@ pub fn get_status(registry: State<'_, RepositoryRuntimeRegistry>, window: Webvie
 pub fn get_status_snapshot(
   registry: State<'_, RepositoryRuntimeRegistry>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
-  registry.with_runtime(window.label(), |runtime| Ok(runtime.snapshot()))
+) -> Result<StatusSnapshot> {
+  registry.with_runtime(window.label(), |runtime| Ok(runtime.snapshot_cursor()))
 }
 
 #[tauri::command]

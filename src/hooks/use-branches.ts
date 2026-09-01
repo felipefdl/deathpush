@@ -13,20 +13,18 @@ export const useBranches = () => {
   };
 
   const switchBranch = async (name: string) => {
-    const { setStatus, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const status = await commands.checkoutBranch(name);
-      setStatus(status);
+      await commands.checkoutBranch(name);
     } catch (err) {
       setError(String(err));
     }
   };
 
   const createNewBranch = async (name: string, from?: string) => {
-    const { setStatus, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const status = await commands.createBranch(name, from);
-      setStatus(status);
+      await commands.createBranch(name, from);
     } catch (err) {
       setError(String(err));
     }
@@ -43,10 +41,9 @@ export const useBranches = () => {
   };
 
   const renameBranch = async (oldName: string, newName: string) => {
-    const { setStatus, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const status = await commands.renameBranch(oldName, newName);
-      setStatus(status);
+      await commands.renameBranch(oldName, newName);
       await loadBranches();
     } catch (err) {
       setError(String(err));
@@ -54,20 +51,18 @@ export const useBranches = () => {
   };
 
   const mergeBranch = async (name: string) => {
-    const { setStatus, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const status = await commands.mergeBranch(name);
-      setStatus(status);
+      await commands.mergeBranch(name);
     } catch (err) {
       setError(String(err));
     }
   };
 
   const rebaseBranch = async (name: string) => {
-    const { setStatus, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const status = await commands.rebaseBranch(name);
-      setStatus(status);
+      await commands.rebaseBranch(name);
     } catch (err) {
       setError(String(err));
     }

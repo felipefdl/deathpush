@@ -8,6 +8,7 @@ import { toggleTerminal } from "../lib/toggle-terminal";
 import { handleTerminalShortcut } from "../lib/terminal-shortcuts";
 import { isPierreFindHostOpen } from "../lib/pierre/find-host";
 import * as commands from "../lib/tauri-commands";
+import { recoverFromSnapshot } from "./use-repository";
 
 export const useKeyboardShortcuts = () => {
   onSettled(() => {
@@ -18,7 +19,7 @@ export const useKeyboardShortcuts = () => {
       const isMod = e.metaKey || e.ctrlKey;
       const repo = repositoryStore.getState();
       const layout = layoutStore.getState();
-      const { setStatus, setError, setSelectedFile, setDiff } = repo;
+      const { setError, setSelectedFile, setDiff } = repo;
 
       // Chord: Cmd+K Cmd+T -> open theme picker
       if (chordK && isMod && e.key === "t") {
@@ -126,13 +127,9 @@ export const useKeyboardShortcuts = () => {
       const target = e.target as HTMLElement;
       const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
-      // Ctrl/Cmd+Shift+G: Focus SCM (refresh status)
       if (isMod && e.shiftKey && e.key === "G") {
         e.preventDefault();
-        commands
-          .getStatus()
-          .then(setStatus)
-          .catch((err) => setError(String(err)));
+        void recoverFromSnapshot().catch((err) => setError(String(err)));
         return;
       }
 
@@ -170,8 +167,7 @@ export const useKeyboardShortcuts = () => {
             if (!confirmed) return;
             commands
               .deleteFile(selected.path)
-              .then((status) => {
-                setStatus(status);
+              .then(() => {
                 explorer.setSelectedTreeEntry(null);
                 if (explorer.selectedPath === selected.path) {
                   explorer.setSelectedPath(null);

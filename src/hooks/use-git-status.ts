@@ -1,14 +1,13 @@
 import { useRepository } from "./use-repository";
 import { repositoryStore } from "../stores/repository-store";
 import { useTauriEvent } from "./use-tauri-event";
-import { throttle } from "../lib/throttle";
 import { getFileDiff } from "../lib/tauri-commands";
 import { sha256Utf8 } from "../lib/pierre/sha";
 import { watcherAction, type SaveSession } from "../lib/pierre/save-session";
-import type { DiffContent } from "../lib/git-types";
+import type { DiffContent, PathsChanged } from "../lib/git-types";
 import type { SelectedFile } from "../stores/repository-store";
 import { getScmSession } from "../lib/pierre/scm-session-registry";
-
+import { pathsChangedIntersects } from "./use-repository-events";
 export const isScmWatcherTarget = (file: SelectedFile | null): boolean => file !== null && file.groupKind !== "merge";
 
 export type ScmDiskGuardInput = {
@@ -52,9 +51,9 @@ export const useGitStatus = () => {
   const { refreshStatus } = useRepository();
   const run = createScmDiskGuard();
 
-  const handleChange = throttle(() => {
-    void refreshStatus();
+  useTauriEvent<PathsChanged>("repository:paths-changed", (event) => {
     const { selectedFile } = repositoryStore.getState();
+    if (!pathsChangedIntersects(event, selectedFile?.path ?? null)) return;
     const handle = getScmSession();
     void run({
       selectedFile,
@@ -74,9 +73,7 @@ export const useGitStatus = () => {
         );
       },
     }).catch(() => undefined);
-  }, 1000);
-
-  useTauriEvent("repository-changed", handleChange);
+  });
 
   return { refreshStatus };
 };

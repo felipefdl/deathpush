@@ -101,6 +101,13 @@ pub struct RepositoryStatus {
   pub operation_state: RepoOperationState,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryIdentity {
+  pub root: String,
+  pub head_branch: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum StatusPhase {
@@ -146,6 +153,16 @@ pub struct StatusPatch {
   pub removals: Vec<StatusKey>,
   pub metadata: Option<RepositoryMetadata>,
   pub phase: StatusPhase,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusSnapshot {
+  pub generation: u64,
+  pub revision: u64,
+  pub phase: StatusPhase,
+  pub entries: Vec<StatusEntry>,
+  pub metadata: RepositoryMetadata,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

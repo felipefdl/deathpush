@@ -12,7 +12,7 @@ export const CloneDialog = (props: CloneDialogProps) => {
   const [url, setUrl] = createSignal("");
   const [directory, setDirectory] = createSignal("");
   const [cloning, setCloning] = createSignal(false);
-  const { setStatus, setError } = repositoryStore.getState();
+  const { setIdentity, setError } = repositoryStore.getState();
   let inputRef: HTMLInputElement | undefined;
   let overlayRef: HTMLDivElement | undefined;
 
@@ -39,9 +39,10 @@ export const CloneDialog = (props: CloneDialogProps) => {
     const targetPath = `${directoryValue}/${repoName}`;
     setCloning(true);
     try {
-      const status = await commands.cloneRepository(urlValue, targetPath);
-      addRecentProject(status.root, status.headBranch ?? undefined);
-      setStatus(status);
+      const identity = await commands.cloneRepository(urlValue, targetPath);
+      addRecentProject(identity.root, identity.headBranch ?? undefined);
+      setIdentity(identity);
+      void commands.getStatus().catch(() => undefined);
       props.onClose();
     } catch (err) {
       setError(String(err));

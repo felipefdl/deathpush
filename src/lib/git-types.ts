@@ -48,6 +48,64 @@ export interface RepositoryStatus {
   operationState: RepoOperationState;
 }
 
+export type RepositoryIdentity = {
+  root: string;
+  headBranch: string | null;
+};
+
+export type StatusPhase = "scanning" | "settled" | "storm";
+
+export type StatusKey = {
+  group: ResourceGroupKind;
+  path: string;
+};
+
+export type StatusEntry = {
+  group: ResourceGroupKind;
+  path: string;
+  status: FileStatus;
+  renamePath: string | null;
+};
+
+export type RepositoryMetadata = {
+  root: string;
+  headBranch: string | null;
+  headCommit: string | null;
+  ahead: number;
+  behind: number;
+  operationState: RepoOperationState;
+};
+
+export type StatusPatch = {
+  generation: number;
+  baseRevision: number;
+  revision: number;
+  upserts: StatusEntry[];
+  removals: StatusKey[];
+  metadata?: RepositoryMetadata;
+  phase: StatusPhase;
+};
+
+export type StatusSnapshot = {
+  generation: number;
+  revision: number;
+  phase: StatusPhase;
+  entries: StatusEntry[];
+  metadata: RepositoryMetadata;
+};
+
+export type PathChangeKind = "content" | "git" | "structural";
+
+export type PathChangeScope = "exact" | "subtree" | "repository";
+
+export type PathsChanged = {
+  paths: string[];
+  kind: PathChangeKind;
+  scope: PathChangeScope;
+  generation: number;
+  storm: boolean;
+};
+
 export interface DiffContent {
   path: string;
   original: string;

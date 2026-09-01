@@ -13,7 +13,7 @@ export const CommitInput = () => {
   const status = useStore(repositoryStore, (s) => s.status);
   const operations = useStore(repositoryStore, (s) => s.operations);
   const amendMode = useStore(repositoryStore, (s) => s.amendMode);
-  const { setStatus, setError, startOperation, endOperation, setAmendMode } = repositoryStore.getState();
+  const { setError, startOperation, endOperation, setAmendMode } = repositoryStore.getState();
 
   const hasStaged = () => status()?.groups.some((g) => g.kind === "index") ?? false;
   const hasChanges = () => status()?.groups.some((g) => g.kind !== "index") ?? false;
@@ -79,8 +79,7 @@ export const CommitInput = () => {
       if (!hasStaged() && hasChanges()) {
         await commands.stageAll();
       }
-      const newStatus = await commands.commitChanges(message().trim(), amend);
-      setStatus(newStatus);
+      await commands.commitChanges(message().trim(), amend);
       setMessage("");
       if (amend) setAmendMode(false);
       return true;
@@ -128,8 +127,7 @@ export const CommitInput = () => {
     if (ok) {
       try {
         startOperation("push");
-        const newStatus = await commands.push();
-        setStatus(newStatus);
+        await commands.push();
       } catch (err) {
         setError(String(err));
       } finally {
@@ -145,8 +143,7 @@ export const CommitInput = () => {
       try {
         startOperation("sync");
         await commands.pull();
-        const newStatus = await commands.push();
-        setStatus(newStatus);
+        await commands.push();
       } catch (err) {
         setError(String(err));
       } finally {

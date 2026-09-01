@@ -15,7 +15,7 @@ export const ScmToolbar = (props: ScmToolbarProps) => {
   const { refreshStatus } = useRepository();
   const status = useStore(repositoryStore, (s) => s.status);
   const operations = useStore(repositoryStore, (s) => s.operations);
-  const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
+  const { setError, startOperation, endOperation } = repositoryStore.getState();
   const [showOverflow, setShowOverflow] = createSignal(false);
   let overflowRef: HTMLButtonElement | undefined;
 
@@ -28,8 +28,7 @@ export const ScmToolbar = (props: ScmToolbarProps) => {
   const handleStageAll = async () => {
     startOperation("stage");
     try {
-      const newStatus = await commands.stageAll();
-      setStatus(newStatus);
+      await commands.stageAll();
     } catch (err) {
       setError(String(err));
     } finally {

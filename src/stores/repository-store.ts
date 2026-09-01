@@ -4,12 +4,15 @@ import type {
   CommitEntry,
   DiffContent,
   FileBlame,
+  RepositoryIdentity,
+  RepositoryMetadata,
   RepositoryStatus,
   ResourceGroupKind,
   BranchEntry,
   StashEntry,
   TagEntry,
 } from "../lib/git-types";
+import { statusStore } from "./status-store";
 
 export type SelectedFile = {
   path: string;
@@ -55,7 +58,9 @@ interface RepositoryState {
   setTags: (tags: TagEntry[]) => void;
   setStashes: (stashes: StashEntry[]) => void;
   setAmendMode: (amend: boolean) => void;
-  setStatus: (status: RepositoryStatus | null) => void;
+  setIdentity: (identity: RepositoryIdentity | null) => void;
+  applyMetadata: (metadata: RepositoryMetadata) => void;
+  syncStatusGroups: () => void;
   setSelectedFile: (file: SelectedFile | null) => void;
   setDiff: (diff: DiffContent | null) => void;
   bindDiffToCurrentLoad: () => void;
@@ -107,16 +112,47 @@ export const repositoryStore = createStore<RepositoryState>((set, get) => ({
   setTags: (tags) => set({ tags }),
   setStashes: (stashes) => set({ stashes }),
   setAmendMode: (amend) => set({ amendMode: amend }),
-  setStatus: (status) => {
-    const { selectedFile } = get();
-    if (selectedFile && status) {
-      const stillExists = status.groups.some((g) => g.files.some((f) => f.path === selectedFile.path));
-      if (!stillExists) {
-        set({ status, selectedFile: null, diff: null, diffLoadId: null, blame: null, cursorLine: null });
-        return;
-      }
+  setIdentity: (identity) => {
+    if (!identity) {
+      set({ status: null, selectedFile: null, diff: null, diffLoadId: null, blame: null, cursorLine: null });
+      return;
     }
-    set({ status });
+    set({
+      status: {
+        root: identity.root,
+        headBranch: identity.headBranch,
+        headCommit: null,
+        ahead: 0,
+        behind: 0,
+        groups: [],
+        operationState: "none",
+      },
+    });
+  },
+  applyMetadata: (metadata) => {
+    const { status } = get();
+    const groups = status?.groups ?? [];
+    set({
+      status: {
+        root: metadata.root,
+        headBranch: metadata.headBranch,
+        headCommit: metadata.headCommit,
+        ahead: metadata.ahead,
+        behind: metadata.behind,
+        groups,
+        operationState: metadata.operationState,
+      },
+    });
+  },
+  syncStatusGroups: () => {
+    const { status, selectedFile } = get();
+    if (!status) return;
+    const groups = statusStore.getState().groups;
+    if (selectedFile && !groups.some((group) => group.files.some((file) => file.path === selectedFile.path))) {
+      set({ status: { ...status, groups }, selectedFile: null, diff: null, diffLoadId: null, blame: null, cursorLine: null });
+      return;
+    }
+    set({ status: { ...status, groups } });
   },
   setSelectedFile: (selectedFile) =>
     set((state) => ({

@@ -11,7 +11,7 @@ import {
 } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/edit";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import type { DiffContent, DiffHunk, FileStatus, RepositoryStatus, ResourceGroupKind } from "../../lib/git-types";
+import type { DiffContent, DiffHunk, FileStatus, ResourceGroupKind } from "../../lib/git-types";
 import * as commands from "../../lib/tauri-commands";
 import { repositoryStore } from "../../stores/repository-store";
 import { settingsStore } from "../../stores/settings-store";
@@ -226,30 +226,28 @@ export const runStageLineCalls = async (input: {
     lineStart: number,
     lineEnd: number,
     staged: boolean
-  ) => Promise<RepositoryStatus>;
-  onStatus: (status: RepositoryStatus) => void;
+  ) => Promise<void>;
   onWrote?: () => void;
-}): Promise<RepositoryStatus | null> => {
+}): Promise<void> => {
   const pending = input.calls.map((call) => ({
     identity: hunkIdentity(input.hunks[call.hunkIndex]),
     lineStart: call.lineStart,
     lineEnd: call.lineEnd,
   }));
   let current = input.hunks;
-  let last: RepositoryStatus | null = null;
+  let wrote = false;
   try {
     for (const [index, call] of pending.entries()) {
       const hunkIndex = reidentifyHunk(current, call.identity);
       if (hunkIndex === null) continue;
-      last = await input.stageLines(input.path, hunkIndex, call.lineStart, call.lineEnd, input.staged);
-      input.onStatus(last);
+      await input.stageLines(input.path, hunkIndex, call.lineStart, call.lineEnd, input.staged);
+      wrote = true;
       if (index < pending.length - 1) {
         current = (await input.getFileHunks(input.path, input.staged)).hunks;
       }
     }
-    return last;
   } finally {
-    if (last) input.onWrote?.();
+    if (wrote) input.onWrote?.();
   }
 };
 
@@ -357,7 +355,7 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
       const [path, staged, groupKind] = deps;
       const mountedGeneration = session.cacheGeneration;
       const activeSession = session;
-      const { setStatus, setError, setIsDiffDirty, setCursorLine, setDiff } = repositoryStore.getState();
+      const { setError, setIsDiffDirty, setCursorLine, setDiff } = repositoryStore.getState();
       const theme = themeStore.getState().currentTheme;
       const settings = settingsStore.getState().settings;
       const themeId = theme.id;
@@ -428,8 +426,7 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
         await writeTail;
       };
 
-      const afterGitWrite = (status: Awaited<ReturnType<typeof commands.stageHunk>>): void => {
-        setStatus(status);
+      const afterGitWrite = (): void => {
         setViewGeneration((value) => value + 1);
       };
 
@@ -453,11 +450,12 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
           const { hunks } = await commands.getFileHunks(path, staged);
           const hunkIndex = reidentifyHunk(hunks, identity);
           if (hunkIndex === null) return;
-          const status =
-            action === "discard"
-              ? await commands.discardHunk(path, hunkIndex)
-              : await commands.stageHunk(path, hunkIndex, action === "unstage");
-          afterGitWrite(status);
+          if (action === "discard") {
+            await commands.discardHunk(path, hunkIndex);
+          } else {
+            await commands.stageHunk(path, hunkIndex, action === "unstage");
+          }
+          afterGitWrite();
         } catch (error) {
           setError(String(error));
         } finally {
@@ -479,7 +477,6 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
             calls,
             getFileHunks: commands.getFileHunks,
             stageLines: commands.stageLines,
-            onStatus: setStatus,
             onWrote: () => setViewGeneration((value) => value + 1),
           });
         } catch (error) {

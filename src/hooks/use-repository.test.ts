@@ -1,18 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { repositoryStore } from "../stores/repository-store";
+import { resetStatusStore, statusStore } from "../stores/status-store";
 import { useRepository } from "./use-repository";
 
-const basicStatus = {
+const identity = {
   root: "/test/project",
   headBranch: "main",
-  headCommit: "abc",
-  ahead: 0,
-  behind: 0,
-  groups: [],
-  operationState: "none" as const,
 };
-
-const fullStatus = { ...basicStatus, groups: [{ id: "working", label: "Changes", files: [] }] };
 
 const { openRepositoryMock, getStatusMock } = vi.hoisted(() => ({
   openRepositoryMock: vi.fn(),
@@ -27,6 +21,7 @@ vi.mock("../lib/tauri-commands", () => ({
 describe("openRepo", () => {
   beforeEach(() => {
     repositoryStore.setState({ status: null, error: null, operations: new Set() });
+    resetStatusStore();
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
       cb(0);
       return 1;
@@ -35,13 +30,13 @@ describe("openRepo", () => {
     getStatusMock.mockReset();
   });
 
-  it("shows repository identity while full status is pending", async () => {
-    let resolveOpen!: (value: typeof basicStatus) => void;
-    let resolveStatus!: (value: typeof fullStatus) => void;
-    const openGate = new Promise<typeof basicStatus>((resolve) => {
+  it("shows repository identity without applying a full status snapshot", async () => {
+    let resolveOpen!: (value: typeof identity) => void;
+    let resolveStatus!: () => void;
+    const openGate = new Promise<typeof identity>((resolve) => {
       resolveOpen = resolve;
     });
-    const statusGate = new Promise<typeof fullStatus>((resolve) => {
+    const statusGate = new Promise<void>((resolve) => {
       resolveStatus = resolve;
     });
     openRepositoryMock.mockImplementation(() => openGate);
@@ -53,18 +48,27 @@ describe("openRepo", () => {
     expect(repositoryStore.getState().operations.has("open-repo")).toBe(true);
     expect(repositoryStore.getState().status).toBeNull();
 
-    resolveOpen(basicStatus);
+    resolveOpen(identity);
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(repositoryStore.getState().status).toEqual(basicStatus);
+    expect(repositoryStore.getState().status).toEqual({
+      root: "/test/project",
+      headBranch: "main",
+      headCommit: null,
+      ahead: 0,
+      behind: 0,
+      groups: [],
+      operationState: "none",
+    });
     expect(getStatusMock).toHaveBeenCalledOnce();
-    expect(repositoryStore.getState().operations.has("open-repo")).toBe(true);
+    expect(repositoryStore.getState().operations.has("open-repo")).toBe(false);
+    expect(statusStore.getState().groups).toEqual([]);
 
-    resolveStatus(fullStatus);
+    resolveStatus();
     await pending;
 
-    expect(repositoryStore.getState().status).toEqual(fullStatus);
-    expect(repositoryStore.getState().operations.has("open-repo")).toBe(false);
+    expect(repositoryStore.getState().status?.groups).toEqual([]);
+    expect(statusStore.getState().groups).toEqual([]);
   });
 });

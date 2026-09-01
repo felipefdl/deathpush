@@ -1,30 +1,37 @@
 import { repositoryStore } from "../stores/repository-store";
 import { addRecentProject } from "../lib/recent-projects";
 import * as commands from "../lib/tauri-commands";
+import { replaceFromSnapshot, resetStatusStore } from "../stores/status-store";
 
-const yieldToPaint = (): Promise<void> =>
-  new Promise((resolve) => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => resolve());
-    });
+const yieldToPaint = (): Promise<void> => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => resolve());
   });
+  return promise;
+};
+
+export const recoverFromSnapshot = async (): Promise<void> => {
+  await commands.getStatus();
+  const snapshot = await commands.getStatusSnapshot();
+  replaceFromSnapshot(snapshot);
+  const { applyMetadata, syncStatusGroups } = repositoryStore.getState();
+  applyMetadata(snapshot.metadata);
+  syncStatusGroups();
+};
 
 export const useRepository = () => {
   const openRepo = async (path: string) => {
-    const { setStatus, startOperation, endOperation, setError } = repositoryStore.getState();
+    const { setIdentity, startOperation, endOperation, setError } = repositoryStore.getState();
     startOperation("open-repo");
     setError(null);
     await yieldToPaint();
     try {
-      const basicStatus = await commands.openRepository(path);
-      setStatus(basicStatus);
-      addRecentProject(basicStatus.root, basicStatus.headBranch ?? undefined);
-      try {
-        const fullStatus = await commands.getStatus();
-        setStatus(fullStatus);
-      } catch {
-        setStatus(basicStatus);
-      }
+      resetStatusStore();
+      const identity = await commands.openRepository(path);
+      setIdentity(identity);
+      addRecentProject(identity.root, identity.headBranch ?? undefined);
+      void commands.getStatus().catch(() => undefined);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -33,10 +40,9 @@ export const useRepository = () => {
   };
 
   const refreshStatus = async () => {
-    const { setStatus, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const status = await commands.getStatus();
-      setStatus(status);
+      await recoverFromSnapshot();
     } catch (err) {
       setError(String(err));
     }

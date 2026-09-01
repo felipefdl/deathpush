@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vite-plus/test";
-import type { DiffContent, DiffHunk, RepositoryStatus } from "../../lib/git-types";
+import type { DiffContent, DiffHunk } from "../../lib/git-types";
 import { hunkIdentity } from "../../lib/pierre/hunk-annotations";
 import {
   emptyPatchSides,
@@ -155,18 +155,8 @@ describe("hunkAnnotations", () => {
   });
 });
 
-const fakeStatus = (label: string): RepositoryStatus => ({
-  root: label,
-  headBranch: null,
-  headCommit: null,
-  ahead: 0,
-  behind: 0,
-  groups: [],
-  operationState: "none",
-});
-
 describe("runStageLineCalls", () => {
-  it("reidentifies later hunks after an earlier write and publishes each status", async () => {
+  it("reidentifies later hunks after an earlier write", async () => {
     const first: DiffHunk = {
       header: "@@ -1,1 +1,2 @@",
       oldStart: 1,
@@ -183,11 +173,10 @@ describe("runStageLineCalls", () => {
       newLines: 2,
       lines: [{ content: "b", lineType: "add", oldLineNumber: null, newLineNumber: 11 }],
     };
-    const statuses: string[] = [];
     const stageIndexes: number[] = [];
     const onWrote = vi.fn();
 
-    const last = await runStageLineCalls({
+    await runStageLineCalls({
       path: "src/a.ts",
       staged: false,
       hunks: [first, second],
@@ -198,17 +187,11 @@ describe("runStageLineCalls", () => {
       getFileHunks: async () => ({ hunks: [second] }),
       stageLines: async (_path, hunkIndex) => {
         stageIndexes.push(hunkIndex);
-        return fakeStatus(`status-${stageIndexes.length}`);
-      },
-      onStatus: (status) => {
-        statuses.push(status.root);
       },
       onWrote,
     });
 
     expect(stageIndexes).toEqual([0, 0]);
-    expect(statuses).toEqual(["status-1", "status-2"]);
-    expect(last?.root).toBe("status-2");
     expect(onWrote).toHaveBeenCalledTimes(1);
   });
 
@@ -229,7 +212,7 @@ describe("runStageLineCalls", () => {
       newLines: 2,
       lines: [{ content: "b", lineType: "add", oldLineNumber: null, newLineNumber: 11 }],
     };
-    const statuses: string[] = [];
+    let calls = 0;
     const onWrote = vi.fn();
 
     await expect(
@@ -242,18 +225,15 @@ describe("runStageLineCalls", () => {
           { hunkIndex: 1, lineStart: 0, lineEnd: 0 },
         ],
         getFileHunks: async () => ({ hunks: [second] }),
-        stageLines: async (_path, hunkIndex) => {
-          if (hunkIndex === 0 && statuses.length === 1) throw new Error("later failed");
-          return fakeStatus("ok");
-        },
-        onStatus: (status) => {
-          statuses.push(status.root);
+        stageLines: async () => {
+          calls += 1;
+          if (calls === 2) throw new Error("later failed");
         },
         onWrote,
       })
     ).rejects.toThrow("later failed");
 
-    expect(statuses).toEqual(["ok"]);
+    expect(calls).toBe(2);
     expect(onWrote).toHaveBeenCalledTimes(1);
   });
 });

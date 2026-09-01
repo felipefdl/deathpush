@@ -14,7 +14,7 @@ const LABELS: Record<string, string> = {
 };
 
 export const MergeBanner = (props: MergeBannerProps) => {
-  const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
+  const { setError, startOperation, endOperation } = repositoryStore.getState();
 
   const label = () => LABELS[props.operationState] ?? "Operation in progress";
   const isMerge = () => props.operationState === "merging";
@@ -23,12 +23,13 @@ export const MergeBanner = (props: MergeBannerProps) => {
   const handleContinue = async () => {
     startOperation("lifecycle");
     try {
-      const status = isMerge()
-        ? await commands.mergeContinue()
-        : isRebase()
-          ? await commands.rebaseContinue()
-          : await commands.mergeContinue();
-      setStatus(status);
+      if (isMerge()) {
+        await commands.mergeContinue();
+      } else if (isRebase()) {
+        await commands.rebaseContinue();
+      } else {
+        await commands.mergeContinue();
+      }
     } catch (err) {
       setError(String(err));
     } finally {
@@ -39,12 +40,13 @@ export const MergeBanner = (props: MergeBannerProps) => {
   const handleAbort = async () => {
     startOperation("lifecycle");
     try {
-      const status = isMerge()
-        ? await commands.mergeAbort()
-        : isRebase()
-          ? await commands.rebaseAbort()
-          : await commands.mergeAbort();
-      setStatus(status);
+      if (isMerge()) {
+        await commands.mergeAbort();
+      } else if (isRebase()) {
+        await commands.rebaseAbort();
+      } else {
+        await commands.mergeAbort();
+      }
     } catch (err) {
       setError(String(err));
     } finally {
@@ -56,8 +58,7 @@ export const MergeBanner = (props: MergeBannerProps) => {
     if (!isRebase()) return;
     startOperation("lifecycle");
     try {
-      const status = await commands.rebaseSkip();
-      setStatus(status);
+      await commands.rebaseSkip();
     } catch (err) {
       setError(String(err));
     } finally {

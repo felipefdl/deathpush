@@ -2,11 +2,10 @@ use std::sync::Mutex;
 
 use tauri::{State, WebviewWindow};
 
-use crate::commands::refresh_status;
+use crate::commands::invalidate_status;
 use crate::commands::repository::AppRepoState;
 use crate::error::{Error, Result};
 use crate::git::cli::GitCli;
-use crate::types::RepositoryStatus;
 
 #[tauri::command]
 pub async fn push(
@@ -15,7 +14,7 @@ pub async fn push(
   force: bool,
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+) -> Result<()> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
@@ -23,7 +22,7 @@ pub async fn push(
   };
   let cli = GitCli::new(&root);
   cli.push(&remote, &branch, force).await?;
-  refresh_status(state.inner(), &window)
+  invalidate_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -33,7 +32,7 @@ pub async fn pull(
   rebase: bool,
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+) -> Result<()> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
@@ -41,7 +40,7 @@ pub async fn pull(
   };
   let cli = GitCli::new(&root);
   cli.pull(&remote, &branch, rebase).await?;
-  refresh_status(state.inner(), &window)
+  invalidate_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -50,7 +49,7 @@ pub async fn fetch(
   prune: bool,
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
-) -> Result<RepositoryStatus> {
+) -> Result<()> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
@@ -58,5 +57,5 @@ pub async fn fetch(
   };
   let cli = GitCli::new(&root);
   cli.fetch(&remote, prune).await?;
-  refresh_status(state.inner(), &window)
+  invalidate_status(state.inner(), &window)
 }

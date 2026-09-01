@@ -80,7 +80,7 @@ type ResourceGroupViewProps = {
 
 export const ResourceGroupView = (props: ResourceGroupViewProps) => {
   const [collapsed, setCollapsed] = createSignal(false);
-  const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
+  const { setError, startOperation, endOperation } = repositoryStore.getState();
 
   const filteredFiles = createMemo(() => {
     if (!props.filter) return props.group.files;
@@ -93,8 +93,7 @@ export const ResourceGroupView = (props: ResourceGroupViewProps) => {
     try {
       const paths = filteredFiles().map((f) => f.path);
       await flushPaths(paths);
-      const status = await commands.stageFiles(paths);
-      setStatus(status);
+      await commands.stageFiles(paths);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -105,8 +104,7 @@ export const ResourceGroupView = (props: ResourceGroupViewProps) => {
   const handleUnstageAll = async () => {
     startOperation("unstage");
     try {
-      const status = await commands.unstageAll();
-      setStatus(status);
+      await commands.unstageAll();
     } catch (err) {
       setError(String(err));
     } finally {
@@ -141,14 +139,12 @@ export const ResourceGroupView = (props: ResourceGroupViewProps) => {
     startOperation("discard");
     try {
       await flushPaths(files.map((f) => f.path));
-      let status;
       if (trackedFiles.length > 0) {
-        status = await commands.discardChanges(trackedFiles.map((f) => f.path));
+        await commands.discardChanges(trackedFiles.map((f) => f.path));
       }
       if (untrackedFiles.length > 0) {
-        status = await commands.deleteFiles(untrackedFiles.map((f) => f.path));
+        await commands.deleteFiles(untrackedFiles.map((f) => f.path));
       }
-      if (status) setStatus(status);
     } catch (err) {
       setError(String(err));
     } finally {

@@ -35,7 +35,7 @@ export const ScmView = (props: ScmViewProps) => {
   const status = useStore(repositoryStore, (s) => s.status);
   const stashes = useStore(repositoryStore, (s) => s.stashes);
   const fileFilter = useStore(repositoryStore, (s) => s.fileFilter);
-  const { setStatus, setError, startOperation, endOperation } = repositoryStore.getState();
+  const { setError, startOperation, endOperation } = repositoryStore.getState();
   const colorScheme = useColorScheme();
   const isDark = () => colorScheme() === "dark";
   useGitStatus();
@@ -67,8 +67,7 @@ export const ScmView = (props: ScmViewProps) => {
     startOperation("stage");
     try {
       await flushPaths(paths);
-      const s = await commands.stageFiles(paths);
-      setStatus(s);
+      await commands.stageFiles(paths);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -79,8 +78,7 @@ export const ScmView = (props: ScmViewProps) => {
   const handleUnstageAll = async () => {
     startOperation("unstage");
     try {
-      const s = await commands.unstageAll();
-      setStatus(s);
+      await commands.unstageAll();
     } catch (err) {
       setError(String(err));
     } finally {
@@ -114,14 +112,12 @@ export const ScmView = (props: ScmViewProps) => {
     startOperation("discard");
     try {
       await flushPaths([...trackedPaths, ...untrackedPaths]);
-      let s;
       if (trackedPaths.length > 0) {
-        s = await commands.discardChanges(trackedPaths);
+        await commands.discardChanges(trackedPaths);
       }
       if (untrackedPaths.length > 0) {
-        s = await commands.deleteFiles(untrackedPaths);
+        await commands.deleteFiles(untrackedPaths);
       }
-      if (s) setStatus(s);
     } catch (err) {
       setError(String(err));
     } finally {

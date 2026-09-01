@@ -3,8 +3,8 @@ import { explorerStore } from "../stores/explorer-store";
 import { readFileContent } from "../lib/tauri-commands";
 import { sha256Utf8 } from "../lib/pierre/sha";
 import { watcherAction, type SaveSession } from "../lib/pierre/save-session";
-import type { FileContent } from "../lib/git-types";
-
+import type { FileContent, PathsChanged } from "../lib/git-types";
+import { pathsChangedIntersects } from "./use-repository-events";
 export type FileViewerDiskGuardInput = {
   selectedPath: string | null;
   session: SaveSession | null;
@@ -43,8 +43,9 @@ export const useDiskGuard = (args: {
   onReload: (content: FileContent, incomingSha: string) => void;
 }): void => {
   const run = createFileViewerDiskGuard();
-  useTauriEvent("repository-changed", () => {
+  useTauriEvent<PathsChanged>("repository:paths-changed", (event) => {
     const selectedPath = explorerStore.getState().selectedPath;
+    if (!pathsChangedIntersects(event, selectedPath)) return;
     const session = args.getSession();
     void run({
       selectedPath,
