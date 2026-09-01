@@ -109,31 +109,31 @@ const cloneGroup = (groupFiles: GroupFiles, kind: IndexedGroupKind, cloned: Set<
   return groupFiles[kind];
 };
 
-const removeFromGroup = (files: FileEntry[], path: string): void => {
-  const index = files.findIndex((file) => file.path === path);
-  if (index >= 0) {
-    files.splice(index, 1);
+const removeFromGroup = (files: FileEntry[], index: Map<string, number>, path: string): void => {
+  const at = index.get(path);
+  if (at === undefined) return;
+  files.splice(at, 1);
+  index.delete(path);
+  for (let position = at; position < files.length; position += 1) {
+    const file = files[position];
+    if (file) index.set(file.path, position);
   }
 };
 
-const upsertInGroup = (files: FileEntry[], file: FileEntry): void => {
-  const index = files.findIndex((item) => item.path === file.path);
-  if (index >= 0) {
-    files[index] = file;
+const upsertInGroup = (files: FileEntry[], index: Map<string, number>, file: FileEntry): void => {
+  const at = index.get(file.path);
+  if (at !== undefined) {
+    files[at] = file;
     return;
   }
+  index.set(file.path, files.length);
   files.push(file);
 };
 
-export const applyStatusPatch = (patch: StatusPatch): ApplyStatusPatchResult => {
-  const state = statusStore.getState();
-  if (patch.generation < state.generation) {
-    return "discarded";
-  }
-  if (patch.baseRevision !== state.revision) {
-    return "gap";
-  }
+export const applyStatusPatches = (patches: StatusPatch[]): ApplyStatusPatchResult => {
+  if (patches.length === 0) return "applied";
 
+  const state = statusStore.getState();
   const entries = new Map(state.entries);
   const groupFiles: GroupFiles = {
     merge: state.groupFiles.merge,
@@ -141,26 +141,59 @@ export const applyStatusPatch = (patch: StatusPatch): ApplyStatusPatchResult => 
     workingTree: state.groupFiles.workingTree,
   };
   const cloned = new Set<IndexedGroupKind>();
+  const indexes = new Map<IndexedGroupKind, Map<string, number>>();
 
-  for (const removal of patch.removals) {
-    const key = statusEntryKey(removal.group, removal.path);
-    if (!entries.delete(key)) continue;
-    const kind = indexedGroup(removal.group);
-    removeFromGroup(cloneGroup(groupFiles, kind, cloned), removal.path);
-  }
-  for (const upsert of patch.upserts) {
-    const key = statusEntryKey(upsert.group, upsert.path);
-    const previous = entries.get(key);
-    entries.set(key, upsert);
-    const kind = indexedGroup(upsert.group);
-    if (previous && indexedGroup(previous.group) !== kind) {
-      removeFromGroup(cloneGroup(groupFiles, indexedGroup(previous.group), cloned), previous.path);
+  const indexOf = (kind: IndexedGroupKind): Map<string, number> => {
+    let index = indexes.get(kind);
+    if (!index) {
+      const files = cloneGroup(groupFiles, kind, cloned);
+      index = new Map(files.map((file, position) => [file.path, position]));
+      indexes.set(kind, index);
     }
-    upsertInGroup(cloneGroup(groupFiles, kind, cloned), toFileEntry(upsert));
+    return index;
+  };
+
+  let generation = state.generation;
+  let revision = state.revision;
+  let phase = state.phase;
+  let applied = false;
+
+  for (const patch of patches) {
+    if (patch.generation < generation) continue;
+    if (patch.baseRevision !== revision) {
+      return "gap";
+    }
+
+    for (const removal of patch.removals) {
+      const key = statusEntryKey(removal.group, removal.path);
+      if (!entries.delete(key)) continue;
+      const kind = indexedGroup(removal.group);
+      removeFromGroup(cloneGroup(groupFiles, kind, cloned), indexOf(kind), removal.path);
+    }
+    for (const upsert of patch.upserts) {
+      const key = statusEntryKey(upsert.group, upsert.path);
+      const previous = entries.get(key);
+      entries.set(key, upsert);
+      const kind = indexedGroup(upsert.group);
+      if (previous && indexedGroup(previous.group) !== kind) {
+        const previousKind = indexedGroup(previous.group);
+        removeFromGroup(cloneGroup(groupFiles, previousKind, cloned), indexOf(previousKind), previous.path);
+      }
+      upsertInGroup(cloneGroup(groupFiles, kind, cloned), indexOf(kind), toFileEntry(upsert));
+    }
+
+    generation = patch.generation;
+    revision = patch.revision;
+    phase = patch.phase;
+    applied = true;
   }
-  commitState(entries, groupFiles, patch.generation, patch.revision, patch.phase);
+
+  if (!applied) return "discarded";
+  commitState(entries, groupFiles, generation, revision, phase);
   return "applied";
 };
+
+export const applyStatusPatch = (patch: StatusPatch): ApplyStatusPatchResult => applyStatusPatches([patch]);
 
 export const replaceFromSnapshot = (snapshot: StatusSnapshot): void => {
   const entries = new Map<string, StatusEntry>();

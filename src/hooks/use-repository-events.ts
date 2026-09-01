@@ -1,6 +1,7 @@
 import { useTauriEvent } from "./use-tauri-event";
 import {
   applyStatusPatch,
+  applyStatusPatches,
   replaceFromSnapshot,
   resetStatusStore,
   statusSession,
@@ -91,19 +92,22 @@ export const flushPendingPatches = (): Promise<void> => {
   const currentSession = statusSession();
   return (async () => {
     try {
+      const patches: StatusPatch[] = [];
       let lastMetadata: RepositoryMetadata | undefined;
       for (const item of queued) {
         if (item.session !== currentSession || item.session !== statusSession()) continue;
-        const result = applyStatusPatch(item.patch);
-        if (result === "discarded") continue;
-        if (result === "gap") {
-          const snapshot = await getStatusSnapshot();
-          if (statusSession() !== currentSession) return;
-          replaceFromSnapshot(snapshot);
-          publishStatusProjection(snapshot.metadata);
-          return;
-        }
+        patches.push(item.patch);
         if (item.patch.metadata) lastMetadata = item.patch.metadata;
+      }
+      if (patches.length === 0) return;
+      const result = applyStatusPatches(patches);
+      if (result === "discarded") return;
+      if (result === "gap") {
+        const snapshot = await getStatusSnapshot();
+        if (statusSession() !== currentSession) return;
+        replaceFromSnapshot(snapshot);
+        publishStatusProjection(snapshot.metadata);
+        return;
       }
       if (statusSession() !== currentSession) return;
       publishStatusProjection(lastMetadata);

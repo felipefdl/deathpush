@@ -172,6 +172,27 @@ describe("repository session", () => {
     expect(statusStore.getState().groups[0]?.files.map((file) => file.path)).toEqual(["one.ts", "two.ts"]);
     expect(roots.filter((paths) => paths.length > 0)).toEqual([["one.ts", "two.ts"]]);
   });
+
+  it("applies a queued batch as one status-store update", async () => {
+    const revisions: number[] = [];
+    const unsubscribe = statusStore.subscribe((state) => {
+      revisions.push(state.revision);
+    });
+
+    enqueueStatusPatch(patch({ upserts: [entry("one.ts")] }));
+    enqueueStatusPatch(
+      patch({
+        baseRevision: 1,
+        revision: 2,
+        upserts: [entry("two.ts")],
+      })
+    );
+    await flushPendingPatches();
+    unsubscribe();
+
+    expect(statusStore.getState().groups[0]?.files.map((file) => file.path)).toEqual(["one.ts", "two.ts"]);
+    expect(revisions).toEqual([2]);
+  });
 });
 
 describe("pathsChangedIntersects", () => {

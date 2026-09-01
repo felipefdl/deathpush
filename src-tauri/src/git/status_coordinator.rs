@@ -162,7 +162,6 @@ pub struct StatusCoordinator {
   on_paths: Mutex<Option<PathsSink>>,
   overflow_flag: Arc<AtomicBool>,
   scan_mutex: Mutex<()>,
-  wake_tx: Mutex<Option<mpsc::SyncSender<WatcherMessage>>>,
   #[cfg(test)]
   during_scan: Mutex<Option<Box<dyn FnOnce() + Send>>>,
   #[cfg(test)]
@@ -178,7 +177,6 @@ impl StatusCoordinator {
       on_paths: Mutex::new(None),
       overflow_flag: Arc::new(AtomicBool::new(false)),
       scan_mutex: Mutex::new(()),
-      wake_tx: Mutex::new(None),
       #[cfg(test)]
       during_scan: Mutex::new(None),
       #[cfg(test)]
@@ -195,7 +193,6 @@ impl StatusCoordinator {
       on_paths: Mutex::new(None),
       overflow_flag: Arc::new(AtomicBool::new(false)),
       scan_mutex: Mutex::new(()),
-      wake_tx: Mutex::new(None),
       #[cfg(test)]
       during_scan: Mutex::new(None),
       #[cfg(test)]
@@ -261,11 +258,8 @@ impl StatusCoordinator {
   }
 
   pub fn invalidate(&self, scope: StatusScope) {
-    {
-      let mut state = self.lock();
-      self.queue_scope(&mut state, scope);
-    }
-    self.wake();
+    let mut state = self.lock();
+    self.queue_scope(&mut state, scope);
   }
 
   pub fn invalidate_paths<I, S>(&self, paths: I)
@@ -273,23 +267,17 @@ impl StatusCoordinator {
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
   {
-    {
-      let mut state = self.lock();
-      for path in paths {
-        self.queue_scope(&mut state, StatusScope::Exact(path.as_ref().to_string()));
-      }
+    let mut state = self.lock();
+    for path in paths {
+      self.queue_scope(&mut state, StatusScope::Exact(path.as_ref().to_string()));
     }
-    self.wake();
   }
 
-  fn wake(&self) {
+  pub fn try_wake(&self, tx: &mpsc::SyncSender<WatcherMessage>) {
     if self.lock().scan_failed {
       return;
     }
-    let tx = self.wake_tx.lock().unwrap_or_else(|err| err.into_inner()).clone();
-    if let Some(tx) = tx {
-      let _ = tx.try_send(WatcherMessage::Wake);
-    }
+    let _ = tx.try_send(WatcherMessage::Wake);
   }
   #[cfg(test)]
   pub fn invalidate_paths_and_snapshot(&self, paths: &[String]) -> Result<RepositoryStatus> {
@@ -582,7 +570,6 @@ impl StatusCoordinator {
 
   pub fn spawn_worker(self: &Arc<Self>) -> mpsc::SyncSender<WatcherMessage> {
     let (tx, rx) = mpsc::sync_channel(WATCHER_CHANNEL_BOUND);
-    *self.wake_tx.lock().unwrap_or_else(|err| err.into_inner()) = Some(tx.clone());
     let coordinator = Arc::clone(self);
     std::thread::spawn(move || coordinator.run_loop(rx));
     tx
@@ -1507,6 +1494,7 @@ mod tests {
     let coordinator = std::sync::Arc::new(coordinator);
     let sink = coordinator.spawn_worker();
     coordinator.invalidate(StatusScope::Exact("command.rs".into()));
+    coordinator.try_wake(&sink);
 
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
@@ -1533,5 +1521,25 @@ mod tests {
     );
 
     drop(sink);
+  }
+
+  #[test]
+  fn dropping_runtime_senders_disconnects_status_worker() {
+    let (_dir, coordinator) = init_coordinator_repo();
+    let coordinator = std::sync::Arc::new(coordinator);
+    let sink = coordinator.spawn_worker();
+    let weak = std::sync::Arc::downgrade(&coordinator);
+
+    drop(sink);
+    drop(coordinator);
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while weak.upgrade().is_some() {
+      assert!(
+        Instant::now() < deadline,
+        "status worker stayed alive after runtime senders dropped"
+      );
+      std::thread::sleep(Duration::from_millis(10));
+    }
   }
 }

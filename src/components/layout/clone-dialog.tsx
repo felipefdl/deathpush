@@ -40,8 +40,8 @@ export const CloneDialog = (props: CloneDialogProps) => {
     const targetPath = `${directoryValue}/${repoName}`;
     setCloning(true);
     try {
-      beginRepositorySession();
       const identity = await commands.cloneRepository(urlValue, targetPath);
+      beginRepositorySession();
       addRecentProject(identity.root, identity.headBranch ?? undefined);
       setIdentity(identity, { reset: false });
       void commands.getStatus().catch(() => undefined);

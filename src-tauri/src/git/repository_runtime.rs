@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tauri::{Emitter, Manager, WebviewWindow};
@@ -8,12 +9,13 @@ use crate::error::{Error, Result};
 use crate::git::repository::GitRepository;
 use crate::git::status::StatusScope;
 use crate::git::status_coordinator::StatusCoordinator;
-use crate::git::watcher::{self, WatcherHandle};
+use crate::git::watcher::{self, WatcherHandle, WatcherMessage};
 use crate::types::{PathsChanged, RepositoryStatus, StatusPatch};
 
 pub struct RepositoryRuntime {
   root: PathBuf,
   coordinator: Arc<StatusCoordinator>,
+  wake_tx: mpsc::SyncSender<WatcherMessage>,
   _watcher: Option<WatcherHandle>,
 }
 
@@ -33,10 +35,12 @@ impl RepositoryRuntime {
 
   pub fn invalidate(&self, scope: StatusScope) {
     self.coordinator.invalidate(scope);
+    self.coordinator.try_wake(&self.wake_tx);
   }
 
   pub fn invalidate_paths(&self, paths: &[String]) {
     self.coordinator.invalidate_paths(paths.iter().map(String::as_str));
+    self.coordinator.try_wake(&self.wake_tx);
   }
 
   pub fn snapshot_cursor(&self) -> crate::types::StatusSnapshot {
@@ -67,7 +71,7 @@ impl RepositoryRuntimeRegistry {
     self.open_with(
       label,
       path,
-      move |root, coordinator| {
+      move |root, coordinator, sink| {
         let patch_handle = handle.clone();
         let paths_handle = handle.clone();
         let patch_root = root.to_path_buf();
@@ -80,7 +84,6 @@ impl RepositoryRuntimeRegistry {
             emit_to_runtime_windows(&paths_handle, &paths_root, "repository:paths-changed", &paths);
           }),
         );
-        let sink = coordinator.spawn_worker();
         match watcher::start_watcher(root, sink, coordinator.overflow_flag()) {
           Ok(watcher) => Some(watcher),
           Err(err) => {
@@ -120,11 +123,7 @@ impl RepositoryRuntimeRegistry {
       .collect()
   }
 
-  pub fn with_runtime<T>(
-    &self,
-    label: &str,
-    callback: impl FnOnce(&RepositoryRuntime) -> Result<T>,
-  ) -> Result<T> {
+  pub fn with_runtime<T>(&self, label: &str, callback: impl FnOnce(&RepositoryRuntime) -> Result<T>) -> Result<T> {
     let runtime = self.runtime_for_window(label).ok_or(Error::NoRepository)?;
     callback(&runtime)
   }
@@ -145,7 +144,7 @@ impl RepositoryRuntimeRegistry {
     &self,
     label: &str,
     path: &Path,
-    start_watcher: impl FnOnce(&Path, Arc<StatusCoordinator>) -> Option<WatcherHandle>,
+    start_watcher: impl FnOnce(&Path, Arc<StatusCoordinator>, mpsc::SyncSender<WatcherMessage>) -> Option<WatcherHandle>,
     on_inflight: impl FnOnce(),
   ) -> Result<Arc<RepositoryRuntime>> {
     let repo = GitRepository::open(path)?;
@@ -170,10 +169,12 @@ impl RepositoryRuntimeRegistry {
     let runtime = slot
       .get_or_init(|| {
         let coordinator = Arc::new(StatusCoordinator::new(root.clone()));
+        let sink = coordinator.spawn_worker();
         Arc::new(RepositoryRuntime {
           root: root.clone(),
           coordinator: coordinator.clone(),
-          _watcher: start_watcher(&root, coordinator),
+          wake_tx: sink.clone(),
+          _watcher: start_watcher(&root, coordinator, sink),
         })
       })
       .clone();
@@ -210,7 +211,7 @@ impl RepositoryRuntimeRegistry {
     start_watcher: impl FnOnce(&Path) -> Option<WatcherHandle>,
   ) -> Result<PathBuf> {
     self
-      .open_with(label, path, |root, _| start_watcher(root), || {})
+      .open_with(label, path, |root, _, _| start_watcher(root), || {})
       .map(|runtime| runtime.root.clone())
   }
 
@@ -223,7 +224,7 @@ impl RepositoryRuntimeRegistry {
     on_inflight: impl FnOnce(),
   ) -> Result<PathBuf> {
     self
-      .open_with(label, path, |root, _| start_watcher(root), on_inflight)
+      .open_with(label, path, |root, _, _| start_watcher(root), on_inflight)
       .map(|runtime| runtime.root.clone())
   }
 
@@ -254,8 +255,8 @@ fn emit_to_runtime_windows<T: Clone + serde::Serialize>(
 
 #[cfg(test)]
 mod tests {
-  use std::sync::{Arc, Barrier};
   use std::sync::atomic::{AtomicUsize, Ordering};
+  use std::sync::{Arc, Barrier};
 
   use tempfile::TempDir;
 

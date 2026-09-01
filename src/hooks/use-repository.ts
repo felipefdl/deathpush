@@ -28,8 +28,8 @@ export const useRepository = () => {
     setError(null);
     await yieldToPaint();
     try {
-      beginRepositorySession();
       const identity = await commands.openRepository(path);
+      beginRepositorySession();
       setIdentity(identity, { reset: false });
       addRecentProject(identity.root, identity.headBranch ?? undefined);
       void commands.getStatus().catch(() => undefined);
