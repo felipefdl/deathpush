@@ -228,6 +228,9 @@ export const terminalsHaveActiveProcess = (): Promise<boolean> => invoke("termin
 
 export const listRepositoryTree = (): Promise<ExplorerEntry[]> => invoke("list_repository_tree");
 
+export const listRepositoryChildren = (path: string): Promise<ExplorerEntry[]> =>
+  invoke("list_repository_children", { path });
+
 export const readFileContent = (path: string): Promise<FileContent> => invoke("read_file_content", { path });
 
 export const renameEntry = (oldPath: string, newName: string): Promise<void> =>

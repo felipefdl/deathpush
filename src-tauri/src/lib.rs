@@ -670,6 +670,7 @@ pub fn run() {
       tag::push_tag,
       tag::delete_remote_tag,
       explorer::list_repository_tree,
+      explorer::list_repository_children,
       explorer::read_file_content,
       explorer::fuzzy_find_files,
       explorer::search_file_contents,

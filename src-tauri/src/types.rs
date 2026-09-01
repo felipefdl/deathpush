@@ -308,6 +308,7 @@ pub struct ExplorerEntry {
   pub path: String,
   pub is_directory: bool,
   pub is_symlink: bool,
+  pub ignored: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

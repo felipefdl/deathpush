@@ -45,6 +45,24 @@ export const sameTreePaths = (left: readonly string[], right: readonly string[])
   return true;
 };
 
+export const directoryNeedsChildren = (entries: readonly ExplorerEntry[], directoryPath: string): boolean => {
+  const directory = directoryPath.endsWith("/") ? directoryPath.slice(0, -1) : directoryPath;
+  if (!directory) return false;
+  const prefix = `${directory}/`;
+  return !entries.some((entry) => entry.path.startsWith(prefix));
+};
+
+export const explorerGitStatus = (entries: readonly ExplorerEntry[], files: readonly FileEntry[]): GitStatusEntry[] => {
+  const ignored: FileEntry[] = entries
+    .filter((entry) => entry.ignored)
+    .map((entry) => ({
+      path: entry.isDirectory ? `${entry.path}/` : entry.path,
+      status: "ignored",
+      renamePath: null,
+    }));
+  return fileEntriesToTreeGitStatus([...ignored, ...files]);
+};
+
 export const fileEntriesToTreeGitStatus = (files: readonly FileEntry[]): GitStatusEntry[] => {
   const statusByPath = new Map<string, GitStatus>();
   for (const file of files) {

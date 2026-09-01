@@ -213,6 +213,7 @@ export interface ExplorerEntry {
   path: string;
   isDirectory: boolean;
   isSymlink: boolean;
+  ignored: boolean;
 }
 
 export interface FileContent {

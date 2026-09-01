@@ -265,7 +265,7 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 ### Pierre Trees
 
 - Explorer and SCM Changes use `@pierre/trees` through `components/trees/file-tree-host.tsx`
-- The Explorer backend gets tracked and untracked files through asynchronous `git ls-files`; Trees infers directories from those paths
+- The Explorer backend lists tracked, untracked, and gitignored files through asynchronous `git ls-files`; `.git` and other VCS metadata stay hidden, gitignored entries render gray, and Trees infers directories from those paths
 - UI settings expose the Trees density presets (compact, default, relaxed) and icon presets (minimal, standard, complete)
 - Default tree density is `compact`; default tree icons are `complete`
 - History and Quick Open use neutral Codicon file and folder icons, not Trees icons

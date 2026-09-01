@@ -12,7 +12,7 @@ import { useTauriEvent } from "../../hooks/use-tauri-event";
 import { shouldRefreshExplorer } from "../../hooks/use-repository-events";
 import { addRecentFile } from "../../lib/recent-files";
 import { dockTerminalIfCurrentFile, shouldReloadOpenFile } from "../../lib/explorer-file-activate";
-import { explorerEntriesToTreePaths, fileEntriesToTreeGitStatus, sameTreePaths } from "../../lib/trees";
+import { directoryNeedsChildren, explorerEntriesToTreePaths, explorerGitStatus } from "../../lib/trees";
 import { throttle } from "../../lib/throttle";
 import type { ExplorerEntry, PathsChanged } from "../../lib/git-types";
 import type { ConflictResolution } from "../../lib/tauri-commands";
@@ -66,18 +66,20 @@ export const ExplorerView = (props: ExplorerViewProps) => {
   const clipboardEntry = useStore(explorerStore, (state) => state.clipboardEntry);
   const [entries, setEntries] = createSignal<ExplorerEntry[]>([]);
   const [contextMenu, setContextMenu] = createSignal<{ x: number; y: number } | null>(null);
+  const expandedPaths = useStore(explorerStore, (state) => state.treeExpandedPaths);
   let treeModel: FileTree | undefined;
   let pendingCreate: PendingCreate | undefined;
+  const loadedDirectories = new Set<string>();
 
   const treePaths = createMemo(() => explorerEntriesToTreePaths(entries()));
   const treeGitStatus = createMemo(() =>
-    fileEntriesToTreeGitStatus(status()?.groups.flatMap((group) => group.files) ?? [])
+    explorerGitStatus(entries(), status()?.groups.flatMap((group) => group.files) ?? [])
   );
 
   const refreshTree = async (): Promise<void> => {
+    loadedDirectories.clear();
     try {
       const next = await commands.listRepositoryTree();
-      if (sameTreePaths(explorerEntriesToTreePaths(entries()), explorerEntriesToTreePaths(next))) return;
       setEntries(next);
     } catch (error) {
       repositoryStore.getState().setError(String(error));
@@ -87,6 +89,30 @@ export const ExplorerView = (props: ExplorerViewProps) => {
   const scheduleRefreshTree = throttle(() => {
     void refreshTree();
   }, 1000);
+
+  createEffect(
+    () => [entries(), expandedPaths()] as const,
+    ([current, expanded]) => {
+      for (const path of expanded) {
+        const directory = stripDirectorySuffix(path);
+        if (!directory || loadedDirectories.has(directory) || !directoryNeedsChildren(current, directory)) continue;
+        loadedDirectories.add(directory);
+        void commands
+          .listRepositoryChildren(directory)
+          .then((children) => {
+            setEntries((latest) => {
+              const byPath = new Map(latest.map((entry) => [entry.path, entry]));
+              for (const child of children) byPath.set(child.path, child);
+              return [...byPath.values()].sort((left, right) => left.path.localeCompare(right.path));
+            });
+          })
+          .catch((error) => {
+            loadedDirectories.delete(directory);
+            repositoryStore.getState().setError(String(error));
+          });
+      }
+    }
+  );
 
   const openFile = (path: string): void => {
     const { setSelectedPath, setFileContent } = explorerStore.getState();
