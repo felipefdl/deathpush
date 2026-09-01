@@ -64,6 +64,15 @@ const publishStatusProjection = (metadata?: RepositoryMetadata): void => {
   repositoryStore.getState().syncStatusGroups();
 };
 
+export const applyRecoveredSnapshot = (snapshot: StatusSnapshot, session: number, root: string | null): boolean => {
+  if (statusSession() !== session) return false;
+  if ((repositoryStore.getState().status?.root ?? null) !== root) return false;
+  if (snapshot.metadata.root !== root) return false;
+  if (!replaceFromSnapshot(snapshot)) return false;
+  publishStatusProjection(snapshot.metadata);
+  return true;
+};
+
 export const applyIncomingPatch = async (
   patch: StatusPatch,
   recover: () => Promise<StatusSnapshot>
@@ -73,9 +82,10 @@ export const applyIncomingPatch = async (
     return result;
   }
   if (result === "gap") {
+    const session = statusSession();
+    const root = repositoryStore.getState().status?.root ?? null;
     const snapshot = await recover();
-    replaceFromSnapshot(snapshot);
-    publishStatusProjection(snapshot.metadata);
+    applyRecoveredSnapshot(snapshot, session, root);
     return result;
   }
   publishStatusProjection(patch.metadata);
@@ -90,6 +100,7 @@ export const flushPendingPatches = (): Promise<void> => {
   if (queued.length === 0) return Promise.resolve();
   flushing = true;
   const currentSession = statusSession();
+  const currentRoot = repositoryStore.getState().status?.root ?? null;
   return (async () => {
     try {
       const patches: StatusPatch[] = [];
@@ -104,12 +115,11 @@ export const flushPendingPatches = (): Promise<void> => {
       if (result === "discarded") return;
       if (result === "gap") {
         const snapshot = await getStatusSnapshot();
-        if (statusSession() !== currentSession) return;
-        replaceFromSnapshot(snapshot);
-        publishStatusProjection(snapshot.metadata);
+        applyRecoveredSnapshot(snapshot, currentSession, currentRoot);
         return;
       }
       if (statusSession() !== currentSession) return;
+      if ((repositoryStore.getState().status?.root ?? null) !== currentRoot) return;
       publishStatusProjection(lastMetadata);
     } finally {
       flushing = false;

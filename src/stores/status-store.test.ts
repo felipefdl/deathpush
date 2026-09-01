@@ -136,4 +136,33 @@ describe("replaceFromSnapshot", () => {
     expect(state.groups.map((group) => group.kind)).toEqual(["index"]);
     expect(state.groups[0]?.files[0]?.path).toBe("new.ts");
   });
+
+  it("does not roll back a newer generation or revision", () => {
+    applyStatusPatch(
+      patch({
+        generation: 2,
+        revision: 4,
+        upserts: [entry("newer.ts")],
+      })
+    );
+    replaceFromSnapshot({
+      generation: 2,
+      revision: 3,
+      phase: "settled",
+      metadata: {
+        root: "/repo",
+        headBranch: "main",
+        headCommit: "abc",
+        ahead: 0,
+        behind: 0,
+        operationState: "none",
+      },
+      entries: [entry("stale.ts")],
+    });
+
+    const state = statusStore.getState();
+    expect(state.generation).toBe(2);
+    expect(state.revision).toBe(4);
+    expect(state.groups[0]?.files.map((file) => file.path)).toEqual(["newer.ts"]);
+  });
 });

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { repositoryStore } from "../stores/repository-store";
 import { applyStatusPatch, resetStatusStore, statusStore } from "../stores/status-store";
 import { beginRepositorySession, enqueueStatusPatch, flushPendingPatches } from "./use-repository-events";
-import { useRepository } from "./use-repository";
+import { recoverFromSnapshot, useRepository } from "./use-repository";
 import type { StatusEntry, StatusPatch, StatusSnapshot } from "../lib/git-types";
 
 const identity = {
@@ -195,5 +195,116 @@ describe("openRepo", () => {
     expect(files).toEqual(["from-b.ts"]);
     expect(repositoryStore.getState().status?.groups[0]?.files[0]?.path).toBe("from-b.ts");
     expect(getStatusSnapshotMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe("recoverFromSnapshot", () => {
+  const entry = (path: string, group: StatusEntry["group"] = "workingTree"): StatusEntry => ({
+    group,
+    path,
+    status: "modified",
+    renamePath: null,
+  });
+  const patch = (overrides: Partial<StatusPatch> = {}): StatusPatch => ({
+    generation: 1,
+    baseRevision: 0,
+    revision: 1,
+    upserts: [],
+    removals: [],
+    phase: "settled",
+    ...overrides,
+  });
+  const metadata = (root: string) => ({
+    root,
+    headBranch: "main",
+    headCommit: "abc",
+    ahead: 0,
+    behind: 0,
+    operationState: "none" as const,
+  });
+
+  beforeEach(() => {
+    repositoryStore.setState({ status: null, error: null, operations: new Set() });
+    resetStatusStore();
+    getStatusMock.mockReset();
+    getStatusSnapshotMock.mockReset();
+  });
+
+  it("does not apply a snapshot after a newer patch has advanced the store", async () => {
+    beginRepositorySession();
+    repositoryStore.getState().setIdentity({ root: "/repo", headBranch: "main" }, { reset: false });
+
+    let resolveSnapshot!: (value: StatusSnapshot) => void;
+    const snapshotGate = new Promise<StatusSnapshot>((resolve) => {
+      resolveSnapshot = resolve;
+    });
+    getStatusMock.mockResolvedValue(undefined);
+    getStatusSnapshotMock.mockImplementation(() => snapshotGate);
+
+    const pending = recoverFromSnapshot();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    applyStatusPatch(
+      patch({
+        generation: 2,
+        revision: 4,
+        upserts: [entry("newer.ts")],
+      })
+    );
+
+    resolveSnapshot({
+      generation: 2,
+      revision: 3,
+      phase: "settled",
+      entries: [entry("stale.ts")],
+      metadata: metadata("/repo"),
+    });
+    await pending;
+
+    const files = statusStore
+      .getState()
+      .groups.flatMap((group) => group.files)
+      .map((file) => file.path);
+    expect(files).toEqual(["newer.ts"]);
+    expect(statusStore.getState().generation).toBe(2);
+    expect(statusStore.getState().revision).toBe(4);
+  });
+
+  it("does not apply a snapshot after the repository session or root changes", async () => {
+    beginRepositorySession();
+    repositoryStore.getState().setIdentity({ root: "/repo-a", headBranch: "main" }, { reset: false });
+
+    let resolveSnapshot!: (value: StatusSnapshot) => void;
+    const snapshotGate = new Promise<StatusSnapshot>((resolve) => {
+      resolveSnapshot = resolve;
+    });
+    getStatusMock.mockResolvedValue(undefined);
+    getStatusSnapshotMock.mockImplementation(() => snapshotGate);
+
+    const pending = recoverFromSnapshot();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    beginRepositorySession();
+    repositoryStore.getState().setIdentity({ root: "/repo-b", headBranch: "main" }, { reset: false });
+    applyStatusPatch(patch({ upserts: [entry("from-b.ts")] }));
+    repositoryStore.getState().syncStatusGroups();
+
+    resolveSnapshot({
+      generation: 1,
+      revision: 1,
+      phase: "settled",
+      entries: [entry("from-a.ts")],
+      metadata: metadata("/repo-a"),
+    });
+    await pending;
+
+    const files = statusStore
+      .getState()
+      .groups.flatMap((group) => group.files)
+      .map((file) => file.path);
+    expect(files).toEqual(["from-b.ts"]);
+    expect(repositoryStore.getState().status?.root).toBe("/repo-b");
   });
 });

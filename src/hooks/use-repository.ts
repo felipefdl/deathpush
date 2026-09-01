@@ -1,8 +1,8 @@
 import { repositoryStore } from "../stores/repository-store";
 import { addRecentProject } from "../lib/recent-projects";
 import * as commands from "../lib/tauri-commands";
-import { replaceFromSnapshot } from "../stores/status-store";
-import { beginRepositorySession } from "./use-repository-events";
+import { statusSession } from "../stores/status-store";
+import { applyRecoveredSnapshot, beginRepositorySession } from "./use-repository-events";
 
 const yieldToPaint = (): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -13,12 +13,11 @@ const yieldToPaint = (): Promise<void> => {
 };
 
 export const recoverFromSnapshot = async (): Promise<void> => {
+  const session = statusSession();
+  const root = repositoryStore.getState().status?.root ?? null;
   await commands.getStatus();
   const snapshot = await commands.getStatusSnapshot();
-  replaceFromSnapshot(snapshot);
-  const { applyMetadata, syncStatusGroups } = repositoryStore.getState();
-  applyMetadata(snapshot.metadata);
-  syncStatusGroups();
+  applyRecoveredSnapshot(snapshot, session, root);
 };
 
 export const useRepository = () => {

@@ -195,7 +195,11 @@ export const applyStatusPatches = (patches: StatusPatch[]): ApplyStatusPatchResu
 
 export const applyStatusPatch = (patch: StatusPatch): ApplyStatusPatchResult => applyStatusPatches([patch]);
 
-export const replaceFromSnapshot = (snapshot: StatusSnapshot): void => {
+export const replaceFromSnapshot = (snapshot: StatusSnapshot): boolean => {
+  const state = statusStore.getState();
+  if (snapshot.generation < state.generation) return false;
+  if (snapshot.generation === state.generation && snapshot.revision < state.revision) return false;
+
   const entries = new Map<string, StatusEntry>();
   const groupFiles = emptyGroupFiles();
   for (const entry of snapshot.entries) {
@@ -203,4 +207,5 @@ export const replaceFromSnapshot = (snapshot: StatusSnapshot): void => {
     groupFiles[indexedGroup(entry.group)].push(toFileEntry(entry));
   }
   commitState(entries, groupFiles, snapshot.generation, snapshot.revision, snapshot.phase);
+  return true;
 };
