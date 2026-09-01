@@ -46,7 +46,11 @@ pub fn invalidate_status(app_state: &Mutex<AppRepoState>, window: &WebviewWindow
   })
 }
 
-pub fn invalidate_status_paths(app_state: &Mutex<AppRepoState>, window: &WebviewWindow, paths: &[String]) -> Result<()> {
+pub fn invalidate_status_paths(
+  app_state: &Mutex<AppRepoState>,
+  window: &WebviewWindow,
+  paths: &[String],
+) -> Result<()> {
   invalidate_status_with(app_state, window, |runtime| {
     runtime.invalidate_paths(paths);
     Ok(())
@@ -65,11 +69,7 @@ fn invalidate_status_with(
     .ok_or(Error::NoRepository)?;
   invalidate(&runtime)?;
   let repo = runtime.open_repository()?;
-  update_window_title(
-    window,
-    &repo.root().to_string_lossy(),
-    repo.head_branch().as_deref(),
-  );
+  update_window_title(window, &repo.root().to_string_lossy(), repo.head_branch().as_deref());
 
   let mut app_state = app_state.lock().map_err(|err| Error::Other(err.to_string()))?;
   let win_state = app_state.windows.get_mut(label).ok_or(Error::NoRepository)?;

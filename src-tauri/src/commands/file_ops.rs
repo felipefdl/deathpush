@@ -197,11 +197,7 @@ pub async fn reveal_in_file_manager(
 }
 
 #[tauri::command]
-pub async fn delete_file(
-  path: String,
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<()> {
+pub async fn delete_file(path: String, state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<()> {
   let root = get_repo_root(&state, &window)?;
   let canon_root = root
     .canonicalize()

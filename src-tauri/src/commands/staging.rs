@@ -2,8 +2,8 @@ use std::sync::Mutex;
 
 use tauri::{State, WebviewWindow};
 
-use crate::commands::{invalidate_status, invalidate_status_paths};
 use crate::commands::repository::AppRepoState;
+use crate::commands::{invalidate_status, invalidate_status_paths};
 use crate::error::{Error, Result};
 use crate::git::cli::GitCli;
 use crate::git::hunk;

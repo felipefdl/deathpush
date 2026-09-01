@@ -629,6 +629,7 @@ pub fn run() {
       repository::get_repo_branch,
       status::get_status,
       status::get_status_snapshot,
+      status::refresh_status,
       status::get_file_diff,
       staging::stage_files,
       staging::stage_all,

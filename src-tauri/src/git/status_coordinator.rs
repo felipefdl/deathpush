@@ -7,12 +7,12 @@ use std::time::{Duration, Instant};
 
 use crate::error::Result;
 use crate::git::status::{
-  StatusScan, StatusScope, path_in_scopes, repository_status_from_entries, scan_baseline, scan_scopes,
+  ScopeIndex, StatusScan, StatusScope, repository_status_from_entries, scan_baseline, scan_scopes,
 };
-use crate::git::watcher::{ClassifiedPath, WatcherMessage, should_watch_path};
+use crate::git::watcher::{ClassifiedPath, WatchCache, WatcherMessage};
 use crate::types::{
-  PathChangeKind, PathChangeScope, PathsChanged, RepoOperationState, RepositoryMetadata, RepositoryStatus, StatusEntry,
-  StatusKey, StatusPatch, StatusPhase, StatusSnapshot,
+  PathChangeKind, PathChangeScope, PathsChanged, RepoOperationState, RepositoryMetadata, RepositoryStatus,
+  ResourceGroupKind, StatusEntry, StatusKey, StatusPatch, StatusPhase, StatusSnapshot,
 };
 
 pub const COALESCE_MS: u64 = 75;
@@ -126,6 +126,7 @@ struct CoordinatorState {
   revision: u64,
   entries: BTreeMap<StatusKey, StatusEntry>,
   metadata: Option<RepositoryMetadata>,
+  baseline_complete: bool,
   phase: StatusPhase,
   dirty: HashSet<StatusScope>,
   overflow: bool,
@@ -143,6 +144,7 @@ impl Default for CoordinatorState {
       revision: 0,
       entries: BTreeMap::new(),
       metadata: None,
+      baseline_complete: false,
       phase: StatusPhase::Settled,
       dirty: HashSet::new(),
       overflow: false,
@@ -162,6 +164,7 @@ pub struct StatusCoordinator {
   on_paths: Mutex<Option<PathsSink>>,
   overflow_flag: Arc<AtomicBool>,
   scan_mutex: Mutex<()>,
+  watch_cache: Mutex<WatchCache>,
   #[cfg(test)]
   during_scan: Mutex<Option<Box<dyn FnOnce() + Send>>>,
   #[cfg(test)]
@@ -177,6 +180,7 @@ impl StatusCoordinator {
       on_paths: Mutex::new(None),
       overflow_flag: Arc::new(AtomicBool::new(false)),
       scan_mutex: Mutex::new(()),
+      watch_cache: Mutex::new(WatchCache::default()),
       #[cfg(test)]
       during_scan: Mutex::new(None),
       #[cfg(test)]
@@ -186,18 +190,21 @@ impl StatusCoordinator {
 
   #[cfg(test)]
   pub fn with_emitter(emit: impl Fn(StatusPatch) + Send + Sync + 'static) -> Self {
-    Self {
+    let coordinator = Self {
       root: PathBuf::new(),
       state: Mutex::new(CoordinatorState::default()),
       on_patch: Mutex::new(Some(Arc::new(emit))),
       on_paths: Mutex::new(None),
       overflow_flag: Arc::new(AtomicBool::new(false)),
       scan_mutex: Mutex::new(()),
+      watch_cache: Mutex::new(WatchCache::default()),
       #[cfg(test)]
       during_scan: Mutex::new(None),
       #[cfg(test)]
       scan_attempts: std::sync::atomic::AtomicUsize::new(0),
-    }
+    };
+    coordinator.lock().baseline_complete = true;
+    coordinator
   }
 
   pub fn bind_emitters(&self, on_patch: PatchSink, on_paths: PathsSink) {
@@ -240,9 +247,18 @@ impl StatusCoordinator {
 
   pub fn ensure_baseline(&self) -> Result<()> {
     let _scan_guard = self.scan_mutex.lock().unwrap_or_else(|err| err.into_inner());
-    if self.lock().metadata.is_some() {
+    if self.lock().baseline_complete {
       return Ok(());
     }
+    self.run_baseline_scan()
+  }
+
+  pub fn force_baseline(&self) -> Result<()> {
+    let _scan_guard = self.scan_mutex.lock().unwrap_or_else(|err| err.into_inner());
+    self.run_baseline_scan()
+  }
+
+  fn run_baseline_scan(&self) -> Result<()> {
     let Some(generation) = self.begin_scan() else {
       return Ok(());
     };
@@ -310,14 +326,14 @@ impl StatusCoordinator {
       generation,
       StatusScan {
         entries,
-        metadata: RepositoryMetadata {
+        metadata: Some(RepositoryMetadata {
           root: String::new(),
           head_branch: None,
           head_commit: None,
           ahead: 0,
           behind: 0,
           operation_state: RepoOperationState::None,
-        },
+        }),
       },
       None,
       StatusPhase::Settled,
@@ -335,6 +351,11 @@ impl StatusCoordinator {
     take_scan_scopes(&mut state, true)
       .map(|(scopes, _)| scopes)
       .unwrap_or_default()
+  }
+
+  #[cfg(test)]
+  pub fn mark_baseline_complete_for_test(&self) {
+    self.lock().baseline_complete = true;
   }
 
   #[cfg(test)]
@@ -424,11 +445,18 @@ impl StatusCoordinator {
   }
 
   pub fn ingest_path(&self, classified: ClassifiedPath) {
-    if classified.kind == PathChangeKind::Content
-      && let Ok(repo) = git2::Repository::open(&self.root)
-      && !should_watch_path(&repo, &classified.relative)
-    {
-      return;
+    if classified.kind == PathChangeKind::Content {
+      let subtree = classified.scope == PathChangeScope::Subtree;
+      let mut cache = self.watch_cache.lock().unwrap_or_else(|err| err.into_inner());
+      if !cache.should_watch(&self.root, &classified.relative, subtree) {
+        return;
+      }
+    } else {
+      self
+        .watch_cache
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .invalidate();
     }
 
     let scope = match classified.scope {
@@ -760,7 +788,7 @@ impl StatusCoordinator {
       state.scan_in_flight = false;
       return;
     }
-    let metadata = scan.metadata;
+    let scan_metadata = scan.metadata;
 
     let next_entries: BTreeMap<StatusKey, StatusEntry> = scan
       .entries
@@ -777,12 +805,8 @@ impl StatusCoordinator {
       .collect();
 
     let (upserts, removals) = if let Some(scopes) = scopes {
-      let previous: BTreeMap<StatusKey, StatusEntry> = state
-        .entries
-        .iter()
-        .filter(|(key, _)| path_in_scopes(&key.path, scopes))
-        .map(|(key, entry)| (key.clone(), entry.clone()))
-        .collect();
+      let index = ScopeIndex::new(scopes);
+      let previous = previous_in_scopes(&state.entries, &index);
       let (upserts, removals) = diff_status_maps(&previous, &next_entries);
       for key in &removals {
         state.entries.remove(key);
@@ -795,10 +819,14 @@ impl StatusCoordinator {
       let previous = std::mem::take(&mut state.entries);
       let (upserts, removals) = diff_status_maps(&previous, &next_entries);
       state.entries = next_entries;
+      state.baseline_complete = true;
       (upserts, removals)
     };
 
-    state.metadata = Some(metadata.clone());
+    if let Some(metadata) = scan_metadata {
+      state.metadata = Some(metadata);
+    }
+    let emit_metadata = if scopes.is_none() { state.metadata.clone() } else { None };
     let mut remaining_upserts = upserts;
     let mut remaining_removals = removals;
     let mut emitted = false;
@@ -819,7 +847,7 @@ impl StatusCoordinator {
         revision: state.revision,
         upserts: chunk_upserts,
         removals: chunk_removals,
-        metadata: if more { None } else { Some(metadata.clone()) },
+        metadata: if more { None } else { emit_metadata.clone() },
         phase: if more { StatusPhase::Scanning } else { end_phase },
       };
       emitted = true;
@@ -848,6 +876,42 @@ impl StatusCoordinator {
   }
 }
 
+const STATUS_GROUPS: [ResourceGroupKind; 4] = [
+  ResourceGroupKind::Index,
+  ResourceGroupKind::WorkingTree,
+  ResourceGroupKind::Untracked,
+  ResourceGroupKind::Merge,
+];
+
+fn previous_in_scopes(
+  entries: &BTreeMap<StatusKey, StatusEntry>,
+  index: &ScopeIndex,
+) -> BTreeMap<StatusKey, StatusEntry> {
+  let mut previous = BTreeMap::new();
+  for path in index.exact_paths() {
+    for group in STATUS_GROUPS {
+      let key = StatusKey {
+        group,
+        path: path.clone(),
+      };
+      if let Some(entry) = entries.get(&key) {
+        previous.insert(key, entry.clone());
+      }
+    }
+  }
+  if index.has_subtrees() {
+    for (key, entry) in entries {
+      if previous.contains_key(key) {
+        continue;
+      }
+      if index.matches_subtree(&key.path) {
+        previous.insert(key.clone(), entry.clone());
+      }
+    }
+  }
+  previous
+}
+
 fn scan_result(root: &std::path::Path, scopes: &[StatusScope]) -> Result<StatusScan> {
   if scopes.iter().any(|scope| matches!(scope, StatusScope::Repository)) {
     scan_baseline(root)
@@ -864,6 +928,14 @@ fn is_index_locked(err: &crate::error::Error) -> bool {
 }
 
 fn take_scan_scopes(state: &mut CoordinatorState, apply_storm_cap: bool) -> Option<(Vec<StatusScope>, bool)> {
+  if !state.baseline_complete {
+    if state.dirty.is_empty() && !state.overflow {
+      return None;
+    }
+    state.dirty.clear();
+    state.overflow = false;
+    return Some((vec![StatusScope::Repository], state.storm.in_storm()));
+  }
   if state.overflow {
     state.dirty.clear();
     state.overflow = false;
@@ -1339,6 +1411,7 @@ mod tests {
     std::fs::write(dir.path().join("fail.rs"), "fail").unwrap();
 
     let coordinator = std::sync::Arc::new(coordinator);
+    coordinator.mark_baseline_complete_for_test();
     coordinator.fail_all_scans_for_test();
 
     let (tx, rx) = std::sync::mpsc::sync_channel(8);
@@ -1391,6 +1464,7 @@ mod tests {
     std::fs::write(dir.path().join("fail.rs"), "fail").unwrap();
 
     let coordinator = std::sync::Arc::new(coordinator);
+    coordinator.mark_baseline_complete_for_test();
     coordinator.fail_all_scans_for_test();
     coordinator.force_storm_for_test();
     coordinator.ingest(watcher_exact("fail.rs"));
@@ -1539,5 +1613,72 @@ mod tests {
       );
       std::thread::sleep(Duration::from_millis(10));
     }
+  }
+
+  fn snapshot_paths(coordinator: &StatusCoordinator) -> Vec<String> {
+    coordinator
+      .snapshot()
+      .groups
+      .iter()
+      .flat_map(|group| group.files.iter())
+      .map(|file| file.path.clone())
+      .collect()
+  }
+
+  #[test]
+  fn scoped_scan_does_not_satisfy_ensure_baseline() {
+    let (dir, coordinator) = init_coordinator_repo();
+    std::fs::write(dir.path().join("preexisting.rs"), "pre").unwrap();
+    std::fs::write(dir.path().join("watched.rs"), "watched").unwrap();
+
+    coordinator.invalidate(StatusScope::Exact("watched.rs".into()));
+    coordinator.scan_dirty_for_test().unwrap();
+
+    let after_scoped = snapshot_paths(&coordinator);
+    assert!(
+      after_scoped.contains(&"watched.rs".to_string()) || after_scoped.contains(&"preexisting.rs".to_string()),
+      "scoped or promoted baseline should record at least the watched path, got {after_scoped:?}"
+    );
+
+    coordinator.ensure_baseline().unwrap();
+    let paths = snapshot_paths(&coordinator);
+    assert!(
+      paths.contains(&"preexisting.rs".to_string()),
+      "ensure_baseline must include pre-existing dirty files after a scoped scan, got {paths:?}"
+    );
+    assert!(
+      paths.contains(&"watched.rs".to_string()),
+      "missing watched.rs in {paths:?}"
+    );
+  }
+
+  #[test]
+  fn force_baseline_rescans_after_baseline_exists() {
+    let (dir, coordinator) = init_coordinator_repo();
+    std::fs::write(dir.path().join("first.rs"), "first").unwrap();
+    coordinator.ensure_baseline().unwrap();
+    assert!(snapshot_paths(&coordinator).contains(&"first.rs".to_string()));
+
+    std::fs::write(dir.path().join("second.rs"), "second").unwrap();
+    coordinator.ensure_baseline().unwrap();
+    assert!(
+      !snapshot_paths(&coordinator).contains(&"second.rs".to_string()),
+      "ensure_baseline must no-op once complete"
+    );
+
+    coordinator.force_baseline().unwrap();
+    let paths = snapshot_paths(&coordinator);
+    assert!(
+      paths.contains(&"second.rs".to_string()),
+      "force_baseline must rescan, got {paths:?}"
+    );
+  }
+
+  #[test]
+  fn take_scan_scopes_promotes_to_repository_before_baseline() {
+    let (_dir, coordinator) = init_coordinator_repo();
+    coordinator.invalidate(StatusScope::Exact("a.rs".into()));
+    let taken = coordinator.take_scan_scopes_for_test();
+    assert_eq!(taken, vec![StatusScope::Repository]);
   }
 }

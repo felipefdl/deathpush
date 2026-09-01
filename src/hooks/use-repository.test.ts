@@ -10,16 +10,18 @@ const identity = {
   headBranch: "main",
 };
 
-const { openRepositoryMock, getStatusMock, getStatusSnapshotMock } = vi.hoisted(() => ({
+const { openRepositoryMock, getStatusMock, getStatusSnapshotMock, refreshStatusMock } = vi.hoisted(() => ({
   openRepositoryMock: vi.fn(),
   getStatusMock: vi.fn(),
   getStatusSnapshotMock: vi.fn(),
+  refreshStatusMock: vi.fn(),
 }));
 
 vi.mock("../lib/tauri-commands", () => ({
   openRepository: openRepositoryMock,
   getStatus: getStatusMock,
   getStatusSnapshot: getStatusSnapshotMock,
+  refreshStatus: refreshStatusMock,
 }));
 
 describe("openRepo", () => {
@@ -33,6 +35,7 @@ describe("openRepo", () => {
     openRepositoryMock.mockReset();
     getStatusMock.mockReset();
     getStatusSnapshotMock.mockReset();
+    refreshStatusMock.mockReset();
   });
 
   it("shows repository identity without applying a full status snapshot", async () => {
@@ -306,5 +309,45 @@ describe("recoverFromSnapshot", () => {
       .map((file) => file.path);
     expect(files).toEqual(["from-b.ts"]);
     expect(repositoryStore.getState().status?.root).toBe("/repo-b");
+  });
+});
+
+describe("refreshStatus", () => {
+  beforeEach(() => {
+    repositoryStore.setState({ status: null, error: null, operations: new Set() });
+    resetStatusStore();
+    getStatusMock.mockReset();
+    getStatusSnapshotMock.mockReset();
+    refreshStatusMock.mockReset();
+  });
+
+  it("forces a baseline scan instead of getStatus", async () => {
+    beginRepositorySession();
+    repositoryStore.getState().setIdentity({ root: "/repo", headBranch: "main" }, { reset: false });
+    refreshStatusMock.mockResolvedValue({
+      generation: 3,
+      revision: 1,
+      phase: "settled",
+      entries: [{ group: "workingTree", path: "fresh.ts", status: "modified", renamePath: null }],
+      metadata: {
+        root: "/repo",
+        headBranch: "main",
+        headCommit: "abc",
+        ahead: 0,
+        behind: 0,
+        operationState: "none",
+      },
+    });
+
+    await useRepository().refreshStatus();
+
+    expect(refreshStatusMock).toHaveBeenCalledOnce();
+    expect(getStatusMock).not.toHaveBeenCalled();
+    expect(getStatusSnapshotMock).not.toHaveBeenCalled();
+    const files = statusStore
+      .getState()
+      .groups.flatMap((group) => group.files)
+      .map((file) => file.path);
+    expect(files).toEqual(["fresh.ts"]);
   });
 });

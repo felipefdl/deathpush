@@ -25,6 +25,8 @@ export const getStatus = (): Promise<RepositoryStatus> => invoke("get_status");
 
 export const getStatusSnapshot = (): Promise<StatusSnapshot> => invoke("get_status_snapshot");
 
+export const refreshStatus = (): Promise<StatusSnapshot> => invoke("refresh_status");
+
 export const getFileDiff = (path: string, staged: boolean): Promise<DiffContent> =>
   invoke("get_file_diff", { path, staged });
 

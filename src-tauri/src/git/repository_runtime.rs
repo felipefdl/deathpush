@@ -33,6 +33,11 @@ impl RepositoryRuntime {
     Ok(self.coordinator.snapshot())
   }
 
+  pub fn refresh_status(&self) -> Result<crate::types::StatusSnapshot> {
+    self.coordinator.force_baseline()?;
+    Ok(self.coordinator.snapshot_cursor())
+  }
+
   pub fn invalidate(&self, scope: StatusScope) {
     self.coordinator.invalidate(scope);
     self.coordinator.try_wake(&self.wake_tx);

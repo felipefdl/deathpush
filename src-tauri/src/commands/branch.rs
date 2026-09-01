@@ -18,11 +18,7 @@ pub fn list_branches(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindo
 }
 
 #[tauri::command]
-pub async fn checkout_branch(
-  name: String,
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<()> {
+pub async fn checkout_branch(name: String, state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<()> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;

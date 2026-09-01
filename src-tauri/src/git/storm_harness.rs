@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use super::status::scan_baseline;
-use super::status_coordinator::{StatusCoordinator, DIRTY_CAP};
+use super::status_coordinator::{DIRTY_CAP, StatusCoordinator};
 use super::watcher::{ClassifiedPath, WatcherMessage};
 use crate::types::{PathChangeKind, PathChangeScope, StatusEntry, StatusKey, StatusPhase};
 

@@ -42,7 +42,10 @@ export const useRepository = () => {
   const refreshStatus = async () => {
     const { setError } = repositoryStore.getState();
     try {
-      await recoverFromSnapshot();
+      const session = statusSession();
+      const root = repositoryStore.getState().status?.root ?? null;
+      const snapshot = await commands.refreshStatus();
+      applyRecoveredSnapshot(snapshot, session, root);
     } catch (err) {
       setError(String(err));
     }

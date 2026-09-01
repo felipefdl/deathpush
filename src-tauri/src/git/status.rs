@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use git2::{StatusOptions, StatusShow};
@@ -7,8 +7,7 @@ use crate::error::Result;
 use crate::git::repo_state::detect_operation_state;
 use crate::git::repository::GitRepository;
 use crate::types::{
-  FileEntry, FileStatus, RepositoryMetadata, RepositoryStatus, ResourceGroup, ResourceGroupKind, StatusEntry,
-  StatusKey,
+  FileEntry, FileStatus, RepositoryMetadata, RepositoryStatus, ResourceGroup, ResourceGroupKind, StatusEntry, StatusKey,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -20,7 +19,58 @@ pub enum StatusScope {
 
 pub struct StatusScan {
   pub entries: Vec<StatusEntry>,
-  pub metadata: RepositoryMetadata,
+  pub metadata: Option<RepositoryMetadata>,
+}
+
+#[derive(Debug, Default)]
+pub struct ScopeIndex {
+  repository: bool,
+  exact: HashSet<String>,
+  prefix_exact: HashSet<String>,
+  prefixes: Vec<String>,
+}
+
+impl ScopeIndex {
+  pub fn new(scopes: &[StatusScope]) -> Self {
+    let mut index = Self::default();
+    for scope in scopes {
+      match scope {
+        StatusScope::Repository => index.repository = true,
+        StatusScope::Exact(path) => {
+          index.exact.insert(normalize_relative(path));
+        }
+        StatusScope::Subtree(path) => {
+          let trimmed = normalize_relative(path);
+          let trimmed = trimmed.trim_end_matches('/').to_string();
+          index.prefixes.push(format!("{trimmed}/"));
+          index.prefix_exact.insert(trimmed);
+        }
+      }
+    }
+    index
+  }
+
+  pub fn contains(&self, path: &str) -> bool {
+    if self.repository {
+      return true;
+    }
+    if self.exact.contains(path) || self.prefix_exact.contains(path) {
+      return true;
+    }
+    self.prefixes.iter().any(|prefix| path.starts_with(prefix.as_str()))
+  }
+
+  pub fn exact_paths(&self) -> impl Iterator<Item = &String> {
+    self.exact.iter()
+  }
+
+  pub fn has_subtrees(&self) -> bool {
+    !self.prefixes.is_empty() || !self.prefix_exact.is_empty()
+  }
+
+  pub fn matches_subtree(&self, path: &str) -> bool {
+    self.prefix_exact.contains(path) || self.prefixes.iter().any(|prefix| path.starts_with(prefix.as_str()))
+  }
 }
 
 pub fn repository_status_from_entries(metadata: RepositoryMetadata, entries: &[StatusEntry]) -> RepositoryStatus {
@@ -38,14 +88,17 @@ pub fn repository_status_from_entries(metadata: RepositoryMetadata, entries: &[S
 #[allow(dead_code)]
 pub fn get_repository_status(repo: &GitRepository) -> Result<RepositoryStatus> {
   let mut opts = status_options(true);
-  let scan = scan_repo(repo, &mut opts)?;
-  Ok(repository_status_from_entries(scan.metadata, &scan.entries))
+  let entries = scan_entries(repo, &mut opts)?;
+  Ok(repository_status_from_entries(metadata_from(repo), &entries))
 }
 
 pub fn scan_baseline(root: &Path) -> Result<StatusScan> {
   let repo = GitRepository::open(root)?;
   let mut opts = status_options(true);
-  scan_repo(&repo, &mut opts)
+  Ok(StatusScan {
+    entries: scan_entries(&repo, &mut opts)?,
+    metadata: Some(metadata_from(&repo)),
+  })
 }
 
 pub fn scan_scopes(root: &Path, scopes: &[StatusScope]) -> Result<StatusScan> {
@@ -53,10 +106,9 @@ pub fn scan_scopes(root: &Path, scopes: &[StatusScope]) -> Result<StatusScan> {
     return scan_baseline(root);
   }
   if scopes.is_empty() {
-    let repo = GitRepository::open(root)?;
     return Ok(StatusScan {
       entries: Vec::new(),
-      metadata: metadata_from(&repo),
+      metadata: None,
     });
   }
 
@@ -84,7 +136,7 @@ pub fn scan_scopes(root: &Path, scopes: &[StatusScope]) -> Result<StatusScan> {
     for path in &exact {
       opts.pathspec(path.as_str());
     }
-    for entry in scan_repo(&repo, &mut opts)?.entries {
+    for entry in scan_entries(&repo, &mut opts)? {
       merged.insert(
         StatusKey {
           group: entry.group.clone(),
@@ -96,8 +148,7 @@ pub fn scan_scopes(root: &Path, scopes: &[StatusScope]) -> Result<StatusScan> {
   }
 
   if !subtree.is_empty() {
-    let (special, normal): (Vec<&String>, Vec<&String>) =
-      subtree.iter().partition(|path| has_pathspec_meta(path));
+    let (special, normal): (Vec<&String>, Vec<&String>) = subtree.iter().partition(|path| has_pathspec_meta(path));
     if !normal.is_empty() {
       let mut opts = status_options(false);
       for path in &normal {
@@ -107,7 +158,7 @@ pub fn scan_scopes(root: &Path, scopes: &[StatusScope]) -> Result<StatusScan> {
           opts.pathspec(format!("{trimmed}/"));
         }
       }
-      for entry in scan_repo(&repo, &mut opts)?.entries {
+      for entry in scan_entries(&repo, &mut opts)? {
         merged.insert(
           StatusKey {
             group: entry.group.clone(),
@@ -123,7 +174,7 @@ pub fn scan_scopes(root: &Path, scopes: &[StatusScope]) -> Result<StatusScan> {
         .map(|path| StatusScope::Subtree((*path).clone()))
         .collect();
       let mut opts = status_options(false);
-      for entry in scan_repo(&repo, &mut opts)?.entries {
+      for entry in scan_entries(&repo, &mut opts)? {
         if path_in_scopes(&entry.path, &scopes) {
           merged.insert(
             StatusKey {
@@ -139,23 +190,16 @@ pub fn scan_scopes(root: &Path, scopes: &[StatusScope]) -> Result<StatusScan> {
 
   Ok(StatusScan {
     entries: merged.into_values().collect(),
-    metadata: metadata_from(&repo),
+    metadata: None,
   })
 }
 
 pub fn path_in_scopes(path: &str, scopes: &[StatusScope]) -> bool {
-  scopes.iter().any(|scope| match scope {
-    StatusScope::Repository => true,
-    StatusScope::Exact(exact) => path == exact,
-    StatusScope::Subtree(prefix) => {
-      let prefix = prefix.trim_end_matches('/');
-      path == prefix || path.starts_with(&format!("{prefix}/"))
-    }
-  })
+  ScopeIndex::new(scopes).contains(path)
 }
 
 fn has_pathspec_meta(path: &str) -> bool {
-  path.bytes().any(|byte| matches!(byte, b'*' | b'?' | b'[' | b'\\' ))
+  path.bytes().any(|byte| matches!(byte, b'*' | b'?' | b'[' | b'\\'))
 }
 
 fn normalize_relative(path: &str) -> String {
@@ -174,12 +218,9 @@ fn status_options(rename: bool) -> StatusOptions {
   opts
 }
 
-fn scan_repo(repo: &GitRepository, opts: &mut StatusOptions) -> Result<StatusScan> {
+fn scan_entries(repo: &GitRepository, opts: &mut StatusOptions) -> Result<Vec<StatusEntry>> {
   let statuses = repo.inner().statuses(Some(opts))?;
-  Ok(StatusScan {
-    entries: collect_entries(&statuses),
-    metadata: metadata_from(repo),
-  })
+  Ok(collect_entries(&statuses))
 }
 
 fn metadata_from(repo: &GitRepository) -> RepositoryMetadata {
@@ -348,7 +389,7 @@ mod tests {
 
   use tempfile::TempDir;
 
-  use super::{get_repository_status, scan_baseline, scan_scopes, StatusScope};
+  use super::{ScopeIndex, StatusScope, get_repository_status, scan_baseline, scan_scopes};
   use crate::git::repository::GitRepository;
   use crate::types::{FileStatus, ResourceGroupKind};
 
@@ -394,6 +435,10 @@ mod tests {
     std::fs::write(root.join("other.txt"), "other\n").unwrap();
 
     let scan = scan_scopes(&root, &[StatusScope::Exact("file[1].txt".into())]).unwrap();
+    assert!(
+      scan.metadata.is_none(),
+      "scoped scans must not compute ahead/behind metadata"
+    );
     let paths: Vec<&str> = scan.entries.iter().map(|entry| entry.path.as_str()).collect();
     assert!(
       paths.contains(&"file[1].txt"),
@@ -437,11 +482,12 @@ mod tests {
     std::fs::write(root.join("new.rs"), "fn main() {}\n").unwrap();
 
     let scan = scan_baseline(&root).unwrap();
+    let metadata = scan.metadata.expect("baseline scan includes metadata");
     assert_eq!(
-      std::fs::canonicalize(&scan.metadata.root).unwrap(),
+      std::fs::canonicalize(&metadata.root).unwrap(),
       std::fs::canonicalize(&root).unwrap()
     );
-    assert!(scan.metadata.head_branch.is_some());
+    assert!(metadata.head_branch.is_some());
     assert!(
       scan
         .entries
@@ -463,5 +509,30 @@ mod tests {
         .flat_map(|group| group.files.iter())
         .any(|file| file.path == "new.rs" && file.status == FileStatus::Untracked)
     );
+  }
+
+  #[test]
+  fn scope_index_matches_exact_by_key_and_subtree_by_prefix() {
+    let index = ScopeIndex::new(&[
+      StatusScope::Exact("a.rs".into()),
+      StatusScope::Subtree("src".into()),
+      StatusScope::Exact("b.rs".into()),
+    ]);
+    assert!(index.contains("a.rs"));
+    assert!(index.contains("b.rs"));
+    assert!(index.contains("src"));
+    assert!(index.contains("src/lib.rs"));
+    assert!(!index.contains("c.rs"));
+    assert!(!index.contains("src2/lib.rs"));
+    assert!(index.has_subtrees());
+    assert_eq!(index.exact_paths().count(), 2);
+  }
+
+  #[test]
+  fn scan_scopes_omits_metadata_for_empty_scopes() {
+    let (_dir, root) = init_repo();
+    let scan = scan_scopes(&root, &[]).unwrap();
+    assert!(scan.metadata.is_none());
+    assert!(scan.entries.is_empty());
   }
 }
