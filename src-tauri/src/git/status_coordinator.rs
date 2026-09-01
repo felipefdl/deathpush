@@ -7,11 +7,11 @@ use std::time::{Duration, Instant};
 
 use crate::error::Result;
 use crate::git::status::{
-  path_in_scopes, repository_status_from_entries, scan_baseline, scan_scopes, StatusScan, StatusScope,
+  StatusScan, StatusScope, path_in_scopes, repository_status_from_entries, scan_baseline, scan_scopes,
 };
-use crate::git::watcher::{should_watch_path, ClassifiedPath, WatcherMessage};
+use crate::git::watcher::{ClassifiedPath, WatcherMessage, should_watch_path};
 use crate::types::{
-  PathChangeKind, PathChangeScope, PathsChanged, RepositoryMetadata, RepositoryStatus, RepoOperationState, StatusEntry,
+  PathChangeKind, PathChangeScope, PathsChanged, RepoOperationState, RepositoryMetadata, RepositoryStatus, StatusEntry,
   StatusKey, StatusPatch, StatusPhase,
 };
 
@@ -24,6 +24,7 @@ pub const PATCH_CHUNK: usize = 256;
 pub const STORM_SCAN_CAP: usize = 512;
 pub const DIRTY_CAP: usize = 2048;
 const STORM_COALESCE_MS: u64 = 500;
+const SCAN_RETRY_MS: u64 = 75;
 const WATCHER_CHANNEL_BOUND: usize = 512;
 
 type PatchSink = Arc<dyn Fn(StatusPatch) + Send + Sync>;
@@ -130,6 +131,8 @@ struct CoordinatorState {
   storm: StormMachine,
   scan_in_flight: bool,
   fail_next_scan: bool,
+  fail_all_scans: bool,
+  scan_failed: bool,
 }
 
 impl Default for CoordinatorState {
@@ -144,6 +147,8 @@ impl Default for CoordinatorState {
       storm: StormMachine::new(),
       scan_in_flight: false,
       fail_next_scan: false,
+      fail_all_scans: false,
+      scan_failed: false,
     }
   }
 }
@@ -157,6 +162,8 @@ pub struct StatusCoordinator {
   scan_mutex: Mutex<()>,
   #[cfg(test)]
   during_scan: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+  #[cfg(test)]
+  scan_attempts: std::sync::atomic::AtomicUsize,
 }
 
 impl StatusCoordinator {
@@ -170,6 +177,8 @@ impl StatusCoordinator {
       scan_mutex: Mutex::new(()),
       #[cfg(test)]
       during_scan: Mutex::new(None),
+      #[cfg(test)]
+      scan_attempts: std::sync::atomic::AtomicUsize::new(0),
     }
   }
 
@@ -184,6 +193,8 @@ impl StatusCoordinator {
       scan_mutex: Mutex::new(()),
       #[cfg(test)]
       during_scan: Mutex::new(None),
+      #[cfg(test)]
+      scan_attempts: std::sync::atomic::AtomicUsize::new(0),
     }
   }
 
@@ -299,7 +310,9 @@ impl StatusCoordinator {
   #[cfg(test)]
   pub fn take_scan_scopes_for_test(&self) -> Vec<StatusScope> {
     let mut state = self.lock();
-    take_scan_scopes(&mut state, true).map(|(scopes, _)| scopes).unwrap_or_default()
+    take_scan_scopes(&mut state, true)
+      .map(|(scopes, _)| scopes)
+      .unwrap_or_default()
   }
 
   #[cfg(test)]
@@ -310,6 +323,16 @@ impl StatusCoordinator {
   #[cfg(test)]
   pub fn fail_next_scan_for_test(&self) {
     self.lock().fail_next_scan = true;
+  }
+
+  #[cfg(test)]
+  pub fn fail_all_scans_for_test(&self) {
+    self.lock().fail_all_scans = true;
+  }
+
+  #[cfg(test)]
+  pub fn scan_attempts_for_test(&self) -> usize {
+    self.scan_attempts.load(Ordering::SeqCst)
   }
 
   #[cfg(test)]
@@ -415,56 +438,80 @@ impl StatusCoordinator {
         continue;
       }
 
-      let has_dirty = {
+      let (has_dirty, scan_failed) = {
         let state = self.lock();
-        !state.dirty.is_empty() || state.overflow
+        (!state.dirty.is_empty() || state.overflow, state.scan_failed)
       };
-      if !has_dirty {
-        let wait = storm_recv_timeout(&self.lock().storm, now);
-        let first = match wait {
-          None => match rx.recv() {
-            Ok(message) => message,
-            Err(_) => return,
-          },
-          Some(timeout) => match rx.recv_timeout(timeout) {
-            Ok(message) => message,
-            Err(RecvTimeoutError::Timeout) => continue,
-            Err(RecvTimeoutError::Disconnected) => return,
-          },
-        };
-        self.ingest(first);
+      if !has_dirty || scan_failed {
+        if has_dirty {
+          let deadline = Instant::now() + Duration::from_millis(SCAN_RETRY_MS);
+          loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+              break;
+            }
+            match rx.recv_timeout(remaining) {
+              Ok(message) => self.ingest(message),
+              Err(RecvTimeoutError::Timeout) => break,
+              Err(RecvTimeoutError::Disconnected) => return,
+            }
+          }
 
-        let coalesce = if self.in_storm() {
-          Duration::from_millis(STORM_COALESCE_MS)
+          if self.overflow_flag.swap(false, Ordering::SeqCst) {
+            self.ingest(WatcherMessage::Overflow);
+          }
+
+          if self.lock().storm.should_exit(Instant::now()) {
+            let _ = self.exit_storm_with_baseline();
+            continue;
+          }
         } else {
-          Duration::from_millis(COALESCE_MS)
-        };
-        let mut deadline = Instant::now() + coalesce;
-        if let Some(quiet) = storm_recv_timeout(&self.lock().storm, Instant::now()) {
-          let quiet_deadline = Instant::now() + quiet;
-          if quiet_deadline < deadline {
-            deadline = quiet_deadline;
-          }
-        }
-        loop {
-          let remaining = deadline.saturating_duration_since(Instant::now());
-          if remaining.is_zero() {
-            break;
-          }
-          match rx.recv_timeout(remaining) {
-            Ok(message) => self.ingest(message),
-            Err(RecvTimeoutError::Timeout) => break,
-            Err(RecvTimeoutError::Disconnected) => return,
-          }
-        }
+          let wait = storm_recv_timeout(&self.lock().storm, now);
+          let first = match wait {
+            None => match rx.recv() {
+              Ok(message) => message,
+              Err(_) => return,
+            },
+            Some(timeout) => match rx.recv_timeout(timeout) {
+              Ok(message) => message,
+              Err(RecvTimeoutError::Timeout) => continue,
+              Err(RecvTimeoutError::Disconnected) => return,
+            },
+          };
+          self.ingest(first);
 
-        if self.overflow_flag.swap(false, Ordering::SeqCst) {
-          self.ingest(WatcherMessage::Overflow);
-        }
+          let coalesce = if self.in_storm() {
+            Duration::from_millis(STORM_COALESCE_MS)
+          } else {
+            Duration::from_millis(COALESCE_MS)
+          };
+          let mut deadline = Instant::now() + coalesce;
+          if let Some(quiet) = storm_recv_timeout(&self.lock().storm, Instant::now()) {
+            let quiet_deadline = Instant::now() + quiet;
+            if quiet_deadline < deadline {
+              deadline = quiet_deadline;
+            }
+          }
+          loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+              break;
+            }
+            match rx.recv_timeout(remaining) {
+              Ok(message) => self.ingest(message),
+              Err(RecvTimeoutError::Timeout) => break,
+              Err(RecvTimeoutError::Disconnected) => return,
+            }
+          }
 
-        if self.lock().storm.should_exit(Instant::now()) {
-          let _ = self.exit_storm_with_baseline();
-          continue;
+          if self.overflow_flag.swap(false, Ordering::SeqCst) {
+            self.ingest(WatcherMessage::Overflow);
+          }
+
+          if self.lock().storm.should_exit(Instant::now()) {
+            let _ = self.exit_storm_with_baseline();
+            continue;
+          }
         }
       }
       let _ = self.scan_from_channel(&rx);
@@ -567,9 +614,11 @@ impl StatusCoordinator {
       return Ok(());
     };
 
+    #[cfg(test)]
+    self.scan_attempts.fetch_add(1, Ordering::SeqCst);
     let fail_next = {
       let mut state = self.lock();
-      if state.fail_next_scan {
+      if state.fail_all_scans || state.fail_next_scan {
         state.fail_next_scan = false;
         true
       } else {
@@ -577,8 +626,7 @@ impl StatusCoordinator {
       }
     };
     if fail_next {
-      self.requeue_scopes(scopes);
-      self.end_scan();
+      self.fail_scan(scopes);
       return Err(crate::error::Error::Other("scan failed".into()));
     }
 
@@ -588,8 +636,7 @@ impl StatusCoordinator {
     let scan = match scan_result(&self.root, &scopes) {
       Ok(scan) => scan,
       Err(err) => {
-        self.requeue_scopes(scopes);
-        self.end_scan();
+        self.fail_scan(scopes);
         if is_index_locked(&err) {
           return Ok(());
         }
@@ -602,16 +649,19 @@ impl StatusCoordinator {
     } else {
       Some(scopes)
     };
-    let phase = if storm { StatusPhase::Storm } else { StatusPhase::Settled };
+    let phase = if storm {
+      StatusPhase::Storm
+    } else {
+      StatusPhase::Settled
+    };
     self.apply_scan_with_generation(generation, scan, scoped.as_deref(), phase);
 
     let extra_pending = drain();
     let mut state = self.lock();
-    let pending = extra_pending
-      || !state.dirty.is_empty()
-      || state.overflow
-      || self.overflow_flag.load(Ordering::SeqCst);
+    let pending =
+      extra_pending || !state.dirty.is_empty() || state.overflow || self.overflow_flag.load(Ordering::SeqCst);
     state.storm.note_scan_finished(pending);
+    state.scan_failed = false;
     Ok(())
   }
 
@@ -621,6 +671,13 @@ impl StatusCoordinator {
       self.queue_scope(&mut state, scope);
     }
   }
+
+  fn fail_scan(&self, scopes: Vec<StatusScope>) {
+    self.requeue_scopes(scopes);
+    self.end_scan();
+    self.lock().scan_failed = true;
+  }
+
   fn exit_storm_with_baseline(&self) -> Result<()> {
     {
       let mut state = self.lock();
@@ -642,7 +699,6 @@ impl StatusCoordinator {
     self.apply_scan_with_generation(generation, scan, None, StatusPhase::Settled);
     Ok(())
   }
-
 
   fn apply_scan_with_generation(
     &self,
@@ -807,8 +863,8 @@ mod tests {
   use std::time::{Duration, Instant};
 
   use super::{
-    diff_status_maps, StatusCoordinator, StormMachine, COALESCE_MS, DIRTY_CAP, PATCH_CHUNK, STORM_BUSY_SCANS,
-    STORM_EVENT_RATE, STORM_EXIT_QUIET_MS, STORM_SCAN_CAP, STORM_UNIQUE_SCOPES,
+    COALESCE_MS, DIRTY_CAP, PATCH_CHUNK, SCAN_RETRY_MS, STORM_BUSY_SCANS, STORM_EVENT_RATE, STORM_EXIT_QUIET_MS,
+    STORM_SCAN_CAP, STORM_UNIQUE_SCOPES, StatusCoordinator, StormMachine, diff_status_maps,
   };
   use crate::git::status::StatusScope;
   use crate::git::watcher::{ClassifiedPath, WatcherMessage};
@@ -868,8 +924,16 @@ mod tests {
 
     let (upserts, removals) = diff_status_maps(&previous, &next);
     assert_eq!(upserts.len(), 2);
-    assert!(upserts.iter().any(|item| item.path == "b.rs" && item.status == FileStatus::Modified));
-    assert!(upserts.iter().any(|item| item.path == "c.rs" && item.group == ResourceGroupKind::Index));
+    assert!(
+      upserts
+        .iter()
+        .any(|item| item.path == "b.rs" && item.status == FileStatus::Modified)
+    );
+    assert!(
+      upserts
+        .iter()
+        .any(|item| item.path == "c.rs" && item.group == ResourceGroupKind::Index)
+    );
     assert_eq!(removals, vec![key(ResourceGroupKind::WorkingTree, "a.rs")]);
   }
 
@@ -912,7 +976,13 @@ mod tests {
       collected.lock().unwrap_or_else(|err| err.into_inner()).push(patch);
     });
     let entries: Vec<StatusEntry> = (0..300)
-      .map(|index| entry(ResourceGroupKind::WorkingTree, &format!("f{index}.rs"), FileStatus::Untracked))
+      .map(|index| {
+        entry(
+          ResourceGroupKind::WorkingTree,
+          &format!("f{index}.rs"),
+          FileStatus::Untracked,
+        )
+      })
       .collect();
     coordinator.apply_baseline_for_test(entries);
 
@@ -958,7 +1028,10 @@ mod tests {
 
     let patches = patches.lock().unwrap_or_else(|err| err.into_inner());
     assert_eq!(patches.len(), 1);
-    assert_eq!(patches[0].removals, vec![key(ResourceGroupKind::WorkingTree, "gone.rs")]);
+    assert_eq!(
+      patches[0].removals,
+      vec![key(ResourceGroupKind::WorkingTree, "gone.rs")]
+    );
     assert!(patches[0].upserts.is_empty());
   }
 
@@ -970,7 +1043,13 @@ mod tests {
       collected.lock().unwrap_or_else(|err| err.into_inner()).push(patch);
     });
     let entries: Vec<StatusEntry> = (0..300)
-      .map(|index| entry(ResourceGroupKind::WorkingTree, &format!("gone{index}.rs"), FileStatus::Untracked))
+      .map(|index| {
+        entry(
+          ResourceGroupKind::WorkingTree,
+          &format!("gone{index}.rs"),
+          FileStatus::Untracked,
+        )
+      })
       .collect();
     coordinator.apply_baseline_for_test(entries);
     patches.lock().unwrap_or_else(|err| err.into_inner()).clear();
@@ -992,8 +1071,16 @@ mod tests {
     coordinator.invalidate(StatusScope::Subtree("src".into()));
     coordinator.invalidate(StatusScope::Exact("a.rs".into()));
     let taken = coordinator.take_scan_scopes_for_test();
-    assert!(taken.iter().any(|scope| matches!(scope, StatusScope::Exact(path) if path == "a.rs")));
-    assert!(taken.iter().any(|scope| matches!(scope, StatusScope::Subtree(path) if path == "src")));
+    assert!(
+      taken
+        .iter()
+        .any(|scope| matches!(scope, StatusScope::Exact(path) if path == "a.rs"))
+    );
+    assert!(
+      taken
+        .iter()
+        .any(|scope| matches!(scope, StatusScope::Subtree(path) if path == "src"))
+    );
     assert!(coordinator.dirty_scopes_for_test().is_empty());
   }
 
@@ -1044,13 +1131,9 @@ mod tests {
   #[test]
   fn extra_pending_from_channel_counts_as_busy_scan() {
     let coordinator = StatusCoordinator::with_emitter(|_| {});
-    coordinator
-      .scan_dirty_with_extra_pending_for_test(true)
-      .unwrap();
+    coordinator.scan_dirty_with_extra_pending_for_test(true).unwrap();
     assert!(!coordinator.in_storm());
-    coordinator
-      .scan_dirty_with_extra_pending_for_test(true)
-      .unwrap();
+    coordinator.scan_dirty_with_extra_pending_for_test(true).unwrap();
     assert!(coordinator.in_storm());
   }
 
@@ -1188,6 +1271,46 @@ mod tests {
     assert!(
       coordinator.dirty_scopes_for_test().is_empty(),
       "leftover dirty must be scanned, not left queued"
+    );
+
+    drop(tx);
+    worker.join().unwrap();
+  }
+
+  #[test]
+  fn run_loop_does_not_rescan_immediately_after_failed_scan() {
+    let (dir, coordinator) = init_coordinator_repo();
+    std::fs::write(dir.path().join("fail.rs"), "fail").unwrap();
+
+    let coordinator = std::sync::Arc::new(coordinator);
+    coordinator.fail_all_scans_for_test();
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(8);
+    let worker = {
+      let coordinator = std::sync::Arc::clone(&coordinator);
+      std::thread::spawn(move || coordinator.run_loop(rx))
+    };
+
+    tx.send(watcher_exact("fail.rs")).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while coordinator.scan_attempts_for_test() == 0 {
+      assert!(Instant::now() < deadline, "run_loop never attempted a scan");
+      std::thread::sleep(Duration::from_millis(5));
+    }
+
+    std::thread::sleep(Duration::from_millis(SCAN_RETRY_MS / 2));
+    let attempts = coordinator.scan_attempts_for_test();
+    assert_eq!(
+      attempts, 1,
+      "failed scan must not re-enter immediately without delay, attempts={attempts}"
+    );
+    assert!(
+      coordinator
+        .dirty_scopes_for_test()
+        .iter()
+        .any(|scope| matches!(scope, StatusScope::Exact(path) if path == "fail.rs")),
+      "failed scan must retain dirty scopes"
     );
 
     drop(tx);
