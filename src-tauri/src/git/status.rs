@@ -26,8 +26,7 @@ pub struct StatusScan {
 pub struct ScopeIndex {
   repository: bool,
   exact: HashSet<String>,
-  prefix_exact: HashSet<String>,
-  prefixes: Vec<String>,
+  subtrees: HashSet<String>,
 }
 
 impl ScopeIndex {
@@ -41,9 +40,10 @@ impl ScopeIndex {
         }
         StatusScope::Subtree(path) => {
           let trimmed = normalize_relative(path);
-          let trimmed = trimmed.trim_end_matches('/').to_string();
-          index.prefixes.push(format!("{trimmed}/"));
-          index.prefix_exact.insert(trimmed);
+          let trimmed = trimmed.trim_end_matches('/');
+          if !trimmed.is_empty() {
+            index.subtrees.insert(trimmed.to_string());
+          }
         }
       }
     }
@@ -54,10 +54,7 @@ impl ScopeIndex {
     if self.repository {
       return true;
     }
-    if self.exact.contains(path) || self.prefix_exact.contains(path) {
-      return true;
-    }
-    self.prefixes.iter().any(|prefix| path.starts_with(prefix.as_str()))
+    self.exact.contains(path) || self.matches_subtree(path)
   }
 
   pub fn exact_paths(&self) -> impl Iterator<Item = &String> {
@@ -65,11 +62,21 @@ impl ScopeIndex {
   }
 
   pub fn has_subtrees(&self) -> bool {
-    !self.prefixes.is_empty() || !self.prefix_exact.is_empty()
+    !self.subtrees.is_empty()
   }
 
   pub fn matches_subtree(&self, path: &str) -> bool {
-    self.prefix_exact.contains(path) || self.prefixes.iter().any(|prefix| path.starts_with(prefix.as_str()))
+    let mut rest = path.trim_end_matches('/');
+    while !rest.is_empty() {
+      if self.subtrees.contains(rest) {
+        return true;
+      }
+      match rest.rsplit_once('/') {
+        Some((parent, _)) => rest = parent,
+        None => break,
+      }
+    }
+    false
   }
 }
 
@@ -526,6 +533,32 @@ mod tests {
     assert!(!index.contains("src2/lib.rs"));
     assert!(index.has_subtrees());
     assert_eq!(index.exact_paths().count(), 2);
+  }
+
+  #[test]
+  fn scope_index_matches_subtree_by_ancestor_membership() {
+    let mut scopes: Vec<StatusScope> = (0..256)
+      .map(|index| StatusScope::Subtree(format!("unrelated-{index}")))
+      .collect();
+    scopes.push(StatusScope::Subtree("src/nested".into()));
+    scopes.push(StatusScope::Subtree("src/nested/".into()));
+    scopes.push(StatusScope::Exact("top.rs".into()));
+    let index = ScopeIndex::new(&scopes);
+
+    assert!(index.contains("src/nested"));
+    assert!(index.contains("src/nested/lib.rs"));
+    assert!(index.contains("src/nested/a/b/c.rs"));
+    assert!(index.matches_subtree("src/nested/a/b/c.rs"));
+    assert!(index.matches_subtree("src/nested"));
+    assert!(!index.contains("src"));
+    assert!(!index.matches_subtree("src"));
+    assert!(!index.contains("src/other.rs"));
+    assert!(!index.contains("src/nested-extra/x.rs"));
+    assert!(index.contains("top.rs"));
+    assert!(!index.matches_subtree("top.rs"));
+    assert!(index.contains("unrelated-0"));
+    assert!(index.contains("unrelated-0/file.rs"));
+    assert!(index.has_subtrees());
   }
 
   #[test]

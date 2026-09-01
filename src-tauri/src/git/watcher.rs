@@ -43,6 +43,12 @@ pub enum WatcherMessage {
   Wake,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WatchSpec {
+  pub path: PathBuf,
+  pub mode: RecursiveMode,
+}
+
 #[derive(Debug, Default)]
 pub struct WatchFilter {
   tracked: HashSet<String>,
@@ -118,7 +124,7 @@ impl WatchCache {
   }
 }
 
-pub fn extra_watch_roots(repo_root: &Path) -> Vec<PathBuf> {
+pub fn extra_watch_specs(repo_root: &Path) -> Vec<WatchSpec> {
   let Ok(repo) = git2::Repository::open(repo_root) else {
     return Vec::new();
   };
@@ -135,14 +141,28 @@ pub fn extra_watch_roots(repo_root: &Path) -> Vec<PathBuf> {
     return Vec::new();
   };
 
-  let mut roots = Vec::new();
+  let mut specs = Vec::new();
   if !git_dir.starts_with(&workdir) {
-    roots.push(git_dir);
+    specs.push(WatchSpec {
+      path: git_dir.clone(),
+      mode: RecursiveMode::Recursive,
+    });
   }
-  if !common_dir.starts_with(&workdir) && !roots.iter().any(|root| root == &common_dir) {
-    roots.push(common_dir);
+  if !common_dir.starts_with(&workdir) && common_dir != git_dir {
+    specs.push(WatchSpec {
+      path: common_dir.clone(),
+      mode: RecursiveMode::NonRecursive,
+    });
+    if let Ok(refs) = std::fs::canonicalize(common_dir.join("refs")) {
+      if refs != git_dir && refs != common_dir {
+        specs.push(WatchSpec {
+          path: refs,
+          mode: RecursiveMode::Recursive,
+        });
+      }
+    }
   }
-  roots
+  specs
 }
 
 pub fn notify_event_lost(result: &notify::Result<Event>) -> bool {
@@ -174,14 +194,14 @@ fn classify_git_relative(relative: &str) -> Option<ClassifiedPath> {
 
 pub fn classify_watched_path(
   workdir: &Path,
-  extra_roots: &[PathBuf],
+  extra_roots: &[WatchSpec],
   path: &Path,
   kind: EventKind,
 ) -> Option<ClassifiedPath> {
-  let mut extras: Vec<&PathBuf> = extra_roots.iter().collect();
-  extras.sort_by_key(|root| std::cmp::Reverse(root.as_os_str().len()));
+  let mut extras: Vec<&WatchSpec> = extra_roots.iter().collect();
+  extras.sort_by_key(|root| std::cmp::Reverse(root.path.as_os_str().len()));
   for extra in extras {
-    if let Ok(relative) = path.strip_prefix(extra) {
+    if let Ok(relative) = path.strip_prefix(&extra.path) {
       let relative = relative.to_string_lossy().replace('\\', "/");
       return classify_git_relative(&relative);
     }
@@ -232,10 +252,10 @@ pub fn start_watcher(
   let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
   let mut watcher = notify::recommended_watcher(tx)?;
   watcher.watch(repo_root, RecursiveMode::Recursive)?;
-  let extra_roots = extra_watch_roots(repo_root);
+  let extra_roots = extra_watch_specs(repo_root);
   for extra in &extra_roots {
-    if let Err(err) = watcher.watch(extra, RecursiveMode::Recursive) {
-      tracing::warn!("failed to watch extra git path {}: {err:?}", extra.display());
+    if let Err(err) = watcher.watch(&extra.path, extra.mode) {
+      tracing::warn!("failed to watch extra git path {}: {err:?}", extra.path.display());
     }
   }
   let root = repo_root.to_path_buf();
@@ -246,7 +266,9 @@ pub fn start_watcher(
       match rx.recv_timeout(Duration::from_millis(200)) {
         Ok(result) => {
           if notify_event_lost(&result) {
-            overflow.store(true, Ordering::SeqCst);
+            if !signal_overflow(&sink, &overflow) {
+              return;
+            }
             continue;
           }
           let Ok(event) = result else {
@@ -276,6 +298,14 @@ pub fn start_watcher(
   Ok(WatcherHandle { stop_tx })
 }
 
+pub fn signal_overflow(sink: &mpsc::SyncSender<WatcherMessage>, overflow: &AtomicBool) -> bool {
+  overflow.store(true, Ordering::SeqCst);
+  match sink.try_send(WatcherMessage::Wake) {
+    Ok(()) | Err(mpsc::TrySendError::Full(_)) => true,
+    Err(mpsc::TrySendError::Disconnected(_)) => false,
+  }
+}
+
 pub fn send_classified(
   sink: &mpsc::SyncSender<WatcherMessage>,
   overflow: &AtomicBool,
@@ -296,13 +326,14 @@ mod tests {
   use std::path::{Path, PathBuf};
 
   use notify::{
-    Event, EventKind,
+    Event, EventKind, RecursiveMode,
     event::{Flag, ModifyKind},
   };
   use tempfile::TempDir;
 
   use super::{
-    WatchFilter, classify_path, classify_watched_path, extra_watch_roots, notify_event_lost, should_watch_path,
+    WatchFilter, WatchSpec, classify_path, classify_watched_path, extra_watch_specs, notify_event_lost,
+    should_watch_path,
   };
   use crate::types::{PathChangeKind, PathChangeScope};
 
@@ -411,6 +442,31 @@ mod tests {
   }
 
   #[test]
+  fn overflow_signal_wakes_idle_worker_or_stops_when_disconnected() {
+    use super::{WatcherMessage, signal_overflow};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+
+    let overflow = AtomicBool::new(false);
+    let (tx, rx) = mpsc::sync_channel(1);
+    assert!(signal_overflow(&tx, &overflow));
+    assert!(overflow.load(Ordering::SeqCst));
+    assert!(matches!(rx.try_recv(), Ok(WatcherMessage::Wake)));
+
+    tx.try_send(WatcherMessage::Wake).unwrap();
+    overflow.store(false, Ordering::SeqCst);
+    assert!(signal_overflow(&tx, &overflow));
+    assert!(overflow.load(Ordering::SeqCst));
+    assert!(matches!(rx.try_recv(), Ok(WatcherMessage::Wake)));
+    assert!(rx.try_recv().is_err());
+
+    drop(rx);
+    overflow.store(false, Ordering::SeqCst);
+    assert!(!signal_overflow(&tx, &overflow));
+    assert!(overflow.load(Ordering::SeqCst));
+  }
+
+  #[test]
   fn full_channel_sets_overflow_flag_without_sending_overflow_message() {
     use super::{ClassifiedPath, WatcherMessage, send_classified};
     use crate::types::{PathChangeKind, PathChangeScope};
@@ -432,13 +488,13 @@ mod tests {
   }
 
   #[test]
-  fn main_repo_has_no_extra_watch_roots() {
+  fn main_repo_has_no_extra_watch_specs() {
     let (dir, _repo) = init_repo();
-    assert!(extra_watch_roots(dir.path()).is_empty());
+    assert!(extra_watch_specs(dir.path()).is_empty());
   }
 
   #[test]
-  fn linked_worktree_watch_roots_include_git_dir_and_common_dir() {
+  fn linked_worktree_watch_specs_exclude_recursive_common_dir() {
     let directory = TempDir::new().unwrap();
     let main = directory.path().join("main");
     let linked = directory.path().join("linked");
@@ -452,34 +508,81 @@ mod tests {
     commit_forced(&repo, "README.md", "hello\n");
     repo.worktree("linked", &linked, None).unwrap();
 
-    let extra = extra_watch_roots(&linked);
+    let specs = extra_watch_specs(&linked);
+    let git_dir = specs
+      .iter()
+      .find(|spec| spec.path.to_string_lossy().contains("worktrees/linked"));
+    assert!(git_dir.is_some(), "expected worktree git dir, got {specs:?}");
+    assert_eq!(git_dir.unwrap().mode, RecursiveMode::Recursive);
+
+    let common = specs.iter().find(|spec| {
+      let text = spec.path.to_string_lossy();
+      text.ends_with(".git") && !text.contains("worktrees")
+    });
+    assert!(common.is_some(), "expected common git dir, got {specs:?}");
+    assert_eq!(common.unwrap().mode, RecursiveMode::NonRecursive);
+
+    let refs = specs
+      .iter()
+      .find(|spec| spec.path.ends_with("refs") && !spec.path.to_string_lossy().contains("worktrees"));
+    assert!(refs.is_some(), "expected common refs, got {specs:?}");
+    assert_eq!(refs.unwrap().mode, RecursiveMode::Recursive);
+
     assert!(
-      extra
-        .iter()
-        .any(|root| root.to_string_lossy().contains("worktrees/linked")),
-      "expected worktree git dir, got {extra:?}"
-    );
-    assert!(
-      extra.iter().any(|root| {
-        let text = root.to_string_lossy();
-        text.ends_with(".git") && !text.contains("worktrees")
+      specs.iter().all(|spec| {
+        let text = spec.path.to_string_lossy();
+        !(spec.mode == RecursiveMode::Recursive && text.ends_with(".git") && !text.contains("worktrees"))
       }),
-      "expected common git dir, got {extra:?}"
+      "common git dir must not be watched recursively, got {specs:?}"
     );
   }
 
   #[test]
   fn git_dir_events_classify_as_repository_invalidation() {
-    let git_dir = PathBuf::from("/repo/.git/worktrees/linked");
+    let git_dir = WatchSpec {
+      path: PathBuf::from("/repo/.git/worktrees/linked"),
+      mode: RecursiveMode::Recursive,
+    };
     let classified = classify_watched_path(
       Path::new("/linked"),
       &[git_dir.clone()],
-      &git_dir.join("HEAD"),
+      &git_dir.path.join("HEAD"),
       EventKind::Modify(ModifyKind::Any),
     )
     .unwrap();
     assert_eq!(classified.kind, PathChangeKind::Git);
     assert_eq!(classified.scope, PathChangeScope::Repository);
+  }
+
+  #[test]
+  fn extra_git_metadata_classifies_as_repository_git() {
+    let extras = [
+      WatchSpec {
+        path: PathBuf::from("/repo/.git/worktrees/linked"),
+        mode: RecursiveMode::Recursive,
+      },
+      WatchSpec {
+        path: PathBuf::from("/repo/.git"),
+        mode: RecursiveMode::NonRecursive,
+      },
+      WatchSpec {
+        path: PathBuf::from("/repo/.git/refs"),
+        mode: RecursiveMode::Recursive,
+      },
+    ];
+    let workdir = Path::new("/linked");
+    let kind = EventKind::Modify(ModifyKind::Any);
+
+    for path in [
+      "/repo/.git/worktrees/linked/HEAD",
+      "/repo/.git/HEAD",
+      "/repo/.git/packed-refs",
+      "/repo/.git/refs/heads/main",
+    ] {
+      let classified = classify_watched_path(workdir, &extras, Path::new(path), kind).unwrap();
+      assert_eq!(classified.kind, PathChangeKind::Git, "{path}");
+      assert_eq!(classified.scope, PathChangeScope::Repository, "{path}");
+    }
   }
 
   #[test]
