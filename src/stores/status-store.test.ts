@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import type { StatusEntry, StatusPatch } from "../lib/git-types";
-import { applyStatusPatch, replaceFromSnapshot, statusStore } from "./status-store";
+import { applyStatusPatch, replaceFromSnapshot, resetStatusStore, statusStore } from "./status-store";
 
 const entry = (path: string, group: StatusEntry["group"] = "workingTree"): StatusEntry => ({
   group,
@@ -20,13 +20,7 @@ const patch = (overrides: Partial<StatusPatch> = {}): StatusPatch => ({
 });
 
 beforeEach(() => {
-  statusStore.setState({
-    generation: 0,
-    revision: 0,
-    phase: "settled",
-    entries: new Map(),
-    groups: [],
-  });
+  resetStatusStore();
 });
 
 describe("applyStatusPatch", () => {
@@ -97,6 +91,23 @@ describe("applyStatusPatch", () => {
     const files = statusStore.getState().groups.flatMap((group) => group.files);
     expect(files.map((file) => file.path)).toEqual(["a.ts"]);
     expect(statusStore.getState().revision).toBe(1);
+  });
+
+  it("keeps unrelated group file arrays when updating one group", () => {
+    applyStatusPatch(patch({ upserts: [entry("a.ts"), entry("b.ts", "index")] }));
+    const indexFiles = statusStore.getState().groups.find((group) => group.kind === "index")?.files;
+
+    applyStatusPatch(
+      patch({
+        baseRevision: 1,
+        revision: 2,
+        upserts: [entry("c.ts")],
+      })
+    );
+
+    expect(statusStore.getState().groups.find((group) => group.kind === "index")?.files).toBe(indexFiles);
+    const workingTreeFiles = statusStore.getState().groups.find((group) => group.kind === "workingTree")?.files;
+    expect(workingTreeFiles?.map((file) => file.path)).toEqual(["a.ts", "c.ts"]);
   });
 });
 

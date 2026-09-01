@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { PathsChanged, StatusEntry, StatusPatch, StatusSnapshot } from "../lib/git-types";
-import { applyIncomingPatch, pathsChangedIntersects } from "./use-repository-events";
-import { resetStatusStore, statusStore } from "../stores/status-store";
+import {
+  applyIncomingPatch,
+  beginRepositorySession,
+  enqueueStatusPatch,
+  flushPendingPatches,
+  pathsChangedIntersects,
+} from "./use-repository-events";
+import { statusStore } from "../stores/status-store";
 import { repositoryStore } from "../stores/repository-store";
 
 const entry = (path: string, group: StatusEntry["group"] = "workingTree"): StatusEntry => ({
@@ -22,7 +28,7 @@ const patch = (overrides: Partial<StatusPatch> = {}): StatusPatch => ({
 });
 
 beforeEach(() => {
-  resetStatusStore();
+  beginRepositorySession();
   repositoryStore.setState({
     status: {
       root: "/repo",
@@ -106,6 +112,65 @@ describe("applyIncomingPatch", () => {
 
     expect(repositoryStore.getState().selectedFile).toBeNull();
     expect(repositoryStore.getState().diff).toBeNull();
+  });
+});
+
+describe("repository session", () => {
+  it("drops queued patches from a prior repository when switching identity", async () => {
+    await applyIncomingPatch(
+      patch({
+        generation: 5,
+        upserts: [entry("from-a.ts")],
+      }),
+      async () => {
+        throw new Error("should not recover");
+      }
+    );
+    enqueueStatusPatch(
+      patch({
+        generation: 5,
+        baseRevision: 1,
+        revision: 2,
+        upserts: [entry("queued-a.ts")],
+      })
+    );
+
+    repositoryStore.getState().setIdentity({ root: "/repo-b", headBranch: "main" });
+    beginRepositorySession();
+
+    enqueueStatusPatch(
+      patch({
+        generation: 1,
+        upserts: [entry("from-b.ts")],
+      })
+    );
+    await flushPendingPatches();
+
+    const files = statusStore.getState().groups.flatMap((group) => group.files).map((file) => file.path);
+    expect(files).toEqual(["from-b.ts"]);
+    expect(statusStore.getState().generation).toBe(1);
+    expect(repositoryStore.getState().status?.groups[0]?.files[0]?.path).toBe("from-b.ts");
+  });
+
+  it("applies a queued batch before publishing one repository projection", async () => {
+    const roots: string[][] = [];
+    const unsubscribe = repositoryStore.subscribe((state) => {
+      roots.push((state.status?.groups ?? []).flatMap((group) => group.files.map((file) => file.path)));
+    });
+
+    enqueueStatusPatch(patch({ upserts: [entry("one.ts")] }));
+    enqueueStatusPatch(
+      patch({
+        baseRevision: 1,
+        revision: 2,
+        upserts: [entry("two.ts")],
+      })
+    );
+    await flushPendingPatches();
+    unsubscribe();
+
+    expect(statusStore.getState().groups[0]?.files.map((file) => file.path)).toEqual(["one.ts", "two.ts"]);
+    expect(roots.filter((paths) => paths.length > 0)).toEqual([["one.ts", "two.ts"]]);
   });
 });
 

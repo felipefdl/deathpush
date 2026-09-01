@@ -12,7 +12,7 @@ import type {
   StashEntry,
   TagEntry,
 } from "../lib/git-types";
-import { statusStore } from "./status-store";
+import { resetStatusStore, statusStore } from "./status-store";
 
 export type SelectedFile = {
   path: string;
@@ -58,7 +58,7 @@ interface RepositoryState {
   setTags: (tags: TagEntry[]) => void;
   setStashes: (stashes: StashEntry[]) => void;
   setAmendMode: (amend: boolean) => void;
-  setIdentity: (identity: RepositoryIdentity | null) => void;
+  setIdentity: (identity: RepositoryIdentity | null, options?: { reset?: boolean }) => void;
   applyMetadata: (metadata: RepositoryMetadata) => void;
   syncStatusGroups: () => void;
   setSelectedFile: (file: SelectedFile | null) => void;
@@ -112,7 +112,13 @@ export const repositoryStore = createStore<RepositoryState>((set, get) => ({
   setTags: (tags) => set({ tags }),
   setStashes: (stashes) => set({ stashes }),
   setAmendMode: (amend) => set({ amendMode: amend }),
-  setIdentity: (identity) => {
+  setIdentity: (identity, options) => {
+    const previousRoot = get().status?.root ?? null;
+    const nextRoot = identity?.root ?? null;
+    const shouldReset = options?.reset ?? previousRoot !== nextRoot;
+    if (shouldReset) {
+      resetStatusStore();
+    }
     if (!identity) {
       set({ status: null, selectedFile: null, diff: null, diffLoadId: null, blame: null, cursorLine: null });
       return;

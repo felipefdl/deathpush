@@ -1,13 +1,24 @@
 import { useTauriEvent } from "./use-tauri-event";
-import { applyStatusPatch, replaceFromSnapshot, statusStore } from "../stores/status-store";
+import {
+  applyStatusPatch,
+  replaceFromSnapshot,
+  resetStatusStore,
+  statusSession,
+  statusStore,
+  type ApplyStatusPatchResult,
+} from "../stores/status-store";
 import { repositoryStore } from "../stores/repository-store";
 import { getStatusSnapshot } from "../lib/tauri-commands";
-import type { ApplyStatusPatchResult } from "../stores/status-store";
-import type { PathsChanged, StatusPatch, StatusSnapshot } from "../lib/git-types";
+import type { PathsChanged, RepositoryMetadata, StatusPatch, StatusSnapshot } from "../lib/git-types";
 
 const STORM_FLUSH_MS = 500;
 
-let pendingPatches: StatusPatch[] = [];
+type QueuedPatch = {
+  session: number;
+  patch: StatusPatch;
+};
+
+let pendingPatches: QueuedPatch[] = [];
 let raf = 0;
 let stormTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
@@ -24,6 +35,34 @@ export const pathsChangedIntersects = (event: PathsChanged, target: string | nul
 export const shouldRefreshExplorer = (event: PathsChanged): boolean =>
   event.scope === "repository" || event.scope === "subtree" || event.kind === "structural";
 
+const cancelScheduledFlush = (): void => {
+  if (raf) {
+    cancelAnimationFrame(raf);
+    raf = 0;
+  }
+  if (stormTimer) {
+    clearTimeout(stormTimer);
+    stormTimer = null;
+  }
+};
+
+export const beginRepositorySession = (): void => {
+  resetStatusStore();
+  pendingPatches = [];
+  cancelScheduledFlush();
+};
+
+export const enqueueStatusPatch = (patch: StatusPatch): void => {
+  pendingPatches.push({ session: statusSession(), patch });
+};
+
+const publishStatusProjection = (metadata?: RepositoryMetadata): void => {
+  if (metadata) {
+    repositoryStore.getState().applyMetadata(metadata);
+  }
+  repositoryStore.getState().syncStatusGroups();
+};
+
 export const applyIncomingPatch = async (
   patch: StatusPatch,
   recover: () => Promise<StatusSnapshot>
@@ -35,33 +74,39 @@ export const applyIncomingPatch = async (
   if (result === "gap") {
     const snapshot = await recover();
     replaceFromSnapshot(snapshot);
-    repositoryStore.getState().applyMetadata(snapshot.metadata);
-    repositoryStore.getState().syncStatusGroups();
+    publishStatusProjection(snapshot.metadata);
     return result;
   }
-  if (patch.metadata) {
-    repositoryStore.getState().applyMetadata(patch.metadata);
-  }
-  repositoryStore.getState().syncStatusGroups();
+  publishStatusProjection(patch.metadata);
   return result;
 };
 
-const flushPendingPatches = (): void => {
-  raf = 0;
-  if (stormTimer) {
-    clearTimeout(stormTimer);
-    stormTimer = null;
-  }
-  if (flushing) return;
-  const patches = pendingPatches;
+export const flushPendingPatches = (): Promise<void> => {
+  cancelScheduledFlush();
+  if (flushing) return Promise.resolve();
+  const queued = pendingPatches;
   pendingPatches = [];
-  if (patches.length === 0) return;
+  if (queued.length === 0) return Promise.resolve();
   flushing = true;
-  void (async () => {
+  const currentSession = statusSession();
+  return (async () => {
     try {
-      for (const patch of patches) {
-        await applyIncomingPatch(patch, getStatusSnapshot);
+      let lastMetadata: RepositoryMetadata | undefined;
+      for (const item of queued) {
+        if (item.session !== currentSession || item.session !== statusSession()) continue;
+        const result = applyStatusPatch(item.patch);
+        if (result === "discarded") continue;
+        if (result === "gap") {
+          const snapshot = await getStatusSnapshot();
+          if (statusSession() !== currentSession) return;
+          replaceFromSnapshot(snapshot);
+          publishStatusProjection(snapshot.metadata);
+          return;
+        }
+        if (item.patch.metadata) lastMetadata = item.patch.metadata;
       }
+      if (statusSession() !== currentSession) return;
+      publishStatusProjection(lastMetadata);
     } finally {
       flushing = false;
       if (pendingPatches.length > 0) {
@@ -78,18 +123,22 @@ const schedulePatchFlush = (storm: boolean): void => {
       raf = 0;
     }
     if (!stormTimer) {
-      stormTimer = setTimeout(flushPendingPatches, STORM_FLUSH_MS);
+      stormTimer = setTimeout(() => {
+        void flushPendingPatches();
+      }, STORM_FLUSH_MS);
     }
     return;
   }
   if (!raf) {
-    raf = requestAnimationFrame(flushPendingPatches);
+    raf = requestAnimationFrame(() => {
+      void flushPendingPatches();
+    });
   }
 };
 
 export const useRepositoryEvents = (): void => {
   useTauriEvent<StatusPatch>("repository:status-patch", (payload) => {
-    pendingPatches.push(payload);
+    enqueueStatusPatch(payload);
     schedulePatchFlush(payload.phase === "storm" || statusStore.getState().phase === "storm");
   });
 };

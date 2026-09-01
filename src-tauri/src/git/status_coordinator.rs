@@ -162,6 +162,7 @@ pub struct StatusCoordinator {
   on_paths: Mutex<Option<PathsSink>>,
   overflow_flag: Arc<AtomicBool>,
   scan_mutex: Mutex<()>,
+  wake_tx: Mutex<Option<mpsc::SyncSender<WatcherMessage>>>,
   #[cfg(test)]
   during_scan: Mutex<Option<Box<dyn FnOnce() + Send>>>,
   #[cfg(test)]
@@ -177,6 +178,7 @@ impl StatusCoordinator {
       on_paths: Mutex::new(None),
       overflow_flag: Arc::new(AtomicBool::new(false)),
       scan_mutex: Mutex::new(()),
+      wake_tx: Mutex::new(None),
       #[cfg(test)]
       during_scan: Mutex::new(None),
       #[cfg(test)]
@@ -193,6 +195,7 @@ impl StatusCoordinator {
       on_paths: Mutex::new(None),
       overflow_flag: Arc::new(AtomicBool::new(false)),
       scan_mutex: Mutex::new(()),
+      wake_tx: Mutex::new(None),
       #[cfg(test)]
       during_scan: Mutex::new(None),
       #[cfg(test)]
@@ -258,8 +261,11 @@ impl StatusCoordinator {
   }
 
   pub fn invalidate(&self, scope: StatusScope) {
-    let mut state = self.lock();
-    self.queue_scope(&mut state, scope);
+    {
+      let mut state = self.lock();
+      self.queue_scope(&mut state, scope);
+    }
+    self.wake();
   }
 
   pub fn invalidate_paths<I, S>(&self, paths: I)
@@ -267,9 +273,22 @@ impl StatusCoordinator {
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
   {
-    let mut state = self.lock();
-    for path in paths {
-      self.queue_scope(&mut state, StatusScope::Exact(path.as_ref().to_string()));
+    {
+      let mut state = self.lock();
+      for path in paths {
+        self.queue_scope(&mut state, StatusScope::Exact(path.as_ref().to_string()));
+      }
+    }
+    self.wake();
+  }
+
+  fn wake(&self) {
+    if self.lock().scan_failed {
+      return;
+    }
+    let tx = self.wake_tx.lock().unwrap_or_else(|err| err.into_inner()).clone();
+    if let Some(tx) = tx {
+      let _ = tx.try_send(WatcherMessage::Wake);
     }
   }
   #[cfg(test)]
@@ -414,6 +433,7 @@ impl StatusCoordinator {
         });
       }
       WatcherMessage::Path(classified) => self.ingest_path(classified),
+      WatcherMessage::Wake => {}
     }
   }
 
@@ -548,6 +568,9 @@ impl StatusCoordinator {
       || {
         let mut extra_pending = self.overflow_flag.load(Ordering::SeqCst);
         while let Ok(message) = rx.try_recv() {
+          if matches!(message, WatcherMessage::Wake) {
+            continue;
+          }
           extra_pending = true;
           self.ingest(message);
         }
@@ -559,6 +582,7 @@ impl StatusCoordinator {
 
   pub fn spawn_worker(self: &Arc<Self>) -> mpsc::SyncSender<WatcherMessage> {
     let (tx, rx) = mpsc::sync_channel(WATCHER_CHANNEL_BOUND);
+    *self.wake_tx.lock().unwrap_or_else(|err| err.into_inner()) = Some(tx.clone());
     let coordinator = Arc::clone(self);
     std::thread::spawn(move || coordinator.run_loop(rx));
     tx
@@ -1355,10 +1379,7 @@ mod tests {
     );
 
     while coordinator.scan_attempts_for_test() < 2 {
-      assert!(
-        Instant::now() < deadline,
-        "failed scan must retry after SCAN_RETRY_MS"
-      );
+      assert!(Instant::now() < deadline, "failed scan must retry after SCAN_RETRY_MS");
       std::thread::sleep(Duration::from_millis(5));
     }
     assert!(
@@ -1476,5 +1497,41 @@ mod tests {
 
     drop(tx);
     worker.join().unwrap();
+  }
+
+  #[test]
+  fn command_invalidate_scans_without_watcher_event() {
+    let (dir, coordinator) = init_coordinator_repo();
+    std::fs::write(dir.path().join("command.rs"), "command").unwrap();
+
+    let coordinator = std::sync::Arc::new(coordinator);
+    let sink = coordinator.spawn_worker();
+    coordinator.invalidate(StatusScope::Exact("command.rs".into()));
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+      let status = coordinator.snapshot();
+      let files: Vec<_> = status
+        .groups
+        .iter()
+        .flat_map(|group| group.files.iter())
+        .map(|file| file.path.as_str())
+        .collect();
+      if files.contains(&"command.rs") {
+        break;
+      }
+      assert!(
+        Instant::now() < deadline,
+        "command invalidate left command.rs dirty until a watcher message"
+      );
+      std::thread::sleep(Duration::from_millis(10));
+    }
+
+    assert!(
+      coordinator.dirty_scopes_for_test().is_empty(),
+      "command invalidate must drain dirty after the woken scan"
+    );
+
+    drop(sink);
   }
 }

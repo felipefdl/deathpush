@@ -11,33 +11,46 @@ import type {
 
 export type ApplyStatusPatchResult = "applied" | "discarded" | "gap";
 
+type IndexedGroupKind = "merge" | "index" | "workingTree";
+
+type GroupFiles = {
+  merge: FileEntry[];
+  index: FileEntry[];
+  workingTree: FileEntry[];
+};
+
+const GROUP_LABEL: Record<IndexedGroupKind, string> = {
+  merge: "Merge Changes",
+  index: "Staged Changes",
+  workingTree: "Changes",
+};
+
+const INDEXED_GROUPS: IndexedGroupKind[] = ["merge", "index", "workingTree"];
+
 export const statusEntryKey = (group: ResourceGroupKind, path: string): string => `${group}\0${path}`;
 
-export const groupsFromEntries = (entries: Iterable<StatusEntry>): ResourceGroup[] => {
-  const merge: FileEntry[] = [];
-  const index: FileEntry[] = [];
-  const workingTree: FileEntry[] = [];
+const indexedGroup = (group: ResourceGroupKind): IndexedGroupKind =>
+  group === "merge" || group === "index" ? group : "workingTree";
 
-  for (const entry of entries) {
-    const file: FileEntry = { path: entry.path, status: entry.status, renamePath: entry.renamePath };
-    if (entry.group === "merge") {
-      merge.push(file);
-    } else if (entry.group === "index") {
-      index.push(file);
-    } else {
-      workingTree.push(file);
-    }
-  }
+const toFileEntry = (entry: StatusEntry): FileEntry => ({
+  path: entry.path,
+  status: entry.status,
+  renamePath: entry.renamePath,
+});
 
+const emptyGroupFiles = (): GroupFiles => ({
+  merge: [],
+  index: [],
+  workingTree: [],
+});
+
+const groupsFromGroupFiles = (groupFiles: GroupFiles): ResourceGroup[] => {
   const groups: ResourceGroup[] = [];
-  if (merge.length > 0) {
-    groups.push({ kind: "merge", label: "Merge Changes", files: merge });
-  }
-  if (index.length > 0) {
-    groups.push({ kind: "index", label: "Staged Changes", files: index });
-  }
-  if (workingTree.length > 0) {
-    groups.push({ kind: "workingTree", label: "Changes", files: workingTree });
+  for (const kind of INDEXED_GROUPS) {
+    const files = groupFiles[kind];
+    if (files.length > 0) {
+      groups.push({ kind, label: GROUP_LABEL[kind], files });
+    }
   }
   return groups;
 };
@@ -47,6 +60,7 @@ type StatusState = {
   revision: number;
   phase: StatusPhase;
   entries: Map<string, StatusEntry>;
+  groupFiles: GroupFiles;
   groups: ResourceGroup[];
 };
 
@@ -55,20 +69,27 @@ const emptyState = (): StatusState => ({
   revision: 0,
   phase: "settled",
   entries: new Map(),
+  groupFiles: emptyGroupFiles(),
   groups: [],
 });
 
 export const statusStore = createStore<StatusState>(() => emptyState());
 
-const commitEntries = (
+let session = 0;
+
+export const statusSession = (): number => session;
+
+const commitState = (
   entries: Map<string, StatusEntry>,
+  groupFiles: GroupFiles,
   generation: number,
   revision: number,
   phase: StatusPhase
 ): void => {
   statusStore.setState({
     entries,
-    groups: groupsFromEntries(entries.values()),
+    groupFiles,
+    groups: groupsFromGroupFiles(groupFiles),
     generation,
     revision,
     phase,
@@ -76,7 +97,32 @@ const commitEntries = (
 };
 
 export const resetStatusStore = (): void => {
+  session += 1;
   statusStore.setState(emptyState());
+};
+
+const cloneGroup = (groupFiles: GroupFiles, kind: IndexedGroupKind, cloned: Set<IndexedGroupKind>): FileEntry[] => {
+  if (!cloned.has(kind)) {
+    groupFiles[kind] = groupFiles[kind].slice();
+    cloned.add(kind);
+  }
+  return groupFiles[kind];
+};
+
+const removeFromGroup = (files: FileEntry[], path: string): void => {
+  const index = files.findIndex((file) => file.path === path);
+  if (index >= 0) {
+    files.splice(index, 1);
+  }
+};
+
+const upsertInGroup = (files: FileEntry[], file: FileEntry): void => {
+  const index = files.findIndex((item) => item.path === file.path);
+  if (index >= 0) {
+    files[index] = file;
+    return;
+  }
+  files.push(file);
 };
 
 export const applyStatusPatch = (patch: StatusPatch): ApplyStatusPatchResult => {
@@ -89,20 +135,39 @@ export const applyStatusPatch = (patch: StatusPatch): ApplyStatusPatchResult => 
   }
 
   const entries = new Map(state.entries);
+  const groupFiles: GroupFiles = {
+    merge: state.groupFiles.merge,
+    index: state.groupFiles.index,
+    workingTree: state.groupFiles.workingTree,
+  };
+  const cloned = new Set<IndexedGroupKind>();
+
   for (const removal of patch.removals) {
-    entries.delete(statusEntryKey(removal.group, removal.path));
+    const key = statusEntryKey(removal.group, removal.path);
+    if (!entries.delete(key)) continue;
+    const kind = indexedGroup(removal.group);
+    removeFromGroup(cloneGroup(groupFiles, kind, cloned), removal.path);
   }
   for (const upsert of patch.upserts) {
-    entries.set(statusEntryKey(upsert.group, upsert.path), upsert);
+    const key = statusEntryKey(upsert.group, upsert.path);
+    const previous = entries.get(key);
+    entries.set(key, upsert);
+    const kind = indexedGroup(upsert.group);
+    if (previous && indexedGroup(previous.group) !== kind) {
+      removeFromGroup(cloneGroup(groupFiles, indexedGroup(previous.group), cloned), previous.path);
+    }
+    upsertInGroup(cloneGroup(groupFiles, kind, cloned), toFileEntry(upsert));
   }
-  commitEntries(entries, patch.generation, patch.revision, patch.phase);
+  commitState(entries, groupFiles, patch.generation, patch.revision, patch.phase);
   return "applied";
 };
 
 export const replaceFromSnapshot = (snapshot: StatusSnapshot): void => {
   const entries = new Map<string, StatusEntry>();
+  const groupFiles = emptyGroupFiles();
   for (const entry of snapshot.entries) {
     entries.set(statusEntryKey(entry.group, entry.path), entry);
+    groupFiles[indexedGroup(entry.group)].push(toFileEntry(entry));
   }
-  commitEntries(entries, snapshot.generation, snapshot.revision, snapshot.phase);
+  commitState(entries, groupFiles, snapshot.generation, snapshot.revision, snapshot.phase);
 };

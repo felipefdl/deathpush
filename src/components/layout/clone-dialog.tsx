@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { repositoryStore } from "../../stores/repository-store";
 import { addRecentProject } from "../../lib/recent-projects";
 import * as commands from "../../lib/tauri-commands";
+import { beginRepositorySession } from "../../hooks/use-repository-events";
 
 type CloneDialogProps = {
   onClose: () => void;
@@ -39,9 +40,10 @@ export const CloneDialog = (props: CloneDialogProps) => {
     const targetPath = `${directoryValue}/${repoName}`;
     setCloning(true);
     try {
+      beginRepositorySession();
       const identity = await commands.cloneRepository(urlValue, targetPath);
       addRecentProject(identity.root, identity.headBranch ?? undefined);
-      setIdentity(identity);
+      setIdentity(identity, { reset: false });
       void commands.getStatus().catch(() => undefined);
       props.onClose();
     } catch (err) {

@@ -1,7 +1,8 @@
 import { repositoryStore } from "../stores/repository-store";
 import { addRecentProject } from "../lib/recent-projects";
 import * as commands from "../lib/tauri-commands";
-import { replaceFromSnapshot, resetStatusStore } from "../stores/status-store";
+import { replaceFromSnapshot } from "../stores/status-store";
+import { beginRepositorySession } from "./use-repository-events";
 
 const yieldToPaint = (): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -27,9 +28,9 @@ export const useRepository = () => {
     setError(null);
     await yieldToPaint();
     try {
-      resetStatusStore();
+      beginRepositorySession();
       const identity = await commands.openRepository(path);
-      setIdentity(identity);
+      setIdentity(identity, { reset: false });
       addRecentProject(identity.root, identity.headBranch ?? undefined);
       void commands.getStatus().catch(() => undefined);
     } catch (err) {

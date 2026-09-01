@@ -1,9 +1,9 @@
+use notify::{Event, EventKind, RecursiveMode, Watcher, event::CreateKind, event::RemoveKind};
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
 use std::time::Duration;
-use notify::{event::CreateKind, event::RemoveKind, Event, EventKind, RecursiveMode, Watcher};
 
 use crate::types::{PathChangeKind, PathChangeScope};
 
@@ -36,6 +36,7 @@ pub struct ClassifiedPath {
 pub enum WatcherMessage {
   Path(ClassifiedPath),
   Overflow,
+  Wake,
 }
 
 pub fn classify_path(root: &Path, path: &Path, kind: EventKind) -> Option<ClassifiedPath> {
@@ -169,7 +170,7 @@ pub fn send_classified(
 mod tests {
   use std::path::{Path, PathBuf};
 
-  use notify::{event::ModifyKind, EventKind};
+  use notify::{EventKind, event::ModifyKind};
   use tempfile::TempDir;
 
   use super::{classify_path, should_watch_path};
@@ -181,9 +182,7 @@ mod tests {
     }
     std::fs::write(root.join(relative), contents).unwrap();
     let mut index = repo.index().unwrap();
-    index
-      .add_all([relative], git2::IndexAddOption::FORCE, None)
-      .unwrap();
+    index.add_all([relative], git2::IndexAddOption::FORCE, None).unwrap();
     index.write().unwrap();
     let tree_id = index.write_tree().unwrap();
     let tree = repo.find_tree(tree_id).unwrap();
@@ -213,12 +212,7 @@ mod tests {
   #[test]
   fn classify_keeps_workdir_file_and_drops_git_objects() {
     let root = PathBuf::from("/repo");
-    let work = classify_path(
-      &root,
-      &root.join("src/file.ts"),
-      EventKind::Modify(ModifyKind::Any),
-    )
-    .unwrap();
+    let work = classify_path(&root, &root.join("src/file.ts"), EventKind::Modify(ModifyKind::Any)).unwrap();
     assert_eq!(work.relative, "src/file.ts");
 
     assert!(
@@ -270,10 +264,10 @@ mod tests {
 
   #[test]
   fn full_channel_sets_overflow_flag_without_sending_overflow_message() {
+    use super::{ClassifiedPath, WatcherMessage, send_classified};
+    use crate::types::{PathChangeKind, PathChangeScope};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc;
-    use super::{send_classified, ClassifiedPath, WatcherMessage};
-    use crate::types::{PathChangeKind, PathChangeScope};
 
     let (tx, rx) = mpsc::sync_channel(1);
     let overflow = AtomicBool::new(false);
