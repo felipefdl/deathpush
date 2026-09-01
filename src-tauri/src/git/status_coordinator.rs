@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -127,6 +128,8 @@ struct CoordinatorState {
   dirty: HashSet<StatusScope>,
   overflow: bool,
   storm: StormMachine,
+  scan_in_flight: bool,
+  fail_next_scan: bool,
 }
 
 impl Default for CoordinatorState {
@@ -139,6 +142,8 @@ impl Default for CoordinatorState {
       dirty: HashSet::new(),
       overflow: false,
       storm: StormMachine::new(),
+      scan_in_flight: false,
+      fail_next_scan: false,
     }
   }
 }
@@ -148,6 +153,8 @@ pub struct StatusCoordinator {
   state: Mutex<CoordinatorState>,
   on_patch: Mutex<Option<PatchSink>>,
   on_paths: Mutex<Option<PathsSink>>,
+  overflow_flag: Arc<AtomicBool>,
+  scan_mutex: Mutex<()>,
 }
 
 impl StatusCoordinator {
@@ -157,6 +164,8 @@ impl StatusCoordinator {
       state: Mutex::new(CoordinatorState::default()),
       on_patch: Mutex::new(None),
       on_paths: Mutex::new(None),
+      overflow_flag: Arc::new(AtomicBool::new(false)),
+      scan_mutex: Mutex::new(()),
     }
   }
 
@@ -167,6 +176,8 @@ impl StatusCoordinator {
       state: Mutex::new(CoordinatorState::default()),
       on_patch: Mutex::new(Some(Arc::new(emit))),
       on_paths: Mutex::new(None),
+      overflow_flag: Arc::new(AtomicBool::new(false)),
+      scan_mutex: Mutex::new(()),
     }
   }
 
@@ -190,11 +201,21 @@ impl StatusCoordinator {
   }
 
   pub fn ensure_baseline(&self) -> Result<()> {
+    let _scan_guard = self.scan_mutex.lock().unwrap_or_else(|err| err.into_inner());
     if self.lock().metadata.is_some() {
       return Ok(());
     }
-    let scan = scan_baseline(&self.root)?;
-    self.apply_scan(scan, None, StatusPhase::Settled);
+    let Some(generation) = self.begin_scan() else {
+      return Ok(());
+    };
+    let scan = match scan_baseline(&self.root) {
+      Ok(scan) => scan,
+      Err(err) => {
+        self.end_scan();
+        return Err(err);
+      }
+    };
+    self.apply_scan_with_generation(generation, scan, None, StatusPhase::Settled);
     Ok(())
   }
 
@@ -203,10 +224,31 @@ impl StatusCoordinator {
     self.queue_scope(&mut state, scope);
   }
 
+  pub fn invalidate_paths<I, S>(&self, paths: I)
+  where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+  {
+    let mut state = self.lock();
+    for path in paths {
+      self.queue_scope(&mut state, StatusScope::Exact(path.as_ref().to_string()));
+    }
+  }
+
+  pub fn invalidate_paths_and_snapshot(&self, paths: &[String]) -> Result<RepositoryStatus> {
+    self.invalidate_paths(paths.iter().map(String::as_str));
+    self.scan_dirty()?;
+    Ok(self.snapshot())
+  }
+
   pub fn invalidate_and_snapshot(&self, scope: StatusScope) -> Result<RepositoryStatus> {
     self.invalidate(scope);
     self.scan_dirty()?;
     Ok(self.snapshot())
+  }
+
+  pub fn overflow_flag(&self) -> Arc<AtomicBool> {
+    Arc::clone(&self.overflow_flag)
   }
 
   pub fn in_storm(&self) -> bool {
@@ -221,7 +263,12 @@ impl StatusCoordinator {
 
   #[cfg(test)]
   pub fn apply_baseline_for_test(&self, entries: Vec<StatusEntry>) {
-    self.apply_scan(
+    let mut state = self.lock();
+    state.generation += 1;
+    let generation = state.generation;
+    drop(state);
+    self.apply_scan_with_generation(
+      generation,
       StatusScan {
         entries,
         metadata: RepositoryMetadata {
@@ -236,6 +283,47 @@ impl StatusCoordinator {
       None,
       StatusPhase::Settled,
     );
+  }
+
+  #[cfg(test)]
+  pub fn force_storm_for_test(&self) {
+    self.lock().storm.enter();
+  }
+
+  #[cfg(test)]
+  pub fn take_scan_scopes_for_test(&self) -> Vec<StatusScope> {
+    let mut state = self.lock();
+    take_scan_scopes(&mut state).map(|(scopes, _)| scopes).unwrap_or_default()
+  }
+
+  #[cfg(test)]
+  pub fn dirty_scopes_for_test(&self) -> HashSet<StatusScope> {
+    self.lock().dirty.clone()
+  }
+
+  #[cfg(test)]
+  pub fn fail_next_scan_for_test(&self) {
+    self.lock().fail_next_scan = true;
+  }
+
+  #[cfg(test)]
+  pub fn scan_dirty_with_extra_pending_for_test(&self, extra_pending: bool) -> Result<()> {
+    self.scan_dirty_with_extra_pending(extra_pending)
+  }
+
+  #[cfg(test)]
+  pub fn scan_dirty_for_test(&self) -> Result<()> {
+    self.scan_dirty()
+  }
+
+  #[cfg(test)]
+  pub fn begin_scan_for_test(&self) -> bool {
+    self.begin_scan().is_some()
+  }
+
+  #[cfg(test)]
+  pub fn end_scan_for_test(&self) {
+    self.end_scan();
   }
 
   pub fn ingest(&self, message: WatcherMessage) {
@@ -293,14 +381,43 @@ impl StatusCoordinator {
   }
 
   pub fn run_loop(&self, rx: mpsc::Receiver<WatcherMessage>) {
-    while let Ok(first) = rx.recv() {
+    loop {
+      if self.overflow_flag.swap(false, Ordering::SeqCst) {
+        self.ingest(WatcherMessage::Overflow);
+      }
+
+      let now = Instant::now();
+      if self.lock().storm.should_exit(now) {
+        let _ = self.exit_storm_with_baseline();
+        continue;
+      }
+
+      let wait = storm_recv_timeout(&self.lock().storm, now);
+      let first = match wait {
+        None => match rx.recv() {
+          Ok(message) => message,
+          Err(_) => return,
+        },
+        Some(timeout) => match rx.recv_timeout(timeout) {
+          Ok(message) => message,
+          Err(RecvTimeoutError::Timeout) => continue,
+          Err(RecvTimeoutError::Disconnected) => return,
+        },
+      };
       self.ingest(first);
+
       let coalesce = if self.in_storm() {
         Duration::from_millis(STORM_COALESCE_MS)
       } else {
         Duration::from_millis(COALESCE_MS)
       };
-      let deadline = Instant::now() + coalesce;
+      let mut deadline = Instant::now() + coalesce;
+      if let Some(quiet) = storm_recv_timeout(&self.lock().storm, Instant::now()) {
+        let quiet_deadline = Instant::now() + quiet;
+        if quiet_deadline < deadline {
+          deadline = quiet_deadline;
+        }
+      }
       loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
@@ -313,12 +430,21 @@ impl StatusCoordinator {
         }
       }
 
+      if self.overflow_flag.swap(false, Ordering::SeqCst) {
+        self.ingest(WatcherMessage::Overflow);
+      }
+
       if self.lock().storm.should_exit(Instant::now()) {
         let _ = self.exit_storm_with_baseline();
         continue;
       }
 
-      let _ = self.scan_dirty();
+      let mut extra_pending = self.overflow_flag.load(Ordering::SeqCst);
+      while let Ok(message) = rx.try_recv() {
+        extra_pending = true;
+        self.ingest(message);
+      }
+      let _ = self.scan_dirty_with_extra_pending(extra_pending);
     }
   }
 
@@ -349,46 +475,71 @@ impl StatusCoordinator {
     }
   }
 
+  fn begin_scan(&self) -> Option<u64> {
+    let mut state = self.lock();
+    if state.scan_in_flight {
+      return None;
+    }
+    state.scan_in_flight = true;
+    state.generation += 1;
+    Some(state.generation)
+  }
+
+  fn end_scan(&self) {
+    self.lock().scan_in_flight = false;
+  }
+
   fn scan_dirty(&self) -> Result<()> {
-    let (scopes, storm) = {
+    self.scan_dirty_with_extra_pending(false)
+  }
+
+  fn scan_dirty_with_extra_pending(&self, extra_pending: bool) -> Result<()> {
+    let _scan_guard = self.scan_mutex.lock().unwrap_or_else(|err| err.into_inner());
+    let (scopes, storm, generation) = {
       let mut state = self.lock();
-      if state.overflow {
-        state.dirty.clear();
-        state.overflow = false;
-        (vec![StatusScope::Repository], state.storm.in_storm())
-      } else if state.dirty.is_empty() {
-        return Ok(());
-      } else {
-        let mut scopes: Vec<StatusScope> = state.dirty.drain().collect();
-        if state.storm.in_storm() {
-          let (exact, rest): (Vec<_>, Vec<_>) = scopes
-            .into_iter()
-            .partition(|scope| matches!(scope, StatusScope::Exact(_)));
-          let mut exact = exact;
-          let overflow: Vec<StatusScope> = if exact.len() > STORM_SCAN_CAP {
-            exact.drain(STORM_SCAN_CAP..).collect()
-          } else {
-            Vec::new()
-          };
-          for scope in rest.into_iter().chain(overflow) {
-            state.dirty.insert(scope);
-          }
-          scopes = exact;
+      let Some((scopes, storm)) = take_scan_scopes(&mut state) else {
+        let pending = extra_pending || state.overflow || self.overflow_flag.load(Ordering::SeqCst);
+        if pending {
+          state.storm.note_scan_finished(true);
         }
-        (scopes, state.storm.in_storm())
+        return Ok(());
+      };
+      if state.scan_in_flight {
+        for scope in scopes {
+          self.queue_scope(&mut state, scope);
+        }
+        return Ok(());
+      }
+      state.scan_in_flight = true;
+      state.generation += 1;
+      (scopes, storm, state.generation)
+    };
+
+    let fail_next = {
+      let mut state = self.lock();
+      if state.fail_next_scan {
+        state.fail_next_scan = false;
+        true
+      } else {
+        false
       }
     };
+    if fail_next {
+      self.requeue_scopes(scopes);
+      self.end_scan();
+      return Err(crate::error::Error::Other("scan failed".into()));
+    }
 
     let scan = match scan_result(&self.root, &scopes) {
       Ok(scan) => scan,
-      Err(err) if is_index_locked(&err) => {
-        let mut state = self.lock();
-        for scope in scopes {
-          state.dirty.insert(scope);
+      Err(err) => {
+        self.requeue_scopes(scopes);
+        self.end_scan();
+        if is_index_locked(&err) {
+          return Ok(());
         }
-        return Ok(());
+        return Err(err);
       }
-      Err(err) => return Err(err),
     };
 
     let scoped = if scopes.iter().any(|scope| matches!(scope, StatusScope::Repository)) {
@@ -397,14 +548,23 @@ impl StatusCoordinator {
       Some(scopes)
     };
     let phase = if storm { StatusPhase::Storm } else { StatusPhase::Settled };
-    self.apply_scan(scan, scoped.as_deref(), phase);
+    self.apply_scan_with_generation(generation, scan, scoped.as_deref(), phase);
 
     let mut state = self.lock();
-    let pending = !state.dirty.is_empty() || state.overflow;
+    let pending = extra_pending
+      || !state.dirty.is_empty()
+      || state.overflow
+      || self.overflow_flag.load(Ordering::SeqCst);
     state.storm.note_scan_finished(pending);
     Ok(())
   }
 
+  fn requeue_scopes(&self, scopes: Vec<StatusScope>) {
+    let mut state = self.lock();
+    for scope in scopes {
+      self.queue_scope(&mut state, scope);
+    }
+  }
   fn exit_storm_with_baseline(&self) -> Result<()> {
     {
       let mut state = self.lock();
@@ -412,15 +572,34 @@ impl StatusCoordinator {
       state.dirty.clear();
       state.overflow = false;
     }
-    let scan = scan_baseline(&self.root)?;
-    self.apply_scan(scan, None, StatusPhase::Settled);
+    let _scan_guard = self.scan_mutex.lock().unwrap_or_else(|err| err.into_inner());
+    let Some(generation) = self.begin_scan() else {
+      return Ok(());
+    };
+    let scan = match scan_baseline(&self.root) {
+      Ok(scan) => scan,
+      Err(err) => {
+        self.end_scan();
+        return Err(err);
+      }
+    };
+    self.apply_scan_with_generation(generation, scan, None, StatusPhase::Settled);
     Ok(())
   }
 
-  fn apply_scan(&self, scan: StatusScan, scopes: Option<&[StatusScope]>, end_phase: StatusPhase) {
+
+  fn apply_scan_with_generation(
+    &self,
+    generation: u64,
+    scan: StatusScan,
+    scopes: Option<&[StatusScope]>,
+    end_phase: StatusPhase,
+  ) {
     let mut state = self.lock();
-    state.generation += 1;
-    let generation = state.generation;
+    if generation != state.generation {
+      state.scan_in_flight = false;
+      return;
+    }
     let metadata = scan.metadata;
 
     let next_entries: BTreeMap<StatusKey, StatusEntry> = scan
@@ -465,14 +644,13 @@ impl StatusCoordinator {
     let mut emitted = false;
 
     while !emitted || !remaining_upserts.is_empty() || !remaining_removals.is_empty() {
-      let take = remaining_upserts.len().min(PATCH_CHUNK);
-      let chunk_upserts: Vec<StatusEntry> = remaining_upserts.drain(..take).collect();
+      let mut budget = PATCH_CHUNK;
+      let take_up = remaining_upserts.len().min(budget);
+      let chunk_upserts: Vec<StatusEntry> = remaining_upserts.drain(..take_up).collect();
+      budget -= take_up;
+      let take_rm = remaining_removals.len().min(budget);
+      let chunk_removals: Vec<StatusKey> = remaining_removals.drain(..take_rm).collect();
       let more = !remaining_upserts.is_empty() || !remaining_removals.is_empty();
-      let chunk_removals = if more {
-        Vec::new()
-      } else {
-        std::mem::take(&mut remaining_removals)
-      };
       let base_revision = state.revision;
       state.revision += 1;
       let patch = StatusPatch {
@@ -489,6 +667,7 @@ impl StatusCoordinator {
       self.emit_patch(patch);
       state = self.lock();
     }
+    state.scan_in_flight = false;
   }
 
   fn emit_patch(&self, patch: StatusPatch) {
@@ -521,6 +700,49 @@ fn is_index_locked(err: &crate::error::Error) -> bool {
     crate::error::Error::Git(git_err) => git_err.code() == git2::ErrorCode::Locked,
     _ => false,
   }
+}
+
+fn take_scan_scopes(state: &mut CoordinatorState) -> Option<(Vec<StatusScope>, bool)> {
+  if state.overflow {
+    state.dirty.clear();
+    state.overflow = false;
+    return Some((vec![StatusScope::Repository], state.storm.in_storm()));
+  }
+  if state.dirty.is_empty() {
+    return None;
+  }
+  let mut scopes: Vec<StatusScope> = state.dirty.drain().collect();
+  if state.storm.in_storm() {
+    let mut exact = Vec::new();
+    let mut rest = Vec::new();
+    for scope in scopes {
+      if matches!(scope, StatusScope::Exact(_)) {
+        exact.push(scope);
+      } else {
+        rest.push(scope);
+      }
+    }
+    let mut chosen = Vec::new();
+    for scope in exact.into_iter().chain(rest) {
+      if chosen.len() >= STORM_SCAN_CAP {
+        state.dirty.insert(scope);
+      } else {
+        chosen.push(scope);
+      }
+    }
+    scopes = chosen;
+  }
+  Some((scopes, state.storm.in_storm()))
+}
+
+fn storm_recv_timeout(storm: &StormMachine, now: Instant) -> Option<Duration> {
+  if !storm.in_storm() {
+    return None;
+  }
+  let last = storm.last_event.unwrap_or(now);
+  let quiet = Duration::from_millis(STORM_EXIT_QUIET_MS);
+  let elapsed = now.saturating_duration_since(last);
+  Some(quiet.saturating_sub(elapsed))
 }
 
 #[cfg(test)]
@@ -654,5 +876,132 @@ mod tests {
     }
     assert!(coordinator.in_storm());
     assert!(coordinator.dirty_promoted_to_repository());
+  }
+
+  #[test]
+  fn apply_scan_emits_removals_in_first_chunk() {
+    let patches = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let collected = patches.clone();
+    let coordinator = StatusCoordinator::with_emitter(move |patch| {
+      collected.lock().unwrap_or_else(|err| err.into_inner()).push(patch);
+    });
+    coordinator.apply_baseline_for_test(vec![
+      entry(ResourceGroupKind::WorkingTree, "gone.rs", FileStatus::Untracked),
+      entry(ResourceGroupKind::WorkingTree, "kept.rs", FileStatus::Untracked),
+    ]);
+    patches.lock().unwrap_or_else(|err| err.into_inner()).clear();
+
+    coordinator.apply_baseline_for_test(vec![entry(
+      ResourceGroupKind::WorkingTree,
+      "kept.rs",
+      FileStatus::Untracked,
+    )]);
+
+    let patches = patches.lock().unwrap_or_else(|err| err.into_inner());
+    assert_eq!(patches.len(), 1);
+    assert_eq!(patches[0].removals, vec![key(ResourceGroupKind::WorkingTree, "gone.rs")]);
+    assert!(patches[0].upserts.is_empty());
+  }
+
+  #[test]
+  fn apply_scan_chunks_removals_without_stalling() {
+    let patches = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let collected = patches.clone();
+    let coordinator = StatusCoordinator::with_emitter(move |patch| {
+      collected.lock().unwrap_or_else(|err| err.into_inner()).push(patch);
+    });
+    let entries: Vec<StatusEntry> = (0..300)
+      .map(|index| entry(ResourceGroupKind::WorkingTree, &format!("gone{index}.rs"), FileStatus::Untracked))
+      .collect();
+    coordinator.apply_baseline_for_test(entries);
+    patches.lock().unwrap_or_else(|err| err.into_inner()).clear();
+
+    coordinator.apply_baseline_for_test(Vec::new());
+
+    let patches = patches.lock().unwrap_or_else(|err| err.into_inner());
+    assert_eq!(patches.len(), 2);
+    assert_eq!(patches[0].removals.len(), 256);
+    assert_eq!(patches[0].phase, StatusPhase::Scanning);
+    assert_eq!(patches[1].removals.len(), 44);
+    assert_eq!(patches[1].phase, StatusPhase::Settled);
+  }
+
+  #[test]
+  fn storm_scan_includes_subtree_scopes() {
+    let coordinator = StatusCoordinator::with_emitter(|_| {});
+    coordinator.force_storm_for_test();
+    coordinator.invalidate(StatusScope::Subtree("src".into()));
+    coordinator.invalidate(StatusScope::Exact("a.rs".into()));
+    let taken = coordinator.take_scan_scopes_for_test();
+    assert!(taken.iter().any(|scope| matches!(scope, StatusScope::Exact(path) if path == "a.rs")));
+    assert!(taken.iter().any(|scope| matches!(scope, StatusScope::Subtree(path) if path == "src")));
+    assert!(coordinator.dirty_scopes_for_test().is_empty());
+  }
+
+  #[test]
+  fn storm_scan_does_not_fall_back_to_baseline_when_only_subtrees_are_dirty() {
+    let coordinator = StatusCoordinator::with_emitter(|_| {});
+    coordinator.force_storm_for_test();
+    coordinator.invalidate(StatusScope::Subtree("src[1]".into()));
+    let taken = coordinator.take_scan_scopes_for_test();
+    assert_eq!(taken, vec![StatusScope::Subtree("src[1]".into())]);
+    assert!(coordinator.dirty_scopes_for_test().is_empty());
+  }
+
+  #[test]
+  fn channel_len_counts_as_pending_for_busy_scans() {
+    let mut storm = StormMachine::new();
+    storm.note_scan_finished(false);
+    assert!(!storm.in_storm());
+    storm.note_scan_finished(true);
+    storm.note_scan_finished(true);
+    assert!(storm.in_storm());
+  }
+
+  #[test]
+  fn recoverable_scan_error_requeues_scopes() {
+    let coordinator = StatusCoordinator::with_emitter(|_| {});
+    coordinator.invalidate(StatusScope::Exact("a.rs".into()));
+    coordinator.fail_next_scan_for_test();
+    let err = coordinator.scan_dirty_for_test();
+    assert!(err.is_err());
+    assert!(
+      coordinator
+        .dirty_scopes_for_test()
+        .iter()
+        .any(|scope| matches!(scope, StatusScope::Exact(path) if path == "a.rs"))
+    );
+  }
+
+  #[test]
+  fn one_scan_in_flight_rejects_overlapping_start() {
+    let coordinator = StatusCoordinator::with_emitter(|_| {});
+    assert!(coordinator.begin_scan_for_test());
+    assert!(!coordinator.begin_scan_for_test());
+    coordinator.end_scan_for_test();
+    assert!(coordinator.begin_scan_for_test());
+  }
+
+  #[test]
+  fn extra_pending_from_channel_counts_as_busy_scan() {
+    let coordinator = StatusCoordinator::with_emitter(|_| {});
+    coordinator
+      .scan_dirty_with_extra_pending_for_test(true)
+      .unwrap();
+    assert!(!coordinator.in_storm());
+    coordinator
+      .scan_dirty_with_extra_pending_for_test(true)
+      .unwrap();
+    assert!(coordinator.in_storm());
+  }
+
+  #[test]
+  fn invalidate_paths_queues_exact_scopes() {
+    let coordinator = StatusCoordinator::with_emitter(|_| {});
+    coordinator.invalidate_paths(["src/a.rs", "src/b.rs"]);
+    let dirty = coordinator.dirty_scopes_for_test();
+    assert!(dirty.contains(&StatusScope::Exact("src/a.rs".into())));
+    assert!(dirty.contains(&StatusScope::Exact("src/b.rs".into())));
+    assert!(!dirty.iter().any(|scope| matches!(scope, StatusScope::Repository)));
   }
 }

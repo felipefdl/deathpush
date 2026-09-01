@@ -41,12 +41,28 @@ pub fn update_window_title(window: &WebviewWindow, status: &RepositoryStatus) {
 }
 
 pub fn refresh_status(app_state: &Mutex<AppRepoState>, window: &WebviewWindow) -> Result<RepositoryStatus> {
+  refresh_status_with(app_state, window, |runtime| runtime.invalidate_and_snapshot(StatusScope::Repository))
+}
+
+pub fn refresh_status_paths(
+  app_state: &Mutex<AppRepoState>,
+  window: &WebviewWindow,
+  paths: &[String],
+) -> Result<RepositoryStatus> {
+  refresh_status_with(app_state, window, |runtime| runtime.invalidate_paths_and_snapshot(paths))
+}
+
+fn refresh_status_with(
+  app_state: &Mutex<AppRepoState>,
+  window: &WebviewWindow,
+  invalidate: impl FnOnce(&crate::git::repository_runtime::RepositoryRuntime) -> Result<RepositoryStatus>,
+) -> Result<RepositoryStatus> {
   let label = window.label();
   let runtime = window
     .state::<RepositoryRuntimeRegistry>()
     .runtime_for_window(label)
     .ok_or(Error::NoRepository)?;
-  let status = runtime.invalidate_and_snapshot(StatusScope::Repository)?;
+  let status = invalidate(&runtime)?;
   let repo = runtime.open_repository()?;
 
   let mut app_state = app_state.lock().map_err(|err| Error::Other(err.to_string()))?;

@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use tauri::{State, WebviewWindow};
 
-use crate::commands::refresh_status;
+use crate::commands::{refresh_status, refresh_status_paths};
 use crate::commands::repository::AppRepoState;
 use crate::error::{Error, Result};
 use crate::git::cli::GitCli;
@@ -22,7 +22,7 @@ pub async fn stage_files(
   };
   let cli = GitCli::new(&root);
   cli.stage_files(&paths).await?;
-  refresh_status(state.inner(), &window)
+  refresh_status_paths(state.inner(), &window, &paths)
 }
 
 #[tauri::command]
@@ -50,7 +50,7 @@ pub async fn unstage_files(
   };
   let cli = GitCli::new(&root);
   cli.unstage_files(&paths).await?;
-  refresh_status(state.inner(), &window)
+  refresh_status_paths(state.inner(), &window, &paths)
 }
 
 #[tauri::command]
@@ -78,7 +78,7 @@ pub async fn discard_changes(
   };
   let cli = GitCli::new(&root);
   cli.discard_changes(&paths).await?;
-  refresh_status(state.inner(), &window)
+  refresh_status_paths(state.inner(), &window, &paths)
 }
 
 #[tauri::command]
@@ -138,7 +138,7 @@ pub async fn stage_hunk(
     cli.apply_patch(&patch, true, false).await?;
   }
 
-  refresh_status(state.inner(), &window)
+  refresh_status_paths(state.inner(), &window, std::slice::from_ref(&path))
 }
 
 #[tauri::command]
@@ -160,7 +160,7 @@ pub async fn discard_hunk(
   // Apply the patch in reverse to the working tree (not cached)
   cli.apply_patch(&patch, false, true).await?;
 
-  refresh_status(state.inner(), &window)
+  refresh_status_paths(state.inner(), &window, std::slice::from_ref(&path))
 }
 
 #[tauri::command]
@@ -188,5 +188,5 @@ pub async fn stage_lines(
     cli.apply_patch(&patch, true, false).await?;
   }
 
-  refresh_status(state.inner(), &window)
+  refresh_status_paths(state.inner(), &window, std::slice::from_ref(&path))
 }

@@ -49,8 +49,15 @@ pub fn scan_baseline(root: &Path) -> Result<StatusScan> {
 }
 
 pub fn scan_scopes(root: &Path, scopes: &[StatusScope]) -> Result<StatusScan> {
-  if scopes.is_empty() || scopes.iter().any(|scope| matches!(scope, StatusScope::Repository)) {
+  if scopes.iter().any(|scope| matches!(scope, StatusScope::Repository)) {
     return scan_baseline(root);
+  }
+  if scopes.is_empty() {
+    let repo = GitRepository::open(root)?;
+    return Ok(StatusScan {
+      entries: Vec::new(),
+      metadata: metadata_from(&repo),
+    });
   }
 
   let repo = GitRepository::open(root)?;
@@ -89,22 +96,44 @@ pub fn scan_scopes(root: &Path, scopes: &[StatusScope]) -> Result<StatusScan> {
   }
 
   if !subtree.is_empty() {
-    let mut opts = status_options(false);
-    for path in &subtree {
-      opts.pathspec(path.as_str());
-      let trimmed = path.trim_end_matches('/');
-      if !path.ends_with('/') {
-        opts.pathspec(format!("{trimmed}/"));
+    let (special, normal): (Vec<&String>, Vec<&String>) =
+      subtree.iter().partition(|path| has_pathspec_meta(path));
+    if !normal.is_empty() {
+      let mut opts = status_options(false);
+      for path in &normal {
+        opts.pathspec(path.as_str());
+        let trimmed = path.trim_end_matches('/');
+        if !path.ends_with('/') {
+          opts.pathspec(format!("{trimmed}/"));
+        }
+      }
+      for entry in scan_repo(&repo, &mut opts)?.entries {
+        merged.insert(
+          StatusKey {
+            group: entry.group.clone(),
+            path: entry.path.clone(),
+          },
+          entry,
+        );
       }
     }
-    for entry in scan_repo(&repo, &mut opts)?.entries {
-      merged.insert(
-        StatusKey {
-          group: entry.group.clone(),
-          path: entry.path.clone(),
-        },
-        entry,
-      );
+    if !special.is_empty() {
+      let scopes: Vec<StatusScope> = special
+        .iter()
+        .map(|path| StatusScope::Subtree((*path).clone()))
+        .collect();
+      let mut opts = status_options(false);
+      for entry in scan_repo(&repo, &mut opts)?.entries {
+        if path_in_scopes(&entry.path, &scopes) {
+          merged.insert(
+            StatusKey {
+              group: entry.group.clone(),
+              path: entry.path.clone(),
+            },
+            entry,
+          );
+        }
+      }
     }
   }
 
@@ -123,6 +152,10 @@ pub fn path_in_scopes(path: &str, scopes: &[StatusScope]) -> bool {
       path == prefix || path.starts_with(&format!("{prefix}/"))
     }
   })
+}
+
+fn has_pathspec_meta(path: &str) -> bool {
+  path.bytes().any(|byte| matches!(byte, b'*' | b'?' | b'[' | b'\\' ))
 }
 
 fn normalize_relative(path: &str) -> String {
@@ -375,6 +408,26 @@ mod tests {
         .entries
         .iter()
         .any(|entry| entry.group == ResourceGroupKind::WorkingTree && entry.status == FileStatus::Untracked)
+    );
+  }
+
+  #[test]
+  fn scan_scopes_matches_subtree_metacharacter_names_literally() {
+    let (_dir, root) = init_repo();
+    std::fs::create_dir_all(root.join("src[1]")).unwrap();
+    std::fs::write(root.join("src[1]/file.rs"), "fn x() {}\n").unwrap();
+    std::fs::create_dir_all(root.join("src1")).unwrap();
+    std::fs::write(root.join("src1/other.rs"), "fn y() {}\n").unwrap();
+
+    let scan = scan_scopes(&root, &[StatusScope::Subtree("src[1]".into())]).unwrap();
+    let paths: Vec<&str> = scan.entries.iter().map(|entry| entry.path.as_str()).collect();
+    assert!(
+      paths.iter().any(|path| path.starts_with("src[1]/")),
+      "expected literal subtree match, got {paths:?}"
+    );
+    assert!(
+      !paths.iter().any(|path| path.starts_with("src1/")),
+      "subtree glob should not match src1/, got {paths:?}"
     );
   }
 

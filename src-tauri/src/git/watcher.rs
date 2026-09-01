@@ -1,7 +1,8 @@
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::Duration;
-
 use notify::{event::CreateKind, event::RemoveKind, Event, EventKind, RecursiveMode, Watcher};
 
 use crate::types::{PathChangeKind, PathChangeScope};
@@ -108,7 +109,11 @@ fn has_tracked_descendant(repo: &git2::Repository, relative: &str) -> bool {
   })
 }
 
-pub fn start_watcher(repo_root: &Path, sink: mpsc::SyncSender<WatcherMessage>) -> notify::Result<WatcherHandle> {
+pub fn start_watcher(
+  repo_root: &Path,
+  sink: mpsc::SyncSender<WatcherMessage>,
+  overflow: Arc<AtomicBool>,
+) -> notify::Result<WatcherHandle> {
   let (stop_tx, stop_rx) = mpsc::channel();
   let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
   let mut watcher = notify::recommended_watcher(tx)?;
@@ -127,12 +132,8 @@ pub fn start_watcher(repo_root: &Path, sink: mpsc::SyncSender<WatcherMessage>) -
             let Some(classified) = classify_path(&root, &path, event.kind) else {
               continue;
             };
-            match sink.try_send(WatcherMessage::Path(classified)) {
-              Ok(()) => {}
-              Err(mpsc::TrySendError::Full(_)) => {
-                let _ = sink.try_send(WatcherMessage::Overflow);
-              }
-              Err(mpsc::TrySendError::Disconnected(_)) => return,
+            if !send_classified(&sink, &overflow, classified) {
+              return;
             }
           }
         }
@@ -147,6 +148,21 @@ pub fn start_watcher(repo_root: &Path, sink: mpsc::SyncSender<WatcherMessage>) -
   });
 
   Ok(WatcherHandle { stop_tx })
+}
+
+pub fn send_classified(
+  sink: &mpsc::SyncSender<WatcherMessage>,
+  overflow: &AtomicBool,
+  classified: ClassifiedPath,
+) -> bool {
+  match sink.try_send(WatcherMessage::Path(classified)) {
+    Ok(()) => true,
+    Err(mpsc::TrySendError::Full(_)) => {
+      overflow.store(true, Ordering::SeqCst);
+      true
+    }
+    Err(mpsc::TrySendError::Disconnected(_)) => false,
+  }
 }
 
 #[cfg(test)]
@@ -250,5 +266,26 @@ mod tests {
     std::fs::write(root.join("node_modules/pkg/index.js"), "module.exports = 1\n").unwrap();
 
     assert!(should_watch_path(&repo, "node_modules/pkg/index.js"));
+  }
+
+  #[test]
+  fn full_channel_sets_overflow_flag_without_sending_overflow_message() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+    use super::{send_classified, ClassifiedPath, WatcherMessage};
+    use crate::types::{PathChangeKind, PathChangeScope};
+
+    let (tx, rx) = mpsc::sync_channel(1);
+    let overflow = AtomicBool::new(false);
+    let path = ClassifiedPath {
+      relative: "a.rs".into(),
+      kind: PathChangeKind::Content,
+      scope: PathChangeScope::Exact,
+    };
+    assert!(send_classified(&tx, &overflow, path.clone()));
+    assert!(send_classified(&tx, &overflow, path));
+    assert!(overflow.load(Ordering::SeqCst));
+    assert!(matches!(rx.try_recv(), Ok(WatcherMessage::Path(_))));
+    assert!(rx.try_recv().is_err());
   }
 }

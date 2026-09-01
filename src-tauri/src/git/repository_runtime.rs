@@ -38,6 +38,10 @@ impl RepositoryRuntime {
   pub fn invalidate_and_snapshot(&self, scope: StatusScope) -> Result<RepositoryStatus> {
     self.coordinator.invalidate_and_snapshot(scope)
   }
+
+  pub fn invalidate_paths_and_snapshot(&self, paths: &[String]) -> Result<RepositoryStatus> {
+    self.coordinator.invalidate_paths_and_snapshot(paths)
+  }
 }
 
 struct Inflight {
@@ -66,16 +70,18 @@ impl RepositoryRuntimeRegistry {
       move |root, coordinator| {
         let patch_handle = handle.clone();
         let paths_handle = handle.clone();
+        let patch_root = root.to_path_buf();
+        let paths_root = root.to_path_buf();
         coordinator.bind_emitters(
           Arc::new(move |patch: StatusPatch| {
-            let _ = patch_handle.emit("repository:status-patch", patch);
+            emit_to_runtime_windows(&patch_handle, &patch_root, "repository:status-patch", &patch);
           }),
           Arc::new(move |paths: PathsChanged| {
-            let _ = paths_handle.emit("repository:paths-changed", paths);
+            emit_to_runtime_windows(&paths_handle, &paths_root, "repository:paths-changed", &paths);
           }),
         );
         let sink = coordinator.spawn_worker();
-        match watcher::start_watcher(root, sink) {
+        match watcher::start_watcher(root, sink, coordinator.overflow_flag()) {
           Ok(watcher) => Some(watcher),
           Err(err) => {
             tracing::warn!("failed to start watcher: {:?}", err);
@@ -100,6 +106,18 @@ impl RepositoryRuntimeRegistry {
     let state = self.state.lock().ok()?;
     let root = state.windows.get(label)?;
     state.runtimes.get(root).cloned()
+  }
+
+  pub fn window_labels_for_root(&self, root: &Path) -> Vec<String> {
+    let Ok(state) = self.state.lock() else {
+      return Vec::new();
+    };
+    state
+      .windows
+      .iter()
+      .filter(|(_, window_root)| window_root.as_path() == root)
+      .map(|(label, _)| label.clone())
+      .collect()
   }
 
   pub fn with_runtime<T>(
@@ -218,6 +236,22 @@ impl RepositoryRuntimeRegistry {
   }
 }
 
+fn emit_to_runtime_windows<T: Clone + serde::Serialize>(
+  handle: &tauri::AppHandle,
+  root: &Path,
+  event: &str,
+  payload: &T,
+) {
+  let Some(registry) = handle.try_state::<RepositoryRuntimeRegistry>() else {
+    return;
+  };
+  for label in registry.window_labels_for_root(root) {
+    if let Some(window) = handle.get_webview_window(&label) {
+      let _ = window.emit(event, payload);
+    }
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use std::sync::{Arc, Barrier};
@@ -266,6 +300,27 @@ mod tests {
 
     registry.remove_window("second");
     assert_eq!(registry.runtime_count(), 0);
+  }
+
+  #[test]
+  fn window_labels_for_root_exclude_other_repositories() {
+    let first_dir = git_repository();
+    let second_dir = git_repository();
+    let registry = RepositoryRuntimeRegistry::default();
+    let first_root = registry
+      .open_for_window_with("one", first_dir.path(), |_| Some(WatcherHandle::for_test()))
+      .unwrap();
+    registry
+      .open_for_window_with("two", first_dir.path(), |_| Some(WatcherHandle::for_test()))
+      .unwrap();
+    registry
+      .open_for_window_with("other", second_dir.path(), |_| Some(WatcherHandle::for_test()))
+      .unwrap();
+
+    let mut labels = registry.window_labels_for_root(&first_root);
+    labels.sort();
+    assert_eq!(labels, vec!["one".to_string(), "two".to_string()]);
+    assert!(!labels.iter().any(|label| label == "other"));
   }
 
   #[test]
