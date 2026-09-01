@@ -433,7 +433,7 @@ impl StatusCoordinator {
       }
 
       let now = Instant::now();
-      if self.lock().storm.should_exit(now) {
+      if self.should_exit_storm() {
         let _ = self.exit_storm_with_baseline();
         continue;
       }
@@ -461,7 +461,7 @@ impl StatusCoordinator {
             self.ingest(WatcherMessage::Overflow);
           }
 
-          if self.lock().storm.should_exit(Instant::now()) {
+          if self.should_exit_storm() {
             let _ = self.exit_storm_with_baseline();
             continue;
           }
@@ -508,7 +508,7 @@ impl StatusCoordinator {
             self.ingest(WatcherMessage::Overflow);
           }
 
-          if self.lock().storm.should_exit(Instant::now()) {
+          if self.should_exit_storm() {
             let _ = self.exit_storm_with_baseline();
             continue;
           }
@@ -616,15 +616,7 @@ impl StatusCoordinator {
 
     #[cfg(test)]
     self.scan_attempts.fetch_add(1, Ordering::SeqCst);
-    let fail_next = {
-      let mut state = self.lock();
-      if state.fail_all_scans || state.fail_next_scan {
-        state.fail_next_scan = false;
-        true
-      } else {
-        false
-      }
-    };
+    let fail_next = self.injected_scan_failure();
     if fail_next {
       self.fail_scan(scopes);
       return Err(crate::error::Error::Other("scan failed".into()));
@@ -678,6 +670,21 @@ impl StatusCoordinator {
     self.lock().scan_failed = true;
   }
 
+  fn should_exit_storm(&self) -> bool {
+    let state = self.lock();
+    !state.scan_failed && state.storm.should_exit(Instant::now())
+  }
+
+  fn injected_scan_failure(&self) -> bool {
+    let mut state = self.lock();
+    if state.fail_all_scans || state.fail_next_scan {
+      state.fail_next_scan = false;
+      true
+    } else {
+      false
+    }
+  }
+
   fn exit_storm_with_baseline(&self) -> Result<()> {
     {
       let mut state = self.lock();
@@ -689,14 +696,22 @@ impl StatusCoordinator {
     let Some(generation) = self.begin_scan() else {
       return Ok(());
     };
+    if self.injected_scan_failure() {
+      self.fail_scan(vec![StatusScope::Repository]);
+      return Err(crate::error::Error::Other("scan failed".into()));
+    }
     let scan = match scan_baseline(&self.root) {
       Ok(scan) => scan,
       Err(err) => {
-        self.end_scan();
+        self.fail_scan(vec![StatusScope::Repository]);
+        if is_index_locked(&err) {
+          return Ok(());
+        }
         return Err(err);
       }
     };
     self.apply_scan_with_generation(generation, scan, None, StatusPhase::Settled);
+    self.lock().scan_failed = false;
     Ok(())
   }
 
@@ -1277,6 +1292,13 @@ mod tests {
     worker.join().unwrap();
   }
 
+  fn retain_exact_dirty(coordinator: &StatusCoordinator, path: &str) -> bool {
+    coordinator
+      .dirty_scopes_for_test()
+      .iter()
+      .any(|scope| matches!(scope, StatusScope::Exact(p) if p == path))
+  }
+
   #[test]
   fn run_loop_does_not_rescan_immediately_after_failed_scan() {
     let (dir, coordinator) = init_coordinator_repo();
@@ -1291,6 +1313,7 @@ mod tests {
       std::thread::spawn(move || coordinator.run_loop(rx))
     };
 
+    let sent_at = Instant::now();
     tx.send(watcher_exact("fail.rs")).unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -1305,13 +1328,126 @@ mod tests {
       attempts, 1,
       "failed scan must not re-enter immediately without delay, attempts={attempts}"
     );
+
+    while coordinator.scan_attempts_for_test() < 2 {
+      assert!(
+        Instant::now() < deadline,
+        "failed scan must retry after SCAN_RETRY_MS"
+      );
+      std::thread::sleep(Duration::from_millis(5));
+    }
     assert!(
-      coordinator
-        .dirty_scopes_for_test()
-        .iter()
-        .any(|scope| matches!(scope, StatusScope::Exact(path) if path == "fail.rs")),
-      "failed scan must retain dirty scopes"
+      sent_at.elapsed() >= Duration::from_millis(SCAN_RETRY_MS),
+      "retry must happen after the delay, elapsed={:?}",
+      sent_at.elapsed()
     );
+
+    while !retain_exact_dirty(&coordinator, "fail.rs") {
+      assert!(
+        Instant::now() < deadline,
+        "failed scan must retain dirty scopes after delayed retry"
+      );
+      std::thread::sleep(Duration::from_millis(5));
+    }
+
+    drop(tx);
+    worker.join().unwrap();
+  }
+
+  #[test]
+  fn run_loop_does_not_exit_storm_on_failed_dirty_scan() {
+    let (dir, coordinator) = init_coordinator_repo();
+    std::fs::write(dir.path().join("fail.rs"), "fail").unwrap();
+
+    let coordinator = std::sync::Arc::new(coordinator);
+    coordinator.fail_all_scans_for_test();
+    coordinator.force_storm_for_test();
+    coordinator.ingest(watcher_exact("fail.rs"));
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(8);
+    let worker = {
+      let coordinator = std::sync::Arc::clone(&coordinator);
+      std::thread::spawn(move || coordinator.run_loop(rx))
+    };
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while coordinator.scan_attempts_for_test() == 0 {
+      assert!(Instant::now() < deadline, "run_loop never attempted a storm scan");
+      std::thread::sleep(Duration::from_millis(5));
+    }
+
+    std::thread::sleep(Duration::from_millis(STORM_EXIT_QUIET_MS + SCAN_RETRY_MS));
+    assert!(
+      coordinator.in_storm(),
+      "failed storm scan must not exit storm until a scan succeeds"
+    );
+    assert!(
+      retain_exact_dirty(&coordinator, "fail.rs"),
+      "failed storm scan must retain dirty scopes instead of discarding for baseline"
+    );
+    assert!(
+      coordinator.scan_attempts_for_test() >= 2,
+      "failed storm scan must keep retrying after the delay"
+    );
+
+    drop(tx);
+    worker.join().unwrap();
+  }
+
+  #[test]
+  fn run_loop_retries_failed_storm_exit_baseline() {
+    let (_dir, coordinator) = init_coordinator_repo();
+    let coordinator = std::sync::Arc::new(coordinator);
+    coordinator.fail_all_scans_for_test();
+    coordinator.force_storm_for_test();
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(8);
+    let worker = {
+      let coordinator = std::sync::Arc::clone(&coordinator);
+      std::thread::spawn(move || coordinator.run_loop(rx))
+    };
+
+    let started = Instant::now();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !coordinator.dirty_promoted_to_repository() {
+      assert!(
+        Instant::now() < deadline,
+        "failed exit baseline must retain repository scope"
+      );
+      std::thread::sleep(Duration::from_millis(5));
+    }
+
+    std::thread::sleep(Duration::from_millis(SCAN_RETRY_MS / 2));
+    assert_eq!(
+      coordinator.scan_attempts_for_test(),
+      0,
+      "failed exit baseline must not scan immediately"
+    );
+    assert!(
+      coordinator.dirty_promoted_to_repository(),
+      "repository scope must stay queued during the delay"
+    );
+
+    while coordinator.scan_attempts_for_test() < 1 {
+      assert!(
+        Instant::now() < deadline,
+        "failed exit baseline must retry after SCAN_RETRY_MS"
+      );
+      std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+      started.elapsed() >= Duration::from_millis(SCAN_RETRY_MS),
+      "exit-baseline retry must happen after the delay, elapsed={:?}",
+      started.elapsed()
+    );
+
+    while !coordinator.dirty_promoted_to_repository() {
+      assert!(
+        Instant::now() < deadline,
+        "failed exit-baseline retry must retain repository scope"
+      );
+      std::thread::sleep(Duration::from_millis(5));
+    }
 
     drop(tx);
     worker.join().unwrap();
