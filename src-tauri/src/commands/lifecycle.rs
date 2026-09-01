@@ -10,7 +10,7 @@ use crate::error::{Error, Result};
 use crate::git::cli::GitCli;
 use crate::git::repository::GitRepository;
 use crate::git::status::get_repository_status;
-use crate::git::watcher::{self, WatcherState};
+use crate::git::repository_runtime::RepositoryRuntimeRegistry;
 use crate::types::RepositoryStatus;
 
 #[tauri::command]
@@ -18,25 +18,16 @@ pub async fn clone_repository(
   url: String,
   path: String,
   state: State<'_, Mutex<AppRepoState>>,
-  watcher_state: State<'_, WatcherState>,
+  registry: State<'_, RepositoryRuntimeRegistry>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let label = window.label().to_string();
   let target = PathBuf::from(&path);
   GitCli::clone_repo(&url, &target).await?;
 
-  let repo = GitRepository::open(&target)?;
-  let repo_root = repo.root().to_path_buf();
+  let repo_root = registry.open_for_window(&label, &target, &window)?;
+  let repo = registry.with_runtime(&label, |runtime| runtime.open_repository())?;
   let status = get_repository_status(&repo)?;
-
-  // Stop old watcher for this window, start new one
-  {
-    let mut watchers = watcher_state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    watchers.remove(&label);
-  }
-  if let Err(err) = watcher::start_watcher(&window, &repo_root, &watcher_state) {
-    tracing::warn!("failed to start watcher: {:?}", err);
-  }
 
   update_window_title(&window, &status);
 
@@ -50,72 +41,62 @@ pub async fn clone_repository(
 
 #[tauri::command]
 pub async fn merge_continue(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.merge_continue().await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
 pub async fn merge_abort(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.merge_abort().await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
 pub async fn rebase_continue(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.rebase_continue().await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
 pub async fn rebase_abort(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.rebase_abort().await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
 pub async fn rebase_skip(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.rebase_skip().await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -168,24 +149,16 @@ pub async fn rebase_branch(
 pub async fn init_repository(
   path: String,
   state: State<'_, Mutex<AppRepoState>>,
-  watcher_state: State<'_, WatcherState>,
+  registry: State<'_, RepositoryRuntimeRegistry>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let label = window.label().to_string();
   let target = PathBuf::from(&path);
   GitCli::init_repository(&target).await?;
 
-  let repo = GitRepository::open(&target)?;
-  let repo_root = repo.root().to_path_buf();
+  let repo_root = registry.open_for_window(&label, &target, &window)?;
+  let repo = registry.with_runtime(&label, |runtime| runtime.open_repository())?;
   let status = get_repository_status(&repo)?;
-
-  {
-    let mut watchers = watcher_state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    watchers.remove(&label);
-  }
-  if let Err(err) = watcher::start_watcher(&window, &repo_root, &watcher_state) {
-    tracing::warn!("failed to start watcher: {:?}", err);
-  }
 
   update_window_title(&window, &status);
 
@@ -203,16 +176,14 @@ pub async fn cherry_pick(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.cherry_pick(&commit_id).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -222,14 +193,12 @@ pub async fn reset_to_commit(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.reset_to_commit(&id, &mode).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }

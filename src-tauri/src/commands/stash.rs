@@ -25,16 +25,14 @@ pub async fn undo_last_commit(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.undo_last_commit().await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -43,16 +41,14 @@ pub async fn stash_save(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.stash_save(message.as_deref()).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -72,16 +68,14 @@ pub async fn stash_apply(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.stash_apply(index).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -90,16 +84,14 @@ pub async fn stash_pop(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.stash_pop(index).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -124,16 +116,14 @@ pub async fn stash_save_include_untracked(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.stash_save_include_untracked(message.as_deref()).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -142,16 +132,14 @@ pub async fn stash_save_staged(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.stash_save_staged(message.as_deref()).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]

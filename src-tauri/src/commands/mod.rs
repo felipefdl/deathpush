@@ -15,11 +15,13 @@ pub mod status;
 pub mod tag;
 pub mod terminal;
 
-use tauri::WebviewWindow;
+use std::sync::Mutex;
+
+use tauri::{Manager, WebviewWindow};
 
 use crate::error::{Error, Result};
-use crate::git::repository::GitRepository;
 use crate::git::status::get_repository_status;
+use crate::git::repository_runtime::RepositoryRuntimeRegistry;
 use crate::types::RepositoryStatus;
 
 use self::repository::AppRepoState;
@@ -38,11 +40,17 @@ pub fn update_window_title(window: &WebviewWindow, status: &RepositoryStatus) {
   let _ = window.set_title(&title);
 }
 
-pub fn refresh_status(app_state: &mut AppRepoState, label: &str) -> Result<RepositoryStatus> {
-  let win_state = app_state.windows.get_mut(label).ok_or(Error::NoRepository)?;
-  let root = win_state.cli_root.as_ref().ok_or(Error::NoRepository)?.clone();
-  let repo = GitRepository::open(&root)?;
+pub fn refresh_status(app_state: &Mutex<AppRepoState>, window: &WebviewWindow) -> Result<RepositoryStatus> {
+  let label = window.label();
+  let runtime = window
+    .state::<RepositoryRuntimeRegistry>()
+    .runtime_for_window(label)
+    .ok_or(Error::NoRepository)?;
+  let repo = runtime.open_repository()?;
   let status = get_repository_status(&repo)?;
+
+  let mut app_state = app_state.lock().map_err(|err| Error::Other(err.to_string()))?;
+  let win_state = app_state.windows.get_mut(label).ok_or(Error::NoRepository)?;
   win_state.repo = Some(repo);
   Ok(status)
 }

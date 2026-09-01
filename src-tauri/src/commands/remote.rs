@@ -16,16 +16,14 @@ pub async fn push(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.push(&remote, &branch, force).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -36,16 +34,14 @@ pub async fn pull(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.pull(&remote, &branch, rebase).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -55,14 +51,12 @@ pub async fn fetch(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.fetch(&remote, prune).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  refresh_status(&mut guard, &label)
+  refresh_status(state.inner(), &window)
 }

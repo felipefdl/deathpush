@@ -1,13 +1,9 @@
-use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::Duration;
 
 use notify_debouncer_mini::{DebouncedEvent, new_debouncer};
-use tauri::{Emitter, WebviewWindow};
-
-pub type WatcherState = Mutex<HashMap<String, WatcherHandle>>;
+use tauri::{Emitter, Manager, WebviewWindow};
 
 pub struct WatcherHandle {
   stop_tx: mpsc::Sender<()>,
@@ -16,6 +12,14 @@ pub struct WatcherHandle {
 impl Drop for WatcherHandle {
   fn drop(&mut self) {
     let _ = self.stop_tx.send(());
+  }
+}
+
+#[cfg(test)]
+impl WatcherHandle {
+  pub(crate) fn for_test() -> Self {
+    let (stop_tx, _) = mpsc::channel();
+    Self { stop_tx }
   }
 }
 
@@ -44,15 +48,14 @@ fn has_relevant_change(events: &[DebouncedEvent]) -> bool {
     .any(|event| is_relevant_change(&event.path.to_string_lossy()))
 }
 
-pub fn start_watcher(window: &WebviewWindow, repo_root: &Path, watcher_state: &WatcherState) -> notify::Result<()> {
+pub fn start_watcher(window: &WebviewWindow, repo_root: &Path) -> notify::Result<WatcherHandle> {
   let (tx, rx) = mpsc::channel();
   let (stop_tx, stop_rx) = mpsc::channel();
 
   let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
   debouncer.watcher().watch(repo_root, notify::RecursiveMode::Recursive)?;
 
-  let window_clone = window.clone();
-  let label = window.label().to_string();
+  let app_handle = window.app_handle().clone();
   std::thread::spawn(move || {
     let _debouncer = debouncer; // keep alive
     loop {
@@ -61,7 +64,7 @@ pub fn start_watcher(window: &WebviewWindow, repo_root: &Path, watcher_state: &W
           if let Ok(events) = events {
             let has_relevant = has_relevant_change(&events);
             if has_relevant {
-              let _ = window_clone.emit("repository-changed", ());
+              let _ = app_handle.emit("repository-changed", ());
             }
           }
         }
@@ -74,12 +77,7 @@ pub fn start_watcher(window: &WebviewWindow, repo_root: &Path, watcher_state: &W
     }
   });
 
-  let mut watchers = watcher_state
-    .lock()
-    .map_err(|_| notify::Error::generic("lock poisoned"))?;
-  watchers.insert(label, WatcherHandle { stop_tx });
-
-  Ok(())
+  Ok(WatcherHandle { stop_tx })
 }
 
 #[cfg(test)]

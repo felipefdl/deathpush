@@ -15,7 +15,7 @@ use commands::{
   blame, branch, cli, commit, config, explorer, file_ops, lifecycle, log, remote, repository, staging, stash, status,
   tag, terminal,
 };
-use git::watcher::WatcherState;
+use git::repository_runtime::RepositoryRuntimeRegistry;
 use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder};
 use tauri::webview::WebviewWindowBuilder;
 use tauri::window::Color;
@@ -215,7 +215,7 @@ pub fn run() {
   let mut builder = tauri::Builder::default()
     .manage(Mutex::new(AppRepoState::default()))
     .manage(pty::TerminalState::new(HashMap::new()))
-    .manage(WatcherState::new(HashMap::new()))
+    .manage(RepositoryRuntimeRegistry::default())
     .setup(|app| {
       let mut initial_paths = HashMap::new();
 
@@ -548,8 +548,6 @@ pub fn run() {
           }
         }
         update_menu_for_focused_window(app_handle);
-        // Catch external changes missed by file watcher (network FS, etc.)
-        let _ = window.emit("repository-changed", ());
       }
       if let WindowEvent::CloseRequested { api, .. } = event {
         let app_handle = window.app_handle();
@@ -576,11 +574,8 @@ pub fn run() {
           }
         }
 
-        // Clean up watcher
-        if let Some(state) = app_handle.try_state::<WatcherState>() {
-          if let Ok(mut guard) = state.lock() {
-            guard.remove(&label); // Drop sends stop signal
-          }
+        if let Some(registry) = app_handle.try_state::<RepositoryRuntimeRegistry>() {
+          registry.remove_window(&label);
         }
 
         // Clean up repo menu flags

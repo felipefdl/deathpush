@@ -3,13 +3,13 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::{Emitter, State, WebviewWindow};
+use tauri::{State, WebviewWindow};
 
 use crate::commands::update_window_title;
 use crate::error::{Error, Result};
 use crate::git::repo_state::detect_operation_state;
 use crate::git::repository::GitRepository;
-use crate::git::watcher::{self, WatcherState};
+use crate::git::repository_runtime::RepositoryRuntimeRegistry;
 use crate::types::{ProjectInfo, RepositoryStatus};
 
 pub struct CliPaths {
@@ -45,12 +45,12 @@ impl AppRepoState {
 pub fn open_repository(
   path: String,
   state: State<'_, Mutex<AppRepoState>>,
-  watcher_state: State<'_, WatcherState>,
+  registry: State<'_, RepositoryRuntimeRegistry>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
   let label = window.label().to_string();
-  let repo = GitRepository::open(&PathBuf::from(&path))?;
-  let repo_root = repo.root().to_path_buf();
+  let repo_root = registry.open_for_window(&label, &PathBuf::from(&path), &window)?;
+  let repo = registry.with_runtime(&label, |runtime| runtime.open_repository())?;
 
   // Build a fast status without scanning the working tree (groups are empty).
   // The frontend will follow up with get_status() to populate file lists.
@@ -64,19 +64,6 @@ pub fn open_repository(
     groups: vec![],
     operation_state: detect_operation_state(repo.root()),
   };
-
-  // Stop old watcher for this window, start new one
-  {
-    let mut watchers = watcher_state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    watchers.remove(&label);
-  }
-  if let Err(err) = watcher::start_watcher(&window, &repo_root, &watcher_state) {
-    tracing::warn!("failed to start watcher: {:?}", err);
-    let _ = window.emit(
-      "watcher:error",
-      format!("File watching unavailable: {}. Changes won't auto-refresh.", err),
-    );
-  }
 
   update_window_title(&window, &status);
 
