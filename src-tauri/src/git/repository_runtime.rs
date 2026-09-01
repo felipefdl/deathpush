@@ -2,16 +2,18 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use tauri::{Emitter, WebviewWindow};
+use tauri::{Emitter, Manager, WebviewWindow};
 
 use crate::error::{Error, Result};
 use crate::git::repository::GitRepository;
-use crate::git::status::get_repository_status;
+use crate::git::status::StatusScope;
+use crate::git::status_coordinator::StatusCoordinator;
 use crate::git::watcher::{self, WatcherHandle};
-use crate::types::RepositoryStatus;
+use crate::types::{PathsChanged, RepositoryStatus, StatusPatch};
 
 pub struct RepositoryRuntime {
   root: PathBuf,
+  coordinator: Arc<StatusCoordinator>,
   _watcher: Option<WatcherHandle>,
 }
 
@@ -25,8 +27,16 @@ impl RepositoryRuntime {
   }
 
   pub fn status(&self) -> Result<RepositoryStatus> {
-    let repo = self.open_repository()?;
-    get_repository_status(&repo)
+    self.coordinator.ensure_baseline()?;
+    Ok(self.coordinator.snapshot())
+  }
+
+  pub fn snapshot(&self) -> RepositoryStatus {
+    self.coordinator.snapshot()
+  }
+
+  pub fn invalidate_and_snapshot(&self, scope: StatusScope) -> Result<RepositoryStatus> {
+    self.coordinator.invalidate_and_snapshot(scope)
   }
 }
 
@@ -49,18 +59,32 @@ pub struct RepositoryRuntimeRegistry {
 
 impl RepositoryRuntimeRegistry {
   pub fn open_for_window(&self, label: &str, path: &Path, window: &WebviewWindow) -> Result<PathBuf> {
+    let handle = window.app_handle().clone();
     self.open_with(
       label,
       path,
-      |root| match watcher::start_watcher(window, root) {
-        Ok(watcher) => Some(watcher),
-        Err(err) => {
-          tracing::warn!("failed to start watcher: {:?}", err);
-          let _ = window.emit(
-            "watcher:error",
-            format!("File watching unavailable: {}. Changes won't auto-refresh.", err),
-          );
-          None
+      move |root, coordinator| {
+        let patch_handle = handle.clone();
+        let paths_handle = handle.clone();
+        coordinator.bind_emitters(
+          Arc::new(move |patch: StatusPatch| {
+            let _ = patch_handle.emit("repository:status-patch", patch);
+          }),
+          Arc::new(move |paths: PathsChanged| {
+            let _ = paths_handle.emit("repository:paths-changed", paths);
+          }),
+        );
+        let sink = coordinator.spawn_worker();
+        match watcher::start_watcher(root, sink) {
+          Ok(watcher) => Some(watcher),
+          Err(err) => {
+            tracing::warn!("failed to start watcher: {:?}", err);
+            let _ = handle.emit(
+              "watcher:error",
+              format!("File watching unavailable: {}. Changes won't auto-refresh.", err),
+            );
+            None
+          }
         }
       },
       || {},
@@ -103,7 +127,7 @@ impl RepositoryRuntimeRegistry {
     &self,
     label: &str,
     path: &Path,
-    start_watcher: impl FnOnce(&Path) -> Option<WatcherHandle>,
+    start_watcher: impl FnOnce(&Path, Arc<StatusCoordinator>) -> Option<WatcherHandle>,
     on_inflight: impl FnOnce(),
   ) -> Result<Arc<RepositoryRuntime>> {
     let repo = GitRepository::open(path)?;
@@ -127,9 +151,11 @@ impl RepositoryRuntimeRegistry {
 
     let runtime = slot
       .get_or_init(|| {
+        let coordinator = Arc::new(StatusCoordinator::new(root.clone()));
         Arc::new(RepositoryRuntime {
           root: root.clone(),
-          _watcher: start_watcher(&root),
+          coordinator: coordinator.clone(),
+          _watcher: start_watcher(&root, coordinator),
         })
       })
       .clone();
@@ -166,7 +192,7 @@ impl RepositoryRuntimeRegistry {
     start_watcher: impl FnOnce(&Path) -> Option<WatcherHandle>,
   ) -> Result<PathBuf> {
     self
-      .open_with(label, path, start_watcher, || {})
+      .open_with(label, path, |root, _| start_watcher(root), || {})
       .map(|runtime| runtime.root.clone())
   }
 
@@ -179,7 +205,7 @@ impl RepositoryRuntimeRegistry {
     on_inflight: impl FnOnce(),
   ) -> Result<PathBuf> {
     self
-      .open_with(label, path, start_watcher, on_inflight)
+      .open_with(label, path, |root, _| start_watcher(root), on_inflight)
       .map(|runtime| runtime.root.clone())
   }
 

@@ -8,5 +8,6 @@ pub mod repo_state;
 pub mod repository;
 pub mod repository_runtime;
 pub mod status;
+pub mod status_coordinator;
 pub mod tag;
 pub mod watcher;

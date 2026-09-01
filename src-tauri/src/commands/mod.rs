@@ -20,8 +20,8 @@ use std::sync::Mutex;
 use tauri::{Manager, WebviewWindow};
 
 use crate::error::{Error, Result};
-use crate::git::status::get_repository_status;
 use crate::git::repository_runtime::RepositoryRuntimeRegistry;
+use crate::git::status::StatusScope;
 use crate::types::RepositoryStatus;
 
 use self::repository::AppRepoState;
@@ -46,8 +46,8 @@ pub fn refresh_status(app_state: &Mutex<AppRepoState>, window: &WebviewWindow) -
     .state::<RepositoryRuntimeRegistry>()
     .runtime_for_window(label)
     .ok_or(Error::NoRepository)?;
+  let status = runtime.invalidate_and_snapshot(StatusScope::Repository)?;
   let repo = runtime.open_repository()?;
-  let status = get_repository_status(&repo)?;
 
   let mut app_state = app_state.lock().map_err(|err| Error::Other(err.to_string()))?;
   let win_state = app_state.windows.get_mut(label).ok_or(Error::NoRepository)?;

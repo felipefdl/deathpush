@@ -3,10 +3,9 @@ use std::sync::Mutex;
 
 use tauri::{State, WebviewWindow};
 
+use crate::commands::refresh_status;
 use crate::commands::repository::AppRepoState;
 use crate::error::{Error, Result};
-use crate::git::repository::GitRepository;
-use crate::git::status::get_repository_status;
 use crate::types::RepositoryStatus;
 use crate::util::async_command;
 
@@ -204,12 +203,7 @@ pub async fn delete_file(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
-  };
+  let root = get_repo_root(&state, &window)?;
   let canon_root = root
     .canonicalize()
     .map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
@@ -221,13 +215,7 @@ pub async fn delete_file(
     return Err(Error::Other("Path traversal denied".into()));
   }
   trash::delete(&full_path).map_err(|e| Error::Other(e.to_string()))?;
-
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  let win_state = guard.get_mut(&label);
-  let repo = GitRepository::open(&root)?;
-  let status = get_repository_status(&repo)?;
-  win_state.repo = Some(repo);
-  Ok(status)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -236,12 +224,7 @@ pub async fn delete_files(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
-  };
+  let root = get_repo_root(&state, &window)?;
   let canon_root = root
     .canonicalize()
     .map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
@@ -256,12 +239,7 @@ pub async fn delete_files(
     trash::delete(&full_path).map_err(|e| Error::Other(e.to_string()))?;
   }
 
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  let win_state = guard.get_mut(&label);
-  let repo = GitRepository::open(&root)?;
-  let status = get_repository_status(&repo)?;
-  win_state.repo = Some(repo);
-  Ok(status)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]
@@ -270,12 +248,7 @@ pub async fn add_to_gitignore(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
-  };
+  let root = get_repo_root(&state, &window)?;
   let gitignore_path = root.join(".gitignore");
   let mut content = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
   if !content.ends_with('\n') && !content.is_empty() {
@@ -284,13 +257,7 @@ pub async fn add_to_gitignore(
   content.push_str(&pattern);
   content.push('\n');
   std::fs::write(&gitignore_path, content)?;
-
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  let win_state = guard.get_mut(&label);
-  let repo = GitRepository::open(&root)?;
-  let status = get_repository_status(&repo)?;
-  win_state.repo = Some(repo);
-  Ok(status)
+  refresh_status(state.inner(), &window)
 }
 
 #[tauri::command]

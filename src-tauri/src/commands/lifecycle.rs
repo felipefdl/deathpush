@@ -8,8 +8,6 @@ use crate::commands::repository::AppRepoState;
 use crate::commands::update_window_title;
 use crate::error::{Error, Result};
 use crate::git::cli::GitCli;
-use crate::git::repository::GitRepository;
-use crate::git::status::get_repository_status;
 use crate::git::repository_runtime::RepositoryRuntimeRegistry;
 use crate::types::RepositoryStatus;
 
@@ -26,8 +24,8 @@ pub async fn clone_repository(
   GitCli::clone_repo(&url, &target).await?;
 
   let repo_root = registry.open_for_window(&label, &target, &window)?;
+  let status = registry.with_runtime(&label, |runtime| runtime.status())?;
   let repo = registry.with_runtime(&label, |runtime| runtime.open_repository())?;
-  let status = get_repository_status(&repo)?;
 
   update_window_title(&window, &status);
 
@@ -105,20 +103,15 @@ pub async fn merge_branch(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.merge_branch(&name).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  let win_state = guard.get_mut(&label);
-  let repo = GitRepository::open(&root)?;
-  let status = get_repository_status(&repo)?;
+  let status = refresh_status(state.inner(), &window)?;
   update_window_title(&window, &status);
-  win_state.repo = Some(repo);
   Ok(status)
 }
 
@@ -128,20 +121,15 @@ pub async fn rebase_branch(
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<RepositoryStatus> {
-  let (label, root) = {
+  let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let label = window.label().to_string();
-    let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-    (label, win_state.cli_root.clone().ok_or(Error::NoRepository)?)
+    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
+    win_state.cli_root.clone().ok_or(Error::NoRepository)?
   };
   let cli = GitCli::new(&root);
   cli.rebase_branch(&name).await?;
-  let mut guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  let win_state = guard.get_mut(&label);
-  let repo = GitRepository::open(&root)?;
-  let status = get_repository_status(&repo)?;
+  let status = refresh_status(state.inner(), &window)?;
   update_window_title(&window, &status);
-  win_state.repo = Some(repo);
   Ok(status)
 }
 
@@ -157,8 +145,8 @@ pub async fn init_repository(
   GitCli::init_repository(&target).await?;
 
   let repo_root = registry.open_for_window(&label, &target, &window)?;
+  let status = registry.with_runtime(&label, |runtime| runtime.status())?;
   let repo = registry.with_runtime(&label, |runtime| runtime.open_repository())?;
-  let status = get_repository_status(&repo)?;
 
   update_window_title(&window, &status);
 

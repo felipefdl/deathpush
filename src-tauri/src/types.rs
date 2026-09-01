@@ -54,7 +54,7 @@ pub enum FileStatus {
   BothModified,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub enum ResourceGroupKind {
   Index,
@@ -99,6 +99,79 @@ pub struct RepositoryStatus {
   pub behind: usize,
   pub groups: Vec<ResourceGroup>,
   pub operation_state: RepoOperationState,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum StatusPhase {
+  Scanning,
+  Settled,
+  Storm,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusKey {
+  pub group: ResourceGroupKind,
+  pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusEntry {
+  pub group: ResourceGroupKind,
+  pub path: String,
+  pub status: FileStatus,
+  pub rename_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryMetadata {
+  pub root: String,
+  pub head_branch: Option<String>,
+  pub head_commit: Option<String>,
+  pub ahead: usize,
+  pub behind: usize,
+  pub operation_state: RepoOperationState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusPatch {
+  pub generation: u64,
+  pub base_revision: u64,
+  pub revision: u64,
+  pub upserts: Vec<StatusEntry>,
+  pub removals: Vec<StatusKey>,
+  pub metadata: Option<RepositoryMetadata>,
+  pub phase: StatusPhase,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum PathChangeKind {
+  Content,
+  Git,
+  Structural,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum PathChangeScope {
+  Exact,
+  Subtree,
+  Repository,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PathsChanged {
+  pub paths: Vec<String>,
+  pub kind: PathChangeKind,
+  pub scope: PathChangeScope,
+  pub generation: u64,
+  pub storm: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -306,5 +379,48 @@ mod tests {
     assert!(json.contains("\"lineType\""));
     assert!(json.contains("\"oldLineNumber\""));
     assert!(json.contains("\"newLineNumber\""));
+  }
+
+  #[test]
+  fn status_patch_serializes_camel_case_and_phase() {
+    let patch = StatusPatch {
+      generation: 1,
+      base_revision: 0,
+      revision: 1,
+      upserts: vec![StatusEntry {
+        group: ResourceGroupKind::WorkingTree,
+        path: "a.rs".into(),
+        status: FileStatus::Modified,
+        rename_path: None,
+      }],
+      removals: vec![StatusKey {
+        group: ResourceGroupKind::Index,
+        path: "b.rs".into(),
+      }],
+      metadata: None,
+      phase: StatusPhase::Scanning,
+    };
+    let json = serde_json::to_string(&patch).unwrap();
+    assert!(json.contains("\"baseRevision\""));
+    assert!(json.contains("\"upserts\""));
+    assert!(json.contains("\"removals\""));
+    assert!(json.contains("\"scanning\""));
+    assert!(json.contains("\"workingTree\""));
+  }
+
+  #[test]
+  fn paths_changed_serializes_scope_and_storm() {
+    let event = PathsChanged {
+      paths: vec!["src/lib.rs".into()],
+      kind: PathChangeKind::Content,
+      scope: PathChangeScope::Exact,
+      generation: 3,
+      storm: true,
+    };
+    let json = serde_json::to_string(&event).unwrap();
+    assert!(json.contains("\"exact\""));
+    assert!(json.contains("\"content\""));
+    assert!(json.contains("\"storm\":true"));
+    assert!(json.contains("\"generation\":3"));
   }
 }

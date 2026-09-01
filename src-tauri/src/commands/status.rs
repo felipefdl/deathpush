@@ -14,6 +14,14 @@ pub fn get_status(registry: State<'_, RepositoryRuntimeRegistry>, window: Webvie
 }
 
 #[tauri::command]
+pub fn get_status_snapshot(
+  registry: State<'_, RepositoryRuntimeRegistry>,
+  window: WebviewWindow,
+) -> Result<RepositoryStatus> {
+  registry.with_runtime(window.label(), |runtime| Ok(runtime.snapshot()))
+}
+
+#[tauri::command]
 pub fn get_file_diff(
   path: String,
   staged: bool,
