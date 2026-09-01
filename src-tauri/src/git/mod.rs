@@ -9,5 +9,7 @@ pub mod repository;
 pub mod repository_runtime;
 pub mod status;
 pub mod status_coordinator;
+#[cfg(test)]
+mod storm_harness;
 pub mod tag;
 pub mod watcher;

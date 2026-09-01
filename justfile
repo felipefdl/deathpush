@@ -26,6 +26,13 @@ test:
 test-watch:
   vp test watch
 
+perf-boot:
+  TZ=UTC vp test run src/hooks/use-repository.test.ts src/lib/themes/apply-theme.test.ts src/lib/themes/boot-theme.test.ts src/lib/recent-projects.test.ts src/app.test.tsx
+  cd src-tauri && TZ=UTC cargo test shell_env
+
+perf-storm:
+  cd src-tauri && TZ=UTC cargo test storm
+
 release version:
   sed -i '' 's/^  "version": "[^"]*"/  "version": "{{version}}"/' package.json
   sed -i '' 's/"version": "[^"]*"/"version": "{{version}}"/' src-tauri/tauri.conf.json

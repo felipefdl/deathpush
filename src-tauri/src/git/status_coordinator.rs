@@ -380,6 +380,11 @@ impl StatusCoordinator {
   }
 
   #[cfg(test)]
+  pub fn scan_in_flight_for_test(&self) -> bool {
+    self.lock().scan_in_flight
+  }
+
+  #[cfg(test)]
   pub fn end_scan_for_test(&self) {
     self.end_scan();
   }
