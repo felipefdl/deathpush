@@ -30,11 +30,16 @@ impl RepositoryRuntime {
   }
 }
 
+struct Inflight {
+  slot: Arc<OnceLock<Arc<RepositoryRuntime>>>,
+  waiters: usize,
+}
+
 #[derive(Default)]
 struct RegistryState {
   runtimes: HashMap<PathBuf, Arc<RepositoryRuntime>>,
   windows: HashMap<String, PathBuf>,
-  inflight: HashMap<PathBuf, Arc<OnceLock<Arc<RepositoryRuntime>>>>,
+  inflight: HashMap<PathBuf, Inflight>,
 }
 
 #[derive(Default)]
@@ -44,17 +49,22 @@ pub struct RepositoryRuntimeRegistry {
 
 impl RepositoryRuntimeRegistry {
   pub fn open_for_window(&self, label: &str, path: &Path, window: &WebviewWindow) -> Result<PathBuf> {
-    self.open_with(label, path, |root| match watcher::start_watcher(window, root) {
-      Ok(watcher) => Some(watcher),
-      Err(err) => {
-        tracing::warn!("failed to start watcher: {:?}", err);
-        let _ = window.emit(
-          "watcher:error",
-          format!("File watching unavailable: {}. Changes won't auto-refresh.", err),
-        );
-        None
-      }
-    })?;
+    self.open_with(
+      label,
+      path,
+      |root| match watcher::start_watcher(window, root) {
+        Ok(watcher) => Some(watcher),
+        Err(err) => {
+          tracing::warn!("failed to start watcher: {:?}", err);
+          let _ = window.emit(
+            "watcher:error",
+            format!("File watching unavailable: {}. Changes won't auto-refresh.", err),
+          );
+          None
+        }
+      },
+      || {},
+    )?;
     self.root_for_window(label).ok_or(Error::NoRepository)
   }
 
@@ -94,6 +104,7 @@ impl RepositoryRuntimeRegistry {
     label: &str,
     path: &Path,
     start_watcher: impl FnOnce(&Path) -> Option<WatcherHandle>,
+    on_inflight: impl FnOnce(),
   ) -> Result<Arc<RepositoryRuntime>> {
     let repo = GitRepository::open(path)?;
     let root = std::fs::canonicalize(repo.root())?;
@@ -104,12 +115,15 @@ impl RepositoryRuntimeRegistry {
         Self::bind_window(&mut state, label, &root);
         return Ok(runtime);
       }
-      state
-        .inflight
-        .entry(root.clone())
-        .or_insert_with(|| Arc::new(OnceLock::new()))
-        .clone()
+      let inflight = state.inflight.entry(root.clone()).or_insert_with(|| Inflight {
+        slot: Arc::new(OnceLock::new()),
+        waiters: 0,
+      });
+      inflight.waiters += 1;
+      inflight.slot.clone()
     };
+
+    on_inflight();
 
     let runtime = slot
       .get_or_init(|| {
@@ -122,8 +136,15 @@ impl RepositoryRuntimeRegistry {
 
     let mut state = self.state.lock().map_err(|err| Error::Other(err.to_string()))?;
     state.runtimes.entry(root.clone()).or_insert_with(|| runtime.clone());
-    state.inflight.remove(&root);
     Self::bind_window(&mut state, label, &root);
+    if let Some(current) = state.inflight.get_mut(&root)
+      && Arc::ptr_eq(&current.slot, &slot)
+    {
+      current.waiters -= 1;
+      if current.waiters == 0 {
+        state.inflight.remove(&root);
+      }
+    }
     Ok(runtime)
   }
 
@@ -145,7 +166,20 @@ impl RepositoryRuntimeRegistry {
     start_watcher: impl FnOnce(&Path) -> Option<WatcherHandle>,
   ) -> Result<PathBuf> {
     self
-      .open_with(label, path, start_watcher)
+      .open_with(label, path, start_watcher, || {})
+      .map(|runtime| runtime.root.clone())
+  }
+
+  #[cfg(test)]
+  fn open_for_window_with_inflight(
+    &self,
+    label: &str,
+    path: &Path,
+    start_watcher: impl FnOnce(&Path) -> Option<WatcherHandle>,
+    on_inflight: impl FnOnce(),
+  ) -> Result<PathBuf> {
+    self
+      .open_with(label, path, start_watcher, on_inflight)
       .map(|runtime| runtime.root.clone())
   }
 
@@ -230,27 +264,37 @@ mod tests {
     let directory = git_repository();
     let registry = RepositoryRuntimeRegistry::default();
     let watcher_count = AtomicUsize::new(0);
-    let start = Barrier::new(2);
+    let acquired = Barrier::new(2);
 
     std::thread::scope(|scope| {
       scope.spawn(|| {
-        start.wait();
         registry
-          .open_for_window_with("first", directory.path(), |_| {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            watcher_count.fetch_add(1, Ordering::SeqCst);
-            Some(WatcherHandle::for_test())
-          })
+          .open_for_window_with_inflight(
+            "first",
+            directory.path(),
+            |_| {
+              watcher_count.fetch_add(1, Ordering::SeqCst);
+              Some(WatcherHandle::for_test())
+            },
+            || {
+              acquired.wait();
+            },
+          )
           .unwrap();
       });
       scope.spawn(|| {
-        start.wait();
         registry
-          .open_for_window_with("second", directory.path(), |_| {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            watcher_count.fetch_add(1, Ordering::SeqCst);
-            Some(WatcherHandle::for_test())
-          })
+          .open_for_window_with_inflight(
+            "second",
+            directory.path(),
+            |_| {
+              watcher_count.fetch_add(1, Ordering::SeqCst);
+              Some(WatcherHandle::for_test())
+            },
+            || {
+              acquired.wait();
+            },
+          )
           .unwrap();
       });
     });
@@ -260,6 +304,68 @@ mod tests {
     assert!(Arc::ptr_eq(
       &registry.runtime_for_window("first").unwrap(),
       &registry.runtime_for_window("second").unwrap(),
+    ));
+  }
+
+  #[test]
+  fn inflight_slot_stays_until_every_opener_binds() {
+    let directory = git_repository();
+    let registry = RepositoryRuntimeRegistry::default();
+    let watcher_count = AtomicUsize::new(0);
+    let acquired = Barrier::new(2);
+    let first_bound = Barrier::new(2);
+    let release_second = Barrier::new(2);
+
+    std::thread::scope(|scope| {
+      scope.spawn(|| {
+        registry
+          .open_for_window_with_inflight(
+            "first",
+            directory.path(),
+            |_| {
+              watcher_count.fetch_add(1, Ordering::SeqCst);
+              Some(WatcherHandle::for_test())
+            },
+            || {
+              acquired.wait();
+            },
+          )
+          .unwrap();
+        first_bound.wait();
+      });
+      scope.spawn(|| {
+        registry
+          .open_for_window_with_inflight(
+            "second",
+            directory.path(),
+            |_| {
+              watcher_count.fetch_add(1, Ordering::SeqCst);
+              Some(WatcherHandle::for_test())
+            },
+            || {
+              acquired.wait();
+              release_second.wait();
+            },
+          )
+          .unwrap();
+      });
+
+      first_bound.wait();
+      registry.remove_window("first");
+      registry
+        .open_for_window_with("third", directory.path(), |_| {
+          watcher_count.fetch_add(1, Ordering::SeqCst);
+          Some(WatcherHandle::for_test())
+        })
+        .unwrap();
+      release_second.wait();
+    });
+
+    assert_eq!(watcher_count.load(Ordering::SeqCst), 1);
+    assert_eq!(registry.runtime_count(), 1);
+    assert!(Arc::ptr_eq(
+      &registry.runtime_for_window("second").unwrap(),
+      &registry.runtime_for_window("third").unwrap(),
     ));
   }
 }
