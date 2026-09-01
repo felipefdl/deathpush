@@ -415,53 +415,58 @@ impl StatusCoordinator {
         continue;
       }
 
-      let wait = storm_recv_timeout(&self.lock().storm, now);
-      let first = match wait {
-        None => match rx.recv() {
-          Ok(message) => message,
-          Err(_) => return,
-        },
-        Some(timeout) => match rx.recv_timeout(timeout) {
-          Ok(message) => message,
-          Err(RecvTimeoutError::Timeout) => continue,
-          Err(RecvTimeoutError::Disconnected) => return,
-        },
+      let has_dirty = {
+        let state = self.lock();
+        !state.dirty.is_empty() || state.overflow
       };
-      self.ingest(first);
+      if !has_dirty {
+        let wait = storm_recv_timeout(&self.lock().storm, now);
+        let first = match wait {
+          None => match rx.recv() {
+            Ok(message) => message,
+            Err(_) => return,
+          },
+          Some(timeout) => match rx.recv_timeout(timeout) {
+            Ok(message) => message,
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => return,
+          },
+        };
+        self.ingest(first);
 
-      let coalesce = if self.in_storm() {
-        Duration::from_millis(STORM_COALESCE_MS)
-      } else {
-        Duration::from_millis(COALESCE_MS)
-      };
-      let mut deadline = Instant::now() + coalesce;
-      if let Some(quiet) = storm_recv_timeout(&self.lock().storm, Instant::now()) {
-        let quiet_deadline = Instant::now() + quiet;
-        if quiet_deadline < deadline {
-          deadline = quiet_deadline;
+        let coalesce = if self.in_storm() {
+          Duration::from_millis(STORM_COALESCE_MS)
+        } else {
+          Duration::from_millis(COALESCE_MS)
+        };
+        let mut deadline = Instant::now() + coalesce;
+        if let Some(quiet) = storm_recv_timeout(&self.lock().storm, Instant::now()) {
+          let quiet_deadline = Instant::now() + quiet;
+          if quiet_deadline < deadline {
+            deadline = quiet_deadline;
+          }
+        }
+        loop {
+          let remaining = deadline.saturating_duration_since(Instant::now());
+          if remaining.is_zero() {
+            break;
+          }
+          match rx.recv_timeout(remaining) {
+            Ok(message) => self.ingest(message),
+            Err(RecvTimeoutError::Timeout) => break,
+            Err(RecvTimeoutError::Disconnected) => return,
+          }
+        }
+
+        if self.overflow_flag.swap(false, Ordering::SeqCst) {
+          self.ingest(WatcherMessage::Overflow);
+        }
+
+        if self.lock().storm.should_exit(Instant::now()) {
+          let _ = self.exit_storm_with_baseline();
+          continue;
         }
       }
-      loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-          break;
-        }
-        match rx.recv_timeout(remaining) {
-          Ok(message) => self.ingest(message),
-          Err(RecvTimeoutError::Timeout) => break,
-          Err(RecvTimeoutError::Disconnected) => return,
-        }
-      }
-
-      if self.overflow_flag.swap(false, Ordering::SeqCst) {
-        self.ingest(WatcherMessage::Overflow);
-      }
-
-      if self.lock().storm.should_exit(Instant::now()) {
-        let _ = self.exit_storm_with_baseline();
-        continue;
-      }
-
       let _ = self.scan_from_channel(&rx);
     }
   }
@@ -1139,5 +1144,53 @@ mod tests {
     for path in &paths {
       assert!(files.contains(&path.as_str()), "missing {path} in snapshot");
     }
+  }
+
+  #[test]
+  fn run_loop_scans_leftover_dirty_without_waiting_for_recv() {
+    let (dir, coordinator) = init_coordinator_repo();
+    std::fs::write(dir.path().join("first.rs"), "first").unwrap();
+    std::fs::write(dir.path().join("leftover.rs"), "leftover").unwrap();
+
+    let coordinator = std::sync::Arc::new(coordinator);
+    let (tx, rx) = std::sync::mpsc::sync_channel(8);
+    let hook_tx = tx.clone();
+    coordinator.set_during_scan_hook_for_test(move || {
+      hook_tx.send(watcher_exact("leftover.rs")).unwrap();
+    });
+
+    let worker = {
+      let coordinator = std::sync::Arc::clone(&coordinator);
+      std::thread::spawn(move || coordinator.run_loop(rx))
+    };
+
+    tx.send(watcher_exact("first.rs")).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+      let status = coordinator.snapshot();
+      let files: Vec<_> = status
+        .groups
+        .iter()
+        .flat_map(|group| group.files.iter())
+        .map(|file| file.path.as_str())
+        .collect();
+      if files.contains(&"leftover.rs") {
+        break;
+      }
+      assert!(
+        Instant::now() < deadline,
+        "run_loop left leftover.rs dirty until another watcher message"
+      );
+      std::thread::sleep(Duration::from_millis(10));
+    }
+
+    assert!(
+      coordinator.dirty_scopes_for_test().is_empty(),
+      "leftover dirty must be scanned, not left queued"
+    );
+
+    drop(tx);
+    worker.join().unwrap();
   }
 }
