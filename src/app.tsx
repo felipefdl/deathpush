@@ -105,6 +105,8 @@ export const App = () => {
         if (cliPath) {
           setCachedIdentity(null);
           void openRepo(cliPath);
+        } else {
+          setCachedIdentity(null);
         }
       } catch {
         setCachedIdentity(null);

@@ -106,13 +106,7 @@ describe("App project refresh", () => {
     expect(result.container.querySelector(".boot-splash")).toBeTruthy();
   });
 
-  it("keeps cached repository identity display-only after startup", async () => {
-    let resolveInitialPath!: (path: string | null) => void;
-    getInitialPathMock.mockReturnValue(
-      new Promise<string | null>((resolve) => {
-        resolveInitialPath = resolve;
-      })
-    );
+  it("shows welcome after startup when recent projects exist but no repository was requested", async () => {
     localStorage.setItem(
       "deathpush:recentProjects",
       JSON.stringify([
@@ -127,19 +121,12 @@ describe("App project refresh", () => {
 
     const result = render(() => <App />);
     flush();
-
-    const cachedChrome = result.container.querySelector(".cached-repository-chrome");
-    expect(cachedChrome?.textContent).toContain("cached-project");
-    expect(cachedChrome?.textContent).toContain("feat/cached");
-    expect(openRepoMock).not.toHaveBeenCalled();
-
-    resolveInitialPath(null);
     await Promise.resolve();
     await Promise.resolve();
     flush();
 
     expect(openRepoMock).not.toHaveBeenCalled();
-    expect(result.container.querySelector(".cached-repository-chrome")).toBeTruthy();
+    expect(result.getByTestId("welcome-screen")).toBeTruthy();
   });
 
   it("shows welcome after startup when no cached identity exists", async () => {
