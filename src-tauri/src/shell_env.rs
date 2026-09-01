@@ -139,28 +139,65 @@ pub fn get() -> Option<&'static HashMap<String, String>> {
 }
 
 #[cfg(not(windows))]
+fn shell_env_timeout() -> std::time::Duration {
+  #[cfg(test)]
+  if let Ok(ms) = std::env::var("DEATHPUSH_SHELL_ENV_TIMEOUT_MS")
+    && let Ok(ms) = ms.parse::<u64>()
+  {
+    return std::time::Duration::from_millis(ms);
+  }
+  std::time::Duration::from_secs(10)
+}
+
+#[cfg(not(windows))]
 fn resolve_shell_env() -> std::result::Result<HashMap<String, String>, String> {
+  use std::io::Read;
   use std::sync::mpsc;
-  use std::time::Duration;
 
   let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+  let timeout = shell_env_timeout();
+
+  let mut command = shell_env_command(&shell);
+  command
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null())
+    .stdin(std::process::Stdio::null());
+
+  let mut child = command
+    .spawn()
+    .map_err(|e| format!("failed to spawn shell '{shell}': {e}"))?;
+  let mut stdout = child
+    .stdout
+    .take()
+    .ok_or_else(|| format!("shell '{shell}' stdout was not piped"))?;
 
   let (tx, rx) = mpsc::channel();
-
-  let shell_clone = shell.clone();
   std::thread::spawn(move || {
-    let result = shell_env_command(&shell_clone)
-      .stdout(std::process::Stdio::piped())
-      .stderr(std::process::Stdio::null())
-      .stdin(std::process::Stdio::null())
-      .output();
-    let _ = tx.send(result);
+    let mut buf = Vec::new();
+    let _ = stdout.read_to_end(&mut buf);
+    let _ = tx.send(buf);
   });
 
-  let output = rx
-    .recv_timeout(Duration::from_secs(10))
-    .map_err(|_| format!("shell env resolution timed out after 10s (shell: {shell})"))?
-    .map_err(|e| format!("failed to spawn shell '{shell}': {e}"))?;
+  let output = match rx.recv_timeout(timeout) {
+    Ok(stdout) => {
+      let status = child
+        .wait()
+        .map_err(|e| format!("failed to wait for shell '{shell}': {e}"))?;
+      std::process::Output {
+        status,
+        stdout,
+        stderr: Vec::new(),
+      }
+    }
+    Err(_) => {
+      let _ = child.kill();
+      let _ = child.wait();
+      return Err(format!(
+        "shell env resolution timed out after {}s (shell: {shell})",
+        timeout.as_secs().max(1)
+      ));
+    }
+  };
 
   if !output.status.success() {
     return Err(format!("shell '{shell}' exited with status {}", output.status));
@@ -248,6 +285,33 @@ mod tests {
     }
   }
 
+  struct TimeoutMsGuard {
+    original: Option<OsString>,
+  }
+
+  impl TimeoutMsGuard {
+    fn set(ms: &str) -> Self {
+      let original = std::env::var_os("DEATHPUSH_SHELL_ENV_TIMEOUT_MS");
+      // SAFETY: test-only timeout override, restored on drop.
+      unsafe {
+        std::env::set_var("DEATHPUSH_SHELL_ENV_TIMEOUT_MS", ms);
+      }
+      Self { original }
+    }
+  }
+
+  impl Drop for TimeoutMsGuard {
+    fn drop(&mut self) {
+      // SAFETY: restores the test-only timeout override.
+      unsafe {
+        match &self.original {
+          Some(value) => std::env::set_var("DEATHPUSH_SHELL_ENV_TIMEOUT_MS", value),
+          None => std::env::remove_var("DEATHPUSH_SHELL_ENV_TIMEOUT_MS"),
+        }
+      }
+    }
+  }
+
   #[tokio::test]
   async fn shell_env_resolves_in_background_with_inherited_fallback() {
     let fake_command = FakeCommandGuard::set("sleep 30");
@@ -276,5 +340,32 @@ mod tests {
     assert_eq!(resolved.get("HOME").map(String::as_str), Some("/tmp"));
     assert_eq!(resolved.get("USER").map(String::as_str), Some("t"));
     assert_eq!(resolved.get("SHELL").map(String::as_str), Some("/bin/sh"));
+  }
+
+  #[test]
+  fn shell_env_timeout_kills_hung_child() {
+    let _timeout = TimeoutMsGuard::set("200");
+    let pid_file = tempfile::NamedTempFile::new().unwrap();
+    let pid_path = pid_file.path().to_string_lossy().replace('\'', "");
+    let _fake = FakeCommandGuard::set(&format!("echo $$ > '{pid_path}'; exec sleep 30"));
+
+    let started_at = Instant::now();
+    let result = resolve_shell_env();
+    assert!(result.is_err(), "hung shell must time out, got {result:?}");
+    assert!(
+      started_at.elapsed() < Duration::from_secs(2),
+      "timeout must kill instead of waiting on sleep, elapsed={:?}",
+      started_at.elapsed()
+    );
+
+    std::thread::sleep(Duration::from_millis(50));
+    let pid_text = std::fs::read_to_string(pid_file.path()).unwrap();
+    let pid = pid_text.trim().parse::<i32>().expect("pid file");
+    let alive = std::process::Command::new("kill")
+      .args(["-0", &pid.to_string()])
+      .status()
+      .map(|status| status.success())
+      .unwrap_or(true);
+    assert!(!alive, "timed-out shell child {pid} must be reaped");
   }
 }
