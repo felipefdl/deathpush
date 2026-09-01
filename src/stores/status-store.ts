@@ -101,35 +101,6 @@ export const resetStatusStore = (): void => {
   statusStore.setState(emptyState());
 };
 
-const cloneGroup = (groupFiles: GroupFiles, kind: IndexedGroupKind, cloned: Set<IndexedGroupKind>): FileEntry[] => {
-  if (!cloned.has(kind)) {
-    groupFiles[kind] = groupFiles[kind].slice();
-    cloned.add(kind);
-  }
-  return groupFiles[kind];
-};
-
-const removeFromGroup = (files: FileEntry[], index: Map<string, number>, path: string): void => {
-  const at = index.get(path);
-  if (at === undefined) return;
-  files.splice(at, 1);
-  index.delete(path);
-  for (let position = at; position < files.length; position += 1) {
-    const file = files[position];
-    if (file) index.set(file.path, position);
-  }
-};
-
-const upsertInGroup = (files: FileEntry[], index: Map<string, number>, file: FileEntry): void => {
-  const at = index.get(file.path);
-  if (at !== undefined) {
-    files[at] = file;
-    return;
-  }
-  index.set(file.path, files.length);
-  files.push(file);
-};
-
 export const applyStatusPatches = (patches: StatusPatch[]): ApplyStatusPatchResult => {
   if (patches.length === 0) return "applied";
 
@@ -140,23 +111,12 @@ export const applyStatusPatches = (patches: StatusPatch[]): ApplyStatusPatchResu
     index: state.groupFiles.index,
     workingTree: state.groupFiles.workingTree,
   };
-  const cloned = new Set<IndexedGroupKind>();
-  const indexes = new Map<IndexedGroupKind, Map<string, number>>();
-
-  const indexOf = (kind: IndexedGroupKind): Map<string, number> => {
-    let index = indexes.get(kind);
-    if (!index) {
-      const files = cloneGroup(groupFiles, kind, cloned);
-      index = new Map(files.map((file, position) => [file.path, position]));
-      indexes.set(kind, index);
-    }
-    return index;
-  };
 
   let generation = state.generation;
   let revision = state.revision;
   let phase = state.phase;
   let applied = false;
+  const dirty = new Set<IndexedGroupKind>();
 
   for (const patch of patches) {
     if (patch.generation < generation) continue;
@@ -167,8 +127,7 @@ export const applyStatusPatches = (patches: StatusPatch[]): ApplyStatusPatchResu
     for (const removal of patch.removals) {
       const key = statusEntryKey(removal.group, removal.path);
       if (!entries.delete(key)) continue;
-      const kind = indexedGroup(removal.group);
-      removeFromGroup(cloneGroup(groupFiles, kind, cloned), indexOf(kind), removal.path);
+      dirty.add(indexedGroup(removal.group));
     }
     for (const upsert of patch.upserts) {
       const key = statusEntryKey(upsert.group, upsert.path);
@@ -176,10 +135,9 @@ export const applyStatusPatches = (patches: StatusPatch[]): ApplyStatusPatchResu
       entries.set(key, upsert);
       const kind = indexedGroup(upsert.group);
       if (previous && indexedGroup(previous.group) !== kind) {
-        const previousKind = indexedGroup(previous.group);
-        removeFromGroup(cloneGroup(groupFiles, previousKind, cloned), indexOf(previousKind), previous.path);
+        dirty.add(indexedGroup(previous.group));
       }
-      upsertInGroup(cloneGroup(groupFiles, kind, cloned), indexOf(kind), toFileEntry(upsert));
+      dirty.add(kind);
     }
 
     generation = patch.generation;
@@ -189,6 +147,17 @@ export const applyStatusPatches = (patches: StatusPatch[]): ApplyStatusPatchResu
   }
 
   if (!applied) return "discarded";
+
+  for (const kind of dirty) {
+    const files: FileEntry[] = [];
+    for (const entry of entries.values()) {
+      if (indexedGroup(entry.group) === kind) {
+        files.push(toFileEntry(entry));
+      }
+    }
+    groupFiles[kind] = files;
+  }
+
   commitState(entries, groupFiles, generation, revision, phase);
   return "applied";
 };

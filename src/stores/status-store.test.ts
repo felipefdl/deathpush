@@ -59,6 +59,37 @@ describe("applyStatusPatch", () => {
     expect(files.map((file) => file.path)).toEqual(["b.ts"]);
   });
 
+  it("rebuilds a group once when applying many removals and upserts", () => {
+    const initial = ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"].map((path) => entry(path));
+    applyStatusPatch(patch({ upserts: initial }));
+    const result = applyStatusPatch(
+      patch({
+        baseRevision: 1,
+        revision: 2,
+        removals: [
+          { group: "workingTree", path: "a.ts" },
+          { group: "workingTree", path: "c.ts" },
+          { group: "workingTree", path: "e.ts" },
+        ],
+        upserts: [entry("b.ts"), entry("f.ts"), entry("g.ts", "index")],
+      })
+    );
+
+    expect(result).toBe("applied");
+    const workingTree =
+      statusStore
+        .getState()
+        .groups.find((group) => group.kind === "workingTree")
+        ?.files.map((file) => file.path) ?? [];
+    const index =
+      statusStore
+        .getState()
+        .groups.find((group) => group.kind === "index")
+        ?.files.map((file) => file.path) ?? [];
+    expect(workingTree).toEqual(["b.ts", "d.ts", "f.ts"]);
+    expect(index).toEqual(["g.ts"]);
+  });
+
   it("discards patches from an older generation", () => {
     applyStatusPatch(patch({ generation: 2, upserts: [entry("kept.ts")] }));
     const result = applyStatusPatch(
