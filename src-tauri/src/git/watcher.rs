@@ -1,5 +1,9 @@
-use notify::{Event, EventKind, RecursiveMode, Watcher, event::CreateKind, event::RemoveKind};
-use std::path::Path;
+use notify::{
+  Event, EventKind, RecursiveMode, Watcher,
+  event::{CreateKind, RemoveKind},
+};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -39,6 +43,152 @@ pub enum WatcherMessage {
   Wake,
 }
 
+#[derive(Debug, Default)]
+pub struct WatchFilter {
+  tracked: HashSet<String>,
+  prefixes: HashSet<String>,
+}
+
+impl WatchFilter {
+  pub fn from_repo(repo: &git2::Repository) -> Self {
+    let mut filter = Self::default();
+    let Ok(index) = repo.index() else {
+      return filter;
+    };
+    for entry in index.iter() {
+      let path = String::from_utf8_lossy(&entry.path).replace('\\', "/");
+      filter.tracked.insert(path.clone());
+      let mut rest = path.as_str();
+      while let Some((parent, _)) = rest.rsplit_once('/') {
+        if !filter.prefixes.insert(parent.to_string()) {
+          break;
+        }
+        rest = parent;
+      }
+    }
+    filter
+  }
+
+  pub fn should_watch(&self, repo: Option<&git2::Repository>, relative: &str, subtree: bool) -> bool {
+    let relative = relative.replace('\\', "/");
+    if self.tracked.contains(&relative) {
+      return true;
+    }
+    if subtree {
+      let prefix = relative.trim_end_matches('/');
+      if prefix.is_empty() || self.prefixes.contains(prefix) || self.tracked.contains(prefix) {
+        return true;
+      }
+    }
+    let Some(repo) = repo else {
+      return true;
+    };
+    match repo.is_path_ignored(Path::new(&relative)) {
+      Ok(ignored) => !ignored,
+      Err(_) => true,
+    }
+  }
+}
+
+#[derive(Default)]
+pub struct WatchCache {
+  repo: Option<git2::Repository>,
+  filter: WatchFilter,
+}
+
+impl WatchCache {
+  pub fn invalidate(&mut self) {
+    self.repo = None;
+    self.filter = WatchFilter::default();
+  }
+
+  pub fn refresh(&mut self, root: &Path) {
+    self.repo = git2::Repository::open(root).ok();
+    self.filter = match &self.repo {
+      Some(repo) => WatchFilter::from_repo(repo),
+      None => WatchFilter::default(),
+    };
+  }
+
+  pub fn should_watch(&mut self, root: &Path, relative: &str, subtree: bool) -> bool {
+    if self.repo.is_none() {
+      self.refresh(root);
+    }
+    self.filter.should_watch(self.repo.as_ref(), relative, subtree)
+  }
+}
+
+pub fn extra_watch_roots(repo_root: &Path) -> Vec<PathBuf> {
+  let Ok(repo) = git2::Repository::open(repo_root) else {
+    return Vec::new();
+  };
+  let Some(workdir) = repo.workdir() else {
+    return Vec::new();
+  };
+  let Ok(workdir) = std::fs::canonicalize(workdir) else {
+    return Vec::new();
+  };
+  let Ok(git_dir) = std::fs::canonicalize(repo.path()) else {
+    return Vec::new();
+  };
+  let Ok(common_dir) = std::fs::canonicalize(repo.commondir()) else {
+    return Vec::new();
+  };
+
+  let mut roots = Vec::new();
+  if !git_dir.starts_with(&workdir) {
+    roots.push(git_dir);
+  }
+  if !common_dir.starts_with(&workdir) && !roots.iter().any(|root| root == &common_dir) {
+    roots.push(common_dir);
+  }
+  roots
+}
+
+pub fn notify_event_lost(result: &notify::Result<Event>) -> bool {
+  match result {
+    Ok(event) => event.need_rescan(),
+    Err(err) => matches!(
+      err.kind,
+      notify::ErrorKind::Io(_) | notify::ErrorKind::MaxFilesWatch | notify::ErrorKind::Generic(_)
+    ),
+  }
+}
+
+fn classify_git_relative(relative: &str) -> Option<ClassifiedPath> {
+  if relative.contains("index.lock")
+    || relative.starts_with("objects/")
+    || relative.contains("/objects/")
+    || relative.starts_with("logs/")
+    || relative.contains("/logs/")
+    || relative.contains(".watchman-cookie-")
+  {
+    return None;
+  }
+  Some(ClassifiedPath {
+    relative: relative.to_string(),
+    kind: PathChangeKind::Git,
+    scope: PathChangeScope::Repository,
+  })
+}
+
+pub fn classify_watched_path(
+  workdir: &Path,
+  extra_roots: &[PathBuf],
+  path: &Path,
+  kind: EventKind,
+) -> Option<ClassifiedPath> {
+  let mut extras: Vec<&PathBuf> = extra_roots.iter().collect();
+  extras.sort_by_key(|root| std::cmp::Reverse(root.as_os_str().len()));
+  for extra in extras {
+    if let Ok(relative) = path.strip_prefix(extra) {
+      let relative = relative.to_string_lossy().replace('\\', "/");
+      return classify_git_relative(&relative);
+    }
+  }
+  classify_path(workdir, path, kind)
+}
+
 pub fn classify_path(root: &Path, path: &Path, kind: EventKind) -> Option<ClassifiedPath> {
   let relative = path.strip_prefix(root).ok()?;
   let relative = relative.to_string_lossy().replace('\\', "/");
@@ -51,18 +201,7 @@ pub fn classify_path(root: &Path, path: &Path, kind: EventKind) -> Option<Classi
   }
 
   if let Some(git_rest) = relative.strip_prefix(".git/") {
-    if git_rest.contains("index.lock")
-      || git_rest.starts_with("objects/")
-      || git_rest.starts_with("logs/")
-      || git_rest.contains(".watchman-cookie-")
-    {
-      return None;
-    }
-    return Some(ClassifiedPath {
-      relative,
-      kind: PathChangeKind::Git,
-      scope: PathChangeScope::Repository,
-    });
+    return classify_git_relative(git_rest);
   }
 
   let scope = match kind {
@@ -79,35 +218,9 @@ pub fn classify_path(root: &Path, path: &Path, kind: EventKind) -> Option<Classi
   })
 }
 
-pub fn should_watch_path(repo: &git2::Repository, relative: &str) -> bool {
-  let path = Path::new(relative);
-  if let Ok(index) = repo.index()
-    && index.get_path(path, 0).is_some()
-  {
-    return true;
-  }
-  if has_tracked_descendant(repo, relative) {
-    return true;
-  }
-  match repo.is_path_ignored(path) {
-    Ok(ignored) => !ignored,
-    Err(_) => true,
-  }
-}
-
-fn has_tracked_descendant(repo: &git2::Repository, relative: &str) -> bool {
-  let Ok(index) = repo.index() else {
-    return false;
-  };
-  let prefix = relative.trim_end_matches('/');
-  if prefix.is_empty() {
-    return true;
-  }
-  let with_slash = format!("{prefix}/");
-  index.iter().any(|entry| {
-    let path = String::from_utf8_lossy(&entry.path);
-    path == prefix || path.starts_with(&with_slash)
-  })
+#[cfg(test)]
+pub fn should_watch_path(repo: &git2::Repository, relative: &str, scope: PathChangeScope) -> bool {
+  WatchFilter::from_repo(repo).should_watch(Some(repo), relative, scope == PathChangeScope::Subtree)
 }
 
 pub fn start_watcher(
@@ -119,18 +232,31 @@ pub fn start_watcher(
   let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
   let mut watcher = notify::recommended_watcher(tx)?;
   watcher.watch(repo_root, RecursiveMode::Recursive)?;
+  let extra_roots = extra_watch_roots(repo_root);
+  for extra in &extra_roots {
+    if let Err(err) = watcher.watch(extra, RecursiveMode::Recursive) {
+      tracing::warn!("failed to watch extra git path {}: {err:?}", extra.display());
+    }
+  }
   let root = repo_root.to_path_buf();
 
   std::thread::spawn(move || {
     let _watcher = watcher;
     loop {
       match rx.recv_timeout(Duration::from_millis(200)) {
-        Ok(Ok(event)) => {
+        Ok(result) => {
+          if notify_event_lost(&result) {
+            overflow.store(true, Ordering::SeqCst);
+            continue;
+          }
+          let Ok(event) = result else {
+            continue;
+          };
           if event.kind.is_access() {
             continue;
           }
           for path in event.paths {
-            let Some(classified) = classify_path(&root, &path, event.kind) else {
+            let Some(classified) = classify_watched_path(&root, &extra_roots, &path, event.kind) else {
               continue;
             };
             if !send_classified(&sink, &overflow, classified) {
@@ -138,7 +264,6 @@ pub fn start_watcher(
             }
           }
         }
-        Ok(Err(_)) => {}
         Err(mpsc::RecvTimeoutError::Timeout) => {}
         Err(mpsc::RecvTimeoutError::Disconnected) => break,
       }
@@ -170,10 +295,16 @@ pub fn send_classified(
 mod tests {
   use std::path::{Path, PathBuf};
 
-  use notify::{EventKind, event::ModifyKind};
+  use notify::{
+    Event, EventKind,
+    event::{Flag, ModifyKind},
+  };
   use tempfile::TempDir;
 
-  use super::{classify_path, should_watch_path};
+  use super::{
+    WatchFilter, classify_path, classify_watched_path, extra_watch_roots, notify_event_lost, should_watch_path,
+  };
+  use crate::types::{PathChangeKind, PathChangeScope};
 
   fn commit_forced(repo: &git2::Repository, relative: &str, contents: &str) {
     let root = repo.workdir().unwrap();
@@ -234,7 +365,7 @@ mod tests {
     std::fs::create_dir_all(root.join("vendor")).unwrap();
     std::fs::write(root.join("vendor/noise.txt"), "noise\n").unwrap();
 
-    assert!(!should_watch_path(&repo, "vendor/noise.txt"));
+    assert!(!should_watch_path(&repo, "vendor/noise.txt", PathChangeScope::Exact));
   }
 
   #[test]
@@ -247,9 +378,10 @@ mod tests {
     std::fs::write(root.join("vendor/noise.txt"), "noise\n").unwrap();
     commit_forced(&repo, "vendor/kept.txt", "keep\n");
 
-    assert!(should_watch_path(&repo, "vendor/kept.txt"));
-    assert!(should_watch_path(&repo, "vendor"));
-    assert!(!should_watch_path(&repo, "vendor/noise.txt"));
+    assert!(should_watch_path(&repo, "vendor/kept.txt", PathChangeScope::Exact));
+    assert!(should_watch_path(&repo, "vendor", PathChangeScope::Subtree));
+    assert!(!should_watch_path(&repo, "vendor", PathChangeScope::Exact));
+    assert!(!should_watch_path(&repo, "vendor/noise.txt", PathChangeScope::Exact));
   }
 
   #[test]
@@ -259,7 +391,23 @@ mod tests {
     std::fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
     std::fs::write(root.join("node_modules/pkg/index.js"), "module.exports = 1\n").unwrap();
 
-    assert!(should_watch_path(&repo, "node_modules/pkg/index.js"));
+    assert!(should_watch_path(
+      &repo,
+      "node_modules/pkg/index.js",
+      PathChangeScope::Exact
+    ));
+  }
+
+  #[test]
+  fn watch_filter_limits_descendant_lookup_to_subtree_scope() {
+    let (_dir, repo) = init_repo();
+    let root = repo.workdir().unwrap();
+    std::fs::write(root.join(".gitignore"), "vendor/\n").unwrap();
+    commit_forced(&repo, ".gitignore", "vendor/\n");
+    commit_forced(&repo, "vendor/kept.txt", "keep\n");
+    let filter = WatchFilter::from_repo(&repo);
+    assert!(filter.should_watch(Some(&repo), "vendor", true));
+    assert!(!filter.should_watch(Some(&repo), "vendor", false));
   }
 
   #[test]
@@ -281,5 +429,74 @@ mod tests {
     assert!(overflow.load(Ordering::SeqCst));
     assert!(matches!(rx.try_recv(), Ok(WatcherMessage::Path(_))));
     assert!(rx.try_recv().is_err());
+  }
+
+  #[test]
+  fn main_repo_has_no_extra_watch_roots() {
+    let (dir, _repo) = init_repo();
+    assert!(extra_watch_roots(dir.path()).is_empty());
+  }
+
+  #[test]
+  fn linked_worktree_watch_roots_include_git_dir_and_common_dir() {
+    let directory = TempDir::new().unwrap();
+    let main = directory.path().join("main");
+    let linked = directory.path().join("linked");
+    std::fs::create_dir(&main).unwrap();
+    let repo = git2::Repository::init(&main).unwrap();
+    {
+      let mut config = repo.config().unwrap();
+      config.set_str("user.name", "Test").unwrap();
+      config.set_str("user.email", "test@example.com").unwrap();
+    }
+    commit_forced(&repo, "README.md", "hello\n");
+    repo.worktree("linked", &linked, None).unwrap();
+
+    let extra = extra_watch_roots(&linked);
+    assert!(
+      extra
+        .iter()
+        .any(|root| root.to_string_lossy().contains("worktrees/linked")),
+      "expected worktree git dir, got {extra:?}"
+    );
+    assert!(
+      extra.iter().any(|root| {
+        let text = root.to_string_lossy();
+        text.ends_with(".git") && !text.contains("worktrees")
+      }),
+      "expected common git dir, got {extra:?}"
+    );
+  }
+
+  #[test]
+  fn git_dir_events_classify_as_repository_invalidation() {
+    let git_dir = PathBuf::from("/repo/.git/worktrees/linked");
+    let classified = classify_watched_path(
+      Path::new("/linked"),
+      &[git_dir.clone()],
+      &git_dir.join("HEAD"),
+      EventKind::Modify(ModifyKind::Any),
+    )
+    .unwrap();
+    assert_eq!(classified.kind, PathChangeKind::Git);
+    assert_eq!(classified.scope, PathChangeScope::Repository);
+  }
+
+  #[test]
+  fn rescan_and_loss_errors_promote_to_overflow() {
+    let rescan = Event::new(EventKind::Other).set_flag(Flag::Rescan);
+    assert!(notify_event_lost(&Ok(rescan)));
+
+    let io = notify::Error::new(notify::ErrorKind::Io(std::io::Error::other("lost")));
+    assert!(notify_event_lost(&Err(io)));
+
+    let max = notify::Error::new(notify::ErrorKind::MaxFilesWatch);
+    assert!(notify_event_lost(&Err(max)));
+
+    let generic = notify::Error::new(notify::ErrorKind::Generic("backend lost events".into()));
+    assert!(notify_event_lost(&Err(generic)));
+
+    let benign = Event::new(EventKind::Modify(ModifyKind::Any));
+    assert!(!notify_event_lost(&Ok(benign)));
   }
 }
