@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use tauri::{Emitter, WebviewWindow};
 
@@ -34,6 +34,7 @@ impl RepositoryRuntime {
 struct RegistryState {
   runtimes: HashMap<PathBuf, Arc<RepositoryRuntime>>,
   windows: HashMap<String, PathBuf>,
+  inflight: HashMap<PathBuf, Arc<OnceLock<Arc<RepositoryRuntime>>>>,
 }
 
 #[derive(Default)]
@@ -97,21 +98,31 @@ impl RepositoryRuntimeRegistry {
     let repo = GitRepository::open(path)?;
     let root = std::fs::canonicalize(repo.root())?;
 
-    {
+    let slot = {
       let mut state = self.state.lock().map_err(|err| Error::Other(err.to_string()))?;
       if let Some(runtime) = state.runtimes.get(&root).cloned() {
         Self::bind_window(&mut state, label, &root);
         return Ok(runtime);
       }
-    }
+      state
+        .inflight
+        .entry(root.clone())
+        .or_insert_with(|| Arc::new(OnceLock::new()))
+        .clone()
+    };
 
-    let runtime = Arc::new(RepositoryRuntime {
-      root: root.clone(),
-      _watcher: start_watcher(&root),
-    });
+    let runtime = slot
+      .get_or_init(|| {
+        Arc::new(RepositoryRuntime {
+          root: root.clone(),
+          _watcher: start_watcher(&root),
+        })
+      })
+      .clone();
 
     let mut state = self.state.lock().map_err(|err| Error::Other(err.to_string()))?;
-    let runtime = state.runtimes.entry(root.clone()).or_insert(runtime).clone();
+    state.runtimes.entry(root.clone()).or_insert_with(|| runtime.clone());
+    state.inflight.remove(&root);
     Self::bind_window(&mut state, label, &root);
     Ok(runtime)
   }
@@ -149,7 +160,7 @@ impl RepositoryRuntimeRegistry {
 
 #[cfg(test)]
 mod tests {
-  use std::sync::Arc;
+  use std::sync::{Arc, Barrier};
   use std::sync::atomic::{AtomicUsize, Ordering};
 
   use tempfile::TempDir;
@@ -212,5 +223,43 @@ mod tests {
         Ok(())
       })
       .unwrap();
+  }
+
+  #[test]
+  fn concurrent_opens_of_uncached_root_start_one_watcher() {
+    let directory = git_repository();
+    let registry = RepositoryRuntimeRegistry::default();
+    let watcher_count = AtomicUsize::new(0);
+    let start = Barrier::new(2);
+
+    std::thread::scope(|scope| {
+      scope.spawn(|| {
+        start.wait();
+        registry
+          .open_for_window_with("first", directory.path(), |_| {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            watcher_count.fetch_add(1, Ordering::SeqCst);
+            Some(WatcherHandle::for_test())
+          })
+          .unwrap();
+      });
+      scope.spawn(|| {
+        start.wait();
+        registry
+          .open_for_window_with("second", directory.path(), |_| {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            watcher_count.fetch_add(1, Ordering::SeqCst);
+            Some(WatcherHandle::for_test())
+          })
+          .unwrap();
+      });
+    });
+
+    assert_eq!(watcher_count.load(Ordering::SeqCst), 1);
+    assert_eq!(registry.runtime_count(), 1);
+    assert!(Arc::ptr_eq(
+      &registry.runtime_for_window("first").unwrap(),
+      &registry.runtime_for_window("second").unwrap(),
+    ));
   }
 }
