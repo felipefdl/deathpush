@@ -4,6 +4,7 @@ import { repositoryStore } from "../../stores/repository-store";
 import { addRecentProject } from "../../lib/recent-projects";
 import * as commands from "../../lib/tauri-commands";
 import { beginRepositorySession } from "../../hooks/use-repository-events";
+import { recoverFromSnapshot } from "../../hooks/use-repository";
 
 type CloneDialogProps = {
   onClose: () => void;
@@ -44,7 +45,7 @@ export const CloneDialog = (props: CloneDialogProps) => {
       beginRepositorySession();
       addRecentProject(identity.root, identity.headBranch ?? undefined);
       setIdentity(identity, { reset: false });
-      void commands.getStatus().catch(() => undefined);
+      void recoverFromSnapshot().catch(() => undefined);
       props.onClose();
     } catch (err) {
       setError(String(err));

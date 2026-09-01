@@ -3,21 +3,23 @@ import { repositoryStore } from "../stores/repository-store";
 import { applyStatusPatch, resetStatusStore, statusStore } from "../stores/status-store";
 import { beginRepositorySession, enqueueStatusPatch, flushPendingPatches } from "./use-repository-events";
 import { useRepository } from "./use-repository";
-import type { StatusEntry, StatusPatch } from "../lib/git-types";
+import type { StatusEntry, StatusPatch, StatusSnapshot } from "../lib/git-types";
 
 const identity = {
   root: "/test/project",
   headBranch: "main",
 };
 
-const { openRepositoryMock, getStatusMock } = vi.hoisted(() => ({
+const { openRepositoryMock, getStatusMock, getStatusSnapshotMock } = vi.hoisted(() => ({
   openRepositoryMock: vi.fn(),
   getStatusMock: vi.fn(),
+  getStatusSnapshotMock: vi.fn(),
 }));
 
 vi.mock("../lib/tauri-commands", () => ({
   openRepository: openRepositoryMock,
   getStatus: getStatusMock,
+  getStatusSnapshot: getStatusSnapshotMock,
 }));
 
 describe("openRepo", () => {
@@ -30,6 +32,7 @@ describe("openRepo", () => {
     });
     openRepositoryMock.mockReset();
     getStatusMock.mockReset();
+    getStatusSnapshotMock.mockReset();
   });
 
   it("shows repository identity without applying a full status snapshot", async () => {
@@ -120,5 +123,77 @@ describe("openRepo", () => {
     expect(files).not.toContain("late-a.ts");
     expect(files).not.toContain("from-a.ts");
     expect(repositoryStore.getState().status?.root).toBe("/repo-b");
+  });
+
+  it("populates groups from a snapshot after new-repo patches arrive during open await", async () => {
+    const entry = (path: string, group: StatusEntry["group"] = "workingTree"): StatusEntry => ({
+      group,
+      path,
+      status: "modified",
+      renamePath: null,
+    });
+    const patch = (overrides: Partial<StatusPatch> = {}): StatusPatch => ({
+      generation: 1,
+      baseRevision: 0,
+      revision: 1,
+      upserts: [],
+      removals: [],
+      phase: "settled",
+      ...overrides,
+    });
+    const snapshot: StatusSnapshot = {
+      generation: 2,
+      revision: 4,
+      phase: "settled",
+      entries: [entry("from-b.ts")],
+      metadata: {
+        root: "/repo-b",
+        headBranch: "main",
+        headCommit: "abc",
+        ahead: 0,
+        behind: 0,
+        operationState: "none",
+      },
+    };
+
+    beginRepositorySession();
+    repositoryStore.getState().setIdentity({ root: "/repo-a", headBranch: "main" });
+    applyStatusPatch(patch({ upserts: [entry("from-a.ts")] }));
+    repositoryStore.getState().syncStatusGroups();
+
+    let resolveOpen!: (value: { root: string; headBranch: string }) => void;
+    const openGate = new Promise<{ root: string; headBranch: string }>((resolve) => {
+      resolveOpen = resolve;
+    });
+    openRepositoryMock.mockImplementation(() => openGate);
+    getStatusMock.mockResolvedValue(undefined);
+    getStatusSnapshotMock.mockResolvedValue(snapshot);
+
+    const pending = useRepository().openRepo("/repo-b");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    enqueueStatusPatch(
+      patch({
+        generation: 2,
+        baseRevision: 0,
+        revision: 4,
+        upserts: [entry("from-b.ts")],
+        metadata: snapshot.metadata,
+      })
+    );
+
+    resolveOpen({ root: "/repo-b", headBranch: "main" });
+    await pending;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const files = statusStore
+      .getState()
+      .groups.flatMap((group) => group.files)
+      .map((file) => file.path);
+    expect(files).toEqual(["from-b.ts"]);
+    expect(repositoryStore.getState().status?.groups[0]?.files[0]?.path).toBe("from-b.ts");
+    expect(getStatusSnapshotMock).toHaveBeenCalledOnce();
   });
 });

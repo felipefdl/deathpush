@@ -32,7 +32,7 @@ export const useRepository = () => {
       beginRepositorySession();
       setIdentity(identity, { reset: false });
       addRecentProject(identity.root, identity.headBranch ?? undefined);
-      void commands.getStatus().catch(() => undefined);
+      void recoverFromSnapshot().catch(() => undefined);
     } catch (err) {
       setError(String(err));
     } finally {
