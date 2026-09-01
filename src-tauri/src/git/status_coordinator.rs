@@ -155,6 +155,8 @@ pub struct StatusCoordinator {
   on_paths: Mutex<Option<PathsSink>>,
   overflow_flag: Arc<AtomicBool>,
   scan_mutex: Mutex<()>,
+  #[cfg(test)]
+  during_scan: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl StatusCoordinator {
@@ -166,6 +168,8 @@ impl StatusCoordinator {
       on_paths: Mutex::new(None),
       overflow_flag: Arc::new(AtomicBool::new(false)),
       scan_mutex: Mutex::new(()),
+      #[cfg(test)]
+      during_scan: Mutex::new(None),
     }
   }
 
@@ -178,6 +182,8 @@ impl StatusCoordinator {
       on_paths: Mutex::new(None),
       overflow_flag: Arc::new(AtomicBool::new(false)),
       scan_mutex: Mutex::new(()),
+      #[cfg(test)]
+      during_scan: Mutex::new(None),
     }
   }
 
@@ -237,7 +243,7 @@ impl StatusCoordinator {
 
   pub fn invalidate_paths_and_snapshot(&self, paths: &[String]) -> Result<RepositoryStatus> {
     self.invalidate_paths(paths.iter().map(String::as_str));
-    self.scan_dirty()?;
+    self.scan_dirty_uncapped()?;
     Ok(self.snapshot())
   }
 
@@ -293,7 +299,7 @@ impl StatusCoordinator {
   #[cfg(test)]
   pub fn take_scan_scopes_for_test(&self) -> Vec<StatusScope> {
     let mut state = self.lock();
-    take_scan_scopes(&mut state).map(|(scopes, _)| scopes).unwrap_or_default()
+    take_scan_scopes(&mut state, true).map(|(scopes, _)| scopes).unwrap_or_default()
   }
 
   #[cfg(test)]
@@ -308,7 +314,7 @@ impl StatusCoordinator {
 
   #[cfg(test)]
   pub fn scan_dirty_with_extra_pending_for_test(&self, extra_pending: bool) -> Result<()> {
-    self.scan_dirty_with_extra_pending(extra_pending)
+    self.scan_dirty_inner(|| extra_pending, true)
   }
 
   #[cfg(test)]
@@ -324,6 +330,23 @@ impl StatusCoordinator {
   #[cfg(test)]
   pub fn end_scan_for_test(&self) {
     self.end_scan();
+  }
+
+  #[cfg(test)]
+  pub fn set_during_scan_hook_for_test(&self, hook: impl FnOnce() + Send + 'static) {
+    *self.during_scan.lock().unwrap_or_else(|err| err.into_inner()) = Some(Box::new(hook));
+  }
+
+  #[cfg(test)]
+  pub fn scan_from_channel_for_test(&self, rx: &mpsc::Receiver<WatcherMessage>) -> Result<()> {
+    self.scan_from_channel(rx)
+  }
+
+  #[cfg(test)]
+  fn run_during_scan_hook(&self) {
+    if let Some(hook) = self.during_scan.lock().unwrap_or_else(|err| err.into_inner()).take() {
+      hook();
+    }
   }
 
   pub fn ingest(&self, message: WatcherMessage) {
@@ -439,13 +462,25 @@ impl StatusCoordinator {
         continue;
       }
 
-      let mut extra_pending = self.overflow_flag.load(Ordering::SeqCst);
-      while let Ok(message) = rx.try_recv() {
-        extra_pending = true;
-        self.ingest(message);
-      }
-      let _ = self.scan_dirty_with_extra_pending(extra_pending);
+      let _ = self.scan_from_channel(&rx);
     }
+  }
+
+  fn scan_from_channel(&self, rx: &mpsc::Receiver<WatcherMessage>) -> Result<()> {
+    while let Ok(message) = rx.try_recv() {
+      self.ingest(message);
+    }
+    self.scan_dirty_inner(
+      || {
+        let mut extra_pending = self.overflow_flag.load(Ordering::SeqCst);
+        while let Ok(message) = rx.try_recv() {
+          extra_pending = true;
+          self.ingest(message);
+        }
+        extra_pending
+      },
+      true,
+    )
   }
 
   pub fn spawn_worker(self: &Arc<Self>) -> mpsc::SyncSender<WatcherMessage> {
@@ -490,29 +525,41 @@ impl StatusCoordinator {
   }
 
   fn scan_dirty(&self) -> Result<()> {
-    self.scan_dirty_with_extra_pending(false)
+    self.scan_dirty_inner(|| false, true)
   }
 
-  fn scan_dirty_with_extra_pending(&self, extra_pending: bool) -> Result<()> {
+  fn scan_dirty_uncapped(&self) -> Result<()> {
+    self.scan_dirty_inner(|| false, false)
+  }
+
+  fn scan_dirty_inner(&self, drain: impl FnOnce() -> bool, apply_storm_cap: bool) -> Result<()> {
     let _scan_guard = self.scan_mutex.lock().unwrap_or_else(|err| err.into_inner());
-    let (scopes, storm, generation) = {
+    let prepared = {
       let mut state = self.lock();
-      let Some((scopes, storm)) = take_scan_scopes(&mut state) else {
-        let pending = extra_pending || state.overflow || self.overflow_flag.load(Ordering::SeqCst);
-        if pending {
-          state.storm.note_scan_finished(true);
+      match take_scan_scopes(&mut state, apply_storm_cap) {
+        None => None,
+        Some((scopes, storm)) => {
+          if state.scan_in_flight {
+            for scope in scopes {
+              self.queue_scope(&mut state, scope);
+            }
+            return Ok(());
+          }
+          state.scan_in_flight = true;
+          state.generation += 1;
+          Some((scopes, storm, state.generation))
         }
-        return Ok(());
-      };
-      if state.scan_in_flight {
-        for scope in scopes {
-          self.queue_scope(&mut state, scope);
-        }
-        return Ok(());
       }
-      state.scan_in_flight = true;
-      state.generation += 1;
-      (scopes, storm, state.generation)
+    };
+
+    let Some((scopes, storm, generation)) = prepared else {
+      let extra_pending = drain();
+      let mut state = self.lock();
+      let pending = extra_pending || state.overflow || self.overflow_flag.load(Ordering::SeqCst);
+      if pending {
+        state.storm.note_scan_finished(true);
+      }
+      return Ok(());
     };
 
     let fail_next = {
@@ -529,6 +576,9 @@ impl StatusCoordinator {
       self.end_scan();
       return Err(crate::error::Error::Other("scan failed".into()));
     }
+
+    #[cfg(test)]
+    self.run_during_scan_hook();
 
     let scan = match scan_result(&self.root, &scopes) {
       Ok(scan) => scan,
@@ -550,6 +600,7 @@ impl StatusCoordinator {
     let phase = if storm { StatusPhase::Storm } else { StatusPhase::Settled };
     self.apply_scan_with_generation(generation, scan, scoped.as_deref(), phase);
 
+    let extra_pending = drain();
     let mut state = self.lock();
     let pending = extra_pending
       || !state.dirty.is_empty()
@@ -702,7 +753,7 @@ fn is_index_locked(err: &crate::error::Error) -> bool {
   }
 }
 
-fn take_scan_scopes(state: &mut CoordinatorState) -> Option<(Vec<StatusScope>, bool)> {
+fn take_scan_scopes(state: &mut CoordinatorState, apply_storm_cap: bool) -> Option<(Vec<StatusScope>, bool)> {
   if state.overflow {
     state.dirty.clear();
     state.overflow = false;
@@ -712,7 +763,7 @@ fn take_scan_scopes(state: &mut CoordinatorState) -> Option<(Vec<StatusScope>, b
     return None;
   }
   let mut scopes: Vec<StatusScope> = state.dirty.drain().collect();
-  if state.storm.in_storm() {
+  if apply_storm_cap && state.storm.in_storm() {
     let mut exact = Vec::new();
     let mut rest = Vec::new();
     for scope in scopes {
@@ -755,7 +806,10 @@ mod tests {
     STORM_EVENT_RATE, STORM_EXIT_QUIET_MS, STORM_SCAN_CAP, STORM_UNIQUE_SCOPES,
   };
   use crate::git::status::StatusScope;
-  use crate::types::{FileStatus, ResourceGroupKind, StatusEntry, StatusKey, StatusPhase};
+  use crate::git::watcher::{ClassifiedPath, WatcherMessage};
+  use crate::types::{
+    FileStatus, PathChangeKind, PathChangeScope, ResourceGroupKind, StatusEntry, StatusKey, StatusPhase,
+  };
 
   fn entry(group: ResourceGroupKind, path: &str, status: FileStatus) -> StatusEntry {
     StatusEntry {
@@ -1003,5 +1057,87 @@ mod tests {
     assert!(dirty.contains(&StatusScope::Exact("src/a.rs".into())));
     assert!(dirty.contains(&StatusScope::Exact("src/b.rs".into())));
     assert!(!dirty.iter().any(|scope| matches!(scope, StatusScope::Repository)));
+  }
+
+  fn watcher_exact(relative: &str) -> WatcherMessage {
+    WatcherMessage::Path(ClassifiedPath {
+      relative: relative.to_string(),
+      kind: PathChangeKind::Content,
+      scope: PathChangeScope::Exact,
+    })
+  }
+
+  fn init_coordinator_repo() -> (tempfile::TempDir, StatusCoordinator) {
+    let directory = tempfile::TempDir::new().unwrap();
+    git2::Repository::init(directory.path()).unwrap();
+    let coordinator = StatusCoordinator::new(directory.path().to_path_buf());
+    (directory, coordinator)
+  }
+
+  #[test]
+  fn events_arriving_during_scan_count_as_pending() {
+    let (dir, coordinator) = init_coordinator_repo();
+    std::fs::write(dir.path().join("a.rs"), "a").unwrap();
+    coordinator.invalidate(StatusScope::Exact("a.rs".into()));
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(8);
+    coordinator.set_during_scan_hook_for_test(move || {
+      tx.send(watcher_exact("during.rs")).unwrap();
+    });
+    coordinator.scan_from_channel_for_test(&rx).unwrap();
+    assert!(!coordinator.in_storm());
+    assert!(
+      coordinator
+        .dirty_scopes_for_test()
+        .contains(&StatusScope::Exact("during.rs".into()))
+    );
+
+    coordinator.invalidate(StatusScope::Exact("a.rs".into()));
+    let (tx, rx) = std::sync::mpsc::sync_channel(8);
+    coordinator.set_during_scan_hook_for_test(move || {
+      tx.send(watcher_exact("during2.rs")).unwrap();
+    });
+    coordinator.scan_from_channel_for_test(&rx).unwrap();
+    assert!(coordinator.in_storm());
+  }
+
+  #[test]
+  fn already_drained_current_scan_events_are_not_pending() {
+    let (dir, coordinator) = init_coordinator_repo();
+    std::fs::write(dir.path().join("a.rs"), "a").unwrap();
+    std::fs::write(dir.path().join("b.rs"), "b").unwrap();
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(8);
+    tx.send(watcher_exact("a.rs")).unwrap();
+    coordinator.scan_from_channel_for_test(&rx).unwrap();
+    assert!(!coordinator.in_storm());
+
+    tx.send(watcher_exact("b.rs")).unwrap();
+    coordinator.scan_from_channel_for_test(&rx).unwrap();
+    assert!(!coordinator.in_storm());
+  }
+
+  #[test]
+  fn invalidate_paths_and_snapshot_drains_all_exact_paths_past_storm_scan_cap() {
+    let (dir, coordinator) = init_coordinator_repo();
+    let count = STORM_SCAN_CAP + 1;
+    let paths: Vec<String> = (0..count).map(|index| format!("p{index}.rs")).collect();
+    for path in &paths {
+      std::fs::write(dir.path().join(path), "x").unwrap();
+    }
+    let status = coordinator.invalidate_paths_and_snapshot(&paths).unwrap();
+    assert!(
+      coordinator.dirty_scopes_for_test().is_empty(),
+      "sync invalidate must drain leftover storm-capped dirty scopes"
+    );
+    let files: Vec<_> = status
+      .groups
+      .iter()
+      .flat_map(|group| group.files.iter())
+      .map(|file| file.path.as_str())
+      .collect();
+    for path in &paths {
+      assert!(files.contains(&path.as_str()), "missing {path} in snapshot");
+    }
   }
 }
