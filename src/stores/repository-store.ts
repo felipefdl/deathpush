@@ -155,7 +155,14 @@ export const repositoryStore = createStore<RepositoryState>((set, get) => ({
     if (!status) return;
     const groups = statusStore.getState().groups;
     if (selectedFile && !groups.some((group) => group.files.some((file) => file.path === selectedFile.path))) {
-      set({ status: { ...status, groups }, selectedFile: null, diff: null, diffLoadId: null, blame: null, cursorLine: null });
+      set({
+        status: { ...status, groups },
+        selectedFile: null,
+        diff: null,
+        diffLoadId: null,
+        blame: null,
+        cursorLine: null,
+      });
       return;
     }
     set({ status: { ...status, groups } });

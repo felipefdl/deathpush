@@ -95,7 +95,10 @@ describe("applyIncomingPatch", () => {
     };
     const recover = vi.fn(async () => snapshot);
 
-    const result = await applyIncomingPatch(patch({ baseRevision: 4, revision: 5, upserts: [entry("skip.ts")] }), recover);
+    const result = await applyIncomingPatch(
+      patch({ baseRevision: 4, revision: 5, upserts: [entry("skip.ts")] }),
+      recover
+    );
 
     expect(result).toBe("gap");
     expect(recover).toHaveBeenCalledOnce();
@@ -146,7 +149,10 @@ describe("repository session", () => {
     );
     await flushPendingPatches();
 
-    const files = statusStore.getState().groups.flatMap((group) => group.files).map((file) => file.path);
+    const files = statusStore
+      .getState()
+      .groups.flatMap((group) => group.files)
+      .map((file) => file.path);
     expect(files).toEqual(["from-b.ts"]);
     expect(statusStore.getState().generation).toBe(1);
     expect(repositoryStore.getState().status?.groups[0]?.files[0]?.path).toBe("from-b.ts");

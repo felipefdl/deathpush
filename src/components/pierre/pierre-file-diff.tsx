@@ -11,7 +11,7 @@ import {
 } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/edit";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import type { DiffContent, DiffHunk, FileStatus, ResourceGroupKind } from "../../lib/git-types";
+import type { DiffContent, DiffHunk, FileStatus, RepositoryStatus, ResourceGroupKind } from "../../lib/git-types";
 import * as commands from "../../lib/tauri-commands";
 import { repositoryStore } from "../../stores/repository-store";
 import { settingsStore } from "../../stores/settings-store";
@@ -220,13 +220,7 @@ export const runStageLineCalls = async (input: {
   hunks: DiffHunk[];
   calls: StageLinesCall[];
   getFileHunks: (path: string, staged: boolean) => Promise<{ hunks: DiffHunk[] }>;
-  stageLines: (
-    path: string,
-    hunkIndex: number,
-    lineStart: number,
-    lineEnd: number,
-    staged: boolean
-  ) => Promise<void>;
+  stageLines: (path: string, hunkIndex: number, lineStart: number, lineEnd: number, staged: boolean) => Promise<void>;
   onWrote?: () => void;
 }): Promise<void> => {
   const pending = input.calls.map((call) => ({

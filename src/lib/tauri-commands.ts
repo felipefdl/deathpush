@@ -152,7 +152,8 @@ export const stashSaveStaged = (message?: string): Promise<void> =>
 
 export const stashShow = (index: number): Promise<FileDiffWithHunks> => invoke("stash_show", { index });
 
-export const discardHunk = (path: string, hunkIndex: number): Promise<void> => invoke("discard_hunk", { path, hunkIndex });
+export const discardHunk = (path: string, hunkIndex: number): Promise<void> =>
+  invoke("discard_hunk", { path, hunkIndex });
 
 export const stageLines = (
   path: string,

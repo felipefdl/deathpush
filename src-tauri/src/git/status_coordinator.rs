@@ -286,13 +286,6 @@ impl StatusCoordinator {
     Ok(self.snapshot())
   }
 
-  #[cfg(test)]
-  pub fn invalidate_and_snapshot(&self, scope: StatusScope) -> Result<RepositoryStatus> {
-    self.invalidate(scope);
-    self.scan_dirty()?;
-    Ok(self.snapshot())
-  }
-
   pub fn overflow_flag(&self) -> Arc<AtomicBool> {
     Arc::clone(&self.overflow_flag)
   }

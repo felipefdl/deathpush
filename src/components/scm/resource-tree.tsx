@@ -212,8 +212,7 @@ export const ResourceTree = (props: ResourceTreeProps) => {
           {
             label: "Add to .gitignore",
             icon: "exclude",
-            action: () =>
-              void commands.addToGitignore(file.path).catch(setError),
+            action: () => void commands.addToGitignore(file.path).catch(setError),
           }
         );
       }

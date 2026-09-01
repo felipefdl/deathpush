@@ -289,7 +289,7 @@ export const ExplorerView = (props: ExplorerViewProps) => {
         icon: "exclude",
         action: () =>
           void commands.addToGitignore(path).catch((error) => repositoryStore.getState().setError(String(error))),
-      },
+      }
     );
     return items;
   };
