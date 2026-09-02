@@ -7,6 +7,7 @@ static RESOLVER: OnceLock<ShellEnvResolver> = OnceLock::new();
 
 #[derive(Clone, Copy)]
 enum Resolution {
+  #[cfg(not(windows))]
   Resolved,
   InheritedFallback,
 }
@@ -81,6 +82,7 @@ impl ShellEnvResolver {
 
   fn completed_result(&self) -> Option<Option<&'static HashMap<String, String>>> {
     self.state.resolution.get().map(|resolution| match resolution {
+      #[cfg(not(windows))]
       Resolution::Resolved => get(),
       Resolution::InheritedFallback => None,
     })

@@ -173,6 +173,10 @@ pub struct StatusCoordinator {
   during_scan: Mutex<Option<Box<dyn FnOnce() + Send>>>,
   #[cfg(test)]
   scan_attempts: std::sync::atomic::AtomicUsize,
+  #[cfg(test)]
+  scan_attempt_times: Mutex<Vec<Instant>>,
+  #[cfg(test)]
+  first_scan_failure_at: Mutex<Option<Instant>>,
 }
 
 impl StatusCoordinator {
@@ -191,6 +195,10 @@ impl StatusCoordinator {
       during_scan: Mutex::new(None),
       #[cfg(test)]
       scan_attempts: std::sync::atomic::AtomicUsize::new(0),
+      #[cfg(test)]
+      scan_attempt_times: Mutex::new(Vec::new()),
+      #[cfg(test)]
+      first_scan_failure_at: Mutex::new(None),
     }
   }
 
@@ -210,6 +218,10 @@ impl StatusCoordinator {
       during_scan: Mutex::new(None),
       #[cfg(test)]
       scan_attempts: std::sync::atomic::AtomicUsize::new(0),
+      #[cfg(test)]
+      scan_attempt_times: Mutex::new(Vec::new()),
+      #[cfg(test)]
+      first_scan_failure_at: Mutex::new(None),
     };
     coordinator.lock().baseline_complete = true;
     coordinator
@@ -432,6 +444,20 @@ impl StatusCoordinator {
   #[cfg(test)]
   pub fn scan_attempts_for_test(&self) -> usize {
     self.scan_attempts.load(Ordering::SeqCst)
+  }
+
+  #[cfg(test)]
+  pub fn scan_attempt_times_for_test(&self) -> Vec<Instant> {
+    self
+      .scan_attempt_times
+      .lock()
+      .unwrap_or_else(|err| err.into_inner())
+      .clone()
+  }
+
+  #[cfg(test)]
+  pub fn first_scan_failure_at_for_test(&self) -> Option<Instant> {
+    *self.first_scan_failure_at.lock().unwrap_or_else(|err| err.into_inner())
   }
 
   #[cfg(test)]
@@ -753,6 +779,12 @@ impl StatusCoordinator {
 
     #[cfg(test)]
     self.scan_attempts.fetch_add(1, Ordering::SeqCst);
+    #[cfg(test)]
+    self
+      .scan_attempt_times
+      .lock()
+      .unwrap_or_else(|err| err.into_inner())
+      .push(Instant::now());
     let fail_next = self.injected_scan_failure();
     if fail_next {
       self.fail_scan(scopes);
@@ -802,6 +834,13 @@ impl StatusCoordinator {
   }
 
   fn fail_scan(&self, scopes: Vec<StatusScope>) {
+    #[cfg(test)]
+    {
+      let mut first = self.first_scan_failure_at.lock().unwrap_or_else(|err| err.into_inner());
+      if first.is_none() {
+        *first = Some(Instant::now());
+      }
+    }
     self.requeue_scopes(scopes);
     self.end_scan();
     self.lock().scan_failed = true;
@@ -1496,30 +1535,18 @@ mod tests {
       std::thread::spawn(move || coordinator.run_loop(rx))
     };
 
-    let sent_at = Instant::now();
     tx.send(watcher_exact("fail.rs")).unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(2);
-    while coordinator.scan_attempts_for_test() == 0 {
-      assert!(Instant::now() < deadline, "run_loop never attempted a scan");
-      std::thread::sleep(Duration::from_millis(5));
-    }
-
-    std::thread::sleep(Duration::from_millis(SCAN_RETRY_MS / 2));
-    let attempts = coordinator.scan_attempts_for_test();
-    assert_eq!(
-      attempts, 1,
-      "failed scan must not re-enter immediately without delay, attempts={attempts}"
-    );
-
     while coordinator.scan_attempts_for_test() < 2 {
       assert!(Instant::now() < deadline, "failed scan must retry after SCAN_RETRY_MS");
       std::thread::sleep(Duration::from_millis(5));
     }
+    let times = coordinator.scan_attempt_times_for_test();
     assert!(
-      sent_at.elapsed() >= Duration::from_millis(SCAN_RETRY_MS),
-      "retry must happen after the delay, elapsed={:?}",
-      sent_at.elapsed()
+      times[1].saturating_duration_since(times[0]) >= Duration::from_millis(SCAN_RETRY_MS),
+      "retry must happen after the delay, gap={:?}",
+      times[1].saturating_duration_since(times[0])
     );
 
     while !retain_exact_dirty(&coordinator, "fail.rs") {
@@ -1588,7 +1615,6 @@ mod tests {
       std::thread::spawn(move || coordinator.run_loop(rx))
     };
 
-    let started = Instant::now();
     let deadline = Instant::now() + Duration::from_secs(2);
     while !coordinator.dirty_promoted_to_repository() {
       assert!(
@@ -1598,17 +1624,6 @@ mod tests {
       std::thread::sleep(Duration::from_millis(5));
     }
 
-    std::thread::sleep(Duration::from_millis(SCAN_RETRY_MS / 2));
-    assert_eq!(
-      coordinator.scan_attempts_for_test(),
-      0,
-      "failed exit baseline must not scan immediately"
-    );
-    assert!(
-      coordinator.dirty_promoted_to_repository(),
-      "repository scope must stay queued during the delay"
-    );
-
     while coordinator.scan_attempts_for_test() < 1 {
       assert!(
         Instant::now() < deadline,
@@ -1616,10 +1631,14 @@ mod tests {
       );
       std::thread::sleep(Duration::from_millis(5));
     }
+    let failed_at = coordinator
+      .first_scan_failure_at_for_test()
+      .expect("exit baseline must fail before retry");
+    let retry_at = coordinator.scan_attempt_times_for_test()[0];
     assert!(
-      started.elapsed() >= Duration::from_millis(SCAN_RETRY_MS),
-      "exit-baseline retry must happen after the delay, elapsed={:?}",
-      started.elapsed()
+      retry_at.saturating_duration_since(failed_at) >= Duration::from_millis(SCAN_RETRY_MS),
+      "exit-baseline retry must happen after the delay, gap={:?}",
+      retry_at.saturating_duration_since(failed_at)
     );
 
     while !coordinator.dirty_promoted_to_repository() {
