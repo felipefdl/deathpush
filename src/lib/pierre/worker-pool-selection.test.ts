@@ -109,7 +109,7 @@ describe("Pierre 1.3.6 idle-worker selection", () => {
       cacheKey: "pierre-warmup:ts",
     });
 
-    await expect.poll(() => workers.some((worker) => worker.pendingReply !== null)).toBe(true);
+    await expect.poll(() => workers.some((worker) => worker.pendingReply !== undefined)).toBe(true);
     expect(manager.getStats().busyWorkers).toBe(1);
 
     let rustSettled = false;
@@ -124,10 +124,10 @@ describe("Pierre 1.3.6 idle-worker selection", () => {
       });
 
     await expect.poll(() => rustSettled).toBe(true);
-    expect(workers.some((worker) => worker.pendingReply !== null)).toBe(true);
+    expect(workers.some((worker) => worker.pendingReply !== undefined)).toBe(true);
     expect(manager.getStats().busyWorkers).toBe(1);
 
-    workers.find((worker) => worker.pendingReply !== null)?.pendingReply?.();
+    workers.find((worker) => worker.pendingReply !== undefined)?.pendingReply?.();
     await tsPrime;
   });
 });
