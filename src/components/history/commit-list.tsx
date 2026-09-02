@@ -1,39 +1,22 @@
 import { createSignal, For } from "solid-js";
-import { confirm } from "@tauri-apps/plugin-dialog";
 import { repositoryStore } from "../../stores/repository-store";
 import { useStore } from "../../lib/use-store";
 import { formatRelativeDate } from "../../lib/format-date";
 import { getAuthorInitials, hashAuthorColor } from "../../lib/author-utils";
-import * as commands from "../../lib/tauri-commands";
+import { sendDestructiveIntent, sendIntent } from "../../lib/session-client";
 import { ContextMenu, type ContextMenuItem } from "../scm/context-menu";
 import type { CommitEntry } from "../../lib/git-types";
 
-const failedAvatarUrls = new Set<string>();
 
-const getGitHubAvatarUrl = (email: string): string | null => {
-  const lower = email.trim().toLowerCase();
-  if (lower.endsWith("@users.noreply.github.com")) {
-    const local = lower.split("@")[0];
-    const username = local.includes("+") ? local.split("+")[1] : local;
-    if (username) return `https://github.com/${username}.png?size=48`;
-  }
-  return `https://avatars.githubusercontent.com/u/e?email=${encodeURIComponent(lower)}&s=48`;
-};
+const failedAvatarUrls = new Set<string>();
 
 type AuthorAvatarProps = {
   entry: CommitEntry;
 };
 
 const AuthorAvatar = (props: AuthorAvatarProps) => {
-  const githubUrl = getGitHubAvatarUrl(props.entry.authorEmail);
-  const gravatarUrl = props.entry.avatarUrl;
-  const primaryUrl = githubUrl ?? gravatarUrl;
-  const fallbackUrl = githubUrl ? gravatarUrl : null;
-  const initialSrc = failedAvatarUrls.has(primaryUrl)
-    ? fallbackUrl && !failedAvatarUrls.has(fallbackUrl)
-      ? fallbackUrl
-      : null
-    : primaryUrl;
+  const avatarUrl = props.entry.avatarUrl;
+  const initialSrc = failedAvatarUrls.has(avatarUrl) ? null : avatarUrl;
   const [src, setSrc] = createSignal<string | null>(initialSrc);
 
   return (
@@ -51,17 +34,14 @@ const AuthorAvatar = (props: AuthorAvatarProps) => {
             const current = src();
             if (!current) return;
             failedAvatarUrls.add(current);
-            if (current === primaryUrl && fallbackUrl && !failedAvatarUrls.has(fallbackUrl)) {
-              setSrc(fallbackUrl);
-            } else {
-              setSrc(null);
-            }
+            setSrc(null);
           }}
         />
       )}
     </>
   );
 };
+
 
 type CommitListProps = {
   onLoadMore: () => void;
@@ -76,27 +56,21 @@ export const CommitList = (props: CommitListProps) => {
   const handleCherryPick = async (commitId: string) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.cherryPick(commitId);
+      await sendIntent({ type: "cherryPick", commit: commitId });
     } catch (err) {
       setError(String(err));
     }
   };
 
   const handleReset = async (commitId: string, mode: string) => {
-    if (mode === "hard") {
-      const confirmed = await confirm(
-        "Are you sure you want to hard reset? This will discard all uncommitted changes.\n\nThis action is irreversible.",
-        { title: "Hard Reset", kind: "warning", okLabel: "Reset", cancelLabel: "Cancel" }
-      );
-      if (!confirmed) return;
-    }
     const { setError } = repositoryStore.getState();
     try {
-      await commands.resetToCommit(commitId, mode);
+      await sendDestructiveIntent({ type: "reset", commit: commitId, mode, confirmed: false });
     } catch (err) {
       setError(String(err));
     }
   };
+
 
   const handleContextMenu = (e: MouseEvent, commitId: string) => {
     e.preventDefault();

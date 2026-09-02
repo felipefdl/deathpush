@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::error::{Error, Result};
 use crate::git::log::compute_avatar_url;
-use crate::types::{BlameLineGroup, CommitEntry, FileBlame, LastCommitInfo};
+use crate::types::{BlameLineGroup, CommitEntry, FileBlame};
 use crate::util::async_command_ready;
 
 pub async fn get_file_blame(repo_root: &Path, path: &str) -> Result<FileBlame> {
@@ -183,33 +183,6 @@ pub async fn get_file_log(repo_root: &Path, path: &str, skip: usize, limit: usiz
   }
 
   Ok(entries)
-}
-
-pub async fn get_last_commit_info(repo_root: &Path) -> Result<LastCommitInfo> {
-  let output = async_command_ready("git")
-    .await
-    .args(["log", "-1", "--format=%h|%s|%aI"])
-    .current_dir(repo_root)
-    .output()
-    .await?;
-
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    return Err(Error::GitCli(stderr));
-  }
-
-  let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-  let parts: Vec<&str> = stdout.splitn(3, '|').collect();
-
-  if parts.len() < 3 {
-    return Err(Error::Other("Failed to parse last commit info".to_string()));
-  }
-
-  Ok(LastCommitInfo {
-    short_id: parts[0].to_string(),
-    message: parts[1].to_string(),
-    author_date: parts[2].to_string(),
-  })
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ pub mod branch;
 pub mod cli;
 pub mod diff;
 pub mod hunk;
+pub mod invalidation;
 pub mod log;
 pub mod repo_state;
 pub mod repository;

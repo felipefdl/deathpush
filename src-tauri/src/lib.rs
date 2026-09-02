@@ -1,7 +1,9 @@
 mod commands;
+mod content_hash;
 mod error;
 mod git;
 mod pty;
+mod session;
 mod shell_env;
 mod types;
 mod util;
@@ -11,11 +13,11 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use commands::repository::{AppRepoState, CliPaths};
-use commands::{
-  blame, branch, cli, commit, config, explorer, file_ops, lifecycle, log, remote, repository, staging, stash, status,
-  tag, terminal,
-};
+use commands::{cli, config, explorer, file_ops, repository, session as session_commands, terminal};
+
 use git::repository_runtime::RepositoryRuntimeRegistry;
+use session::SessionRegistry;
+
 use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder};
 use tauri::webview::WebviewWindowBuilder;
 use tauri::window::Color;
@@ -216,6 +218,7 @@ pub fn run() {
     .manage(Mutex::new(AppRepoState::default()))
     .manage(pty::TerminalState::new(HashMap::new()))
     .manage(RepositoryRuntimeRegistry::default())
+    .manage(SessionRegistry::default())
     .setup(|app| {
       let mut initial_paths = HashMap::new();
 
@@ -281,7 +284,7 @@ pub fn run() {
         .accelerator("CmdOrCtrl+1")
         .build(app)?;
       let history_item = MenuItemBuilder::with_id("view-history", "History")
-        .accelerator("CmdOrCtrl+2")
+        .accelerator("CmdOrCtrl+Shift+2")
         .build(app)?;
       let quick_open_item = MenuItemBuilder::with_id("quick-open", "Quick Open...")
         .accelerator("CmdOrCtrl+P")
@@ -578,6 +581,10 @@ pub fn run() {
           registry.remove_window(&label);
         }
 
+        if let Some(sessions) = app_handle.try_state::<SessionRegistry>() {
+          sessions.remove(&label);
+        }
+
         // Clean up repo menu flags
         if let Some(flags) = app_handle.try_state::<RepoWindowFlags>() {
           if let Ok(mut map) = flags.0.lock() {
@@ -621,54 +628,12 @@ pub fn run() {
 
   builder
     .invoke_handler(tauri::generate_handler![
-      repository::open_repository,
       repository::get_initial_path,
-      repository::scan_projects_directory,
-      repository::discover_repositories,
+      repository::scan_workspace_projects,
+      repository::discover_nested_repositories,
       repository::detect_worktrees,
-      repository::get_repo_branch,
-      status::get_status,
-      status::get_status_snapshot,
-      status::refresh_status,
-      status::get_file_diff,
-      staging::stage_files,
-      staging::stage_all,
-      staging::unstage_files,
-      staging::unstage_all,
-      staging::discard_changes,
-      staging::get_file_hunks,
-      staging::get_file_patch,
-      staging::stage_hunk,
-      staging::discard_hunk,
-      staging::stage_lines,
-      commit::commit,
-      branch::list_branches,
-      branch::checkout_branch,
-      branch::create_branch,
-      branch::delete_branch,
-      branch::rename_branch,
-      branch::delete_remote_branch,
-      remote::push,
-      remote::pull,
-      remote::fetch,
-      log::get_commit_log,
-      log::get_commit_detail,
-      log::get_commit_file_diff,
-      stash::get_last_commit_message,
-      stash::undo_last_commit,
-      stash::stash_save,
-      stash::stash_list,
-      stash::stash_apply,
-      stash::stash_pop,
-      stash::stash_drop,
-      stash::stash_save_include_untracked,
-      stash::stash_save_staged,
-      stash::stash_show,
-      tag::list_tags,
-      tag::create_tag,
-      tag::delete_tag,
-      tag::push_tag,
-      tag::delete_remote_tag,
+      session_commands::get_session_snapshot,
+      session_commands::session_intent,
       explorer::list_repository_tree,
       explorer::list_repository_children,
       explorer::read_file_content,
@@ -676,27 +641,13 @@ pub fn run() {
       explorer::search_file_contents,
       file_ops::open_in_editor,
       file_ops::reveal_in_file_manager,
-      file_ops::add_to_gitignore,
       file_ops::write_file,
-      file_ops::delete_file,
-      file_ops::delete_files,
       file_ops::rename_entry,
       file_ops::create_directory,
       file_ops::copy_entries,
       file_ops::move_entries,
       file_ops::duplicate_entry,
       file_ops::import_files,
-      lifecycle::clone_repository,
-      lifecycle::init_repository,
-      lifecycle::merge_branch,
-      lifecycle::merge_continue,
-      lifecycle::merge_abort,
-      lifecycle::rebase_branch,
-      lifecycle::rebase_continue,
-      lifecycle::rebase_abort,
-      lifecycle::rebase_skip,
-      lifecycle::cherry_pick,
-      lifecycle::reset_to_commit,
       terminal::terminal_spawn,
       terminal::terminal_write,
       terminal::terminal_resize,
@@ -705,9 +656,6 @@ pub fn run() {
       terminal::terminals_have_active_process,
       config::get_git_config,
       config::set_git_config,
-      blame::get_file_blame,
-      blame::get_file_log,
-      blame::get_last_commit_info,
       cli::check_cli_installed,
       cli::install_cli,
       cli::uninstall_cli,

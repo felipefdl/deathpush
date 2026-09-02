@@ -31,35 +31,43 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 
 ### Git Strategy: Hybrid
 
-- **Read ops** (status, diff, branches, log, tags, ahead/behind): git2 crate for speed (no process spawn)
-- **Write ops** (add, commit, push, pull, checkout, fetch, stash, cherry-pick, reset, clone): git CLI via `tokio::process::Command` for hook execution, GPG signing, credential helpers, SSH config, and LFS support
+- **Read ops** (status, SCM diffs, branches, log, tags, ahead/behind): git2. `scm_file_diff` builds original/modified/hunks from one git2 diff. SCM hunks do not spawn `git diff`.
+- **Write ops** (add, commit, push, pull, checkout, fetch, stash, cherry-pick, reset, clone, `git apply` patches): git CLI via `tokio::process::Command` for hooks, GPG, credentials, SSH, and LFS
 - **Blame/file-log ops**: git CLI via `tokio::process::Command` (porcelain blame, follow log)
 
 ### Multi-Window
 
-- Each window has its own `RepoState` (git2 repo handle + CLI root path) stored in `AppRepoState` keyed by window label
-- Each window has its own FS watcher (`WatcherState`) and terminal sessions (`TerminalState`)
-- Window cleanup on destroy removes repo state, watcher, and terminal sessions
+- Each window has `RepoState` in `AppRepoState` and a `SessionRegistry` entry, keyed by window label
+- `session_intent` takes a per-window tokio intent lock, then mutates live `SessionState` through a generation-bound `SessionHandle`. Production never clones `SessionState` across `.await`. A reset cannot be overwritten by a later replace.
+- Watcher `status_event` uses the registry mutex only and does not take the intent lock. Two windows on one root have two locks.
+- Windows on the same canonical root share one `RepositoryRuntime` (status coordinator, FS watcher, Quick Open `FileIndex`)
+- Terminal sessions stay per-window (`TerminalState`)
+- Destroy unbinds the window from the runtime and drops that window's session, intent lock, repo state, and PTYs
 - CLI argument support: `deathpush /path/to/repo` opens directly
 
 ### Backend (src-tauri/src/)
 
 - `error.rs` -- Error type via thiserror with Serialize impl
-- `types.rs` -- Serde DTOs shared with frontend (FileStatus, ResourceGroup, RepositoryStatus, DiffContent, BranchEntry, CommitEntry, CommitDetail, StashEntry, TagEntry, DiffHunk, FileDiffWithHunks, RepoOperationState, BlameLineGroup, FileBlame, LastCommitInfo, ProjectInfo, CliInstallStatus)
+- `types.rs` -- Shared Serde DTOs (status, diffs, explorer, paths-changed)
+- `session/` -- Intent apply (`RefreshImpact`), `SessionHandle`, `SessionSnapshot` / `SessionStatusEvent` (two cursor pairs)
+- `content_hash.rs` -- SHA-256 of Pierre-compared UTF-8 strings
 - `pty.rs` -- PTY session management via portable-pty (spawn shell, read/write, resize, per-window sessions)
 - `git/repository.rs` -- git2::Repository wrapper (open, head, ahead/behind)
 - `git/status.rs` -- git2 status flags -> resource groups + operation state detection
-- `git/diff.rs` -- Blob reads via git2 for Pierre FileDiff (HEAD, index, working tree)
+- `git/diff.rs` -- `scm_file_diff` via git2 for Pierre FileDiff (HEAD, index, working tree, hunks)
 - `git/branch.rs` -- Branch listing via git2 with ahead/behind counts
 - `git/log.rs` -- Commit history via git2 revwalk (sorted by time)
 - `git/tag.rs` -- Tag listing via git2
-- `git/hunk.rs` -- Parse unified diff into hunks, generate partial patches
+- `git/hunk.rs` -- Hunk ids and patches from live hunks (no raw unified-patch cache)
+- `git/invalidation.rs` -- `classify_git_relative` shared by watcher and intent (`packed-refs`, `refs/stash`, `logs/refs/stash`)
 - `git/repo_state.rs` -- Detect merge/rebase/cherry-pick/revert in progress via `.git/` sentinels
 - `git/blame.rs` -- Git blame (porcelain), file log (--follow), last commit info via CLI
-- `git/cli.rs` -- Async git CLI runner for all write ops
-- `git/watcher.rs` -- FS watcher (notify + debouncer, 500ms) emitting Tauri events, per-window
-- `commands/` -- Thin Tauri command handlers (repository, status, staging, commit, branch, remote, log, stash, tag, file_ops, lifecycle, terminal, blame, config, cli)
-- `lib.rs` -- App builder with managed state (AppRepoState, TerminalState, WatcherState), native menu system, multi-window support, 62 commands registered
+- `git/cli.rs` -- Async git CLI runner for write ops
+- `git/watcher.rs` -- notify watcher feeding the shared runtime (one per canonical root)
+- `git/repository_runtime.rs` -- Per-root runtime: status, watcher, `FileIndex`, `invalidate_refs` / `invalidate_stashes`, window fan-out
+- `git/status_coordinator.rs` -- Coalesced status scans, git invalidation, `repository:paths-changed`
+- `commands/` -- Thin handlers: repository, session, explorer, file_ops, terminal, config, cli
+- `lib.rs` -- App builder, native menu, multi-window; managed `AppRepoState`, `TerminalState`, `RepositoryRuntimeRegistry`, `SessionRegistry`
 
 ### Frontend (src/)
 
@@ -67,8 +75,9 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - `stores/layout-store.ts` -- Zustand store for layout (sidebarWidth, terminalVisible, terminalHeight, mainView, panelTab, collapsedPanes, terminalMaximized) with per-project localStorage persistence
 - `stores/theme-store.ts` -- Zustand store for color theme (currentTheme, setTheme)
 - `stores/settings-store.ts` -- Zustand store for app settings (UI, editor, diff viewer, terminal, git, projects) with localStorage persistence, including tree density and icon presets
-- `lib/tauri-commands.ts` -- Typed invoke() wrappers for all 62 Tauri commands
-- `lib/git-types.ts` -- TypeScript types matching Rust DTOs (including BlameLineGroup, FileBlame, LastCommitInfo)
+- `lib/tauri-commands.ts` -- Typed invoke() wrappers for non-session commands
+- `lib/session-client.ts` -- `sessionIntent` / `getSessionSnapshot`. Repo/groups follow the status cursor; session-derived fields follow the session cursor. Escape/deselect sends `ClearFile`. Late Diff/Blame from an old generation/root is ignored.
+- `lib/git-types.ts` -- TypeScript types matching Rust DTOs (`Intent`, `IntentOutcome`, `SessionSnapshot`)
 - `lib/format-date.ts` -- Relative date formatting
 - `lib/status-colors.ts` -- FileStatus -> CSS variable color
 - `lib/status-icons.ts` -- FileStatus -> single letter label
@@ -103,79 +112,64 @@ DeathPush is a standalone desktop Git client built with Tauri v2 (Rust backend, 
 - `styles/settings.css` -- Settings page styles
 - `styles/codicons.css` -- VS Code Codicon font styles
 
-### Tauri Commands (API Surface - 62 total)
+### Tauri Commands
 
-| Command | Returns | Method |
-|---------|---------|--------|
-| `open_repository(path)` | RepositoryStatus | git2 + watcher |
-| `get_initial_path()` | String? | CLI args |
-| `scan_projects_directory(path, depth)` | Vec\<ProjectInfo\> | filesystem |
-| `get_status()` | RepositoryStatus | git2 |
-| `get_file_diff(path, staged)` | DiffContent | git2 |
-| `stage_files(paths)` | RepositoryStatus | CLI |
-| `stage_all()` | RepositoryStatus | CLI |
-| `unstage_files(paths)` | RepositoryStatus | CLI |
-| `unstage_all()` | RepositoryStatus | CLI |
-| `discard_changes(paths)` | RepositoryStatus | CLI |
-| `commit(message, amend)` | RepositoryStatus | CLI |
-| `list_branches()` | Vec\<BranchEntry\> | git2 |
-| `checkout_branch(name)` | RepositoryStatus | CLI |
-| `create_branch(name, from)` | RepositoryStatus | CLI |
-| `delete_branch(name, force)` | () | CLI |
-| `push(remote, branch, force)` | () | CLI |
-| `pull(remote, branch, rebase)` | () | CLI |
-| `fetch(remote, prune)` | () | CLI |
-| `get_commit_log(skip, limit)` | Vec\<CommitEntry\> | git2 |
-| `get_commit_detail(id)` | CommitDetail | git2 |
-| `get_commit_file_diff(commit_id, path)` | CommitDiffContent | git2 |
-| `get_last_commit_message()` | String | CLI |
-| `undo_last_commit()` | RepositoryStatus | CLI |
-| `stash_save(message?)` | RepositoryStatus | CLI |
-| `stash_list()` | Vec\<StashEntry\> | CLI |
-| `stash_apply(index)` | RepositoryStatus | CLI |
-| `stash_pop(index)` | RepositoryStatus | CLI |
-| `stash_drop(index)` | Vec\<StashEntry\> | CLI |
-| `list_tags()` | Vec\<TagEntry\> | git2 |
-| `create_tag(name, message?, commit?)` | Vec\<TagEntry\> | CLI |
-| `delete_tag(name)` | Vec\<TagEntry\> | CLI |
-| `push_tag(remote, tag)` | () | CLI |
-| `open_in_editor(path)` | () | platform |
-| `reveal_in_file_manager(path)` | () | platform |
-| `add_to_gitignore(pattern)` | RepositoryStatus | filesystem |
-| `write_file(path, content)` | () | filesystem |
-| `delete_file(path)` | RepositoryStatus | filesystem |
-| `get_file_hunks(path, staged)` | FileDiffWithHunks | CLI + parse |
-| `get_file_patch(path, staged)` | String | CLI |
-| `stage_hunk(path, hunk_index, staged)` | RepositoryStatus | CLI apply |
-| `clone_repository(url, path)` | RepositoryStatus | CLI |
-| `merge_continue()` | RepositoryStatus | CLI |
-| `merge_abort()` | RepositoryStatus | CLI |
-| `rebase_continue()` | RepositoryStatus | CLI |
-| `rebase_abort()` | RepositoryStatus | CLI |
-| `rebase_skip()` | RepositoryStatus | CLI |
-| `cherry_pick(commit_id)` | RepositoryStatus | CLI |
-| `reset_to_commit(id, mode)` | RepositoryStatus | CLI |
-| `terminal_spawn(cols, rows)` | SpawnResult | PTY |
-| `terminal_write(id, data)` | () | PTY |
-| `terminal_resize(id, cols, rows)` | () | PTY |
-| `terminal_kill(id)` | () | PTY |
-| `terminal_foreground_process(id)` | String | process |
-| `get_git_config(key)` | String | CLI |
-| `set_git_config(key, value)` | () | CLI |
-| `get_file_blame(path)` | FileBlame | CLI |
-| `get_file_log(path, skip, limit)` | Vec\<CommitEntry\> | CLI |
-| `get_last_commit_info()` | LastCommitInfo | CLI |
-| `check_cli_installed()` | CliInstallStatus | filesystem |
-| `install_cli()` | () | filesystem + elevated |
-| `uninstall_cli()` | () | filesystem + elevated |
-| `new_window()` | () | Tauri |
+Git status, diffs, blame, branches, log, stash, tags, hunks, and all git writes go through `session_intent`. There are no `open_repository`, `get_status`, `get_file_diff`, or per-op git write commands.
+
+`session_intent` outcomes: `ack` (optional `sessionGeneration`/`sessionRevision`), `patch` / `diff` / `blame` (stamped), `needsConfirmation` (no bump, no stamp), `snapshot` (session + status cursor pairs). Status-only, refs, and stash refreshes return stamped Ack. Open, clone, refresh, and HEAD-moving writes return one Snapshot. Snapshots are command results, not a `session:snapshot` emit.
+
+| Command | Returns |
+|---------|---------|
+| `session_intent(intent)` | IntentOutcome (`ack`, `patch`, `snapshot`, `diff`, `blame`, `needsConfirmation`) |
+| `get_session_snapshot()` | SessionSnapshot |
+| `get_initial_path()` | String? |
+| `scan_workspace_projects(entries)` | Vec\<ProjectInfo\> (`entries`: `{ directory, depth }[]`) |
+| `discover_nested_repositories()` | Vec\<NestedRepository\> (`path`, `name`, `branch` nullable) |
+| `detect_worktrees()` | Vec\<WorktreeInfo\> |
+| `list_repository_tree()` | Vec\<ExplorerEntry\> |
+| `list_repository_children(path)` | Vec\<ExplorerEntry\> |
+| `read_file_content(path)` | FileContent (includes `contentHash`) |
+| `fuzzy_find_files(query, maxResults)` | Vec\<FuzzyFileResult\> (cached `FileIndex`, not `git ls-files` per query) |
+| `search_file_contents(query, maxResults)` | Vec\<ContentSearchResult\> (live `git grep`) |
+| `write_file(path, content)` | WriteFileResult `{ contentHash }` |
+| `open_in_editor(path)` | () |
+| `reveal_in_file_manager(path)` | () |
+| `rename_entry(oldPath, newName)` | () |
+| `create_directory(path)` | () |
+| `copy_entries(sources, destinationDir, onConflict?)` | () |
+| `move_entries(sources, destinationDir, onConflict?)` | () |
+| `duplicate_entry(path)` | String |
+| `import_files(sources, destinationDir, onConflict?)` | () |
+| `terminal_spawn(cols, rows, shellPath?)` | SpawnResult |
+| `terminal_write(id, data)` | () |
+| `terminal_resize(id, cols, rows)` | () |
+| `terminal_kill(id)` | () |
+| `terminal_foreground_process(id)` | String |
+| `terminals_have_active_process()` | bool |
+| `get_git_config(key)` | String |
+| `set_git_config(key, value)` | () |
+| `check_cli_installed()` | CliInstallStatus |
+| `install_cli()` | () |
+| `uninstall_cli()` | () |
+| `new_window(path?)` | () |
+| `set_repo_menu_enabled(enabled)` | () |
+| `set_native_theme(dark)` | () |
+| `quit_app()` | () |
+| `window_minimize()` | () |
+| `window_maximize()` | () |
+| `window_close()` | () |
+| `window_confirm_close()` | () |
 
 ### Tauri Events
 
-- `repository-changed` -- FS watcher -> frontend auto-refresh (per-window)
-- `terminal:data` -- PTY output -> frontend (per-session, includes id)
-- `terminal:exit` -- Terminal session exited (per-session)
-- `menu:*` -- Native menu events forwarded to frontend (e.g. `menu:preferences`, `menu:open-repo`, `menu:toggle-terminal`)
+- `session:status` -- per-window status from the shared runtime: `sessionGeneration`/`sessionRevision`, `statusGeneration`/`statusRevision`, groups, optional `extras` (lastCommit, branches, tags, commitLog, stashes)
+- `repository:paths-changed` -- FS path changes from the watcher (same payload to every window on that root)
+- `watcher:error` -- watcher failed to start
+- `git:command` -- git CLI invocation log
+- `terminal:data` -- PTY output (per-session, includes id)
+- `terminal:exit` -- terminal session exited (per-session)
+- `window:close-requested` -- close intercepted until the frontend confirms
+- `menu:*` -- native menu events (e.g. `menu:preferences`, `menu:open-repo`, `menu:toggle-terminal`)
 
 ### Native Menu
 
@@ -192,7 +186,7 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 - Use `tracing` for logging (not `println!` or `log`)
 - Async with tokio for CLI operations
 - All DTOs use `#[serde(rename_all = "camelCase")]`
-- Write ops return updated `RepositoryStatus` to keep frontend in sync
+- Session git writes return `IntentOutcome` from `session_intent`, not a refreshed `RepositoryStatus`
 
 ### TypeScript
 
@@ -207,9 +201,9 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 
 ### File Organization
 
-- `src-tauri/src/commands/` -- Tauri command handlers (thin, delegate to git/ or pty)
-- `src-tauri/src/git/` -- Git operations (git2 reads, CLI writes, blame)
-- `src-tauri/src/pty.rs` -- PTY session management (portable-pty)
+- `src-tauri/src/commands/` -- Tauri command handlers (repository, session, explorer, file_ops, terminal, config, cli)
+- `src-tauri/src/session/` -- Intent apply (`SessionHandle`, `RefreshImpact`) and session snapshot
+- `src-tauri/src/git/` -- Git operations (git2 reads including `scm_file_diff`, CLI writes, invalidation, FileIndex, per-root runtime/watcher)
 - `src/components/` -- Solid components organized by feature (scm/, explorer/, trees/, diff/, pierre/, branch/, history/, terminal/, layout/, settings/, welcome/, theme/, shared/, ui/)
 - `src/hooks/` -- Custom Solid reactive utilities
 - `src/stores/` -- Zustand stores (repository, layout, theme, settings)
@@ -219,11 +213,12 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 
 ### Git Operations Pattern
 
-- Read ops (status, diff, branches, log, tags): use git2 crate directly for speed
-- Write ops (add, commit, push, pull, checkout, stash, etc.): spawn git CLI via tokio::process::Command
-- Blame/file-log: spawn git CLI (porcelain blame, follow log)
-- Always reopen git2::Repository and refresh status after write operations
-- Use Mutex<AppRepoState> managed state to share per-window repo handles across commands
+- Read ops (status, SCM diffs, branches, log, tags): git2 crate directly
+- Write ops (add, commit, push, pull, checkout, stash, clone, ...): git CLI via `session_intent`
+- Blame/file-log: git CLI (porcelain blame, follow log)
+- `apply_intent` classifies git writes as `RefreshImpact` (`StatusPaths`, `StatusRepository`, `Refs`, `Stashes`, `StatusAndStashes`, `Snapshot`). Status-only paths invalidate those paths (no force-baseline, no extras, no Snapshot). Refs/stashes call `invalidate_refs` / `invalidate_stashes`. Open/clone/refresh and HEAD-moving writes return one Snapshot.
+- Watcher and intent share `git/invalidation.rs`. Content patches do not refresh refs or stashes.
+- `Mutex<AppRepoState>` holds per-window repo handles; `RepositoryRuntimeRegistry` is the shared status/watcher/`FileIndex`
 
 ### Testing
 
@@ -266,6 +261,7 @@ DeathPush, File (New Window, Open Repo, Clone), Edit, View (Changes, History, To
 
 - Explorer and SCM Changes use `@pierre/trees` through `components/trees/file-tree-host.tsx`
 - The Explorer backend lists tracked, untracked, and gitignored files through asynchronous `git ls-files`; `.git` and other VCS metadata stay hidden, gitignored entries render gray, and Trees infers directories from those paths
+- Quick Open matches a coalesced per-root `FileIndex` on `RepositoryRuntime`, invalidated on structural membership including `.gitignore` effects. Content search stays live `git grep`.
 - UI settings expose the Trees density presets (compact, default, relaxed) and icon presets (minimal, standard, complete)
 - Default tree density is `compact`; default tree icons are `complete`
 - History and Quick Open use neutral Codicon file and folder icons, not Trees icons

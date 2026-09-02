@@ -1,21 +1,11 @@
 import { repositoryStore } from "../stores/repository-store";
-import * as commands from "../lib/tauri-commands";
+import { sendDestructiveIntent, sendIntent } from "../lib/session-client";
 
 export const useBranches = () => {
-  const loadBranches = async () => {
-    const { setBranches, setError } = repositoryStore.getState();
-    try {
-      const branches = await commands.listBranches();
-      setBranches(branches);
-    } catch (err) {
-      setError(String(err));
-    }
-  };
-
   const switchBranch = async (name: string) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.checkoutBranch(name);
+      await sendIntent({ type: "checkoutBranch", name });
     } catch (err) {
       setError(String(err));
     }
@@ -24,7 +14,7 @@ export const useBranches = () => {
   const createNewBranch = async (name: string, from?: string) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.createBranch(name, from);
+      await sendIntent({ type: "createBranch", name, from: from ?? null });
     } catch (err) {
       setError(String(err));
     }
@@ -33,8 +23,7 @@ export const useBranches = () => {
   const removeBranch = async (name: string, force: boolean = false) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.deleteBranch(name, force);
-      await loadBranches();
+      await sendDestructiveIntent({ type: "deleteBranch", name, force, confirmed: false });
     } catch (err) {
       setError(String(err));
     }
@@ -43,8 +32,7 @@ export const useBranches = () => {
   const renameBranch = async (oldName: string, newName: string) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.renameBranch(oldName, newName);
-      await loadBranches();
+      await sendIntent({ type: "renameBranch", oldName, newName });
     } catch (err) {
       setError(String(err));
     }
@@ -53,7 +41,7 @@ export const useBranches = () => {
   const mergeBranch = async (name: string) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.mergeBranch(name);
+      await sendIntent({ type: "mergeBranch", name });
     } catch (err) {
       setError(String(err));
     }
@@ -62,24 +50,22 @@ export const useBranches = () => {
   const rebaseBranch = async (name: string) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.rebaseBranch(name);
+      await sendIntent({ type: "rebaseBranch", name });
     } catch (err) {
       setError(String(err));
     }
   };
 
-  const removeRemoteBranch = async (remote: string, name: string) => {
+  const removeRemoteBranch = async (name: string) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.deleteRemoteBranch(remote, name);
-      await loadBranches();
+      await sendIntent({ type: "deleteRemoteBranch", name });
     } catch (err) {
       setError(String(err));
     }
   };
 
   return {
-    loadBranches,
     switchBranch,
     createNewBranch,
     removeBranch,

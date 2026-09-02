@@ -20,13 +20,6 @@ pub struct DiffHunk {
   pub lines: Vec<DiffLine>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileDiffWithHunks {
-  pub path: String,
-  pub hunks: Vec<DiffHunk>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum FileStatus {
@@ -79,7 +72,7 @@ pub struct ResourceGroup {
   pub files: Vec<FileEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum RepoOperationState {
   None,
@@ -99,13 +92,6 @@ pub struct RepositoryStatus {
   pub behind: usize,
   pub groups: Vec<ResourceGroup>,
   pub operation_state: RepoOperationState,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RepositoryIdentity {
-  pub root: String,
-  pub head_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -229,7 +215,7 @@ pub struct CommitEntry {
 #[serde(rename_all = "camelCase")]
 pub struct CommitFileEntry {
   pub path: String,
-  pub status: String,
+  pub status: FileStatus,
   pub old_path: Option<String>,
 }
 
@@ -318,6 +304,13 @@ pub struct FileContent {
   pub content: String,
   pub language: Option<String>,
   pub file_type: String,
+  pub content_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteFileResult {
+  pub content_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -440,5 +433,18 @@ mod tests {
     assert!(json.contains("\"content\""));
     assert!(json.contains("\"storm\":true"));
     assert!(json.contains("\"generation\":3"));
+  }
+
+  #[test]
+  fn commit_file_entry_status_serializes_as_file_status() {
+    let file = CommitFileEntry {
+      path: "src/a.rs".into(),
+      status: FileStatus::TypeChanged,
+      old_path: Some("src/b.rs".into()),
+    };
+    let json = serde_json::to_string(&file).unwrap();
+    assert!(json.contains("\"typeChanged\""));
+    assert!(json.contains("\"oldPath\""));
+    assert!(!json.contains("\"typechange\""));
   }
 }

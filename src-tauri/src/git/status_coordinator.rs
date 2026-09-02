@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::error::Result;
+use crate::git::invalidation::{GitInvalidation, classify_git_relative, file_index_should_invalidate};
 use crate::git::status::{
   ScopeIndex, StatusScan, StatusScope, repository_status_from_entries, scan_baseline, scan_scopes,
 };
@@ -29,6 +30,7 @@ const WATCHER_CHANNEL_BOUND: usize = 512;
 
 type PatchSink = Arc<dyn Fn(StatusPatch) + Send + Sync>;
 type PathsSink = Arc<dyn Fn(PathsChanged) + Send + Sync>;
+type GitInvalidationSink = Arc<dyn Fn(GitInvalidation) + Send + Sync>;
 
 pub fn diff_status_maps(
   previous: &BTreeMap<StatusKey, StatusEntry>,
@@ -165,6 +167,8 @@ pub struct StatusCoordinator {
   overflow_flag: Arc<AtomicBool>,
   scan_mutex: Mutex<()>,
   watch_cache: Mutex<WatchCache>,
+  file_index_dirty: Mutex<Option<Arc<AtomicBool>>>,
+  on_git_invalidation: Mutex<Option<GitInvalidationSink>>,
   #[cfg(test)]
   during_scan: Mutex<Option<Box<dyn FnOnce() + Send>>>,
   #[cfg(test)]
@@ -181,6 +185,8 @@ impl StatusCoordinator {
       overflow_flag: Arc::new(AtomicBool::new(false)),
       scan_mutex: Mutex::new(()),
       watch_cache: Mutex::new(WatchCache::default()),
+      file_index_dirty: Mutex::new(None),
+      on_git_invalidation: Mutex::new(None),
       #[cfg(test)]
       during_scan: Mutex::new(None),
       #[cfg(test)]
@@ -198,6 +204,8 @@ impl StatusCoordinator {
       overflow_flag: Arc::new(AtomicBool::new(false)),
       scan_mutex: Mutex::new(()),
       watch_cache: Mutex::new(WatchCache::default()),
+      file_index_dirty: Mutex::new(None),
+      on_git_invalidation: Mutex::new(None),
       #[cfg(test)]
       during_scan: Mutex::new(None),
       #[cfg(test)]
@@ -210,6 +218,36 @@ impl StatusCoordinator {
   pub fn bind_emitters(&self, on_patch: PatchSink, on_paths: PathsSink) {
     *self.on_patch.lock().unwrap_or_else(|err| err.into_inner()) = Some(on_patch);
     *self.on_paths.lock().unwrap_or_else(|err| err.into_inner()) = Some(on_paths);
+  }
+
+  pub fn bind_file_index_dirty(&self, dirty: Arc<AtomicBool>) {
+    *self.file_index_dirty.lock().unwrap_or_else(|err| err.into_inner()) = Some(dirty);
+  }
+
+  pub fn bind_git_invalidation(&self, sink: GitInvalidationSink) {
+    *self.on_git_invalidation.lock().unwrap_or_else(|err| err.into_inner()) = Some(sink);
+  }
+
+  pub(crate) fn notify_git_invalidation(&self, kind: GitInvalidation) {
+    if let Some(sink) = self
+      .on_git_invalidation
+      .lock()
+      .unwrap_or_else(|err| err.into_inner())
+      .as_ref()
+    {
+      sink(kind);
+    }
+  }
+
+  fn mark_file_index_dirty(&self) {
+    if let Some(dirty) = self
+      .file_index_dirty
+      .lock()
+      .unwrap_or_else(|err| err.into_inner())
+      .as_ref()
+    {
+      dirty.store(true, Ordering::SeqCst);
+    }
   }
 
   pub fn snapshot(&self) -> RepositoryStatus {
@@ -253,6 +291,14 @@ impl StatusCoordinator {
     self.run_baseline_scan()
   }
 
+  pub fn cached_status(&self) -> Result<RepositoryStatus> {
+    if self.lock().baseline_complete {
+      return Ok(self.snapshot());
+    }
+    self.ensure_baseline()?;
+    Ok(self.snapshot())
+  }
+
   pub fn force_baseline(&self) -> Result<()> {
     let _scan_guard = self.scan_mutex.lock().unwrap_or_else(|err| err.into_inner());
     self.run_baseline_scan()
@@ -274,6 +320,9 @@ impl StatusCoordinator {
   }
 
   pub fn invalidate(&self, scope: StatusScope) {
+    if matches!(scope, StatusScope::Repository) {
+      self.mark_file_index_dirty();
+    }
     let mut state = self.lock();
     self.queue_scope(&mut state, scope);
   }
@@ -283,9 +332,16 @@ impl StatusCoordinator {
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
   {
+    let paths: Vec<String> = paths.into_iter().map(|path| path.as_ref().to_string()).collect();
+    if paths
+      .iter()
+      .any(|path| file_index_should_invalidate(PathChangeKind::Content, path))
+    {
+      self.mark_file_index_dirty();
+    }
     let mut state = self.lock();
     for path in paths {
-      self.queue_scope(&mut state, StatusScope::Exact(path.as_ref().to_string()));
+      self.queue_scope(&mut state, StatusScope::Exact(path));
     }
   }
 
@@ -423,6 +479,7 @@ impl StatusCoordinator {
   pub fn ingest(&self, message: WatcherMessage) {
     match message {
       WatcherMessage::Overflow => {
+        self.mark_file_index_dirty();
         let mut state = self.lock();
         state.overflow = true;
         state.dirty.clear();
@@ -445,6 +502,19 @@ impl StatusCoordinator {
   }
 
   pub fn ingest_path(&self, classified: ClassifiedPath) {
+    if classified.kind == PathChangeKind::Git {
+      let invalidation = classify_git_relative(&classified.relative);
+      match invalidation {
+        GitInvalidation::Ignore => return,
+        GitInvalidation::Refs | GitInvalidation::Stash => {
+          self.notify_git_invalidation(invalidation);
+          return;
+        }
+        GitInvalidation::Head => self.notify_git_invalidation(invalidation),
+        GitInvalidation::Status => {}
+      }
+    }
+
     if classified.kind == PathChangeKind::Content {
       let subtree = classified.scope == PathChangeScope::Subtree;
       let mut cache = self.watch_cache.lock().unwrap_or_else(|err| err.into_inner());
@@ -457,6 +527,12 @@ impl StatusCoordinator {
         .lock()
         .unwrap_or_else(|err| err.into_inner())
         .invalidate();
+    }
+
+    if classified.scope == PathChangeScope::Subtree
+      || file_index_should_invalidate(classified.kind.clone(), &classified.relative)
+    {
+      self.mark_file_index_dirty();
     }
 
     let scope = match classified.scope {
@@ -1675,10 +1751,176 @@ mod tests {
   }
 
   #[test]
+  fn ensure_baseline_waits_for_in_flight_dirty_scan() {
+    let (dir, coordinator) = init_coordinator_repo();
+    coordinator.ensure_baseline().unwrap();
+
+    let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+    coordinator.set_during_scan_hook_for_test(move || {
+      started_tx.send(()).unwrap();
+      release_rx.recv().unwrap();
+    });
+    std::fs::write(dir.path().join("dirty.rs"), "dirty").unwrap();
+    coordinator.invalidate(StatusScope::Exact("dirty.rs".into()));
+
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::scope(|scope| {
+      scope.spawn(|| {
+        coordinator.scan_dirty_for_test().unwrap();
+      });
+      started_rx.recv().unwrap();
+      scope.spawn(|| {
+        coordinator.ensure_baseline().unwrap();
+        done_tx.send(()).unwrap();
+      });
+      let finished = done_rx.recv_timeout(Duration::from_millis(150));
+      release_tx.send(()).unwrap();
+      assert!(
+        finished.is_err(),
+        "ensure_baseline must wait for in-flight dirty scans so write intents see fresh groups"
+      );
+    });
+  }
+
+  #[test]
+  fn cached_status_does_not_block_on_in_flight_dirty_scan() {
+    let (dir, coordinator) = init_coordinator_repo();
+    coordinator.ensure_baseline().unwrap();
+
+    let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+    coordinator.set_during_scan_hook_for_test(move || {
+      started_tx.send(()).unwrap();
+      release_rx.recv().unwrap();
+    });
+    std::fs::write(dir.path().join("dirty.rs"), "dirty").unwrap();
+    coordinator.invalidate(StatusScope::Exact("dirty.rs".into()));
+
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::scope(|scope| {
+      scope.spawn(|| {
+        coordinator.scan_dirty_for_test().unwrap();
+      });
+      started_rx.recv().unwrap();
+      scope.spawn(|| {
+        let started = Instant::now();
+        coordinator.cached_status().unwrap();
+        done_tx.send(started.elapsed()).unwrap();
+      });
+      let elapsed = done_rx.recv_timeout(Duration::from_millis(150));
+      release_tx.send(()).unwrap();
+      let elapsed = elapsed.expect("cached_status blocked on an in-flight dirty scan");
+      assert!(
+        elapsed < Duration::from_millis(100),
+        "cached_status waited on a dirty scan: {elapsed:?}"
+      );
+    });
+  }
+
+  #[test]
   fn take_scan_scopes_promotes_to_repository_before_baseline() {
     let (_dir, coordinator) = init_coordinator_repo();
     coordinator.invalidate(StatusScope::Exact("a.rs".into()));
     let taken = coordinator.take_scan_scopes_for_test();
     assert_eq!(taken, vec![StatusScope::Repository]);
+  }
+
+  fn watcher_git(relative: &str) -> ClassifiedPath {
+    ClassifiedPath {
+      relative: relative.to_string(),
+      kind: PathChangeKind::Git,
+      scope: PathChangeScope::Repository,
+    }
+  }
+
+  #[test]
+  fn content_patch_does_not_refresh_branches() {
+    let coordinator = StatusCoordinator::with_emitter(|_| {});
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen_cb = seen.clone();
+    coordinator.bind_git_invalidation(std::sync::Arc::new(move |kind| {
+      seen_cb.lock().unwrap().push(kind);
+    }));
+    coordinator.ingest_path(ClassifiedPath {
+      relative: "src/a.ts".into(),
+      kind: PathChangeKind::Content,
+      scope: PathChangeScope::Exact,
+    });
+    assert!(
+      seen.lock().unwrap().is_empty(),
+      "content patches must not refresh refs or stashes"
+    );
+  }
+
+  #[test]
+  fn packed_refs_refresh_branches_without_head_move() {
+    let (_dir, coordinator) = init_coordinator_repo();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen_cb = seen.clone();
+    coordinator.bind_git_invalidation(std::sync::Arc::new(move |kind| {
+      seen_cb.lock().unwrap().push(kind);
+    }));
+    coordinator.ingest_path(watcher_git("packed-refs"));
+    assert_eq!(
+      *seen.lock().unwrap(),
+      vec![crate::git::invalidation::GitInvalidation::Refs]
+    );
+    assert!(
+      !coordinator
+        .dirty_scopes_for_test()
+        .iter()
+        .any(|scope| matches!(scope, StatusScope::Repository)),
+      "packed-refs must not force a repository status scan"
+    );
+  }
+
+  #[test]
+  fn stash_ref_refresh_does_not_force_baseline() {
+    let (_dir, coordinator) = init_coordinator_repo();
+    coordinator.ensure_baseline().unwrap();
+    let groups_json = serde_json::to_string(&coordinator.snapshot().groups).unwrap();
+    let generation = coordinator.snapshot_cursor().generation;
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen_cb = seen.clone();
+    coordinator.bind_git_invalidation(std::sync::Arc::new(move |kind| {
+      seen_cb.lock().unwrap().push(kind);
+    }));
+    coordinator.ingest_path(watcher_git("refs/stash"));
+    assert_eq!(
+      *seen.lock().unwrap(),
+      vec![crate::git::invalidation::GitInvalidation::Stash]
+    );
+    assert_eq!(
+      serde_json::to_string(&coordinator.snapshot().groups).unwrap(),
+      groups_json
+    );
+    assert_eq!(coordinator.snapshot_cursor().generation, generation);
+    assert!(
+      !coordinator
+        .dirty_scopes_for_test()
+        .iter()
+        .any(|scope| matches!(scope, StatusScope::Repository)),
+      "stash ref must not force baseline"
+    );
+  }
+
+  #[test]
+  fn head_git_path_notifies_head_and_still_queues_status() {
+    let (_dir, coordinator) = init_coordinator_repo();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen_cb = seen.clone();
+    coordinator.bind_git_invalidation(std::sync::Arc::new(move |kind| {
+      seen_cb.lock().unwrap().push(kind);
+    }));
+    coordinator.ingest_path(watcher_git("HEAD"));
+    assert_eq!(
+      *seen.lock().unwrap(),
+      vec![crate::git::invalidation::GitInvalidation::Head]
+    );
+    assert!(
+      coordinator.dirty_promoted_to_repository(),
+      "HEAD must still queue repository status"
+    );
   }
 }

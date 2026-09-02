@@ -11,11 +11,12 @@ const session = (overrides: Partial<SaveSession> = {}): SaveSession => ({
   ...overrides,
 });
 
-const textFile = (content: string): FileContent => ({
+const textFile = (content: string, contentHash = "ccc"): FileContent => ({
   path: "src/a.ts",
   content,
   language: "typescript",
   fileType: "text",
+  contentHash,
 });
 
 describe("runFileViewerDiskGuard", () => {
@@ -27,7 +28,6 @@ describe("runFileViewerDiskGuard", () => {
       selectedPath: null,
       session: session(),
       readFileContent,
-      sha256Utf8: async () => "bbb",
       onReload,
     });
 
@@ -43,7 +43,6 @@ describe("runFileViewerDiskGuard", () => {
       selectedPath: "src/a.ts",
       session: session({ pendingSha: "pending" }),
       readFileContent,
-      sha256Utf8: async () => "bbb",
       onReload,
     });
 
@@ -57,8 +56,7 @@ describe("runFileViewerDiskGuard", () => {
     await runFileViewerDiskGuard({
       selectedPath: "src/a.ts",
       session: session(),
-      readFileContent: async () => textFile("same"),
-      sha256Utf8: async () => "aaa",
+      readFileContent: async () => textFile("same", "aaa"),
       onReload,
     });
 
@@ -67,17 +65,28 @@ describe("runFileViewerDiskGuard", () => {
 
   it("reloads when disk bytes differ and no write is in flight", async () => {
     const onReload = vi.fn();
-    const content = textFile("changed");
+    const content = textFile("changed", "ccc");
 
     await runFileViewerDiskGuard({
       selectedPath: "src/a.ts",
       session: session(),
       readFileContent: async () => content,
-      sha256Utf8: async () => "ccc",
       onReload,
     });
 
     expect(onReload).toHaveBeenCalledWith(content, "ccc");
+  });
+
+  it("uses FileContent.contentHash without hashing locally", async () => {
+    const onReload = vi.fn();
+    const content = textFile("changed", "from-rust");
+    await runFileViewerDiskGuard({
+      selectedPath: "src/a.ts",
+      session: session(),
+      readFileContent: async () => content,
+      onReload,
+    });
+    expect(onReload).toHaveBeenCalledWith(content, "from-rust");
   });
 
   it("discards a stale check that finishes after a newer reload", async () => {
@@ -88,7 +97,7 @@ describe("runFileViewerDiskGuard", () => {
       void content;
     });
     let finishOld: (content: FileContent) => void = () => undefined;
-    const newContent = textFile("new");
+    const newContent = textFile("new", "new-sha");
 
     const old = run({
       selectedPath: "src/a.ts",
@@ -97,7 +106,6 @@ describe("runFileViewerDiskGuard", () => {
         new Promise<FileContent>((resolve) => {
           finishOld = resolve;
         }),
-      sha256Utf8: async () => "old-sha",
       onReload,
     });
 
@@ -105,7 +113,6 @@ describe("runFileViewerDiskGuard", () => {
       selectedPath: "src/a.ts",
       session: current,
       readFileContent: async () => newContent,
-      sha256Utf8: async () => "new-sha",
       onReload,
     });
 
@@ -113,7 +120,7 @@ describe("runFileViewerDiskGuard", () => {
     expect(onReload).toHaveBeenCalledWith(newContent, "new-sha");
     onReload.mockClear();
 
-    finishOld(textFile("old"));
+    finishOld(textFile("old", "old-sha"));
     await old;
     expect(onReload).not.toHaveBeenCalled();
   });

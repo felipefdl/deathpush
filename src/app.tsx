@@ -18,6 +18,9 @@ import { useStash } from "./hooks/use-stash";
 import { repositoryStore } from "./stores/repository-store";
 import { layoutStore } from "./stores/layout-store";
 import * as commands from "./lib/tauri-commands";
+import { sendDestructiveIntent, sendIntent } from "./lib/session-client";
+
+
 import { settingsStore } from "./stores/settings-store";
 import { explorerStore } from "./stores/explorer-store";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
@@ -160,7 +163,9 @@ export const App = () => {
         setShowCloneDialog(true);
       }),
       appWindow.listen("menu:view-changes", () => {
-        layoutStore.getState().setMainView("changes");
+        const layout = layoutStore.getState();
+        layout.setSidebarView("scm");
+        layout.setMainView("changes");
       }),
       appWindow.listen("menu:view-history", () => {
         layoutStore.getState().setMainView("history");
@@ -192,11 +197,9 @@ export const App = () => {
         window.dispatchEvent(new CustomEvent("deathpush:open-theme-picker"));
       }),
       appWindow.listen("menu:git-pull", async () => {
-        const branch = repositoryStore.getState().status?.headBranch;
-        if (!branch) return;
         startOperation("pull");
         try {
-          await commands.pull("origin", branch);
+          await sendIntent({ type: "pull", rebase: false });
         } catch (err) {
           setError(String(err));
         } finally {
@@ -204,11 +207,9 @@ export const App = () => {
         }
       }),
       appWindow.listen("menu:git-push", async () => {
-        const branch = repositoryStore.getState().status?.headBranch;
-        if (!branch) return;
         startOperation("push");
         try {
-          await commands.push("origin", branch);
+          await sendIntent({ type: "push", force: false, confirmed: false });
         } catch (err) {
           setError(String(err));
         } finally {
@@ -218,7 +219,7 @@ export const App = () => {
       appWindow.listen("menu:git-fetch", async () => {
         startOperation("fetch");
         try {
-          await commands.fetchRemote("origin", true);
+          await sendIntent({ type: "fetch", prune: true });
         } catch (err) {
           setError(String(err));
         } finally {
@@ -228,7 +229,7 @@ export const App = () => {
       appWindow.listen("menu:git-stage-all", async () => {
         startOperation("stage");
         try {
-          await commands.stageAll();
+          await sendIntent({ type: "stageAll" });
         } catch (err) {
           setError(String(err));
         } finally {
@@ -238,7 +239,7 @@ export const App = () => {
       appWindow.listen("menu:git-unstage-all", async () => {
         startOperation("unstage");
         try {
-          await commands.unstageAll();
+          await sendIntent({ type: "unstageAll" });
         } catch (err) {
           setError(String(err));
         } finally {
@@ -252,17 +253,13 @@ export const App = () => {
         void popStash(0);
       }),
       appWindow.listen("menu:git-undo-commit", async () => {
-        const confirmed = await confirm("Undo last commit? Changes will be moved back to staging.", {
-          title: "Undo Last Commit",
-          kind: "warning",
-        });
-        if (!confirmed) return;
         try {
-          await commands.undoLastCommit();
+          await sendDestructiveIntent({ type: "undoCommit", confirmed: false });
         } catch (err) {
           setError(String(err));
         }
       }),
+
       appWindow.listen("menu:quick-open", () => {
         if (repositoryStore.getState().status) {
           setShowQuickOpen(true);

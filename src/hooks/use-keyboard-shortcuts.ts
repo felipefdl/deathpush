@@ -1,5 +1,4 @@
 import { onSettled } from "solid-js";
-import { confirm } from "@tauri-apps/plugin-dialog";
 import { repositoryStore } from "../stores/repository-store";
 import { layoutStore } from "../stores/layout-store";
 import { settingsStore } from "../stores/settings-store";
@@ -8,9 +7,12 @@ import { toggleTerminal } from "../lib/toggle-terminal";
 import { handleTerminalShortcut } from "../lib/terminal-shortcuts";
 import { isPierreFindHostOpen } from "../lib/pierre/find-host";
 import * as commands from "../lib/tauri-commands";
+import { sendDestructiveIntent } from "../lib/session-client";
 import { recoverFromSnapshot } from "./use-repository";
+import { useDiff } from "./use-diff";
 
 export const useKeyboardShortcuts = () => {
+  const { clearDiff } = useDiff();
   onSettled(() => {
     let chordK = false;
     let chordTimer: ReturnType<typeof setTimeout> | null = null;
@@ -19,7 +21,7 @@ export const useKeyboardShortcuts = () => {
       const isMod = e.metaKey || e.ctrlKey;
       const repo = repositoryStore.getState();
       const layout = layoutStore.getState();
-      const { setError, setSelectedFile, setDiff } = repo;
+      const { setError } = repo;
 
       // Chord: Cmd+K Cmd+T -> open theme picker
       if (chordK && isMod && e.key === "t") {
@@ -157,25 +159,16 @@ export const useKeyboardShortcuts = () => {
 
         if ((e.key === "Delete" || (isMod && e.key === "Backspace")) && selected) {
           e.preventDefault();
-          const fileName = selected.path.split("/").pop() ?? selected.path;
-          void confirm(`Are you sure you want to delete "${fileName}"?\n\nThis will move it to the trash.`, {
-            title: "Delete",
-            kind: "warning",
-            okLabel: "Move to Trash",
-            cancelLabel: "Cancel",
-          }).then((confirmed) => {
-            if (!confirmed) return;
-            commands
-              .deleteFile(selected.path)
-              .then(() => {
-                explorer.setSelectedTreeEntry(null);
-                if (explorer.selectedPath === selected.path) {
-                  explorer.setSelectedPath(null);
-                  explorer.setFileContent(null);
-                }
-              })
-              .catch((error) => setError(String(error)));
-          });
+          void sendDestructiveIntent({ type: "deleteFile", path: selected.path, confirmed: false })
+            .then((result) => {
+              if (result.kind !== "snapshot") return;
+              explorer.setSelectedTreeEntry(null);
+              if (explorer.selectedPath === selected.path) {
+                explorer.setSelectedPath(null);
+                explorer.setFileContent(null);
+              }
+            })
+            .catch((error) => setError(String(error)));
           return;
         }
 
@@ -220,8 +213,7 @@ export const useKeyboardShortcuts = () => {
       // Escape: clear focus and selection
       if (e.key === "Escape") {
         e.preventDefault();
-        setSelectedFile(null);
-        setDiff(null);
+        clearDiff();
         const explorer = explorerStore.getState();
         explorer.setSelectedPath(null);
         explorer.setFileContent(null);

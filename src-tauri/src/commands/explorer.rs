@@ -3,14 +3,13 @@ use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
 
-use nucleo_matcher::pattern::{Atom, AtomKind, CaseMatching, Normalization};
-use nucleo_matcher::{Config, Matcher, Utf32Str};
-use tauri::{State, WebviewWindow};
+use tauri::{Manager, State, WebviewWindow};
 
 use crate::commands::repository::AppRepoState;
 use crate::error::{Error, Result};
 use crate::git::cli::GitCli;
 use crate::git::diff::{blob_to_data_uri, detect_language, is_image_file};
+use crate::git::repository_runtime::RepositoryRuntimeRegistry;
 use crate::types::{ContentSearchResult, ExplorerEntry, FileContent, FuzzyFileResult};
 use crate::util::async_command_ready;
 
@@ -204,6 +203,7 @@ pub async fn read_file_content(
   let metadata = fs::metadata(&canon_target)?;
   if metadata.len() > MAX_FILE_SIZE {
     return Ok(FileContent {
+      content_hash: crate::content_hash::sha256_utf8(""),
       path,
       content: String::new(),
       language: None,
@@ -216,6 +216,7 @@ pub async fn read_file_content(
     let bytes = fs::read(&canon_target)?;
     let data_uri = blob_to_data_uri(&bytes, &path);
     return Ok(FileContent {
+      content_hash: crate::content_hash::sha256_utf8(&data_uri),
       path,
       content: data_uri,
       language: None,
@@ -230,6 +231,7 @@ pub async fn read_file_content(
   let check_len = bytes.len().min(BINARY_CHECK_SIZE);
   if bytes[..check_len].contains(&0) {
     return Ok(FileContent {
+      content_hash: crate::content_hash::sha256_utf8(""),
       path,
       content: String::new(),
       language: None,
@@ -242,6 +244,7 @@ pub async fn read_file_content(
     Ok(content) => {
       let language = detect_language(&path);
       Ok(FileContent {
+        content_hash: crate::content_hash::sha256_utf8(&content),
         path,
         content,
         language,
@@ -249,6 +252,7 @@ pub async fn read_file_content(
       })
     }
     Err(_) => Ok(FileContent {
+      content_hash: crate::content_hash::sha256_utf8(""),
       path,
       content: String::new(),
       language: None,
@@ -261,64 +265,13 @@ pub async fn read_file_content(
 pub async fn fuzzy_find_files(
   query: String,
   max_results: usize,
-  state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
 ) -> Result<Vec<FuzzyFileResult>> {
-  let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
-    win_state.cli_root.clone().ok_or(Error::NoRepository)?
-  };
-
-  let cli = GitCli::new(&root);
-  let output = cli
-    .run(&["ls-files", "--cached", "--others", "--exclude-standard"])
-    .await?;
-
-  let files: Vec<&str> = output.lines().filter(|l| !l.is_empty()).collect();
-
-  if query.is_empty() {
-    let mut results: Vec<FuzzyFileResult> = files
-      .into_iter()
-      .take(max_results)
-      .map(|path| FuzzyFileResult {
-        path: path.to_string(),
-        score: 0,
-        match_positions: vec![],
-      })
-      .collect();
-    results.sort_by_key(|result| result.path.to_lowercase());
-    return Ok(results.into_iter().take(max_results).collect());
-  }
-
-  let mut matcher = Matcher::new(Config::DEFAULT.match_paths());
-  let atom = Atom::new(
-    &query,
-    CaseMatching::Ignore,
-    Normalization::Smart,
-    AtomKind::Fuzzy,
-    false,
-  );
-
-  let mut scored: Vec<FuzzyFileResult> = Vec::new();
-  let mut buf = Vec::new();
-
-  for file_path in &files {
-    let mut indices = Vec::new();
-    let haystack = Utf32Str::new(file_path, &mut buf);
-    if let Some(score) = atom.indices(haystack, &mut matcher, &mut indices) {
-      scored.push(FuzzyFileResult {
-        path: file_path.to_string(),
-        score: score as u32,
-        match_positions: indices.iter().map(|&i| i as usize).collect(),
-      });
-    }
-    buf.clear();
-  }
-
-  scored.sort_by_key(|result| std::cmp::Reverse(result.score));
-  scored.truncate(max_results);
-  Ok(scored)
+  let runtime = window
+    .state::<RepositoryRuntimeRegistry>()
+    .runtime_for_window(window.label())
+    .ok_or(Error::NoRepository)?;
+  runtime.fuzzy_find(&query, max_results)
 }
 
 #[tauri::command]

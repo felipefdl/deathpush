@@ -1,12 +1,13 @@
 import { createEffect, createMemo, createSignal, For, onSettled } from "solid-js";
-import { confirm } from "@tauri-apps/plugin-dialog";
 import { Portal } from "@solidjs/web";
 import { repositoryStore } from "../../stores/repository-store";
 import { useStore } from "../../lib/use-store";
 import { useStash } from "../../hooks/use-stash";
 import { useBranches } from "../../hooks/use-branches";
 import { flushAll } from "../../lib/pierre/flush-registry";
-import * as commands from "../../lib/tauri-commands";
+import { sendDestructiveIntent, sendIntent } from "../../lib/session-client";
+
+
 
 type OverflowMenuProps = {
   anchorRef: HTMLButtonElement | undefined;
@@ -21,17 +22,19 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   const stashes = useStore(repositoryStore, (s) => s.stashes);
   const branches = useStore(repositoryStore, (s) => s.branches);
   const operations = useStore(repositoryStore, (s) => s.operations);
+  const actions = useStore(repositoryStore, (s) => s.actions);
   const { setError, startOperation, endOperation } = repositoryStore.getState();
   const { saveStash, saveStashIncludeUntracked, saveStashStaged, popStash } = useStash();
-  const { loadBranches, mergeBranch, rebaseBranch } = useBranches();
+  const { mergeBranch, rebaseBranch } = useBranches();
   const [showMergePicker, setShowMergePicker] = createSignal(false);
   const [showRebasePicker, setShowRebasePicker] = createSignal(false);
   const [pickerSearch, setPickerSearch] = createSignal("");
   let pickerInputRef: HTMLInputElement | undefined;
 
   const branch = () => status()?.headBranch;
-  const hasStaged = () => status()?.groups.some((g) => g.kind === "index" && g.files.length > 0) ?? false;
-  const hasUnstaged = () => status()?.groups.some((g) => g.kind !== "index" && g.files.length > 0) ?? false;
+  const canStageAll = () => actions()?.canStageAll ?? false;
+  const canUnstageAll = () => actions()?.canUnstageAll ?? false;
+  const canDiscardAll = () => actions()?.canDiscardAll ?? false;
   const hasCommit = () => !!status()?.headCommit;
   const hasStashes = () => stashes().length > 0;
   const noBranch = () => !branch();
@@ -89,12 +92,10 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
       document.removeEventListener("keydown", handleEscape);
     };
   });
-
   createEffect(
     () => showingPicker(),
     (open) => {
       if (open) {
-        void loadBranches();
         pickerInputRef?.focus();
       }
     }
@@ -107,33 +108,23 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   };
 
   const handlePull = async (rebase: boolean = false) => {
-    const current = branch();
-    if (!current) return;
     startOperation("pull");
     try {
-      await commands.pull("origin", current, rebase);
+      await sendIntent({ type: "pull", rebase });
     } catch (err) {
       setError(String(err));
     } finally {
       endOperation("pull");
     }
   };
-
   const handlePush = async (force: boolean = false) => {
-    const current = branch();
-    if (!current) return;
-    if (force) {
-      const confirmed = await confirm("Are you sure you want to force push? This may overwrite remote changes.", {
-        title: "Force Push",
-        kind: "warning",
-        okLabel: "Force Push",
-        cancelLabel: "Cancel",
-      });
-      if (!confirmed) return;
-    }
     startOperation("push");
     try {
-      await commands.push("origin", current, force);
+      if (force) {
+        await sendDestructiveIntent({ type: "push", force: true, confirmed: false });
+      } else {
+        await sendIntent({ type: "push", force: false, confirmed: false });
+      }
     } catch (err) {
       setError(String(err));
     } finally {
@@ -144,7 +135,7 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   const handleFetch = async () => {
     startOperation("fetch");
     try {
-      await commands.fetchRemote("origin", true);
+      await sendIntent({ type: "fetch", prune: true });
     } catch (err) {
       setError(String(err));
     } finally {
@@ -153,16 +144,13 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   };
 
   const handleSync = async () => {
-    const current = branch();
-    if (!current) return;
-    startOperation("pull");
+    startOperation("sync");
     try {
-      await commands.pull("origin", current);
-      await commands.push("origin", current);
+      await sendIntent({ type: "sync" });
     } catch (err) {
       setError(String(err));
     } finally {
-      endOperation("pull");
+      endOperation("sync");
     }
   };
 
@@ -170,7 +158,7 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
     startOperation("stage");
     try {
       await flushAll();
-      await commands.stageAll();
+      await sendIntent({ type: "stageAll" });
     } catch (err) {
       setError(String(err));
     } finally {
@@ -181,7 +169,7 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   const handleUnstageAll = async () => {
     startOperation("unstage");
     try {
-      await commands.unstageAll();
+      await sendIntent({ type: "unstageAll" });
     } catch (err) {
       setError(String(err));
     } finally {
@@ -190,21 +178,10 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   };
 
   const handleDiscardAll = async () => {
-    const current = repositoryStore.getState().status;
-    if (!current) return;
-    const unstaged = current.groups.filter((g) => g.kind !== "index");
-    const paths = unstaged.flatMap((g) => g.files.map((f) => f.path));
-    const count = paths.length;
-    if (count === 0) return;
-    const confirmed = await confirm(
-      `Are you sure you want to discard all ${count} change(s)?\n\nThis action is irreversible.`,
-      { title: "Discard All Changes", kind: "warning", okLabel: "Discard All", cancelLabel: "Cancel" }
-    );
-    if (!confirmed) return;
     startOperation("discard");
     try {
       await flushAll();
-      await commands.discardChanges(paths);
+      await sendDestructiveIntent({ type: "discard", paths: [], confirmed: false });
     } catch (err) {
       setError(String(err));
     } finally {
@@ -213,13 +190,8 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
   };
 
   const handleUndoLastCommit = async () => {
-    const confirmed = await confirm("Undo last commit? Changes will be moved back to staging.", {
-      title: "Undo Last Commit",
-      kind: "warning",
-    });
-    if (!confirmed) return;
     try {
-      await commands.undoLastCommit();
+      await sendDestructiveIntent({ type: "undoCommit", confirmed: false });
     } catch (err) {
       setError(String(err));
     }
@@ -362,18 +334,21 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
 
           <div class="context-menu-separator" />
 
-          <div class="context-menu-item" onClick={() => handleItem(handleStageAll)}>
+          <div
+            class={`context-menu-item${!canStageAll() ? " disabled" : ""}`}
+            onClick={() => handleItem(handleStageAll, !canStageAll())}
+          >
             Stage All Changes
           </div>
           <div
-            class={`context-menu-item${!hasStaged() ? " disabled" : ""}`}
-            onClick={() => handleItem(handleUnstageAll, !hasStaged())}
+            class={`context-menu-item${!canUnstageAll() ? " disabled" : ""}`}
+            onClick={() => handleItem(handleUnstageAll, !canUnstageAll())}
           >
             Unstage All Changes
           </div>
           <div
-            class={`context-menu-item${!hasUnstaged() ? " disabled" : ""}`}
-            onClick={() => handleItem(handleDiscardAll, !hasUnstaged())}
+            class={`context-menu-item${!canDiscardAll() ? " disabled" : ""}`}
+            onClick={() => handleItem(handleDiscardAll, !canDiscardAll())}
           >
             Discard All Changes
           </div>
@@ -387,11 +362,12 @@ export const OverflowMenu = (props: OverflowMenuProps) => {
             Stash (Include Untracked)
           </div>
           <div
-            class={`context-menu-item${!hasStaged() ? " disabled" : ""}`}
-            onClick={() => handleItem(() => saveStashStaged(), !hasStaged())}
+            class={`context-menu-item${!canUnstageAll() ? " disabled" : ""}`}
+            onClick={() => handleItem(() => saveStashStaged(), !canUnstageAll())}
           >
             Stash Staged Only
           </div>
+
           <div
             class={`context-menu-item${!hasStashes() ? " disabled" : ""}`}
             onClick={() => handleItem(() => popStash(0), !hasStashes())}

@@ -25,7 +25,7 @@ const MENU_ITEMS: MenuItem[] = [
   { type: "item", label: "Clone Repository...", event: "menu:clone-repo" },
   { type: "separator" },
   { type: "item", label: "Changes", shortcut: "Ctrl+1", event: "menu:view-changes", needsRepo: true },
-  { type: "item", label: "History", shortcut: "Ctrl+2", event: "menu:view-history", needsRepo: true },
+  { type: "item", label: "History", shortcut: "Ctrl+Shift+2", event: "menu:view-history", needsRepo: true },
   { type: "item", label: "Toggle Diff Mode", shortcut: "Ctrl+Shift+P", event: "menu:toggle-diff", needsRepo: true },
   { type: "separator" },
   { type: "item", label: "Color Theme...", event: "menu:color-theme" },

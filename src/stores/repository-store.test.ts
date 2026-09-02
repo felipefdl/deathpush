@@ -13,11 +13,17 @@ beforeEach(() => {
     error: null,
     stashes: [],
     amendMode: false,
+    commitMessage: "",
     fileFilter: "",
+    lastCommit: null,
+    actions: null,
+
     commitLog: [],
     selectedCommit: null,
     commitDetail: null,
+    fileHistoryPath: null,
     tags: [],
+
     terminalGroups: [],
     activeGroupId: null,
     terminalIdCounter: 0,

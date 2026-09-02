@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onSettled, Show, untrack } from "solid-js";
 import { getRecentProjects, removeRecentProject, type RecentProject } from "../../lib/recent-projects";
-import { scanProjectsDirectory, type ProjectInfo } from "../../lib/tauri-commands";
+import { scanWorkspaceProjects, type ProjectInfo } from "../../lib/tauri-commands";
 import { buildMultiRootWorkspaceTree, type WorkspaceTreeNode } from "../../lib/workspace-tree";
 import { settingsStore, type WorkspaceEntry } from "../../stores/settings-store";
 import { repositoryStore } from "../../stores/repository-store";
@@ -179,23 +179,12 @@ export const WelcomeScreen = (props: WelcomeScreenProps) => {
         return;
       }
       let cancelled = false;
-      void Promise.all(
-        workspaces.map((ws) => scanProjectsDirectory(ws.directory, ws.scanDepth).catch(() => [] as ProjectInfo[]))
-      ).then((results) => {
-        if (cancelled) return;
-        const seen = new Set<string>();
-        const merged: ProjectInfo[] = [];
-        for (const list of results) {
-          for (const p of list) {
-            if (!seen.has(p.path)) {
-              seen.add(p.path);
-              merged.push(p);
-            }
-          }
-        }
-        merged.sort((a, b) => a.name.localeCompare(b.name));
-        setWorkspaceProjects(merged);
-      });
+      void scanWorkspaceProjects(workspaces.map((ws) => ({ directory: ws.directory, depth: ws.scanDepth })))
+        .catch(() => [] as ProjectInfo[])
+        .then((projects) => {
+          if (cancelled) return;
+          setWorkspaceProjects(projects);
+        });
       return () => {
         cancelled = true;
       };

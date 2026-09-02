@@ -38,7 +38,7 @@ describe("commitPierreWrite", () => {
     const current = session();
 
     await commitPierreWrite({
-      writeFile: async () => undefined,
+      writeFile: async () => ({ contentHash: "bbb" }),
       pending,
       text: "edited",
       session: current,
@@ -49,5 +49,36 @@ describe("commitPierreWrite", () => {
     expect(pending.text).toBeNull();
     expect(current.pendingSha).toBeNull();
     expect(current.diskSha).toBe("bbb");
+  });
+
+  it("sets pendingSha to the local hash while write is in flight", async () => {
+    const current = session();
+    let pendingDuringWrite: string | null = null;
+    await commitPierreWrite({
+      writeFile: async () => {
+        pendingDuringWrite = current.pendingSha;
+        return { contentHash: "from-rust" };
+      },
+      pending: { text: "edited" },
+      text: "edited",
+      session: current,
+      sha256Utf8: async () => "pending-local",
+      syncDirty: () => undefined,
+    });
+    expect(pendingDuringWrite).toBe("pending-local");
+  });
+
+  it("sets diskSha from the write result hash", async () => {
+    const current = session();
+    await commitPierreWrite({
+      writeFile: async () => ({ contentHash: "from-rust" }),
+      pending: { text: "edited" },
+      text: "edited",
+      session: current,
+      sha256Utf8: async () => "pending-local",
+      syncDirty: () => undefined,
+    });
+    expect(current.pendingSha).toBeNull();
+    expect(current.diskSha).toBe("from-rust");
   });
 });

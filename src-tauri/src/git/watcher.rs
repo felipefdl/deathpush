@@ -176,20 +176,14 @@ pub fn notify_event_lost(result: &notify::Result<Event>) -> bool {
 }
 
 fn classify_git_relative(relative: &str) -> Option<ClassifiedPath> {
-  if relative.contains("index.lock")
-    || relative.starts_with("objects/")
-    || relative.contains("/objects/")
-    || relative.starts_with("logs/")
-    || relative.contains("/logs/")
-    || relative.contains(".watchman-cookie-")
-  {
-    return None;
+  match crate::git::invalidation::classify_git_relative(relative) {
+    crate::git::invalidation::GitInvalidation::Ignore => None,
+    _ => Some(ClassifiedPath {
+      relative: relative.to_string(),
+      kind: PathChangeKind::Git,
+      scope: PathChangeScope::Repository,
+    }),
   }
-  Some(ClassifiedPath {
-    relative: relative.to_string(),
-    kind: PathChangeKind::Git,
-    scope: PathChangeScope::Repository,
-  })
 }
 
 pub fn classify_watched_path(
@@ -385,6 +379,25 @@ mod tests {
       )
       .is_none()
     );
+  }
+
+  #[test]
+  fn content_workdir_is_not_refs() {
+    let root = PathBuf::from("/repo");
+    let work = classify_path(&root, &root.join("src/a.ts"), EventKind::Modify(ModifyKind::Any)).unwrap();
+    assert_eq!(work.kind, PathChangeKind::Content);
+    assert_eq!(work.scope, PathChangeScope::Exact);
+    assert_ne!(work.kind, PathChangeKind::Git);
+  }
+
+  #[test]
+  fn stash_ref_and_log_are_watched_as_git() {
+    let root = PathBuf::from("/repo");
+    for relative in [".git/refs/stash", ".git/logs/refs/stash"] {
+      let classified = classify_path(&root, &root.join(relative), EventKind::Modify(ModifyKind::Any)).unwrap();
+      assert_eq!(classified.kind, PathChangeKind::Git, "{relative}");
+      assert_eq!(classified.scope, PathChangeScope::Repository, "{relative}");
+    }
   }
 
   #[test]

@@ -1,6 +1,7 @@
 import { cleanup, render, waitFor } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import type { WriteFileResult } from "../../lib/git-types";
 
 const mocks = vi.hoisted(() => ({
   fileConstructed: vi.fn(),
@@ -59,26 +60,43 @@ vi.mock("@pierre/diffs/edit", () => ({
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: vi.fn(async () => true) }));
 
-vi.mock("../../lib/tauri-commands", () => ({
-  getFileDiff: vi.fn(async (path: string) => ({
-    original: "",
-    modified: `contents:${path}`,
-    fileType: "text",
-  })),
-  getFilePatch: vi.fn(async () => "patch"),
-  getFileHunks: vi.fn(async () => ({
-    hunks: [
-      {
-        header: "@@ -1,0 +1,1 @@",
-        oldStart: 1,
-        oldLines: 0,
-        newStart: 1,
-        newLines: 1,
-        lines: [{ content: "new", lineType: "add", oldLineNumber: null, newLineNumber: 1 }],
+vi.mock("../../lib/session-client", () => ({
+  sendIntent: vi.fn(async (intent: { type: string; path?: string }) => {
+    if (intent.type !== "openScmDiff") return { kind: "snapshot", snapshot: {} };
+    return {
+      kind: "diff",
+      payload: {
+        path: intent.path ?? "",
+        original: "",
+        modified: `contents:${intent.path}`,
+        language: null,
+        fileType: "text",
+        hunks: [
+          {
+            id: "h0",
+            header: "@@ -1,0 +1,1 @@",
+            oldStart: 1,
+            oldLines: 0,
+            newStart: 1,
+            newLines: 1,
+            lines: [{ content: "new", lineType: "add", oldLineNumber: null, newLineNumber: 1 }],
+          },
+        ],
+        presence: { oldExists: true, newExists: true },
+        editable: true,
+        enableLineSelection: true,
+        staged: false,
+        contentHash: `sha:contents:${intent.path}`,
       },
-    ],
-  })),
-  writeFile: vi.fn(async () => undefined),
+    };
+  }),
+
+  sendDestructiveIntent: vi.fn(),
+  applySessionSnapshot: vi.fn(),
+}));
+
+vi.mock("../../lib/tauri-commands", () => ({
+  writeFile: vi.fn(async (): Promise<WriteFileResult> => ({ contentHash: "hash-written" })),
 }));
 
 vi.mock("../../lib/pierre/worker", () => ({ getPierreWorkerPool: () => ({}) }));
@@ -105,7 +123,7 @@ describe("PierreFileDiff navigation", () => {
     const Harness = () => {
       const [path, setPath] = createSignal("NOTICE");
       selectPath = setPath;
-      return <PierreFileDiff path={path()} staged={false} groupKind="workingTree" />;
+      return <PierreFileDiff path={path()} staged={false} groupKind="workingTree" loadId={1} />;
     };
 
     render(() => <Harness />);
@@ -121,7 +139,7 @@ describe("PierreFileDiff navigation", () => {
 
   it("rerenders the mounted diff when switching layouts", async () => {
     settingsStore.getState().updateDiff({ layout: "sideBySide" });
-    render(() => <PierreFileDiff path="NOTICE" staged={false} groupKind="workingTree" />);
+    render(() => <PierreFileDiff path="NOTICE" staged={false} groupKind="workingTree" loadId={1} />);
     await waitFor(() => expect(mocks.fileRendered).toHaveBeenCalledTimes(1));
 
     settingsStore.getState().updateDiff({ layout: "inline" });
@@ -133,7 +151,7 @@ describe("PierreFileDiff navigation", () => {
 
   it("turns inline hunk actions off and on without remounting", async () => {
     settingsStore.getState().updateDiff({ showInlineHunkActions: false });
-    render(() => <PierreFileDiff path="NOTICE" staged={false} groupKind="workingTree" />);
+    render(() => <PierreFileDiff path="NOTICE" staged={false} groupKind="workingTree" loadId={1} />);
     await waitFor(() => expect(mocks.fileRendered).toHaveBeenCalledTimes(1));
     const options = mocks.fileConstructed.mock.calls[0][0] as {
       renderAnnotation: (annotation: { side: "additions"; lineNumber: number }) => HTMLElement | undefined;
@@ -148,7 +166,7 @@ describe("PierreFileDiff navigation", () => {
 
 describe("PierreFileDiff disk reload", () => {
   it("stamps a unique persist cache key on each disk-won reload", async () => {
-    render(() => <PierreFileDiff path="NOTICE" staged={false} groupKind="workingTree" />);
+    render(() => <PierreFileDiff path="NOTICE" staged={false} groupKind="workingTree" loadId={1} />);
     await waitFor(() => expect(mocks.fileRendered).toHaveBeenCalledTimes(1));
 
     const handle = getScmSession();
@@ -179,7 +197,7 @@ describe("PierreFileDiff disk reload", () => {
     await waitFor(() => expect(mocks.fileRendered).toHaveBeenCalledTimes(3));
 
     const keys = mocks.fileRendered.mock.calls.map(
-      (call) => (call[0] as { fileDiff?: { cacheKey?: string } }).fileDiff?.cacheKey
+      (call) => (call[0] as { newFile?: { cacheKey?: string } }).newFile?.cacheKey
     );
     expect(keys).toEqual(["NOTICE", "NOTICE#1", "NOTICE#2"]);
   });

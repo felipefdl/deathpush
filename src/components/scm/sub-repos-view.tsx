@@ -2,7 +2,7 @@ import { createEffect, createSignal, For } from "solid-js";
 import { repositoryStore } from "../../stores/repository-store";
 import { useStore } from "../../lib/use-store";
 import * as commands from "../../lib/tauri-commands";
-import type { DiscoveredRepo } from "../../lib/tauri-commands";
+import type { NestedRepository } from "../../lib/tauri-commands";
 
 type SubReposHeaderProps = {
   collapsed: boolean;
@@ -19,34 +19,11 @@ export const SubReposHeader = (props: SubReposHeaderProps) => (
 );
 
 type SubReposBodyProps = {
-  repos: DiscoveredRepo[];
+  repos: NestedRepository[];
   repoRoot: string;
 };
 
 export const SubReposBody = (props: SubReposBodyProps) => {
-  const [branches, setBranches] = createSignal<Record<string, string | null>>({});
-
-  createEffect(
-    () => [props.repos, props.repoRoot] as const,
-    ([repos, repoRoot]) => {
-      const fetchBranches = async () => {
-        const map: Record<string, string | null> = {};
-        await Promise.all(
-          repos.map(async (r) => {
-            const fullPath = `${repoRoot}/${r.path}`;
-            try {
-              map[r.path] = await commands.getRepoBranch(fullPath);
-            } catch {
-              map[r.path] = null;
-            }
-          })
-        );
-        setBranches(map);
-      };
-      void fetchBranches();
-    }
-  );
-
   const handleClick = async (repoPath: string) => {
     const fullPath = `${props.repoRoot}/${repoPath}`;
     try {
@@ -63,7 +40,7 @@ export const SubReposBody = (props: SubReposBodyProps) => {
           <div class="sub-repo-item" onClick={() => handleClick(repo().path)} title={repo().path}>
             <span class="codicon codicon-repo sub-repo-icon" />
             <span class="sub-repo-name">{repo().name}</span>
-            {branches()[repo().path] && <span class="sub-repo-branch">{branches()[repo().path]}</span>}
+            {repo().branch && <span class="sub-repo-branch">{repo().branch}</span>}
           </div>
         )}
       </For>
@@ -73,11 +50,11 @@ export const SubReposBody = (props: SubReposBodyProps) => {
 
 export const useSubRepos = () => {
   const status = useStore(repositoryStore, (s) => s.status);
-  const [repos, setRepos] = createSignal<DiscoveredRepo[]>([]);
+  const [repos, setRepos] = createSignal<NestedRepository[]>([]);
 
   const loadRepos = async () => {
     try {
-      const discovered = await commands.discoverRepositories();
+      const discovered = await commands.discoverNestedRepositories();
       setRepos(discovered);
     } catch {
       setRepos([]);

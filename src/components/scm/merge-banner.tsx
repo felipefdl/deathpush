@@ -1,6 +1,7 @@
 import type { RepoOperationState } from "../../lib/git-types";
 import { repositoryStore } from "../../stores/repository-store";
-import * as commands from "../../lib/tauri-commands";
+import { useStore } from "../../lib/use-store";
+import { sendIntent } from "../../lib/session-client";
 
 type MergeBannerProps = {
   operationState: RepoOperationState;
@@ -14,51 +15,16 @@ const LABELS: Record<string, string> = {
 };
 
 export const MergeBanner = (props: MergeBannerProps) => {
+  const actions = useStore(repositoryStore, (s) => s.actions);
   const { setError, startOperation, endOperation } = repositoryStore.getState();
 
   const label = () => LABELS[props.operationState] ?? "Operation in progress";
-  const isMerge = () => props.operationState === "merging";
-  const isRebase = () => props.operationState === "rebasing";
+  const operation = () => actions()?.operation;
 
-  const handleContinue = async () => {
+  const run = async (type: "operationContinue" | "operationAbort" | "operationSkip") => {
     startOperation("lifecycle");
     try {
-      if (isMerge()) {
-        await commands.mergeContinue();
-      } else if (isRebase()) {
-        await commands.rebaseContinue();
-      } else {
-        await commands.mergeContinue();
-      }
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      endOperation("lifecycle");
-    }
-  };
-
-  const handleAbort = async () => {
-    startOperation("lifecycle");
-    try {
-      if (isMerge()) {
-        await commands.mergeAbort();
-      } else if (isRebase()) {
-        await commands.rebaseAbort();
-      } else {
-        await commands.mergeAbort();
-      }
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      endOperation("lifecycle");
-    }
-  };
-
-  const handleSkip = async () => {
-    if (!isRebase()) return;
-    startOperation("lifecycle");
-    try {
-      await commands.rebaseSkip();
+      await sendIntent({ type });
     } catch (err) {
       setError(String(err));
     } finally {
@@ -71,17 +37,21 @@ export const MergeBanner = (props: MergeBannerProps) => {
       <span class="codicon codicon-warning merge-banner-icon" />
       <span class="merge-banner-label">{label()}</span>
       <div class="merge-banner-actions">
-        <button class="merge-banner-btn" onClick={handleContinue} title="Continue">
-          Continue
-        </button>
-        {isRebase() && (
-          <button class="merge-banner-btn" onClick={handleSkip} title="Skip">
+        {operation()?.continue ? (
+          <button class="merge-banner-btn" onClick={() => void run("operationContinue")} title="Continue">
+            Continue
+          </button>
+        ) : null}
+        {operation()?.skip ? (
+          <button class="merge-banner-btn" onClick={() => void run("operationSkip")} title="Skip">
             Skip
           </button>
-        )}
-        <button class="merge-banner-btn merge-banner-btn-danger" onClick={handleAbort} title="Abort">
-          Abort
-        </button>
+        ) : null}
+        {operation()?.abort ? (
+          <button class="merge-banner-btn merge-banner-btn-danger" onClick={() => void run("operationAbort")} title="Abort">
+            Abort
+          </button>
+        ) : null}
       </div>
     </div>
   );

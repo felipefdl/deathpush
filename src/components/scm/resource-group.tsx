@@ -1,9 +1,9 @@
 import { createMemo, createSignal } from "solid-js";
-import { confirm } from "@tauri-apps/plugin-dialog";
 import type { FileEntry, ResourceGroup, ResourceGroupKind } from "../../lib/git-types";
 import { repositoryStore } from "../../stores/repository-store";
 import { flushPaths } from "../../lib/pierre/flush-registry";
-import * as commands from "../../lib/tauri-commands";
+import { sendDestructiveIntent, sendIntent } from "../../lib/session-client";
+
 import { ResourceTree } from "./resource-tree";
 
 type ResourceGroupHeaderProps = {
@@ -93,7 +93,7 @@ export const ResourceGroupView = (props: ResourceGroupViewProps) => {
     try {
       const paths = filteredFiles().map((f) => f.path);
       await flushPaths(paths);
-      await commands.stageFiles(paths);
+      await sendIntent({ type: "stage", paths });
     } catch (err) {
       setError(String(err));
     } finally {
@@ -104,7 +104,7 @@ export const ResourceGroupView = (props: ResourceGroupViewProps) => {
   const handleUnstageAll = async () => {
     startOperation("unstage");
     try {
-      await commands.unstageAll();
+      await sendIntent({ type: "unstageAll" });
     } catch (err) {
       setError(String(err));
     } finally {
@@ -114,43 +114,21 @@ export const ResourceGroupView = (props: ResourceGroupViewProps) => {
 
   const handleDiscardAll = async () => {
     const files = filteredFiles();
-    const trackedFiles = files.filter((f) => f.status !== "untracked");
-    const untrackedFiles = files.filter((f) => f.status === "untracked");
-
-    let msg: string;
-    let title: string;
-    let okLabel: string;
-    if (trackedFiles.length > 0 && untrackedFiles.length > 0) {
-      msg = `Are you sure you want to discard ${trackedFiles.length} change(s) and DELETE ${untrackedFiles.length} untracked file(s)?\n\nTracked changes are irreversible. Untracked files can be restored from the Trash.`;
-      title = "Discard All Changes";
-      okLabel = "Discard & Delete";
-    } else if (untrackedFiles.length > 0) {
-      msg = `Are you sure you want to DELETE ${untrackedFiles.length} untracked file(s)?\n\nYou can restore them from the Trash.`;
-      title = "Delete Untracked Files";
-      okLabel = "Move to Trash";
-    } else {
-      msg = `Are you sure you want to discard all ${trackedFiles.length} change(s)?\n\nThis action is irreversible.`;
-      title = "Discard All Changes";
-      okLabel = "Discard All";
-    }
-
-    const confirmed = await confirm(msg, { title, kind: "warning", okLabel, cancelLabel: "Cancel" });
-    if (!confirmed) return;
     startOperation("discard");
     try {
       await flushPaths(files.map((f) => f.path));
-      if (trackedFiles.length > 0) {
-        await commands.discardChanges(trackedFiles.map((f) => f.path));
-      }
-      if (untrackedFiles.length > 0) {
-        await commands.deleteFiles(untrackedFiles.map((f) => f.path));
-      }
+      await sendDestructiveIntent({
+        type: "discard",
+        paths: files.map((f) => f.path),
+        confirmed: false,
+      });
     } catch (err) {
       setError(String(err));
     } finally {
       endOperation("discard");
     }
   };
+
 
   const isIndex = () => props.group.kind === "index";
 

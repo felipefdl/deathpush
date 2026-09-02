@@ -1,22 +1,16 @@
 import { repositoryStore } from "../stores/repository-store";
-import * as commands from "../lib/tauri-commands";
+import { sendDestructiveIntent, sendIntent } from "../lib/session-client";
 
 export const useStash = () => {
-  const loadStashes = async () => {
-    const { setStashes, setError } = repositoryStore.getState();
-    try {
-      const stashes = await commands.stashList();
-      setStashes(stashes);
-    } catch (err) {
-      setError(String(err));
-    }
-  };
-
   const saveStash = async (message?: string) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.stashSave(message);
-      await loadStashes();
+      await sendIntent({
+        type: "stashSave",
+        includeUntracked: false,
+        stagedOnly: false,
+        message: message ?? null,
+      });
     } catch (err) {
       setError(String(err));
     }
@@ -25,8 +19,12 @@ export const useStash = () => {
   const saveStashIncludeUntracked = async (message?: string) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.stashSaveIncludeUntracked(message);
-      await loadStashes();
+      await sendIntent({
+        type: "stashSave",
+        includeUntracked: true,
+        stagedOnly: false,
+        message: message ?? null,
+      });
     } catch (err) {
       setError(String(err));
     }
@@ -35,8 +33,12 @@ export const useStash = () => {
   const saveStashStaged = async (message?: string) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.stashSaveStaged(message);
-      await loadStashes();
+      await sendIntent({
+        type: "stashSave",
+        includeUntracked: false,
+        stagedOnly: true,
+        message: message ?? null,
+      });
     } catch (err) {
       setError(String(err));
     }
@@ -45,7 +47,7 @@ export const useStash = () => {
   const applyStash = async (index: number) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.stashApply(index);
+      await sendIntent({ type: "stashApply", index });
     } catch (err) {
       setError(String(err));
     }
@@ -54,41 +56,27 @@ export const useStash = () => {
   const popStash = async (index: number) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.stashPop(index);
-      await loadStashes();
+      await sendIntent({ type: "stashPop", index });
     } catch (err) {
       setError(String(err));
     }
   };
 
   const dropStash = async (index: number) => {
-    const { setStashes, setError } = repositoryStore.getState();
-    try {
-      const stashes = await commands.stashDrop(index);
-      setStashes(stashes);
-    } catch (err) {
-      setError(String(err));
-    }
-  };
-
-  const showStash = async (index: number) => {
     const { setError } = repositoryStore.getState();
     try {
-      return await commands.stashShow(index);
+      await sendDestructiveIntent({ type: "stashDrop", index, confirmed: false });
     } catch (err) {
       setError(String(err));
-      return null;
     }
   };
 
   return {
-    loadStashes,
     saveStash,
     saveStashIncludeUntracked,
     saveStashStaged,
     applyStash,
     popStash,
     dropStash,
-    showStash,
   };
 };

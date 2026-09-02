@@ -6,7 +6,8 @@ import type {
   FileTreeRenameEvent,
 } from "@pierre/trees";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { ask, confirm } from "@tauri-apps/plugin-dialog";
+import { ask } from "@tauri-apps/plugin-dialog";
+
 import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
 import { useTauriEvent } from "../../hooks/use-tauri-event";
 import { shouldRefreshExplorer } from "../../hooks/use-repository-events";
@@ -17,7 +18,10 @@ import { throttle } from "../../lib/throttle";
 import type { ExplorerEntry, PathsChanged } from "../../lib/git-types";
 import type { ConflictResolution } from "../../lib/tauri-commands";
 import * as commands from "../../lib/tauri-commands";
+import { sendDestructiveIntent, sendIntent } from "../../lib/session-client";
+
 import { useStore } from "../../lib/use-store";
+
 import { explorerStore } from "../../stores/explorer-store";
 import { layoutStore } from "../../stores/layout-store";
 import { repositoryStore } from "../../stores/repository-store";
@@ -64,6 +68,7 @@ export const ExplorerView = (props: ExplorerViewProps) => {
   const status = useStore(repositoryStore, (state) => state.status);
   const fileFilter = useStore(explorerStore, (state) => state.fileFilter);
   const clipboardEntry = useStore(explorerStore, (state) => state.clipboardEntry);
+  const selectedPath = useStore(explorerStore, (state) => state.selectedPath);
   const [entries, setEntries] = createSignal<ExplorerEntry[]>([]);
   const [contextMenu, setContextMenu] = createSignal<{ x: number; y: number } | null>(null);
   const expandedPaths = useStore(explorerStore, (state) => state.treeExpandedPaths);
@@ -219,18 +224,9 @@ export const ExplorerView = (props: ExplorerViewProps) => {
   };
 
   const deleteEntry = async (item: TreeContextMenuItem): Promise<void> => {
-    const confirmed = await confirm(
-      `Are you sure you want to delete "${item.name}"?\n\nThis will move it to the trash.`,
-      {
-        title: "Delete",
-        kind: "warning",
-        okLabel: "Move to Trash",
-        cancelLabel: "Cancel",
-      }
-    );
-    if (!confirmed) return;
     const path = stripDirectorySuffix(item.path);
-    await commands.deleteFile(path);
+    const result = await sendDestructiveIntent({ type: "deleteFile", path, confirmed: false });
+    if (result.kind !== "snapshot") return;
     const explorer = explorerStore.getState();
     if (explorer.selectedPath === path) {
       explorer.setSelectedPath(null);
@@ -238,6 +234,7 @@ export const ExplorerView = (props: ExplorerViewProps) => {
     }
     await refreshTree();
   };
+
 
   const getItemContextMenu = (item: TreeContextMenuItem): ContextMenuItem[] => {
     const path = stripDirectorySuffix(item.path);
@@ -314,8 +311,11 @@ export const ExplorerView = (props: ExplorerViewProps) => {
         label: "Add to .gitignore",
         icon: "exclude",
         action: () =>
-          void commands.addToGitignore(path).catch((error) => repositoryStore.getState().setError(String(error))),
+          void sendIntent({ type: "addToGitignore", path }).catch((error) =>
+            repositoryStore.getState().setError(String(error))
+          ),
       }
+
     );
     return items;
   };
@@ -442,6 +442,7 @@ export const ExplorerView = (props: ExplorerViewProps) => {
               paths={treePaths()}
               gitStatus={treeGitStatus()}
               options={treeOptions}
+              selectedPath={selectedPath()}
               onFileActivate={(path) => dockTerminalIfCurrentFile(stripDirectorySuffix(path))}
               modelRef={(model) => {
                 treeModel = model;

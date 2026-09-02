@@ -208,6 +208,38 @@ describe("layout store", () => {
 
       expect(layoutStore.getState().terminalMaximized).toBe(false);
     });
+
+    it("switches mainView to changes when the Changes sidebar is opened from history", () => {
+      layoutStore.setState({ mainView: "history", sidebarView: "scm" });
+
+      layoutStore.getState().setSidebarView("scm");
+
+      expect(layoutStore.getState().sidebarView).toBe("scm");
+      expect(layoutStore.getState().mainView).toBe("changes");
+    });
+
+    it("switches mainView to file when the Explorer sidebar is opened from history", () => {
+      layoutStore.setState({ mainView: "history", sidebarView: "scm" });
+
+      layoutStore.getState().setSidebarView("explorer");
+
+      expect(layoutStore.getState().sidebarView).toBe("explorer");
+      expect(layoutStore.getState().mainView).toBe("file");
+    });
+
+    it("does not override settings when switching sidebar tabs", () => {
+      layoutStore.setState({ mainView: "settings", sidebarView: "scm" });
+
+      layoutStore.getState().setSidebarView("explorer");
+
+      expect(layoutStore.getState().sidebarView).toBe("explorer");
+      expect(layoutStore.getState().mainView).toBe("settings");
+
+      layoutStore.getState().setSidebarView("scm");
+
+      expect(layoutStore.getState().sidebarView).toBe("scm");
+      expect(layoutStore.getState().mainView).toBe("settings");
+    });
   });
 
   describe("toggleTerminalMaximized", () => {

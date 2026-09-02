@@ -6,7 +6,6 @@ import { useDiskGuard } from "../../hooks/use-disk-guard";
 import type { FileContent } from "../../lib/git-types";
 import * as commands from "../../lib/tauri-commands";
 import { sessionCacheKey, type SaveSession } from "../../lib/pierre/save-session";
-import { sha256Utf8 } from "../../lib/pierre/sha";
 import { useStore } from "../../lib/use-store";
 import { PierreFile } from "../pierre/pierre-file";
 
@@ -45,14 +44,14 @@ export const FileViewer = () => {
         setSession(null);
         return;
       }
-      const nextSession: SaveSession = { path, diskSha: "", pendingSha: null, cacheGeneration: 0 };
+      const nextSession: SaveSession = {
+        path,
+        diskSha: content.contentHash,
+        pendingSha: null,
+        cacheGeneration: 0,
+      };
       setSession(nextSession);
       explorerStore.getState().setIsFileDirty(false);
-      void sha256Utf8(content.content).then((sha) => {
-        if (session() === nextSession && nextSession.cacheGeneration === 0 && nextSession.diskSha === "") {
-          nextSession.diskSha = sha;
-        }
-      });
     }
   );
 

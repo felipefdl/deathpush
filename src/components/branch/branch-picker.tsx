@@ -19,7 +19,6 @@ export const BranchPicker = (props: BranchPickerProps) => {
   const branches = useStore(repositoryStore, (s) => s.branches);
   const tags = useStore(repositoryStore, (s) => s.tags);
   const {
-    loadBranches,
     switchBranch,
     createNewBranch,
     renameBranch,
@@ -28,16 +27,15 @@ export const BranchPicker = (props: BranchPickerProps) => {
     mergeBranch,
     rebaseBranch,
   } = useBranches();
-  const { loadTags, createTag, removeTag, pushTagToRemote, removeRemoteTag } = useTags();
+  const { createTag, removeTag, pushTagToRemote, removeRemoteTag } = useTags();
   let inputRef: HTMLInputElement | undefined;
   let renameInputRef: HTMLInputElement | undefined;
   let overlayRef: HTMLDivElement | undefined;
 
   onSettled(() => {
-    void loadBranches();
-    void loadTags();
     inputRef?.focus();
   });
+
 
   createEffect(
     () => renaming(),
@@ -89,24 +87,18 @@ export const BranchPicker = (props: BranchPickerProps) => {
   };
 
   const handleDeleteBranch = async (name: string, force: boolean) => {
-    const confirmed = await confirm(`Are you sure you want to delete branch "${name}"?`, {
-      title: "Delete Branch",
-      kind: "warning",
-      okLabel: "Delete",
-      cancelLabel: "Cancel",
-    });
-    if (!confirmed) return;
     await removeBranch(name, force);
   };
 
-  const handleDeleteRemoteBranch = async (remote: string, name: string) => {
+  const handleDeleteRemoteBranch = async (_remote: string, name: string) => {
     const confirmed = await confirm(
-      `Are you sure you want to delete remote branch "${remote}/${name}"?\n\nThis cannot be undone.`,
+      `Are you sure you want to delete remote branch "${name}"?\n\nThis cannot be undone.`,
       { title: "Delete Remote Branch", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" }
     );
     if (!confirmed) return;
-    await removeRemoteBranch(remote, name);
+    await removeRemoteBranch(name);
   };
+
 
   const handleMerge = async (name: string) => {
     await mergeBranch(name);

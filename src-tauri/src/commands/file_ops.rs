@@ -3,9 +3,9 @@ use std::sync::Mutex;
 
 use tauri::{State, WebviewWindow};
 
-use crate::commands::invalidate_status;
 use crate::commands::repository::AppRepoState;
 use crate::error::{Error, Result};
+use crate::types::WriteFileResult;
 use crate::util::async_command;
 
 fn get_repo_root(state: &State<'_, Mutex<AppRepoState>>, window: &WebviewWindow) -> Result<std::path::PathBuf> {
@@ -104,7 +104,7 @@ pub async fn write_file(
   content: String,
   state: State<'_, Mutex<AppRepoState>>,
   window: WebviewWindow,
-) -> Result<()> {
+) -> Result<WriteFileResult> {
   let root = {
     let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
     let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
@@ -126,8 +126,9 @@ pub async fn write_file(
   if !canon_parent.starts_with(&canon_root) {
     return Err(Error::Other("Path traversal denied".into()));
   }
+  let content_hash = crate::content_hash::sha256_utf8(&content);
   std::fs::write(&full_path, content)?;
-  Ok(())
+  Ok(WriteFileResult { content_hash })
 }
 
 #[tauri::command]
@@ -194,65 +195,6 @@ pub async fn reveal_in_file_manager(
   }
 
   Ok(())
-}
-
-#[tauri::command]
-pub async fn delete_file(path: String, state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<()> {
-  let root = get_repo_root(&state, &window)?;
-  let canon_root = root
-    .canonicalize()
-    .map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
-  let full_path = root
-    .join(&path)
-    .canonicalize()
-    .map_err(|e| Error::Other(format!("Cannot resolve file path: {}", e)))?;
-  if !full_path.starts_with(&canon_root) {
-    return Err(Error::Other("Path traversal denied".into()));
-  }
-  trash::delete(&full_path).map_err(|e| Error::Other(e.to_string()))?;
-  invalidate_status(state.inner(), &window)
-}
-
-#[tauri::command]
-pub async fn delete_files(
-  paths: Vec<String>,
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<()> {
-  let root = get_repo_root(&state, &window)?;
-  let canon_root = root
-    .canonicalize()
-    .map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
-  for rel_path in &paths {
-    let full_path = root
-      .join(rel_path)
-      .canonicalize()
-      .map_err(|e| Error::Other(format!("Cannot resolve file path: {}", e)))?;
-    if !full_path.starts_with(&canon_root) {
-      return Err(Error::Other("Path traversal denied".into()));
-    }
-    trash::delete(&full_path).map_err(|e| Error::Other(e.to_string()))?;
-  }
-
-  invalidate_status(state.inner(), &window)
-}
-
-#[tauri::command]
-pub async fn add_to_gitignore(
-  pattern: String,
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<()> {
-  let root = get_repo_root(&state, &window)?;
-  let gitignore_path = root.join(".gitignore");
-  let mut content = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
-  if !content.ends_with('\n') && !content.is_empty() {
-    content.push('\n');
-  }
-  content.push_str(&pattern);
-  content.push('\n');
-  std::fs::write(&gitignore_path, content)?;
-  invalidate_status(state.inner(), &window)
 }
 
 #[tauri::command]

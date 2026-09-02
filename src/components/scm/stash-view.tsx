@@ -1,4 +1,5 @@
-import { createEffect, createSignal, For } from "solid-js";
+import { createSignal, For } from "solid-js";
+
 import type { StashEntry, FileDiffWithHunks } from "../../lib/git-types";
 import { repositoryStore } from "../../stores/repository-store";
 import { useStore } from "../../lib/use-store";
@@ -87,16 +88,8 @@ export const StashView = () => {
   const [collapsed, setCollapsed] = createSignal(false);
   const stashes = useStore(repositoryStore, (s) => s.stashes);
   const status = useStore(repositoryStore, (s) => s.status);
-  const { loadStashes, applyStash, popStash, dropStash } = useStash();
+  const { applyStash, popStash, dropStash } = useStash();
 
-  createEffect(
-    () => status(),
-    (current) => {
-      if (current) {
-        void loadStashes();
-      }
-    }
-  );
 
   return (
     <>

@@ -1,5 +1,5 @@
 import { createMemo, createSignal, For } from "solid-js";
-import type { CommitFileEntry } from "../../lib/git-types";
+import type { CommitFileEntry, FileStatus } from "../../lib/git-types";
 
 type TreeNode = {
   name: string;
@@ -30,13 +30,21 @@ const buildTree = (files: CommitFileEntry[]): TreeNode => {
   return root;
 };
 
-const STATUS_LETTER: Record<string, string> = {
-  added: "A",
-  deleted: "D",
-  modified: "M",
-  renamed: "R",
-  copied: "C",
-  typeChanged: "T",
+export const commitFileLetter = (status: FileStatus): string => {
+  switch (status) {
+    case "added":
+      return "A";
+    case "deleted":
+      return "D";
+    case "renamed":
+      return "R";
+    case "copied":
+      return "C";
+    case "typeChanged":
+      return "T";
+    default:
+      return "M";
+  }
 };
 
 type TreeFolderProps = {
@@ -106,9 +114,7 @@ const TreeFolder = (props: TreeFolderProps) => {
                   <span class="commit-detail-file-path" title={file().path}>
                     {oldName() ? `${oldName()} -> ${fileName()}` : fileName()}
                   </span>
-                  <span class={["commit-file-badge", `badge-${file().status}`]}>
-                    {STATUS_LETTER[file().status] ?? "M"}
-                  </span>
+                  <span class={["commit-file-badge", `badge-${file().status}`]}>{commitFileLetter(file().status)}</span>
                 </div>
               );
             }}

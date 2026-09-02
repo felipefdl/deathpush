@@ -1,31 +1,12 @@
-import { createMemo, createSignal, For } from "solid-js";
+import { createEffect, createMemo, createSignal, For } from "solid-js";
 import { repositoryStore } from "../../stores/repository-store";
 import { useStore } from "../../lib/use-store";
 import { formatRelativeDate } from "../../lib/format-date";
-import { getCommitFileDiff } from "../../lib/tauri-commands";
-import type { CommitDiffContent } from "../../lib/git-types";
+import type { DiffPayload } from "../../lib/git-types";
+import { sendIntent } from "../../lib/session-client";
 import { ImageDiff } from "../diff/image-diff";
 import { PierreFileDiff, historyCacheKey } from "../pierre/pierre-file-diff";
-import { CommitFileTree } from "./commit-file-tree";
-
-const statusLetter = (status: string): string => {
-  switch (status) {
-    case "added":
-      return "A";
-    case "deleted":
-      return "D";
-    case "modified":
-      return "M";
-    case "renamed":
-      return "R";
-    case "copied":
-      return "C";
-    case "typeChanged":
-      return "T";
-    default:
-      return "M";
-  }
-};
+import { CommitFileTree, commitFileLetter } from "./commit-file-tree";
 
 const copyToClipboard = (text: string) => {
   void navigator.clipboard.writeText(text);
@@ -33,7 +14,7 @@ const copyToClipboard = (text: string) => {
 
 export const CommitDetail = () => {
   const commitDetail = useStore(repositoryStore, (s) => s.commitDetail);
-  const [fileDiff, setFileDiff] = createSignal<CommitDiffContent | null>(null);
+  const [fileDiff, setFileDiff] = createSignal<DiffPayload | null>(null);
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const [filesViewMode, setFilesViewMode] = createSignal<"list" | "tree">("list");
 
@@ -41,11 +22,24 @@ export const CommitDetail = () => {
   const files = createMemo(() => commitDetail()?.files ?? []);
   const firstLine = createMemo(() => commit()?.message.split("\n")[0] ?? "");
   const bodyLines = createMemo(() => commit()?.message.split("\n").slice(1).join("\n").trim() ?? "");
+
+  createEffect(
+    () => commitDetail()?.commit.id,
+    () => {
+      setFileDiff(null);
+      setSelectedPath(null);
+    }
+  );
+
   const handleFileClick = async (commitId: string, path: string) => {
     setSelectedPath(path);
     try {
-      const diff = await getCommitFileDiff(commitId, path);
-      setFileDiff(diff);
+      const result = await sendIntent({ type: "openCommitDiff", commit: commitId, path });
+      if (result.kind === "diff") {
+        setFileDiff(result.payload);
+      } else {
+        setFileDiff(null);
+      }
     } catch {
       setFileDiff(null);
     }
@@ -126,7 +120,7 @@ export const CommitDetail = () => {
                     <span class="commit-detail-file-path" title={file().path}>
                       {file().oldPath ? `${file().oldPath} -> ${file().path}` : file().path}
                     </span>
-                    <span class={["commit-file-badge", `badge-${file().status}`]}>{statusLetter(file().status)}</span>
+                    <span class={["commit-file-badge", `badge-${file().status}`]}>{commitFileLetter(file().status)}</span>
                   </div>
                 )}
               </For>

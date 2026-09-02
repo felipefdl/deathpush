@@ -1,54 +1,47 @@
 import { repositoryStore } from "../stores/repository-store";
-import * as commands from "../lib/tauri-commands";
+import { sendDestructiveIntent, sendIntent } from "../lib/session-client";
 
 export const useTags = () => {
-  const loadTags = async () => {
-    const { setTags, setError } = repositoryStore.getState();
-    try {
-      const tags = await commands.listTags();
-      setTags(tags);
-    } catch (err) {
-      setError(String(err));
-    }
-  };
-
   const createTag = async (name: string, message?: string, commit?: string) => {
-    const { setTags, setError } = repositoryStore.getState();
+    const { setError } = repositoryStore.getState();
     try {
-      const tags = await commands.createTag(name, message, commit);
-      setTags(tags);
+      await sendIntent({
+        type: "createTag",
+        name,
+        message: message ?? null,
+        commit: commit ?? null,
+      });
     } catch (err) {
       setError(String(err));
     }
   };
 
   const removeTag = async (name: string) => {
-    const { setTags, setError } = repositoryStore.getState();
-    try {
-      const tags = await commands.deleteTag(name);
-      setTags(tags);
-    } catch (err) {
-      setError(String(err));
-    }
-  };
-
-  const pushTagToRemote = async (name: string, remote: string = "origin") => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.pushTag(remote, name);
+      await sendDestructiveIntent({ type: "deleteTag", name, confirmed: false });
     } catch (err) {
       setError(String(err));
     }
   };
 
-  const removeRemoteTag = async (name: string, remote: string = "origin") => {
+  const pushTagToRemote = async (name: string) => {
     const { setError } = repositoryStore.getState();
     try {
-      await commands.deleteRemoteTag(remote, name);
+      await sendIntent({ type: "pushTag", name });
     } catch (err) {
       setError(String(err));
     }
   };
 
-  return { loadTags, createTag, removeTag, pushTagToRemote, removeRemoteTag };
+  const removeRemoteTag = async (name: string) => {
+    const { setError } = repositoryStore.getState();
+    try {
+      await sendIntent({ type: "deleteRemoteTag", name });
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  return { createTag, removeTag, pushTagToRemote, removeRemoteTag };
 };

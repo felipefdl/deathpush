@@ -1,44 +1,21 @@
 import { describe, it, expect, vi } from "vite-plus/test";
-import type { DiffContent, DiffHunk } from "../../lib/git-types";
-import { hunkIdentity } from "../../lib/pierre/hunk-annotations";
+import type { DiffHunk } from "../../lib/git-types";
 import {
   emptyPatchSides,
-  enableScmLineSelection,
   historyCacheKey,
   historyFileDiff,
   hunkAnnotations,
   loadScmDiffSources,
   isNonPierreFileType,
-  isScmDiffEditable,
-  runStageLineCalls,
-  scmPatchPresence,
-  statusForPath,
 } from "./pierre-file-diff";
 
-describe("isScmDiffEditable", () => {
-  it("is true for a working-tree side that is not index or merge", () => {
-    expect(isScmDiffEditable("workingTree", true)).toBe(true);
-    expect(isScmDiffEditable("untracked", true)).toBe(true);
-  });
+const { sendIntentMock } = vi.hoisted(() => ({ sendIntentMock: vi.fn() }));
 
-  it("is false for index, merge, or a missing working-tree side", () => {
-    expect(isScmDiffEditable("index", true)).toBe(false);
-    expect(isScmDiffEditable("merge", true)).toBe(false);
-    expect(isScmDiffEditable("workingTree", false)).toBe(false);
-  });
-});
-
-describe("enableScmLineSelection", () => {
-  it("is true for workingTree and index", () => {
-    expect(enableScmLineSelection("workingTree")).toBe(true);
-    expect(enableScmLineSelection("index")).toBe(true);
-  });
-
-  it("is false for untracked and merge", () => {
-    expect(enableScmLineSelection("untracked")).toBe(false);
-    expect(enableScmLineSelection("merge")).toBe(false);
-  });
-});
+vi.mock("../../lib/session-client", () => ({
+  sendIntent: sendIntentMock,
+  sendDestructiveIntent: vi.fn(),
+  applySessionSnapshot: vi.fn(),
+}));
 
 describe("isNonPierreFileType", () => {
   it("skips image, binary, and large", () => {
@@ -73,49 +50,6 @@ describe("emptyPatchSides", () => {
   });
 });
 
-describe("scmPatchPresence", () => {
-  it("treats untracked and added files as missing the old side", () => {
-    expect(scmPatchPresence("untracked", "untracked")).toEqual({ oldExists: false, newExists: true });
-    expect(scmPatchPresence("workingTree", "added")).toEqual({ oldExists: false, newExists: true });
-    expect(scmPatchPresence("index", "indexAdded")).toEqual({ oldExists: false, newExists: true });
-  });
-
-  it("treats deleted files as missing the new side", () => {
-    expect(scmPatchPresence("workingTree", "deleted")).toEqual({ oldExists: true, newExists: false });
-    expect(scmPatchPresence("index", "indexDeleted")).toEqual({ oldExists: true, newExists: false });
-  });
-
-  it("keeps both sides for a tracked empty-file change", () => {
-    expect(scmPatchPresence("workingTree", "modified")).toEqual({ oldExists: true, newExists: true });
-  });
-});
-
-describe("statusForPath", () => {
-  it("reads the file status from the matching git group", () => {
-    expect(
-      statusForPath(
-        {
-          root: "/repo",
-          headBranch: "main",
-          headCommit: "abc",
-          ahead: 0,
-          behind: 0,
-          operationState: "none",
-          groups: [
-            {
-              kind: "workingTree",
-              label: "Changes",
-              files: [{ path: "src/a.ts", status: "deleted", renamePath: null }],
-            },
-          ],
-        },
-        "src/a.ts",
-        "workingTree"
-      )
-    ).toBe("deleted");
-  });
-});
-
 describe("hunkAnnotations", () => {
   it("anchors each changed hunk and skips context-only hunks", () => {
     const hunks: DiffHunk[] = [
@@ -147,94 +81,12 @@ describe("hunkAnnotations", () => {
         lines: [{ content: "a", lineType: "context", oldLineNumber: 8, newLineNumber: 8 }],
       },
     ];
+    const withIds = hunks.map((hunk, index) => ({ ...hunk, id: `h${index}` }));
 
-    expect(hunkAnnotations(hunks)).toEqual([
-      { side: "additions", lineNumber: 2, metadata: { hunkIndex: 0, identity: hunkIdentity(hunks[0]) } },
-      { side: "deletions", lineNumber: 4, metadata: { hunkIndex: 1, identity: hunkIdentity(hunks[1]) } },
+    expect(hunkAnnotations(withIds)).toEqual([
+      { side: "additions", lineNumber: 2, metadata: { hunkId: "h0" } },
+      { side: "deletions", lineNumber: 4, metadata: { hunkId: "h1" } },
     ]);
-  });
-});
-
-describe("runStageLineCalls", () => {
-  it("reidentifies later hunks after an earlier write", async () => {
-    const first: DiffHunk = {
-      header: "@@ -1,1 +1,2 @@",
-      oldStart: 1,
-      oldLines: 1,
-      newStart: 1,
-      newLines: 2,
-      lines: [{ content: "a", lineType: "add", oldLineNumber: null, newLineNumber: 1 }],
-    };
-    const second: DiffHunk = {
-      header: "@@ -10,1 +11,2 @@",
-      oldStart: 10,
-      oldLines: 1,
-      newStart: 11,
-      newLines: 2,
-      lines: [{ content: "b", lineType: "add", oldLineNumber: null, newLineNumber: 11 }],
-    };
-    const stageIndexes: number[] = [];
-    const onWrote = vi.fn();
-
-    await runStageLineCalls({
-      path: "src/a.ts",
-      staged: false,
-      hunks: [first, second],
-      calls: [
-        { hunkIndex: 0, lineStart: 0, lineEnd: 0 },
-        { hunkIndex: 1, lineStart: 0, lineEnd: 0 },
-      ],
-      getFileHunks: async () => ({ hunks: [second] }),
-      stageLines: async (_path, hunkIndex) => {
-        stageIndexes.push(hunkIndex);
-      },
-      onWrote,
-    });
-
-    expect(stageIndexes).toEqual([0, 0]);
-    expect(onWrote).toHaveBeenCalledTimes(1);
-  });
-
-  it("still publishes the successful write when a later call fails", async () => {
-    const first: DiffHunk = {
-      header: "@@ -1,1 +1,2 @@",
-      oldStart: 1,
-      oldLines: 1,
-      newStart: 1,
-      newLines: 2,
-      lines: [{ content: "a", lineType: "add", oldLineNumber: null, newLineNumber: 1 }],
-    };
-    const second: DiffHunk = {
-      header: "@@ -10,1 +11,2 @@",
-      oldStart: 10,
-      oldLines: 1,
-      newStart: 11,
-      newLines: 2,
-      lines: [{ content: "b", lineType: "add", oldLineNumber: null, newLineNumber: 11 }],
-    };
-    let calls = 0;
-    const onWrote = vi.fn();
-
-    await expect(
-      runStageLineCalls({
-        path: "src/a.ts",
-        staged: false,
-        hunks: [first, second],
-        calls: [
-          { hunkIndex: 0, lineStart: 0, lineEnd: 0 },
-          { hunkIndex: 1, lineStart: 0, lineEnd: 0 },
-        ],
-        getFileHunks: async () => ({ hunks: [second] }),
-        stageLines: async () => {
-          calls += 1;
-          if (calls === 2) throw new Error("later failed");
-        },
-        onWrote,
-      })
-    ).rejects.toThrow("later failed");
-
-    expect(calls).toBe(2);
-    expect(onWrote).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -266,33 +118,35 @@ describe("historyFileDiff", () => {
 });
 
 describe("loadScmDiffSources", () => {
-  it("starts the content and patch requests together", async () => {
-    const diff: DiffContent = {
+  it("sends an openScmDiff intent", async () => {
+    const payload = {
       path: "README.md",
       original: "",
       modified: "contents",
-      originalLanguage: null,
+      language: null,
       fileType: "text",
+      hunks: [],
+      presence: { oldExists: true, newExists: true },
+      editable: true,
+      enableLineSelection: true,
+      staged: false,
+      contentHash: "hash-contents",
     };
-    let resolveDiff!: (value: DiffContent) => void;
-    const getFileDiff = vi.fn(
-      () =>
-        new Promise<DiffContent>((resolve) => {
-          resolveDiff = resolve;
-        })
-    );
-    const getFilePatch = vi.fn(async () => "patch");
-
-    const loading = loadScmDiffSources({
+    sendIntentMock.mockResolvedValue({ kind: "diff", payload });
+    await expect(
+      loadScmDiffSources({
+        path: "README.md",
+        staged: false,
+        groupKind: "workingTree",
+        loadId: 1,
+        consumeCache: true,
+      })
+    ).resolves.toEqual(payload);
+    expect(sendIntentMock).toHaveBeenCalledWith({
+      type: "openScmDiff",
       path: "README.md",
       staged: false,
-      getFileDiff,
-      getFilePatch,
+      groupKind: "workingTree",
     });
-
-    expect(getFileDiff).toHaveBeenCalledTimes(1);
-    expect(getFilePatch).toHaveBeenCalledTimes(1);
-    resolveDiff(diff);
-    await expect(loading).resolves.toEqual({ diff, patch: "patch" });
   });
 });

@@ -1,8 +1,6 @@
 import { repositoryStore } from "../stores/repository-store";
 import { addRecentProject } from "../lib/recent-projects";
-import * as commands from "../lib/tauri-commands";
-import { statusSession } from "../stores/status-store";
-import { applyRecoveredSnapshot, beginRepositorySession } from "./use-repository-events";
+import { fetchSessionSnapshot, sendIntent } from "../lib/session-client";
 
 const yieldToPaint = (): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -13,25 +11,20 @@ const yieldToPaint = (): Promise<void> => {
 };
 
 export const recoverFromSnapshot = async (): Promise<void> => {
-  const session = statusSession();
-  const root = repositoryStore.getState().status?.root ?? null;
-  await commands.getStatus();
-  const snapshot = await commands.getStatusSnapshot();
-  applyRecoveredSnapshot(snapshot, session, root);
+  await fetchSessionSnapshot();
 };
 
 export const useRepository = () => {
   const openRepo = async (path: string) => {
-    const { setIdentity, startOperation, endOperation, setError } = repositoryStore.getState();
+    const { startOperation, endOperation, setError } = repositoryStore.getState();
     startOperation("open-repo");
     setError(null);
     await yieldToPaint();
     try {
-      const identity = await commands.openRepository(path);
-      beginRepositorySession();
-      setIdentity(identity, { reset: false });
-      addRecentProject(identity.root, identity.headBranch ?? undefined);
-      void recoverFromSnapshot().catch(() => undefined);
+      const result = await sendIntent({ type: "openRepository", path });
+      if (result.kind === "snapshot") {
+        addRecentProject(result.snapshot.repo.root, result.snapshot.repo.headBranch ?? undefined);
+      }
     } catch (err) {
       setError(String(err));
     } finally {
@@ -42,10 +35,7 @@ export const useRepository = () => {
   const refreshStatus = async () => {
     const { setError } = repositoryStore.getState();
     try {
-      const session = statusSession();
-      const root = repositoryStore.getState().status?.root ?? null;
-      const snapshot = await commands.refreshStatus();
-      applyRecoveredSnapshot(snapshot, session, root);
+      await sendIntent({ type: "refreshStatus" });
     } catch (err) {
       setError(String(err));
     }

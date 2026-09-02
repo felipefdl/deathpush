@@ -2,6 +2,7 @@ import { cleanup, render } from "@solidjs/testing-library";
 import { createSignal, flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { SaveSession } from "../../lib/pierre/save-session";
+import type { WriteFileResult } from "../../lib/git-types";
 
 const mocks = vi.hoisted(() => ({
   editorConstructed: vi.fn(),
@@ -73,7 +74,7 @@ vi.mock("../../lib/pierre/flush-registry", () => ({
 }));
 
 vi.mock("../../lib/tauri-commands", () => ({
-  writeFile: vi.fn(async () => undefined),
+  writeFile: vi.fn(async (): Promise<WriteFileResult> => ({ contentHash: "hash-written" })),
 }));
 
 import { PierreFile } from "./pierre-file";

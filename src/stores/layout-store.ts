@@ -115,7 +115,7 @@ export const layoutStore = createStore<LayoutState>((set, get) => ({
   setSidebarView: (sidebarView) => {
     const { mainView } = get();
     const update: Partial<LayoutState> = { sidebarView };
-    if (mainView === "changes" || mainView === "file") {
+    if (mainView !== "settings") {
       update.mainView = sidebarView === "explorer" ? "file" : "changes";
     }
     set(update);

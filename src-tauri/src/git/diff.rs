@@ -6,7 +6,7 @@ use base64::engine::general_purpose::STANDARD;
 
 use crate::error::Result;
 use crate::git::repository::GitRepository;
-use crate::types::DiffContent;
+use crate::types::{DiffContent, DiffHunk, DiffLine};
 
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "avif", "tiff", "svg"];
 
@@ -39,95 +39,282 @@ pub fn blob_to_data_uri(blob: &[u8], path: &str) -> String {
   format!("data:{};base64,{}", mime, encoded)
 }
 
-fn read_head_blob_base64(repo: &git2::Repository, path: &str) -> Option<String> {
-  let head = repo.head().ok()?;
-  let tree = head.peel_to_tree().ok()?;
-  let entry = tree.get_path(Path::new(path)).ok()?;
-  let blob = repo.find_blob(entry.id()).ok()?;
-  Some(blob_to_data_uri(blob.content(), path))
+pub struct ScmFileDiff {
+  pub content: DiffContent,
+  pub hunks: Vec<DiffHunk>,
 }
 
-fn read_index_blob_base64(repo: &git2::Repository, path: &str) -> Option<String> {
-  let mut index = repo.index().ok()?;
-  index.read(true).ok()?;
-  let entry = index.get_path(Path::new(path), 0)?;
-  let blob = repo.find_blob(entry.id).ok()?;
-  Some(blob_to_data_uri(blob.content(), path))
-}
+pub fn scm_file_diff(repo: &GitRepository, path: &str, staged: bool) -> Result<ScmFileDiff> {
+  let workdir = repo.root();
+  let inner = repo.inner();
+  let mut opts = git2::DiffOptions::new();
+  opts.pathspec(path).context_lines(3);
+  if !staged {
+    opts
+      .include_untracked(true)
+      .recurse_untracked_dirs(true)
+      .show_untracked_content(true);
+  }
 
-fn read_working_tree_file_base64(abs_path: &Path, rel_path: &str) -> Option<String> {
-  let bytes = fs::read(abs_path).ok()?;
-  Some(blob_to_data_uri(&bytes, rel_path))
-}
+  let diff = if staged {
+    let head_tree = inner.head().ok().and_then(|head| head.peel_to_tree().ok());
+    inner.diff_tree_to_index(head_tree.as_ref(), None, Some(&mut opts))?
+  } else {
+    inner.diff_index_to_workdir(None, Some(&mut opts))?
+  };
 
-pub fn get_file_diff(repo: &GitRepository, path: &str, staged: bool) -> Result<DiffContent> {
-  let repo_root = repo.root();
-  let abs_path = repo_root.join(path);
-  let r = repo.inner();
+  let mut old_file: Option<(git2::Oid, Option<std::path::PathBuf>, bool, bool)> = None;
+  let mut new_file: Option<(git2::Oid, Option<std::path::PathBuf>, bool, bool)> = None;
+  let mut content_path = path.to_string();
+  diff.foreach(
+    &mut |delta, _| {
+      if let Some(new_path) = delta.new_file().path() {
+        content_path = new_path.to_string_lossy().replace('\\', "/");
+      } else if let Some(old_path) = delta.old_file().path() {
+        content_path = old_path.to_string_lossy().replace('\\', "/");
+      }
+      old_file = Some((
+        delta.old_file().id(),
+        delta.old_file().path().map(Path::to_path_buf),
+        delta.old_file().exists(),
+        delta.old_file().is_binary(),
+      ));
+      new_file = Some((
+        delta.new_file().id(),
+        delta.new_file().path().map(Path::to_path_buf),
+        delta.new_file().exists(),
+        delta.new_file().is_binary(),
+      ));
+      true
+    },
+    None,
+    None,
+    None,
+  )?;
 
-  if is_image_file(path) {
-    let original = if staged {
-      read_head_blob_base64(r, path)
-    } else {
-      read_index_blob_base64(r, path)
-    };
+  let original_bytes = old_file
+    .as_ref()
+    .and_then(|(id, file_path, exists, _)| read_diff_side(inner, workdir, *id, file_path.as_deref(), *exists));
+  let modified_bytes = new_file
+    .as_ref()
+    .and_then(|(id, file_path, exists, _)| read_diff_side(inner, workdir, *id, file_path.as_deref(), *exists));
+  let binary_flag =
+    old_file.is_some_and(|(_, _, _, binary)| binary) || new_file.is_some_and(|(_, _, _, binary)| binary);
 
-    let modified = if staged {
-      read_index_blob_base64(r, path)
-    } else {
-      read_working_tree_file_base64(&abs_path, path)
-    };
-
-    return Ok(DiffContent {
-      path: path.to_string(),
-      original: original.unwrap_or_default(),
-      modified: modified.unwrap_or_default(),
-      original_language: None,
-      file_type: "image".to_string(),
+  if is_image_file(path) || is_image_file(&content_path) {
+    return Ok(ScmFileDiff {
+      content: DiffContent {
+        path: content_path,
+        original: original_bytes
+          .as_deref()
+          .map(|bytes| blob_to_data_uri(bytes, path))
+          .unwrap_or_default(),
+        modified: modified_bytes
+          .as_deref()
+          .map(|bytes| blob_to_data_uri(bytes, path))
+          .unwrap_or_default(),
+        original_language: None,
+        file_type: "image".to_string(),
+      },
+      hunks: Vec::new(),
     });
   }
 
-  let original = if staged {
-    read_head_blob(r, path)
-  } else {
-    read_index_blob(r, path)
-  };
+  if binary_flag || is_binary_bytes(original_bytes.as_deref()) || is_binary_bytes(modified_bytes.as_deref()) {
+    return Ok(ScmFileDiff {
+      content: DiffContent {
+        path: content_path,
+        original: String::new(),
+        modified: String::new(),
+        original_language: None,
+        file_type: "binary".to_string(),
+      },
+      hunks: Vec::new(),
+    });
+  }
 
-  let modified = if staged {
-    read_index_blob(r, path)
-  } else {
-    read_working_tree_file(&abs_path)
-  };
+  let original = original_bytes
+    .and_then(|bytes| String::from_utf8(bytes).ok())
+    .unwrap_or_default();
+  let modified = modified_bytes
+    .and_then(|bytes| String::from_utf8(bytes).ok())
+    .unwrap_or_default();
+  let mut hunks = collect_diff_hunks(&diff)?;
+  if hunks.is_empty() && original.is_empty() && !modified.is_empty() {
+    hunks = all_add_hunks(&modified);
+  }
 
-  let language = detect_language(path);
-
-  Ok(DiffContent {
-    path: path.to_string(),
-    original: original.unwrap_or_default(),
-    modified: modified.unwrap_or_default(),
-    original_language: language,
-    file_type: "text".to_string(),
+  Ok(ScmFileDiff {
+    content: DiffContent {
+      path: content_path,
+      original,
+      modified,
+      original_language: detect_language(path),
+      file_type: "text".to_string(),
+    },
+    hunks,
   })
 }
 
-fn read_head_blob(repo: &git2::Repository, path: &str) -> Option<String> {
-  let head = repo.head().ok()?;
-  let tree = head.peel_to_tree().ok()?;
-  let entry = tree.get_path(Path::new(path)).ok()?;
-  let blob = repo.find_blob(entry.id()).ok()?;
-  String::from_utf8(blob.content().to_vec()).ok()
+struct HunkWalk {
+  hunks: Vec<DiffHunk>,
+  current: Option<DiffHunk>,
+  old_line: usize,
+  new_line: usize,
 }
 
-fn read_index_blob(repo: &git2::Repository, path: &str) -> Option<String> {
-  let mut index = repo.index().ok()?;
-  index.read(true).ok()?;
-  let entry = index.get_path(Path::new(path), 0)?;
-  let blob = repo.find_blob(entry.id).ok()?;
-  String::from_utf8(blob.content().to_vec()).ok()
+fn collect_diff_hunks(diff: &git2::Diff<'_>) -> Result<Vec<DiffHunk>> {
+  let walk = std::cell::RefCell::new(HunkWalk {
+    hunks: Vec::new(),
+    current: None,
+    old_line: 0,
+    new_line: 0,
+  });
+  diff.foreach(
+    &mut |_, _| true,
+    None,
+    Some(&mut |_, hunk| {
+      let mut walk = walk.borrow_mut();
+      if let Some(done) = walk.current.take() {
+        walk.hunks.push(done);
+      }
+      walk.old_line = hunk.old_start() as usize;
+      walk.new_line = hunk.new_start() as usize;
+      walk.current = Some(DiffHunk {
+        header: format_hunk_header(&hunk),
+        old_start: hunk.old_start() as usize,
+        old_lines: hunk.old_lines() as usize,
+        new_start: hunk.new_start() as usize,
+        new_lines: hunk.new_lines() as usize,
+        lines: Vec::new(),
+      });
+      true
+    }),
+    Some(&mut |_, _, line| {
+      let mut walk = walk.borrow_mut();
+      let content = diff_line_content(&line);
+      let old_line = walk.old_line;
+      let new_line = walk.new_line;
+      let Some(hunk) = walk.current.as_mut() else {
+        return true;
+      };
+      match line.origin() {
+        '+' => {
+          hunk.lines.push(DiffLine {
+            content,
+            line_type: "add".into(),
+            old_line_number: None,
+            new_line_number: Some(new_line),
+          });
+          walk.new_line = new_line + 1;
+        }
+        '-' => {
+          hunk.lines.push(DiffLine {
+            content,
+            line_type: "remove".into(),
+            old_line_number: Some(old_line),
+            new_line_number: None,
+          });
+          walk.old_line = old_line + 1;
+        }
+        ' ' => {
+          hunk.lines.push(DiffLine {
+            content,
+            line_type: "context".into(),
+            old_line_number: Some(old_line),
+            new_line_number: Some(new_line),
+          });
+          walk.old_line = old_line + 1;
+          walk.new_line = new_line + 1;
+        }
+        _ => {}
+      }
+      true
+    }),
+  )?;
+  let mut walk = walk.into_inner();
+  if let Some(done) = walk.current.take() {
+    walk.hunks.push(done);
+  }
+  Ok(walk.hunks)
 }
 
-fn read_working_tree_file(abs_path: &Path) -> Option<String> {
-  fs::read_to_string(abs_path).ok()
+fn format_hunk_header(hunk: &git2::DiffHunk<'_>) -> String {
+  let raw = std::str::from_utf8(hunk.header()).unwrap_or("").trim_end();
+  let header_text = raw.find(" @@").and_then(|end| {
+    let rest = raw.get(end + 3..)?.trim();
+    if rest.is_empty() { None } else { Some(rest) }
+  });
+  let mut header = format!(
+    "@@ -{} +{} @@",
+    format_diff_range(hunk.old_start(), hunk.old_lines()),
+    format_diff_range(hunk.new_start(), hunk.new_lines()),
+  );
+  if let Some(text) = header_text {
+    header.push(' ');
+    header.push_str(text);
+  }
+  header
+}
+
+fn format_diff_range(start: u32, lines: u32) -> String {
+  if lines == 1 {
+    format!("{start}")
+  } else {
+    format!("{start},{lines}")
+  }
+}
+
+fn diff_line_content(line: &git2::DiffLine<'_>) -> String {
+  let text = std::str::from_utf8(line.content()).unwrap_or("");
+  text.trim_end_matches('\n').trim_end_matches('\r').to_string()
+}
+
+fn all_add_hunks(modified: &str) -> Vec<DiffHunk> {
+  let lines: Vec<&str> = modified.lines().collect();
+  if lines.is_empty() {
+    return Vec::new();
+  }
+  let new_lines = lines.len();
+  vec![DiffHunk {
+    header: format!("@@ -0,0 +{} @@", format_diff_range(1, new_lines as u32)),
+    old_start: 0,
+    old_lines: 0,
+    new_start: 1,
+    new_lines,
+    lines: lines
+      .into_iter()
+      .enumerate()
+      .map(|(index, content)| DiffLine {
+        content: content.to_string(),
+        line_type: "add".into(),
+        old_line_number: None,
+        new_line_number: Some(index + 1),
+      })
+      .collect(),
+  }]
+}
+
+fn read_diff_side(
+  repo: &git2::Repository,
+  workdir: &Path,
+  id: git2::Oid,
+  path: Option<&Path>,
+  exists: bool,
+) -> Option<Vec<u8>> {
+  if !exists {
+    return None;
+  }
+  if !id.is_zero()
+    && let Ok(blob) = repo.find_blob(id)
+  {
+    return Some(blob.content().to_vec());
+  }
+  fs::read(workdir.join(path?)).ok()
+}
+
+fn is_binary_bytes(bytes: Option<&[u8]>) -> bool {
+  bytes.is_some_and(|bytes| bytes.contains(&0))
 }
 
 fn detect_language_by_filename(path: &str) -> Option<&'static str> {
@@ -398,5 +585,119 @@ mod tests {
   fn blob_to_data_uri_empty() {
     let uri = blob_to_data_uri(&[], "empty.jpg");
     assert_eq!(uri, "data:image/jpeg;base64,");
+  }
+
+  fn init_repo() -> (tempfile::TempDir, GitRepository) {
+    let directory = tempfile::TempDir::new().unwrap();
+    let repo = git2::Repository::init(directory.path()).unwrap();
+    {
+      let mut config = repo.config().unwrap();
+      config.set_str("user.name", "Test").unwrap();
+      config.set_str("user.email", "test@example.com").unwrap();
+    }
+    let root = repo.workdir().unwrap();
+    std::fs::write(root.join("README.md"), "hello\n").unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(Path::new("README.md")).unwrap();
+    index.write().unwrap();
+    let tree_id = index.write_tree().unwrap();
+    let tree = repo.find_tree(tree_id).unwrap();
+    let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "initial\n", &tree, &[]).unwrap();
+    let git_repo = GitRepository::open(directory.path()).unwrap();
+    (directory, git_repo)
+  }
+
+  fn git_cli_diff(root: &Path, path: &str, staged: bool) -> String {
+    let mut command = std::process::Command::new("git");
+    command.arg("diff");
+    if staged {
+      command.arg("--cached");
+    }
+    command.args(["--", path]).current_dir(root);
+    let output = command.output().unwrap();
+    String::from_utf8_lossy(&output.stdout).into_owned()
+  }
+
+  #[test]
+  fn git2_hunk_ids_match_parse_unified_diff() {
+    let (directory, repo) = init_repo();
+    std::fs::write(directory.path().join("README.md"), "hello world\n").unwrap();
+    let diff = scm_file_diff(&repo, "README.md", false).unwrap();
+    let cli = git_cli_diff(directory.path(), "README.md", false);
+    let parsed = crate::git::hunk::parse_unified_diff(&cli);
+    let git2_ids: Vec<String> = diff.hunks.iter().map(crate::git::hunk::hunk_id).collect();
+    let parsed_ids: Vec<String> = parsed.iter().map(crate::git::hunk::hunk_id).collect();
+    assert_eq!(git2_ids, parsed_ids);
+    assert!(!git2_ids.is_empty());
+    assert_eq!(diff.content.original, "hello\n");
+    assert_eq!(diff.content.modified, "hello world\n");
+  }
+
+  #[test]
+  fn untracked_is_all_add_hunk() {
+    let (directory, repo) = init_repo();
+    std::fs::write(directory.path().join("new.txt"), "fresh\n").unwrap();
+    let diff = scm_file_diff(&repo, "new.txt", false).unwrap();
+    assert_eq!(diff.content.original, "");
+    assert_eq!(diff.content.modified, "fresh\n");
+    assert!(!diff.hunks.is_empty());
+    assert!(
+      diff
+        .hunks
+        .iter()
+        .all(|hunk| hunk.lines.iter().all(|line| line.line_type != "remove"))
+    );
+    assert!(
+      diff
+        .hunks
+        .iter()
+        .any(|hunk| hunk.lines.iter().any(|line| line.line_type == "add"))
+    );
+  }
+
+  #[test]
+  fn deleted_has_no_new_side() {
+    let (directory, repo) = init_repo();
+    std::fs::remove_file(directory.path().join("README.md")).unwrap();
+    let diff = scm_file_diff(&repo, "README.md", false).unwrap();
+    assert_eq!(diff.content.original, "hello\n");
+    assert_eq!(diff.content.modified, "");
+    assert!(
+      diff
+        .hunks
+        .iter()
+        .all(|hunk| hunk.lines.iter().all(|line| line.line_type != "add"))
+    );
+  }
+
+  #[test]
+  fn no_newline_marker_is_not_a_diff_line() {
+    let (directory, repo) = init_repo();
+    std::fs::write(directory.path().join("README.md"), "hello").unwrap();
+    let diff = scm_file_diff(&repo, "README.md", false).unwrap();
+    assert!(diff.hunks.iter().flat_map(|hunk| hunk.lines.iter()).all(
+      |line| !line.content.contains("No newline") && matches!(line.line_type.as_str(), "add" | "remove" | "context")
+    ));
+    assert!(!diff.hunks.is_empty());
+  }
+
+  #[test]
+  fn image_has_no_hunks() {
+    let (directory, repo) = init_repo();
+    std::fs::write(directory.path().join("photo.png"), b"\x89PNG\r\n").unwrap();
+    let diff = scm_file_diff(&repo, "photo.png", false).unwrap();
+    assert_eq!(diff.content.file_type, "image");
+    assert!(diff.hunks.is_empty());
+    assert!(diff.content.modified.starts_with("data:image/png;base64,"));
+  }
+
+  #[test]
+  fn binary_has_no_hunks() {
+    let (directory, repo) = init_repo();
+    std::fs::write(directory.path().join("data.bin"), b"hello\0world").unwrap();
+    let diff = scm_file_diff(&repo, "data.bin", false).unwrap();
+    assert_eq!(diff.content.file_type, "binary");
+    assert!(diff.hunks.is_empty());
   }
 }

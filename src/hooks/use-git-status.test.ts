@@ -9,9 +9,8 @@ vi.mock("../components/pierre/pierre-file-diff", () => {
   return { getScmSession: () => null };
 });
 
-import { createScmDiskGuard, isScmWatcherTarget, runScmDiskGuard } from "./use-git-status";
+import { createScmDiskGuard, isScmWatcherTarget, runScmDiskGuard, type ScmGuardDiff } from "./use-git-status";
 import type { SaveSession } from "../lib/pierre/save-session";
-import type { DiffContent } from "../lib/git-types";
 import type { SelectedFile } from "../stores/repository-store";
 
 const session = (overrides: Partial<SaveSession> = {}): SaveSession => ({
@@ -29,12 +28,13 @@ const selected = (overrides: Partial<SelectedFile> = {}): SelectedFile => ({
   ...overrides,
 });
 
-const diff = (modified: string): DiffContent => ({
+const diff = (modified: string, contentHash = "ccc"): ScmGuardDiff => ({
   path: "src/a.ts",
   original: "",
   modified,
   originalLanguage: "typescript",
   fileType: "text",
+  contentHash,
 });
 
 describe("boot graph", () => {
@@ -64,7 +64,6 @@ describe("runScmDiskGuard", () => {
       selectedFile: selected(),
       session: session({ pendingSha: "pending" }),
       getFileDiff,
-      sha256Utf8: async () => "bbb",
       onReload,
     });
 
@@ -80,7 +79,6 @@ describe("runScmDiskGuard", () => {
       selectedFile: selected({ groupKind: "merge" }),
       session: session(),
       getFileDiff,
-      sha256Utf8: async () => "bbb",
       onReload,
     });
 
@@ -96,7 +94,6 @@ describe("runScmDiskGuard", () => {
       selectedFile: selected({ groupKind: "index", staged: true }),
       session: session(),
       getFileDiff: async () => next,
-      sha256Utf8: async () => "ccc",
       onReload,
     });
 
@@ -111,7 +108,6 @@ describe("runScmDiskGuard", () => {
       selectedFile: selected({ groupKind: "index", staged: true }),
       session: session({ pendingSha: "pending" }),
       getFileDiff: async () => next,
-      sha256Utf8: async () => "ccc",
       onReload,
     });
 
@@ -126,27 +122,37 @@ describe("runScmDiskGuard", () => {
       selectedFile: selected(),
       session: session(),
       getFileDiff: async () => next,
-      sha256Utf8: async () => "ccc",
       onReload,
     });
 
     expect(onReload).toHaveBeenCalledWith(next, "ccc");
   });
 
+  it("uses contentHash from the diff payload without hashing locally", async () => {
+    const onReload = vi.fn();
+    const next = diff("changed", "from-rust");
+    await runScmDiskGuard({
+      selectedFile: selected(),
+      session: session(),
+      getFileDiff: async () => next,
+      onReload,
+    });
+    expect(onReload).toHaveBeenCalledWith(next, "from-rust");
+  });
+
   it("discards a stale check that finishes after a newer selection", async () => {
     const run = createScmDiskGuard();
     const onReload = vi.fn();
-    let finishOld: (next: DiffContent) => void = () => undefined;
-    const next = diff("new");
+    let finishOld: (next: ScmGuardDiff) => void = () => undefined;
+    const next = diff("new", "new-sha");
 
     const old = run({
       selectedFile: selected(),
       session: session(),
       getFileDiff: () =>
-        new Promise<DiffContent>((resolve) => {
+        new Promise<ScmGuardDiff>((resolve) => {
           finishOld = resolve;
         }),
-      sha256Utf8: async () => "old-sha",
       onReload,
     });
 
@@ -154,7 +160,6 @@ describe("runScmDiskGuard", () => {
       selectedFile: selected({ path: "src/b.ts" }),
       session: session({ path: "src/b.ts" }),
       getFileDiff: async () => ({ ...next, path: "src/b.ts" }),
-      sha256Utf8: async () => "new-sha",
       onReload,
     });
 
@@ -162,7 +167,7 @@ describe("runScmDiskGuard", () => {
     expect(onReload).toHaveBeenCalledWith({ ...next, path: "src/b.ts" }, "new-sha");
     onReload.mockClear();
 
-    finishOld(diff("old"));
+    finishOld(diff("old", "old-sha"));
     await old;
     expect(onReload).not.toHaveBeenCalled();
   });

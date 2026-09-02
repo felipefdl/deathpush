@@ -5,7 +5,7 @@ use git2::{DiffOptions, Oid, Sort};
 use crate::error::{Error, Result};
 use crate::git::diff::{blob_to_data_uri, detect_language, is_image_file};
 use crate::git::repository::GitRepository;
-use crate::types::{CommitDetail, CommitDiffContent, CommitEntry, CommitFileEntry};
+use crate::types::{CommitDetail, CommitDiffContent, CommitEntry, CommitFileEntry, FileStatus, LastCommitInfo};
 
 pub fn compute_avatar_url(email: &str) -> String {
   let email_lower = email.trim().to_lowercase();
@@ -44,6 +44,15 @@ pub fn get_commit_log(repo: &GitRepository, skip: usize, limit: usize) -> Result
   Ok(entries)
 }
 
+pub fn last_commit_info(repo: &GitRepository) -> Option<LastCommitInfo> {
+  let commit = repo.inner().head().ok()?.peel_to_commit().ok()?;
+  let entry = commit_to_entry(&commit);
+  Some(LastCommitInfo {
+    short_id: entry.short_id,
+    message: entry.message.lines().next().unwrap_or("").to_string(),
+    author_date: entry.author_date,
+  })
+}
 pub fn get_commit_detail(repo: &GitRepository, commit_id: &str) -> Result<CommitDetail> {
   let r = repo.inner();
   let oid = Oid::from_str(commit_id).map_err(|e| Error::Other(format!("invalid commit id: {}", e)))?;
@@ -63,16 +72,6 @@ pub fn get_commit_detail(repo: &GitRepository, commit_id: &str) -> Result<Commit
   let mut files: Vec<CommitFileEntry> = Vec::new();
   diff.foreach(
     &mut |delta, _| {
-      let status = match delta.status() {
-        git2::Delta::Added => "added",
-        git2::Delta::Deleted => "deleted",
-        git2::Delta::Modified => "modified",
-        git2::Delta::Renamed => "renamed",
-        git2::Delta::Copied => "copied",
-        git2::Delta::Typechange => "typeChanged",
-        _ => "modified",
-      };
-
       let path = delta
         .new_file()
         .path()
@@ -88,7 +87,7 @@ pub fn get_commit_detail(repo: &GitRepository, commit_id: &str) -> Result<Commit
 
       files.push(CommitFileEntry {
         path,
-        status: status.to_string(),
+        status: commit_file_status(delta.status()),
         old_path,
       });
       true
@@ -99,6 +98,18 @@ pub fn get_commit_detail(repo: &GitRepository, commit_id: &str) -> Result<Commit
   )?;
 
   Ok(CommitDetail { commit: entry, files })
+}
+
+pub fn commit_file_status(status: git2::Delta) -> FileStatus {
+  match status {
+    git2::Delta::Added => FileStatus::Added,
+    git2::Delta::Deleted => FileStatus::Deleted,
+    git2::Delta::Modified => FileStatus::Modified,
+    git2::Delta::Renamed => FileStatus::Renamed,
+    git2::Delta::Copied => FileStatus::Copied,
+    git2::Delta::Typechange => FileStatus::TypeChanged,
+    _ => FileStatus::Modified,
+  }
 }
 
 pub fn get_commit_file_diff(repo: &GitRepository, commit_id: &str, path: &str) -> Result<CommitDiffContent> {
@@ -232,5 +243,16 @@ mod tests {
     let url_padded = compute_avatar_url("  test@example.com  ");
     let url_clean = compute_avatar_url("test@example.com");
     assert_eq!(url_padded, url_clean);
+  }
+
+  #[test]
+  fn commit_file_status_maps_git_deltas() {
+    assert_eq!(commit_file_status(git2::Delta::Added), FileStatus::Added);
+    assert_eq!(commit_file_status(git2::Delta::Deleted), FileStatus::Deleted);
+    assert_eq!(commit_file_status(git2::Delta::Modified), FileStatus::Modified);
+    assert_eq!(commit_file_status(git2::Delta::Renamed), FileStatus::Renamed);
+    assert_eq!(commit_file_status(git2::Delta::Copied), FileStatus::Copied);
+    assert_eq!(commit_file_status(git2::Delta::Typechange), FileStatus::TypeChanged);
+    assert_eq!(commit_file_status(git2::Delta::Unmodified), FileStatus::Modified);
   }
 }

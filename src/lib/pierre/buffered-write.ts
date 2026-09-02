@@ -1,3 +1,4 @@
+import type { WriteFileResult } from "../git-types";
 import type { SaveSession } from "./save-session";
 
 export type PierreWriteBuffer = {
@@ -5,7 +6,7 @@ export type PierreWriteBuffer = {
 };
 
 export const commitPierreWrite = async (input: {
-  writeFile: () => Promise<void>;
+  writeFile: () => Promise<WriteFileResult>;
   pending: PierreWriteBuffer;
   text: string;
   session: SaveSession;
@@ -15,8 +16,8 @@ export const commitPierreWrite = async (input: {
   input.session.pendingSha = await input.sha256Utf8(input.text);
   input.syncDirty();
   try {
-    await input.writeFile();
-    input.session.diskSha = input.session.pendingSha;
+    const result = await input.writeFile();
+    input.session.diskSha = result.contentHash;
     input.session.pendingSha = null;
     if (input.pending.text === input.text) input.pending.text = null;
     input.syncDirty();

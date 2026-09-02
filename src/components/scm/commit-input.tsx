@@ -1,55 +1,26 @@
 import { createEffect, createSignal } from "solid-js";
 import { repositoryStore } from "../../stores/repository-store";
 import { useStore } from "../../lib/use-store";
-import * as commands from "../../lib/tauri-commands";
+import { sendDestructiveIntent, sendIntent } from "../../lib/session-client";
 import { Spinner } from "../ui/spinner";
 import { IS_MACOS } from "../../lib/platform";
 
 export const CommitInput = () => {
-  const [message, setMessage] = createSignal("");
   const [showDropdown, setShowDropdown] = createSignal(false);
   let textareaRef: HTMLTextAreaElement | undefined;
   let dropdownRef: HTMLDivElement | undefined;
   const status = useStore(repositoryStore, (s) => s.status);
   const operations = useStore(repositoryStore, (s) => s.operations);
   const amendMode = useStore(repositoryStore, (s) => s.amendMode);
-  const { setError, startOperation, endOperation, setAmendMode } = repositoryStore.getState();
+  const commitMessage = useStore(repositoryStore, (s) => s.commitMessage);
+  const actions = useStore(repositoryStore, (s) => s.actions);
+  const { setError, startOperation, endOperation } = repositoryStore.getState();
 
-  const hasStaged = () => status()?.groups.some((g) => g.kind === "index") ?? false;
-  const hasChanges = () => status()?.groups.some((g) => g.kind !== "index") ?? false;
   const isCommitting = () => operations().has("commit");
   const branch = () => status()?.headBranch ?? "HEAD";
-  const canCommit = () => message().trim() && !isCommitting() && (hasStaged() || hasChanges());
-  const commitLabel = () =>
-    amendMode()
-      ? hasStaged()
-        ? "Amend"
-        : hasChanges()
-          ? "Amend All"
-          : "Amend"
-      : hasStaged()
-        ? "Commit"
-        : hasChanges()
-          ? "Commit All"
-          : "Commit";
+  const canCommit = () => (actions()?.canCommit ?? false) && !isCommitting();
+  const commitLabel = () => actions()?.commitLabel ?? "Commit";
   const placeholderHint = () => `${IS_MACOS ? "\u2318" : "Ctrl"}+Enter to commit on "${branch()}"`;
-
-  createEffect(
-    () => amendMode(),
-    (amend) => {
-      if (!amend) return;
-      const loadMessage = async () => {
-        try {
-          const lastMsg = await commands.getLastCommitMessage();
-          setMessage(lastMsg);
-        } catch (err) {
-          setError(String(err));
-          setAmendMode(false);
-        }
-      };
-      void loadMessage();
-    }
-  );
 
   createEffect(
     () => showDropdown(),
@@ -72,17 +43,26 @@ export const CommitInput = () => {
     }
   );
 
-  const doCommit = async (amend: boolean): Promise<boolean> => {
-    if (!message().trim() || isCommitting()) return false;
+  const autoResize = () => {
+    const el = textareaRef;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
+  createEffect(
+    () => commitMessage(),
+    () => {
+      autoResize();
+    }
+  );
+
+  const doCommit = async (): Promise<boolean> => {
+    if (!canCommit()) return false;
     startOperation("commit");
     try {
-      if (!hasStaged() && hasChanges()) {
-        await commands.stageAll();
-      }
-      await commands.commitChanges(message().trim(), amend);
-      setMessage("");
-      if (amend) setAmendMode(false);
-      return true;
+      const result = await sendDestructiveIntent({ type: "commit", confirmed: !actions()?.commitDestructive });
+      return result.kind === "snapshot";
     } catch (err) {
       setError(String(err));
       return false;
@@ -92,22 +72,8 @@ export const CommitInput = () => {
   };
 
   const handleCommit = () => {
-    void doCommit(amendMode());
+    void doCommit();
   };
-
-  const autoResize = () => {
-    const el = textareaRef;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  };
-
-  createEffect(
-    () => message(),
-    () => {
-      autoResize();
-    }
-  );
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -118,39 +84,35 @@ export const CommitInput = () => {
 
   const handleAmendCommit = () => {
     setShowDropdown(false);
-    setAmendMode(true);
+    void sendIntent({ type: "setAmend", enabled: true });
   };
 
   const handleCommitAndPush = async () => {
     setShowDropdown(false);
-    const ok = await doCommit(amendMode());
-    if (ok) {
-      try {
-        startOperation("push");
-        await commands.push();
-      } catch (err) {
-        setError(String(err));
-      } finally {
-        endOperation("push");
-      }
+    if (!canCommit()) return;
+    startOperation("commit");
+    try {
+      await sendDestructiveIntent({ type: "commitAndPush", confirmed: !actions()?.commitDestructive });
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      endOperation("commit");
     }
   };
 
   const handleCommitAndSync = async () => {
     setShowDropdown(false);
-    const ok = await doCommit(amendMode());
-    if (ok) {
-      try {
-        startOperation("sync");
-        await commands.pull();
-        await commands.push();
-      } catch (err) {
-        setError(String(err));
-      } finally {
-        endOperation("sync");
-      }
+    if (!canCommit()) return;
+    startOperation("commit");
+    try {
+      await sendDestructiveIntent({ type: "commitAndSync", confirmed: !actions()?.commitDestructive });
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      endOperation("commit");
     }
   };
+
 
   return (
     <>
@@ -162,10 +124,12 @@ export const CommitInput = () => {
                 textareaRef = el;
               }}
               class="commit-input"
-              value={message()}
+              value={commitMessage()}
               onInput={(e) => {
-                setMessage(e.currentTarget.value);
+                const message = e.currentTarget.value;
+                repositoryStore.setState({ commitMessage: message });
                 autoResize();
+                void sendIntent({ type: "setCommitMessage", message });
               }}
               onKeyDown={handleKeyDown}
               placeholder="commit message"
@@ -218,10 +182,10 @@ export const CommitInput = () => {
                     Commit (Amend)
                   </div>
                   <div class="commit-dropdown-separator" />
-                  <div class="commit-dropdown-item" onClick={handleCommitAndPush}>
+                  <div class="commit-dropdown-item" onClick={() => void handleCommitAndPush()}>
                     Commit & Push
                   </div>
-                  <div class="commit-dropdown-item" onClick={handleCommitAndSync}>
+                  <div class="commit-dropdown-item" onClick={() => void handleCommitAndSync()}>
                     Commit & Sync
                   </div>
                 </div>

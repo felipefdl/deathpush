@@ -1,9 +1,10 @@
 import { createEffect } from "solid-js";
-import * as commands from "../../lib/tauri-commands";
+import { acceptedBlame, sendIntent } from "../../lib/session-client";
 import { useStore } from "../../lib/use-store";
 import { layoutStore } from "../../stores/layout-store";
 import { repositoryStore } from "../../stores/repository-store";
 import { settingsStore } from "../../stores/settings-store";
+
 
 export const DiffHeader = (props: { isDirty?: boolean }) => {
   const selectedFile = useStore(repositoryStore, (s) => s.selectedFile);
@@ -25,10 +26,17 @@ export const DiffHeader = (props: { isDirty?: boolean }) => {
       }
       if (fetchedPath === path) return;
       fetchedPath = path;
-      commands
-        .getFileBlame(path)
-        .then(setBlame)
-        .catch(() => setBlame(null));
+      const requestGeneration = repositoryStore.getState().sessionGeneration;
+      const requestRoot = repositoryStore.getState().status?.root;
+      void sendIntent({ type: "openBlame", path })
+        .then((result) => {
+          const current = repositoryStore.getState();
+          if (current.sessionGeneration !== requestGeneration) return;
+          if (requestRoot !== undefined && current.status?.root !== requestRoot) return;
+          if (!acceptedBlame(result)) return;
+          setBlame(result.payload);
+        })
+
     }
   );
 

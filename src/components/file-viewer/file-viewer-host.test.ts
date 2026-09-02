@@ -14,9 +14,13 @@ vi.mock("../../hooks/use-disk-guard", () => ({
   },
 }));
 
-vi.mock("../../lib/pierre/sha", () => ({
-  sha256Utf8: async () => "sha",
-}));
+const fileContent = (path: string, content: string): FileContent => ({
+  path,
+  content,
+  language: null,
+  fileType: "text",
+  contentHash: `hash:${content}`,
+});
 
 const pierreContents: string[] = [];
 const pierreRenders: Array<{ contents: string; cacheKey: string }> = [];
@@ -56,12 +60,7 @@ describe("FileViewer", () => {
     flush();
 
     explorerStore.getState().setSelectedPath("NOTICE");
-    explorerStore.getState().setFileContent({
-      path: "NOTICE",
-      content: "DeathPush",
-      language: null,
-      fileType: "text",
-    });
+    explorerStore.getState().setFileContent(fileContent("NOTICE", "DeathPush"));
     flush();
     await Promise.resolve();
     flush();
@@ -74,12 +73,7 @@ describe("FileViewer", () => {
     flush();
 
     explorerStore.getState().setSelectedPath("README.md");
-    explorerStore.getState().setFileContent({
-      path: "README.md",
-      content: "# DeathPush",
-      language: null,
-      fileType: "text",
-    });
+    explorerStore.getState().setFileContent(fileContent("README.md", "# DeathPush"));
     flush();
     await Promise.resolve();
     flush();
@@ -107,22 +101,12 @@ describe("FileViewer", () => {
     flush();
 
     explorerStore.getState().setSelectedPath("NOTICE");
-    explorerStore.getState().setFileContent({
-      path: "NOTICE",
-      content: "first",
-      language: null,
-      fileType: "text",
-    });
+    explorerStore.getState().setFileContent(fileContent("NOTICE", "first"));
     flush();
     await Promise.resolve();
     flush();
 
-    explorerStore.getState().setFileContent({
-      path: "NOTICE",
-      content: "second",
-      language: null,
-      fileType: "text",
-    });
+    explorerStore.getState().setFileContent(fileContent("NOTICE", "second"));
     flush();
     await Promise.resolve();
     flush();
@@ -135,36 +119,15 @@ describe("FileViewer", () => {
     flush();
 
     explorerStore.getState().setSelectedPath("NOTICE");
-    explorerStore.getState().setFileContent({
-      path: "NOTICE",
-      content: "first",
-      language: null,
-      fileType: "text",
-    });
+    explorerStore.getState().setFileContent(fileContent("NOTICE", "first"));
     flush();
     await Promise.resolve();
     flush();
 
-    diskGuardMock.onReload?.(
-      {
-        path: "NOTICE",
-        content: "second",
-        language: null,
-        fileType: "text",
-      },
-      "sha-second"
-    );
+    diskGuardMock.onReload?.(fileContent("NOTICE", "second"), "sha-second");
     flush();
 
-    diskGuardMock.onReload?.(
-      {
-        path: "NOTICE",
-        content: "third",
-        language: null,
-        fileType: "text",
-      },
-      "sha-third"
-    );
+    diskGuardMock.onReload?.(fileContent("NOTICE", "third"), "sha-third");
     flush();
 
     expect(pierreRenders).not.toContainEqual({ contents: "first", cacheKey: "NOTICE#1" });

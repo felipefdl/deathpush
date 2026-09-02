@@ -5,7 +5,7 @@ import { repositoryStore } from "../../stores/repository-store";
 import { WelcomeScreen } from "./welcome-screen";
 
 vi.mock("../../lib/tauri-commands", () => ({
-  scanProjectsDirectory: vi.fn(async () => []),
+  scanWorkspaceProjects: vi.fn(async () => []),
 }));
 
 vi.mock("../../lib/updater", () => ({

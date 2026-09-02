@@ -1,5 +1,5 @@
 import { createEffect, createMemo } from "solid-js";
-import { confirm } from "@tauri-apps/plugin-dialog";
+
 import type { FileEntry } from "../../lib/git-types";
 import { repositoryStore } from "../../stores/repository-store";
 import { useStore } from "../../lib/use-store";
@@ -15,7 +15,8 @@ import { SubReposHeader, SubReposBody, useSubRepos } from "./sub-repos-view";
 import { ScmToolbar } from "./scm-toolbar";
 import { ResizablePaneContainer, type PaneDefinition } from "./resizable-pane-container";
 import { flushPaths } from "../../lib/pierre/flush-registry";
-import * as commands from "../../lib/tauri-commands";
+import { sendDestructiveIntent, sendIntent } from "../../lib/session-client";
+
 import "../../styles/scm.css";
 import "../../styles/repositories.css";
 
@@ -39,15 +40,17 @@ export const ScmView = (props: ScmViewProps) => {
   const colorScheme = useColorScheme();
   const isDark = () => colorScheme() === "dark";
   useGitStatus();
-  const { loadStashes, applyStash, popStash, dropStash } = useStash();
+  const { applyStash, popStash, dropStash } = useStash();
   const { repos: subRepos } = useSubRepos();
 
   createEffect(
-    () => status(),
-    (current) => {
-      if (current) {
-        void loadStashes();
-      }
+    () => status()?.groups.flatMap((group) => group.files.map((file) => file.path)) ?? [],
+    (paths) => {
+      void import("../../lib/pierre/worker")
+        .then(({ schedulePierreWorkerWarmup }) => {
+          schedulePierreWorkerWarmup(paths);
+        })
+        .catch(() => undefined);
     }
   );
 
@@ -67,7 +70,7 @@ export const ScmView = (props: ScmViewProps) => {
     startOperation("stage");
     try {
       await flushPaths(paths);
-      await commands.stageFiles(paths);
+      await sendIntent({ type: "stage", paths });
     } catch (err) {
       setError(String(err));
     } finally {
@@ -78,7 +81,7 @@ export const ScmView = (props: ScmViewProps) => {
   const handleUnstageAll = async () => {
     startOperation("unstage");
     try {
-      await commands.unstageAll();
+      await sendIntent({ type: "unstageAll" });
     } catch (err) {
       setError(String(err));
     } finally {
@@ -87,37 +90,14 @@ export const ScmView = (props: ScmViewProps) => {
   };
 
   const handleDiscardAll = async (files: FileEntry[]) => {
-    const trackedPaths = files.filter((f) => f.status !== "untracked").map((f) => f.path);
-    const untrackedPaths = files.filter((f) => f.status === "untracked").map((f) => f.path);
-
-    let msg: string;
-    let title: string;
-    let okLabel: string;
-    if (trackedPaths.length > 0 && untrackedPaths.length > 0) {
-      msg = `Are you sure you want to discard ${trackedPaths.length} change(s) and DELETE ${untrackedPaths.length} untracked file(s)?\n\nTracked changes are irreversible. Untracked files can be restored from the Trash.`;
-      title = "Discard All Changes";
-      okLabel = "Discard & Delete";
-    } else if (untrackedPaths.length > 0) {
-      msg = `Are you sure you want to DELETE ${untrackedPaths.length} untracked file(s)?\n\nYou can restore them from the Trash.`;
-      title = "Delete Untracked Files";
-      okLabel = "Move to Trash";
-    } else {
-      msg = `Are you sure you want to discard all ${trackedPaths.length} change(s)?\n\nThis action is irreversible.`;
-      title = "Discard All Changes";
-      okLabel = "Discard All";
-    }
-
-    const confirmed = await confirm(msg, { title, kind: "warning", okLabel, cancelLabel: "Cancel" });
-    if (!confirmed) return;
     startOperation("discard");
     try {
-      await flushPaths([...trackedPaths, ...untrackedPaths]);
-      if (trackedPaths.length > 0) {
-        await commands.discardChanges(trackedPaths);
-      }
-      if (untrackedPaths.length > 0) {
-        await commands.deleteFiles(untrackedPaths);
-      }
+      await flushPaths(files.map((file) => file.path));
+      await sendDestructiveIntent({
+        type: "discard",
+        paths: files.map((file) => file.path),
+        confirmed: false,
+      });
     } catch (err) {
       setError(String(err));
     } finally {

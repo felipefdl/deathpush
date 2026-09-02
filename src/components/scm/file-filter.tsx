@@ -1,5 +1,6 @@
 import { createSignal, onSettled } from "solid-js";
 import { repositoryStore } from "../../stores/repository-store";
+import { sendIntent } from "../../lib/session-client";
 
 export const FileFilter = () => {
   const { setFileFilter } = repositoryStore.getState();
@@ -12,8 +13,10 @@ export const FileFilter = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
       setFileFilter(val);
+      void sendIntent({ type: "setFileFilter", filter: val });
     }, 150);
   };
+
 
   onSettled(() => {
     return () => clearTimeout(timer);
@@ -40,7 +43,9 @@ export const FileFilter = () => {
           onClick={() => {
             setValue("");
             setFileFilter("");
+            void sendIntent({ type: "setFileFilter", filter: "" });
           }}
+
         >
           <span class="codicon codicon-close" />
         </button>

@@ -2,8 +2,9 @@ import { createSignal } from "solid-js";
 import { useRepository } from "../../hooks/use-repository";
 import { repositoryStore } from "../../stores/repository-store";
 import { useStore } from "../../lib/use-store";
-import * as commands from "../../lib/tauri-commands";
+import { sendIntent } from "../../lib/session-client";
 import { ActionButton } from "./action-button";
+
 import { OverflowMenu } from "./overflow-menu";
 
 type ScmToolbarProps = {
@@ -28,7 +29,7 @@ export const ScmToolbar = (props: ScmToolbarProps) => {
   const handleStageAll = async () => {
     startOperation("stage");
     try {
-      await commands.stageAll();
+      await sendIntent({ type: "stageAll" });
     } catch (err) {
       setError(String(err));
     } finally {

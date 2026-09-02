@@ -1,12 +1,10 @@
-import { createEffect, createMemo, createSignal } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import { layoutStore } from "../../stores/layout-store";
 import { repositoryStore } from "../../stores/repository-store";
 import { settingsStore } from "../../stores/settings-store";
 import { useStore } from "../../lib/use-store";
 import { BranchPicker } from "../branch/branch-picker";
 import { formatRelativeDate } from "../../lib/format-date";
-import * as commands from "../../lib/tauri-commands";
-import type { LastCommitInfo } from "../../lib/git-types";
 
 export const StatusBar = () => {
   const status = useStore(repositoryStore, (s) => s.status);
@@ -14,9 +12,9 @@ export const StatusBar = () => {
   const cursorLine = useStore(repositoryStore, (s) => s.cursorLine);
   const blameEnabled = useStore(settingsStore, (s) => s.settings.git.blame);
   const zoomLevel = useStore(settingsStore, (s) => s.settings.ui.zoomLevel);
+  const lastCommit = useStore(repositoryStore, (s) => s.lastCommit);
   const zoomPercent = createMemo(() => (zoomLevel() !== 0 ? `${Math.round(Math.pow(1.2, zoomLevel()) * 100)}%` : null));
   const [showBranchPicker, setShowBranchPicker] = createSignal(false);
-  const [lastCommit, setLastCommit] = createSignal<LastCommitInfo | null>(null);
 
   const branch = () => status()?.headBranch ?? "No branch";
   const ahead = () => status()?.ahead ?? 0;
@@ -27,19 +25,6 @@ export const StatusBar = () => {
       ? `${behind() > 0 ? `${behind()}\u2193 ` : ""}${ahead() > 0 ? `${ahead()}\u2191` : ""}`
       : "";
 
-  createEffect(
-    () => status()?.headCommit,
-    (headCommit) => {
-      if (!headCommit) {
-        setLastCommit(null);
-        return;
-      }
-      commands
-        .getLastCommitInfo()
-        .then(setLastCommit)
-        .catch(() => setLastCommit(null));
-    }
-  );
 
   const cursorBlame = createMemo(() => {
     const blameData = blame();

@@ -1,39 +1,24 @@
 import { repositoryStore } from "../stores/repository-store";
-import * as commands from "../lib/tauri-commands";
-
-const PAGE_SIZE = 50;
+import { sendIntent } from "../lib/session-client";
 
 export const useCommitLog = () => {
-  const loadCommitLog = async (reset: boolean = true) => {
-    const { commitLog, setCommitLog, setError } = repositoryStore.getState();
+  const loadMore = async () => {
+    const { setError } = repositoryStore.getState();
     try {
-      const skip = reset ? 0 : commitLog.length;
-      const entries = await commands.getCommitLog(skip, PAGE_SIZE);
-      if (reset) {
-        setCommitLog(entries);
-      } else {
-        setCommitLog([...repositoryStore.getState().commitLog, ...entries]);
-      }
+      await sendIntent({ type: "loadMoreLog" });
     } catch (err) {
       setError(String(err));
     }
-  };
-
-  const loadMore = async () => {
-    await loadCommitLog(false);
   };
 
   const selectCommit = async (id: string) => {
-    const { setSelectedCommit, setCommitDetail, setError } = repositoryStore.getState();
-    setSelectedCommit(id);
-    setCommitDetail(null);
+    const { setError } = repositoryStore.getState();
     try {
-      const detail = await commands.getCommitDetail(id);
-      setCommitDetail(detail);
+      await sendIntent({ type: "selectCommit", id });
     } catch (err) {
       setError(String(err));
     }
   };
 
-  return { loadCommitLog, loadMore, selectCommit };
+  return { loadMore, selectCommit };
 };

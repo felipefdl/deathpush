@@ -1,18 +1,9 @@
-pub mod blame;
-pub mod branch;
 pub mod cli;
-pub mod commit;
 pub mod config;
 pub mod explorer;
 pub mod file_ops;
-pub mod lifecycle;
-pub mod log;
-pub mod remote;
 pub mod repository;
-pub mod staging;
-pub mod stash;
-pub mod status;
-pub mod tag;
+pub mod session;
 pub mod terminal;
 
 use std::sync::Mutex;

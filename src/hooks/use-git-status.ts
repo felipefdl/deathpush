@@ -1,20 +1,21 @@
 import { useRepository } from "./use-repository";
 import { repositoryStore } from "../stores/repository-store";
 import { useTauriEvent } from "./use-tauri-event";
-import { getFileDiff } from "../lib/tauri-commands";
-import { sha256Utf8 } from "../lib/pierre/sha";
+import { sendIntent } from "../lib/session-client";
 import { watcherAction, type SaveSession } from "../lib/pierre/save-session";
 import type { DiffContent, PathsChanged } from "../lib/git-types";
 import type { SelectedFile } from "../stores/repository-store";
 import { getScmSession } from "../lib/pierre/scm-session-registry";
 import { pathsChangedIntersects } from "./use-repository-events";
+
 export const isScmWatcherTarget = (file: SelectedFile | null): boolean => file !== null && file.groupKind !== "merge";
+
+export type ScmGuardDiff = DiffContent & { contentHash: string };
 
 export type ScmDiskGuardInput = {
   selectedFile: SelectedFile | null;
   session: SaveSession | null;
-  getFileDiff: (path: string, staged: boolean) => Promise<DiffContent>;
-  sha256Utf8: (text: string) => Promise<string>;
+  getFileDiff: (path: string, staged: boolean) => Promise<ScmGuardDiff>;
   onReload: (diff: DiffContent, incomingSha: string) => void;
   isCurrent?: () => boolean;
 };
@@ -28,7 +29,7 @@ export const runScmDiskGuard = async (input: ScmDiskGuardInput): Promise<void> =
   if (!ignorePendingSha && input.session.pendingSha !== null) return;
 
   const diff = await input.getFileDiff(file.path, file.staged);
-  const incomingSha = await input.sha256Utf8(diff.modified);
+  const incomingSha = diff.contentHash;
   if (input.isCurrent && !input.isCurrent()) return;
   const session = ignorePendingSha ? { ...input.session, pendingSha: null } : input.session;
   if (watcherAction(session, incomingSha) === "reload") {
@@ -58,11 +59,24 @@ export const useGitStatus = () => {
     void run({
       selectedFile,
       session: handle?.session ?? null,
-      getFileDiff,
-      sha256Utf8,
+      getFileDiff: async (path, staged) => {
+        const result = await sendIntent({ type: "openScmDiff", path, staged });
+        if (result.kind !== "diff") {
+          throw new Error("Expected a diff payload");
+        }
+        return {
+          path: result.payload.path,
+          original: result.payload.original,
+          modified: result.payload.modified,
+          originalLanguage: result.payload.language,
+          fileType: result.payload.fileType,
+          contentHash: result.payload.contentHash,
+        };
+      },
       onReload: (diff, incomingSha) => {
         handle?.reload(diff, incomingSha);
       },
+
       isCurrent: () => {
         const current = repositoryStore.getState().selectedFile;
         return (

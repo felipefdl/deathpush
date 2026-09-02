@@ -60,6 +60,29 @@ pub fn parse_unified_diff(diff_output: &str) -> Vec<DiffHunk> {
   hunks
 }
 
+pub fn hunk_id(hunk: &DiffHunk) -> String {
+  let mut payload = String::new();
+  payload.push_str(&hunk.header);
+  payload.push('\n');
+  for line in &hunk.lines {
+    payload.push_str(&line.line_type);
+    payload.push('\0');
+    payload.push_str(&line.content);
+    payload.push('\n');
+  }
+  format!("{:x}", md5::compute(payload.as_bytes()))
+}
+
+pub fn find_hunk_index(hunks: &[DiffHunk], id: &str) -> Option<usize> {
+  let hits: Vec<usize> = hunks
+    .iter()
+    .enumerate()
+    .filter(|(_, hunk)| hunk_id(hunk) == id)
+    .map(|(index, _)| index)
+    .collect();
+  if hits.len() == 1 { Some(hits[0]) } else { None }
+}
+
 fn parse_hunk_header(line: &str) -> Option<DiffHunk> {
   // Format: @@ -old_start,old_lines +new_start,new_lines @@ optional text
   let line = line.strip_prefix("@@ ")?;
@@ -102,41 +125,14 @@ fn parse_range(range: &str) -> Option<(usize, usize)> {
   }
 }
 
-pub fn generate_hunk_patch(path: &str, diff_output: &str, hunk_index: usize) -> Result<String> {
-  let lines: Vec<&str> = diff_output.lines().collect();
-
-  // Extract file header lines (everything before the first @@)
-  let mut file_header: Vec<String> = Vec::new();
-  for line in &lines {
-    if line.starts_with("@@") {
-      break;
-    }
-    file_header.push(line.to_string());
-  }
-
-  // Ensure we have proper diff --git header
-  let has_diff_header = file_header.iter().any(|l| l.starts_with("diff --git"));
-  if !has_diff_header {
-    file_header.insert(0, format!("diff --git a/{path} b/{path}"));
-    file_header.push(format!("--- a/{path}"));
-    file_header.push(format!("+++ b/{path}"));
-  }
-
-  // Find the target hunk
-  let hunks = parse_unified_diff(diff_output);
+pub fn generate_hunk_patch_from_hunks(path: &str, hunks: &[DiffHunk], hunk_index: usize) -> Result<String> {
   let hunk = hunks
     .get(hunk_index)
     .ok_or_else(|| Error::Other(format!("Hunk index {} out of range", hunk_index)))?;
 
-  // Build the patch
-  let mut patch = String::new();
-  for line in &file_header {
-    patch.push_str(line);
-    patch.push('\n');
-  }
+  let mut patch = format!("diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n");
   patch.push_str(&hunk.header);
   patch.push('\n');
-
   for diff_line in &hunk.lines {
     match diff_line.line_type.as_str() {
       "add" => {
@@ -156,7 +152,6 @@ pub fn generate_hunk_patch(path: &str, diff_output: &str, hunk_index: usize) -> 
       }
     }
   }
-
   Ok(patch)
 }
 
@@ -272,6 +267,23 @@ index abc1234..def5678 100644
   }
 
   #[test]
+  fn hunk_id_is_stable_for_header_and_body() {
+    let diff = "\
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,3 +1,3 @@
+ context
+-old
++new
+";
+    let hunks = parse_unified_diff(diff);
+    let id = hunk_id(&hunks[0]);
+    assert_eq!(find_hunk_index(&hunks, &id), Some(0));
+    assert_eq!(hunk_id(&hunks[0]), id);
+  }
+
+  #[test]
   fn test_generate_hunk_patch() {
     let diff = "\
 diff --git a/file.txt b/file.txt
@@ -285,7 +297,8 @@ index abc..def 100644
  line3
 ";
 
-    let patch = generate_hunk_patch("file.txt", diff, 0).unwrap();
+    let hunks = parse_unified_diff(diff);
+    let patch = generate_hunk_patch_from_hunks("file.txt", &hunks, 0).unwrap();
     assert!(patch.contains("diff --git"));
     assert!(patch.contains("@@ -1,3 +1,3 @@"));
     assert!(patch.contains("-line2\n"));
@@ -372,7 +385,8 @@ index abc..def 100644
  line12
 ";
 
-    let patch = generate_hunk_patch("file.rs", diff, 1).unwrap();
+    let hunks = parse_unified_diff(diff);
+    let patch = generate_hunk_patch_from_hunks("file.rs", &hunks, 1).unwrap();
     assert!(patch.contains("@@ -10,3 +10,3 @@"));
     assert!(patch.contains("-old2\n"));
     assert!(patch.contains("+new2\n"));
@@ -389,7 +403,8 @@ index abc..def 100644
  line3
 ";
 
-    let patch = generate_hunk_patch("test.rs", diff, 0).unwrap();
+    let hunks = parse_unified_diff(diff);
+    let patch = generate_hunk_patch_from_hunks("test.rs", &hunks, 0).unwrap();
     assert!(patch.contains("diff --git a/test.rs b/test.rs"));
     assert!(patch.contains("--- a/test.rs"));
     assert!(patch.contains("+++ b/test.rs"));
@@ -408,7 +423,8 @@ diff --git a/file.rs b/file.rs
  line3
 ";
 
-    let result = generate_hunk_patch("file.rs", diff, 5);
+    let hunks = parse_unified_diff(diff);
+    let result = generate_hunk_patch_from_hunks("file.rs", &hunks, 5);
     assert!(result.is_err());
   }
 
@@ -525,5 +541,15 @@ diff --git a/file.txt b/file.txt
   fn test_generate_lines_patch_invalid_hunk_index() {
     let result = generate_lines_patch("file.txt", LINES_PATCH_DIFF, 5, 0, 6);
     assert!(result.is_err());
+  }
+
+  #[test]
+  fn generate_hunk_patch_from_hunks_applies() {
+    let hunks = parse_unified_diff(LINES_PATCH_DIFF);
+    let patch = generate_hunk_patch_from_hunks("file.txt", &hunks, 0).unwrap();
+    assert!(patch.starts_with("diff --git a/file.txt b/file.txt"));
+    assert!(patch.contains("@@ -1,5 +1,6 @@"));
+    assert!(patch.contains("-removed1"));
+    assert!(patch.contains("+added1"));
   }
 }

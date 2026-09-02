@@ -2,17 +2,20 @@ import { cleanup, render } from "@solidjs/testing-library";
 import { createSignal, flush } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { Mock } from "vite-plus/test";
+import { explorerStore } from "../../stores/explorer-store";
 import { settingsStore } from "../../stores/settings-store";
 import { FileTreeHost } from "./file-tree-host";
 
 const treeMocks = vi.hoisted(() => ({
   instances: [] as Array<{
     options: Record<string, unknown>;
+    container: HTMLElement;
     cleanUp: Mock;
     render: Mock;
     resetPaths: Mock;
     setGitStatus: Mock;
     setIcons: Mock;
+    getItem: Mock;
   }>,
 }));
 
@@ -24,20 +27,18 @@ vi.mock("@pierre/trees", () => ({
     setGitStatus = vi.fn();
     setIcons = vi.fn();
     subscribe = vi.fn(() => () => undefined);
+    getItem = vi.fn(() => null);
+    container = document.createElement("file-tree-container");
 
     constructor(public options: Record<string, unknown>) {
       treeMocks.instances.push(this);
     }
 
     getFileTreeContainer() {
-      return document.createElement("file-tree-container");
+      return this.container;
     }
 
     getFocusedPath() {
-      return null;
-    }
-
-    getItem() {
       return null;
     }
 
@@ -53,6 +54,7 @@ describe("FileTreeHost", () => {
   afterEach(() => {
     cleanup();
     treeMocks.instances.length = 0;
+    explorerStore.getState().reset();
     settingsStore.getState().updateUI({ treeDensity: "compact", treeIcons: "complete" });
   });
 
@@ -105,5 +107,37 @@ describe("FileTreeHost", () => {
     flush();
 
     expect(treeMocks.instances[0].resetPaths).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not apply explorerStore.selectedPath when selectedPath is omitted", () => {
+    explorerStore.getState().setSelectedPath("src/explorer.ts");
+    render(() => <FileTreeHost paths={["src/explorer.ts", "src/scm.ts"]} />);
+    flush();
+
+    expect(treeMocks.instances[0].options.initialSelectedPaths).toEqual([]);
+    expect(treeMocks.instances[0].getItem).not.toHaveBeenCalledWith("src/explorer.ts");
+  });
+
+  it("seeds initialSelectedPaths from selectedPath", () => {
+    explorerStore.getState().setSelectedPath("src/explorer.ts");
+    render(() => <FileTreeHost paths={["src/explorer.ts", "src/scm.ts"]} selectedPath="src/scm.ts" />);
+    flush();
+
+    expect(treeMocks.instances[0].options.initialSelectedPaths).toEqual(["src/scm.ts"]);
+  });
+
+  it("activates a file on click even when it is already selected", () => {
+    const onFileActivate = vi.fn();
+    render(() => <FileTreeHost paths={["README.md"]} selectedPath="README.md" onFileActivate={onFileActivate} />);
+    flush();
+
+    const row = document.createElement("button");
+    row.dataset.type = "item";
+    row.dataset.itemType = "file";
+    row.dataset.itemPath = "README.md";
+    treeMocks.instances[0].container.appendChild(row);
+    row.click();
+
+    expect(onFileActivate).toHaveBeenCalledWith("README.md");
   });
 });

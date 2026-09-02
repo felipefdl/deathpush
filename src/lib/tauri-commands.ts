@@ -1,180 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
-  BranchEntry,
-  CommitDetail,
-  CommitDiffContent,
-  CommitEntry,
   ContentSearchResult,
-  DiffContent,
   ExplorerEntry,
-  FileBlame,
   FileContent,
-  FileDiffWithHunks,
   FuzzyFileResult,
-  LastCommitInfo,
-  RepositoryIdentity,
-  RepositoryStatus,
-  StashEntry,
-  StatusSnapshot,
-  TagEntry,
+  Intent,
+  IntentOutcome,
+  SessionSnapshot,
+  WriteFileResult,
 } from "./git-types";
 
-export const openRepository = (path: string): Promise<RepositoryIdentity> => invoke("open_repository", { path });
-
-export const getStatus = (): Promise<RepositoryStatus> => invoke("get_status");
-
-export const getStatusSnapshot = (): Promise<StatusSnapshot> => invoke("get_status_snapshot");
-
-export const refreshStatus = (): Promise<StatusSnapshot> => invoke("refresh_status");
-
-export const getFileDiff = (path: string, staged: boolean): Promise<DiffContent> =>
-  invoke("get_file_diff", { path, staged });
-
-export const stageFiles = (paths: string[]): Promise<void> => invoke("stage_files", { paths });
-
-export const stageAll = (): Promise<void> => invoke("stage_all");
-
-export const unstageFiles = (paths: string[]): Promise<void> => invoke("unstage_files", { paths });
-
-export const unstageAll = (): Promise<void> => invoke("unstage_all");
-
-export const discardChanges = (paths: string[]): Promise<void> => invoke("discard_changes", { paths });
-
-export const commitChanges = (message: string, amend: boolean = false): Promise<void> =>
-  invoke("commit", { message, amend });
-
-export const listBranches = (): Promise<BranchEntry[]> => invoke("list_branches");
-
-export const checkoutBranch = (name: string): Promise<void> => invoke("checkout_branch", { name });
-
-export const createBranch = (name: string, from?: string): Promise<void> =>
-  invoke("create_branch", { name, from: from ?? null });
-
-export const deleteBranch = (name: string, force: boolean = false): Promise<void> =>
-  invoke("delete_branch", { name, force });
-
-export const push = (remote: string = "origin", branch: string = "", force: boolean = false): Promise<void> =>
-  invoke("push", { remote, branch, force });
-
-export const pull = (remote: string = "origin", branch: string = "", rebase: boolean = false): Promise<void> =>
-  invoke("pull", { remote, branch, rebase });
-
-export const fetchRemote = (remote: string = "origin", prune: boolean = false): Promise<void> =>
-  invoke("fetch", { remote, prune });
-
-export const getLastCommitMessage = (): Promise<string> => invoke("get_last_commit_message");
-
-export const undoLastCommit = (): Promise<void> => invoke("undo_last_commit");
-
-export const stashSave = (message?: string): Promise<void> => invoke("stash_save", { message: message ?? null });
-
-export const stashList = (): Promise<StashEntry[]> => invoke("stash_list");
-
-export const stashApply = (index: number): Promise<void> => invoke("stash_apply", { index });
-
-export const stashPop = (index: number): Promise<void> => invoke("stash_pop", { index });
-
-export const stashDrop = (index: number): Promise<StashEntry[]> => invoke("stash_drop", { index });
-
-export const getCommitLog = (skip: number, limit: number): Promise<CommitEntry[]> =>
-  invoke("get_commit_log", { skip, limit });
-
-export const getCommitDetail = (id: string): Promise<CommitDetail> => invoke("get_commit_detail", { id });
-
-export const getCommitFileDiff = (commitId: string, path: string): Promise<CommitDiffContent> =>
-  invoke("get_commit_file_diff", { commitId, path });
-
-export const listTags = (): Promise<TagEntry[]> => invoke("list_tags");
-
-export const createTag = (name: string, message?: string, commit?: string): Promise<TagEntry[]> =>
-  invoke("create_tag", { name, message: message ?? null, commit: commit ?? null });
-
-export const deleteTag = (name: string): Promise<TagEntry[]> => invoke("delete_tag", { name });
-
-export const pushTag = (remote: string, tag: string): Promise<void> => invoke("push_tag", { remote, tag });
-
-export const writeFile = (path: string, content: string): Promise<void> => invoke("write_file", { path, content });
-
-export const deleteFile = (path: string): Promise<void> => invoke("delete_file", { path });
-
-export const deleteFiles = (paths: string[]): Promise<void> => invoke("delete_files", { paths });
+export const writeFile = (path: string, content: string): Promise<WriteFileResult> =>
+  invoke("write_file", { path, content });
 
 export const openInEditor = (path: string): Promise<void> => invoke("open_in_editor", { path });
 
 export const revealInFileManager = (path: string): Promise<void> => invoke("reveal_in_file_manager", { path });
 
-export const addToGitignore = (pattern: string): Promise<void> => invoke("add_to_gitignore", { pattern });
-
-export const getFileHunks = (path: string, staged: boolean): Promise<FileDiffWithHunks> =>
-  invoke("get_file_hunks", { path, staged });
-
-export const getFilePatch = (path: string, staged: boolean): Promise<string> =>
-  invoke("get_file_patch", { path, staged });
-
-export const stageHunk = (path: string, hunkIndex: number, staged: boolean): Promise<void> =>
-  invoke("stage_hunk", { path, hunkIndex, staged });
-
-export const cloneRepository = (url: string, path: string): Promise<RepositoryIdentity> =>
-  invoke("clone_repository", { url, path });
-
-export const initRepository = (path: string): Promise<RepositoryIdentity> => invoke("init_repository", { path });
-
-export const mergeBranch = (name: string): Promise<void> => invoke("merge_branch", { name });
-
-export const mergeContinue = (): Promise<void> => invoke("merge_continue");
-
-export const mergeAbort = (): Promise<void> => invoke("merge_abort");
-
-export const rebaseBranch = (name: string): Promise<void> => invoke("rebase_branch", { name });
-
-export const rebaseContinue = (): Promise<void> => invoke("rebase_continue");
-
-export const rebaseAbort = (): Promise<void> => invoke("rebase_abort");
-
-export const rebaseSkip = (): Promise<void> => invoke("rebase_skip");
-
-export const cherryPick = (commitId: string): Promise<void> => invoke("cherry_pick", { commitId });
-
-export const resetToCommit = (id: string, mode: string): Promise<void> => invoke("reset_to_commit", { id, mode });
-
-export const renameBranch = (oldName: string, newName: string): Promise<void> =>
-  invoke("rename_branch", { oldName, newName });
-
-export const deleteRemoteBranch = (remote: string, name: string): Promise<void> =>
-  invoke("delete_remote_branch", { remote, name });
-
-export const deleteRemoteTag = (remote: string, name: string): Promise<void> =>
-  invoke("delete_remote_tag", { remote, name });
-
-export const stashSaveIncludeUntracked = (message?: string): Promise<void> =>
-  invoke("stash_save_include_untracked", { message: message ?? null });
-
-export const stashSaveStaged = (message?: string): Promise<void> =>
-  invoke("stash_save_staged", { message: message ?? null });
-
-export const stashShow = (index: number): Promise<FileDiffWithHunks> => invoke("stash_show", { index });
-
-export const discardHunk = (path: string, hunkIndex: number): Promise<void> =>
-  invoke("discard_hunk", { path, hunkIndex });
-
-export const stageLines = (
-  path: string,
-  hunkIndex: number,
-  lineStart: number,
-  lineEnd: number,
-  staged: boolean
-): Promise<void> => invoke("stage_lines", { path, hunkIndex, lineStart, lineEnd, staged });
-
 export const getGitConfig = (key: string): Promise<string> => invoke("get_git_config", { key });
 
 export const setGitConfig = (key: string, value: string): Promise<void> => invoke("set_git_config", { key, value });
-
-export const getFileBlame = (path: string): Promise<FileBlame> => invoke("get_file_blame", { path });
-
-export const getFileLog = (path: string, skip: number, limit: number): Promise<CommitEntry[]> =>
-  invoke("get_file_log", { path, skip, limit });
-
-export const getLastCommitInfo = (): Promise<LastCommitInfo> => invoke("get_last_commit_info");
 
 export const newWindow = (path?: string): Promise<void> => invoke("new_window", { path: path ?? null });
 
@@ -185,26 +30,25 @@ export interface ProjectInfo {
 
 export const getInitialPath = (): Promise<string | null> => invoke("get_initial_path");
 
-export const scanProjectsDirectory = (path: string, depth: number): Promise<ProjectInfo[]> =>
-  invoke("scan_projects_directory", { path, depth });
+export const scanWorkspaceProjects = (entries: { directory: string; depth: number }[]): Promise<ProjectInfo[]> =>
+  invoke("scan_workspace_projects", { entries });
 
-export interface DiscoveredRepo {
+export type NestedRepository = {
   path: string;
   name: string;
-}
+  branch: string | null;
+};
 
-export interface WorktreeInfo {
+export type WorktreeInfo = {
   path: string;
   name: string;
   branch: string | null;
   isMain: boolean;
-}
+};
 
-export const discoverRepositories = (): Promise<DiscoveredRepo[]> => invoke("discover_repositories");
+export const discoverNestedRepositories = (): Promise<NestedRepository[]> => invoke("discover_nested_repositories");
 
 export const detectWorktrees = (): Promise<WorktreeInfo[]> => invoke("detect_worktrees");
-
-export const getRepoBranch = (path: string): Promise<string | null> => invoke("get_repo_branch", { path });
 
 export interface CliInstallStatus {
   installed: boolean;
@@ -265,3 +109,7 @@ export const fuzzyFindFiles = (query: string, maxResults: number): Promise<Fuzzy
 
 export const searchFileContents = (query: string, maxResults: number): Promise<ContentSearchResult[]> =>
   invoke("search_file_contents", { query, maxResults });
+
+export const getSessionSnapshot = (): Promise<SessionSnapshot> => invoke("get_session_snapshot");
+
+export const sessionIntent = (intent: Intent): Promise<IntentOutcome> => invoke("session_intent", { intent });

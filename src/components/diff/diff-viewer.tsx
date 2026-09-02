@@ -33,6 +33,17 @@ const NonPierreMessage = (props: { fileType: "binary" | "large" }) => (
     </button>
   </div>
 );
+export const shouldMountTextPierre = (
+  selectedFile: { path: string; groupKind: string } | null,
+  selectedLoadId: number,
+  diff: { path: string } | null,
+  diffLoadId: number | null
+): boolean =>
+  selectedFile != null &&
+  selectedFile.groupKind !== "merge" &&
+  diff != null &&
+  diff.path === selectedFile.path &&
+  diffLoadId === selectedLoadId;
 
 export const DiffViewer = () => {
   const diff = useStore(repositoryStore, (s) => s.diff);
@@ -66,7 +77,7 @@ export const DiffViewer = () => {
         <div class="diff-viewer">
           <DiffHeader isDirty={isDiffDirty()} />
         </div>
-      ) : (
+      ) : shouldMountTextPierre(selectedFile(), selectedLoadId(), diff(), diffLoadId()) ? (
         <div class="diff-viewer">
           <DiffHeader isDirty={isDiffDirty()} />
           <div class="diff-editor-container">
@@ -74,8 +85,13 @@ export const DiffViewer = () => {
               path={selectedFile()!.path}
               staged={selectedFile()!.staged}
               groupKind={selectedFile()!.groupKind}
+              loadId={selectedLoadId()}
             />
           </div>
+        </div>
+      ) : (
+        <div class="diff-viewer">
+          <DiffHeader isDirty={isDiffDirty()} />
         </div>
       )}
     </>

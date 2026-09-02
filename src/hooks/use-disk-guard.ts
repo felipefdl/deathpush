@@ -1,7 +1,6 @@
 import { useTauriEvent } from "./use-tauri-event";
 import { explorerStore } from "../stores/explorer-store";
 import { readFileContent } from "../lib/tauri-commands";
-import { sha256Utf8 } from "../lib/pierre/sha";
 import { watcherAction, type SaveSession } from "../lib/pierre/save-session";
 import type { FileContent, PathsChanged } from "../lib/git-types";
 import { pathsChangedIntersects } from "./use-repository-events";
@@ -9,7 +8,6 @@ export type FileViewerDiskGuardInput = {
   selectedPath: string | null;
   session: SaveSession | null;
   readFileContent: (path: string) => Promise<FileContent>;
-  sha256Utf8: (text: string) => Promise<string>;
   onReload: (content: FileContent, incomingSha: string) => void;
   isCurrent?: () => boolean;
 };
@@ -20,7 +18,7 @@ export const runFileViewerDiskGuard = async (input: FileViewerDiskGuardInput): P
   if (input.session.pendingSha !== null) return;
 
   const content = await input.readFileContent(path);
-  const incomingSha = await input.sha256Utf8(content.content);
+  const incomingSha = content.contentHash;
   if (input.isCurrent && !input.isCurrent()) return;
   if (watcherAction(input.session, incomingSha) === "reload") {
     input.onReload(content, incomingSha);
@@ -51,7 +49,6 @@ export const useDiskGuard = (args: {
       selectedPath,
       session,
       readFileContent,
-      sha256Utf8,
       onReload: args.onReload,
       isCurrent: () => explorerStore.getState().selectedPath === selectedPath && args.getSession() === session,
     }).catch(() => undefined);

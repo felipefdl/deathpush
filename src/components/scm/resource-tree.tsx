@@ -1,8 +1,8 @@
 import type { ContextMenuItem as TreeContextMenuItem, FileTree } from "@pierre/trees";
-import { confirm } from "@tauri-apps/plugin-dialog";
 import type { FileEntry, ResourceGroupKind } from "../../lib/git-types";
 import { fileEntriesToTreeGitStatus } from "../../lib/trees";
 import { flushPath, flushPaths } from "../../lib/pierre/flush-registry";
+import { sendDestructiveIntent, sendIntent } from "../../lib/session-client";
 import { layoutStore } from "../../stores/layout-store";
 import { repositoryStore } from "../../stores/repository-store";
 import { useDiff } from "../../hooks/use-diff";
@@ -10,21 +10,6 @@ import * as commands from "../../lib/tauri-commands";
 import { FileTreeHost, type FileTreeHostProps } from "../trees/file-tree-host";
 import { renderTreeContextMenu } from "../trees/tree-context-menu";
 import type { ContextMenuItem } from "./context-menu";
-
-export const resolveResourcePaths = (files: readonly FileEntry[], selectedPaths: readonly string[]): string[] => {
-  const resolved: string[] = [];
-  for (const selectedPath of selectedPaths) {
-    if (selectedPath.endsWith("/")) {
-      const prefix = selectedPath;
-      for (const file of files) {
-        if (file.path.startsWith(prefix) && !resolved.includes(file.path)) resolved.push(file.path);
-      }
-    } else if (files.some((file) => file.path === selectedPath) && !resolved.includes(selectedPath)) {
-      resolved.push(selectedPath);
-    }
-  }
-  return resolved;
-};
 
 type ResourceTreeProps = {
   files: FileEntry[];
@@ -34,6 +19,7 @@ type ResourceTreeProps = {
 export const ResourceTree = (props: ResourceTreeProps) => {
   const { loadDiff } = useDiff();
   const isStaged = props.groupKind === "index";
+  const isUntracked = props.groupKind === "untracked";
   let treeModel: FileTree | undefined;
 
   const setError = (error: unknown): void => repositoryStore.getState().setError(String(error));
@@ -42,9 +28,9 @@ export const ResourceTree = (props: ResourceTreeProps) => {
 
   const selectedPathsForItem = (item: TreeContextMenuItem): string[] => {
     const selected = treeModel?.getSelectedPaths() ?? [];
-    const paths = selected.includes(item.path) ? selected : [item.path];
-    return resolveResourcePaths(props.files, paths);
+    return selected.includes(item.path) ? selected : [item.path];
   };
+
 
   const showDiff = (file: FileEntry): void => {
     void loadDiff(file.path, isStaged, props.groupKind);
@@ -58,7 +44,7 @@ export const ResourceTree = (props: ResourceTreeProps) => {
     store.startOperation("stage");
     try {
       await flushPaths(paths);
-      await commands.stageFiles(paths);
+      await sendIntent({ type: "stage", paths });
     } catch (error) {
       setError(error);
     } finally {
@@ -71,7 +57,7 @@ export const ResourceTree = (props: ResourceTreeProps) => {
     store.startOperation("unstage");
     try {
       await flushPaths(paths);
-      await commands.unstageFiles(paths);
+      await sendIntent({ type: "unstage", paths });
     } catch (error) {
       setError(error);
     } finally {
@@ -81,41 +67,10 @@ export const ResourceTree = (props: ResourceTreeProps) => {
 
   const discard = async (paths: string[]): Promise<void> => {
     const store = repositoryStore.getState();
-    const untrackedPaths = paths.filter((path) => {
-      const file = props.files.find((candidate) => candidate.path === path);
-      return props.groupKind === "untracked" || file?.status === "untracked";
-    });
-    const trackedPaths = paths.filter((path) => !untrackedPaths.includes(path));
-
-    let message: string;
-    let title: string;
-    let okLabel: string;
-    if (trackedPaths.length > 0 && untrackedPaths.length > 0) {
-      message = `Are you sure you want to discard changes in ${trackedPaths.length} tracked file(s) and DELETE ${untrackedPaths.length} untracked file(s)?\n\nTracked changes are irreversible. Untracked files can be restored from the Trash.`;
-      title = "Discard Changes";
-      okLabel = "Discard & Delete";
-    } else if (untrackedPaths.length > 0) {
-      message =
-        untrackedPaths.length === 1
-          ? `Are you sure you want to DELETE the following untracked file: '${untrackedPaths[0].split("/").pop()}'?\n\nYou can restore this file from the Trash.`
-          : `Are you sure you want to DELETE ${untrackedPaths.length} untracked file(s)?\n\nYou can restore them from the Trash.`;
-      title = "Delete Untracked File";
-      okLabel = "Move to Trash";
-    } else {
-      message =
-        paths.length === 1
-          ? `Are you sure you want to discard changes in "${paths[0].split("/").pop()}"?\n\nThis action is irreversible.`
-          : `Are you sure you want to discard changes in ${paths.length} file(s)?\n\nThis action is irreversible.`;
-      title = "Discard Changes";
-      okLabel = "Discard";
-    }
-    if (!(await confirm(message, { title, kind: "warning", okLabel, cancelLabel: "Cancel" }))) return;
-
     store.startOperation("discard");
     try {
       await flushPaths(paths);
-      if (trackedPaths.length > 0) await commands.discardChanges(trackedPaths);
-      if (untrackedPaths.length > 0) await commands.deleteFiles(untrackedPaths);
+      await sendDestructiveIntent({ type: "discard", paths, confirmed: false });
     } catch (error) {
       setError(error);
     } finally {
@@ -124,18 +79,11 @@ export const ResourceTree = (props: ResourceTreeProps) => {
   };
 
   const deleteFile = async (file: FileEntry): Promise<void> => {
-    const confirmed = await confirm(`Are you sure you want to move "${file.path.split("/").pop()}" to the trash?`, {
-      title: "Move to Trash",
-      kind: "warning",
-      okLabel: "Move to Trash",
-      cancelLabel: "Cancel",
-    });
-    if (!confirmed) return;
     const store = repositoryStore.getState();
     store.startOperation("delete");
     try {
       await flushPath(file.path);
-      await commands.deleteFile(file.path);
+      await sendDestructiveIntent({ type: "deleteFile", path: file.path, confirmed: false });
     } catch (error) {
       setError(error);
     } finally {
@@ -174,8 +122,8 @@ export const ResourceTree = (props: ResourceTreeProps) => {
     );
     if (!isStaged) {
       items.push({
-        label: file?.status === "untracked" || props.groupKind === "untracked" ? "Delete" : "Discard Changes",
-        icon: file?.status === "untracked" || props.groupKind === "untracked" ? "trash" : "discard",
+        label: isUntracked ? "Delete" : "Discard Changes",
+        icon: isUntracked ? "trash" : "discard",
         action: () => void discard(paths),
       });
     }
@@ -197,28 +145,26 @@ export const ResourceTree = (props: ResourceTreeProps) => {
           action: () => void commands.revealInFileManager(file.path).catch(setError),
         }
       );
-      const isDeleted = ["deleted", "indexDeleted", "bothDeleted", "deletedByThem", "deletedByUs"].includes(
-        file.status
-      );
-      if (!isStaged && !isDeleted && file.status !== "untracked") {
+      if (!isStaged && !isUntracked) {
         items.push(
           { label: "", action: () => {}, separator: true },
           { label: "Move to Trash", icon: "trash", action: () => void deleteFile(file) }
         );
       }
-      if (file.status === "untracked") {
+      if (isUntracked) {
         items.push(
           { label: "", action: () => {}, separator: true },
           {
             label: "Add to .gitignore",
             icon: "exclude",
-            action: () => void commands.addToGitignore(file.path).catch(setError),
+            action: () => void sendIntent({ type: "addToGitignore", path: file.path }).catch(setError),
           }
         );
       }
     }
     return items;
   };
+
 
   const treeOptions: FileTreeHostProps["options"] = {
     onSelectionChange: (selectedPaths) => {
@@ -240,6 +186,10 @@ export const ResourceTree = (props: ResourceTreeProps) => {
       paths={props.files.map((file) => file.path)}
       gitStatus={fileEntriesToTreeGitStatus(props.files)}
       options={treeOptions}
+      onFileActivate={(path) => {
+        const file = props.files.find((candidate) => candidate.path === path);
+        if (file) showDiff(file);
+      }}
       modelRef={(model) => {
         treeModel = model;
       }}

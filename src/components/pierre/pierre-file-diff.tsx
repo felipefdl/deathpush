@@ -10,9 +10,12 @@ import {
   type SelectedLineRange,
 } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/edit";
-import { confirm } from "@tauri-apps/plugin-dialog";
-import type { DiffContent, DiffHunk, FileStatus, RepositoryStatus, ResourceGroupKind } from "../../lib/git-types";
+import type { DiffHunkPayload, DiffPayload, ResourceGroupKind } from "../../lib/git-types";
+
 import * as commands from "../../lib/tauri-commands";
+import { sendDestructiveIntent, sendIntent } from "../../lib/session-client";
+import { takeScmDiffPayload } from "../../lib/pierre/scm-diff-payload";
+
 import { repositoryStore } from "../../stores/repository-store";
 import { settingsStore } from "../../stores/settings-store";
 import { themeStore } from "../../stores/theme-store";
@@ -24,8 +27,9 @@ import { pierreEditorKeymap } from "../../lib/pierre/keymap";
 import { getPierreWorkerPool } from "../../lib/pierre/worker";
 import { flushPath, registerFlusher, trackPendingFlush } from "../../lib/pierre/flush-registry";
 import { commitPierreWrite } from "../../lib/pierre/buffered-write";
-import { hunkActionAnchor, hunkIdentity, reidentifyHunk, type HunkIdentity } from "../../lib/pierre/hunk-annotations";
-import { mapSelectionToStageLines, normalizeSelectionRange, type StageLinesCall } from "../../lib/pierre/line-map";
+import { hunkActionAnchor } from "../../lib/pierre/hunk-annotations";
+import { normalizeSelectionRange } from "../../lib/pierre/line-map";
+
 import { isDirty, sessionCacheKey, type SaveSession } from "../../lib/pierre/save-session";
 import { sha256Utf8 } from "../../lib/pierre/sha";
 import { createPierreFindHost, type PierreFindHost } from "../../lib/pierre/find-host";
@@ -35,12 +39,13 @@ import { PierreScrollHost, type PierreScrollHostHandle } from "./pierre-scroll-h
 
 const SAVE_MS = 1000;
 
-export type HunkAnnotationMeta = { hunkIndex: number; identity: HunkIdentity };
+export type HunkAnnotationMeta = { hunkId: string };
 
 export type PierreScmDiffProps = {
   path: string;
   staged: boolean;
   groupKind: ResourceGroupKind;
+  loadId: number;
 };
 
 export type PierreHistoryDiffProps = {
@@ -135,51 +140,41 @@ export const historyFileDiff = (
   };
 };
 
-export const isScmDiffEditable = (groupKind: ResourceGroupKind, hasWorkingTreeSide: boolean): boolean =>
-  groupKind !== "index" && groupKind !== "merge" && hasWorkingTreeSide;
-
-export const enableScmLineSelection = (groupKind: ResourceGroupKind): boolean =>
-  groupKind === "workingTree" || groupKind === "index";
-
 export const isNonPierreFileType = (fileType: string): boolean =>
   fileType === "image" || fileType === "binary" || fileType === "large";
 
 export const loadScmDiffSources = async (input: {
   path: string;
   staged: boolean;
-  getFileDiff: (path: string, staged: boolean) => Promise<DiffContent>;
-  getFilePatch: (path: string, staged: boolean) => Promise<string>;
-}): Promise<{ diff: DiffContent; patch: string }> => {
-  const [diff, patch] = await Promise.all([
-    input.getFileDiff(input.path, input.staged),
-    input.getFilePatch(input.path, input.staged),
-  ]);
-  return { diff, patch };
+  groupKind: ResourceGroupKind;
+  loadId: number;
+  consumeCache?: boolean;
+}): Promise<DiffPayload> => {
+  if (input.consumeCache) {
+    const cached = takeScmDiffPayload({
+      path: input.path,
+      staged: input.staged,
+      groupKind: input.groupKind,
+      loadId: input.loadId,
+    });
+    if (cached) return cached;
+  }
+  const result = await sendIntent({
+    type: "openScmDiff",
+    path: input.path,
+    staged: input.staged,
+    groupKind: input.groupKind,
+  });
+  if (result.kind !== "diff") {
+    throw new Error("Expected a diff payload");
+  }
+  return result.payload;
 };
 
 export type EmptyPatchSides =
   | { oldFile: null; newFile: FileContents }
   | { oldFile: FileContents; newFile: null }
   | { oldFile: FileContents; newFile: FileContents };
-
-export const statusForPath = (
-  status: RepositoryStatus | null,
-  path: string,
-  groupKind: ResourceGroupKind
-): FileStatus | null =>
-  status?.groups.find((group) => group.kind === groupKind)?.files.find((file) => file.path === path)?.status ?? null;
-
-export const scmPatchPresence = (
-  groupKind: ResourceGroupKind,
-  status: FileStatus | null
-): { oldExists: boolean; newExists: boolean } => {
-  if (groupKind === "untracked") return { oldExists: false, newExists: true };
-  if (status === "deleted" || status === "indexDeleted") return { oldExists: true, newExists: false };
-  if (status === "added" || status === "indexAdded" || status === "intentToAdd") {
-    return { oldExists: false, newExists: true };
-  }
-  return { oldExists: true, newExists: true };
-};
 
 export const emptyPatchSides = (
   path: string,
@@ -200,49 +195,18 @@ export const emptyPatchSides = (
   };
 };
 
-export const hunkAnnotations = (hunks: DiffHunk[]): DiffLineAnnotation<HunkAnnotationMeta>[] => {
+export const hunkAnnotations = (hunks: DiffHunkPayload[]): DiffLineAnnotation<HunkAnnotationMeta>[] => {
   const annotations: DiffLineAnnotation<HunkAnnotationMeta>[] = [];
-  for (const [hunkIndex, hunk] of hunks.entries()) {
+  for (const hunk of hunks) {
     const anchor = hunkActionAnchor(hunk);
     if (!anchor) continue;
     annotations.push({
       side: anchor.side,
       lineNumber: anchor.lineNumber,
-      metadata: { hunkIndex, identity: hunkIdentity(hunk) },
+      metadata: { hunkId: hunk.id },
     });
   }
   return annotations;
-};
-
-export const runStageLineCalls = async (input: {
-  path: string;
-  staged: boolean;
-  hunks: DiffHunk[];
-  calls: StageLinesCall[];
-  getFileHunks: (path: string, staged: boolean) => Promise<{ hunks: DiffHunk[] }>;
-  stageLines: (path: string, hunkIndex: number, lineStart: number, lineEnd: number, staged: boolean) => Promise<void>;
-  onWrote?: () => void;
-}): Promise<void> => {
-  const pending = input.calls.map((call) => ({
-    identity: hunkIdentity(input.hunks[call.hunkIndex]),
-    lineStart: call.lineStart,
-    lineEnd: call.lineEnd,
-  }));
-  let current = input.hunks;
-  let wrote = false;
-  try {
-    for (const [index, call] of pending.entries()) {
-      const hunkIndex = reidentifyHunk(current, call.identity);
-      if (hunkIndex === null) continue;
-      await input.stageLines(input.path, hunkIndex, call.lineStart, call.lineEnd, input.staged);
-      wrote = true;
-      if (index < pending.length - 1) {
-        current = (await input.getFileHunks(input.path, input.staged)).hunks;
-      }
-    }
-  } finally {
-    if (wrote) input.onWrote?.();
-  }
 };
 
 const hunkButton = (label: string, onClick: () => void): HTMLButtonElement => {
@@ -271,19 +235,19 @@ const hunkButton = (label: string, onClick: () => void): HTMLButtonElement => {
 };
 
 const renderHunkButtons = (
-  identity: HunkIdentity,
-  groupKind: ResourceGroupKind,
-  run: (identity: HunkIdentity, action: "stage" | "unstage" | "discard") => void
+  hunkId: string,
+  staged: boolean,
+  run: (hunkId: string, action: "stage" | "unstage" | "discard") => void
 ): HTMLElement | undefined => {
   const row = document.createElement("div");
   row.style.cssText = "display:inline-flex;align-items:center;gap:4px;";
-  if (groupKind === "index") {
-    row.append(hunkButton("Unstage", () => run(identity, "unstage")));
+  if (staged) {
+    row.append(hunkButton("Unstage", () => run(hunkId, "unstage")));
     return row;
   }
   row.append(
-    hunkButton("Stage", () => run(identity, "stage")),
-    hunkButton("Discard", () => run(identity, "discard"))
+    hunkButton("Stage", () => run(hunkId, "stage")),
+    hunkButton("Discard", () => run(hunkId, "discard"))
   );
   return row;
 };
@@ -303,6 +267,7 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
   let disposeEditRef: (() => void) | undefined;
   let activeSchedule: ((text: string) => void) | undefined;
   let scrollHost: PierreScrollHostHandle | undefined;
+  let lineSelectionEnabled = false;
 
   onSettled(() => {
     setReady(true);
@@ -342,11 +307,13 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
 
   createEffect(
     () =>
-      ready() ? ([props.path, props.staged, props.groupKind, cacheGeneration(), viewGeneration()] as const) : null,
+      ready()
+        ? ([props.path, props.staged, props.groupKind, props.loadId, cacheGeneration(), viewGeneration()] as const)
+        : null,
     (deps) => {
       if (!deps || !session) return;
 
-      const [path, staged, groupKind] = deps;
+      const [path, staged, groupKind, loadId, cacheGen, viewGen] = deps;
       const mountedGeneration = session.cacheGeneration;
       const activeSession = session;
       const { setError, setIsDiffDirty, setCursorLine, setDiff } = repositoryStore.getState();
@@ -424,30 +391,17 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
         setViewGeneration((value) => value + 1);
       };
 
-      const runHunkAction = async (identity: HunkIdentity, action: "stage" | "unstage" | "discard"): Promise<void> => {
+      const runHunkAction = async (hunkId: string, action: "stage" | "unstage" | "discard"): Promise<void> => {
         if (busy) return;
-        if (action === "discard") {
-          const confirmed = await confirm(
-            "Are you sure you want to discard this hunk?\n\nThis action is irreversible.",
-            {
-              title: "Discard Changes",
-              kind: "warning",
-              okLabel: "Discard",
-              cancelLabel: "Cancel",
-            }
-          );
-          if (!confirmed) return;
-        }
         busy = true;
         try {
           await flushPath(path);
-          const { hunks } = await commands.getFileHunks(path, staged);
-          const hunkIndex = reidentifyHunk(hunks, identity);
-          if (hunkIndex === null) return;
           if (action === "discard") {
-            await commands.discardHunk(path, hunkIndex);
+            await sendDestructiveIntent({ type: "discardHunk", hunkId, confirmed: false });
+          } else if (action === "unstage") {
+            await sendIntent({ type: "unstageHunk", hunkId });
           } else {
-            await commands.stageHunk(path, hunkIndex, action === "unstage");
+            await sendIntent({ type: "stageHunk", hunkId });
           }
           afterGitWrite();
         } catch (error) {
@@ -457,22 +411,21 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
         }
       };
 
+      let lineStaged = staged;
       const runLineSelection = async (range: SelectedLineRange): Promise<void> => {
         if (busy) return;
         busy = true;
         try {
           await flushPath(path);
-          const { hunks } = await commands.getFileHunks(path, staged);
-          const calls = mapSelectionToStageLines(hunks, normalizeSelectionRange(range));
-          await runStageLineCalls({
+          const normalized = normalizeSelectionRange(range);
+          await sendIntent({
+            type: "stageLines",
             path,
-            staged: groupKind === "index",
-            hunks,
-            calls,
-            getFileHunks: commands.getFileHunks,
-            stageLines: commands.stageLines,
-            onWrote: () => setViewGeneration((value) => value + 1),
+            start: normalized.start,
+            end: normalized.end,
+            staged: lineStaged,
           });
+          afterGitWrite();
         } catch (error) {
           setError(String(error));
         } finally {
@@ -490,38 +443,34 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
       };
 
       void (async () => {
-        const { diff, patch } = await loadScmDiffSources({
+        const payload = await loadScmDiffSources({
           path,
           staged,
-          getFileDiff: commands.getFileDiff,
-          getFilePatch: commands.getFilePatch,
+          groupKind,
+          loadId,
+          consumeCache: cacheGen === 0 && viewGen === 0,
         });
         if (cancelled) return;
-        if (isNonPierreFileType(diff.fileType)) return;
+        lineStaged = payload.staged;
+        lineSelectionEnabled = payload.enableLineSelection;
+        if (isNonPierreFileType(payload.fileType)) return;
+
         if (activeSession.diskSha === "") {
-          activeSession.diskSha = await sha256Utf8(diff.modified);
+          activeSession.diskSha = payload.contentHash;
         }
         if (cancelled) return;
-        setDiff(diff);
+        setDiff({
+          path: payload.path,
+          original: payload.original,
+          modified: payload.modified,
+          originalLanguage: payload.language,
+          fileType: payload.fileType,
+        });
 
         const cacheKey = sessionCacheKey(activeSession);
-        const sides = emptyPatchSides(
-          path,
-          cacheKey,
-          diff.original,
-          diff.modified,
-          scmPatchPresence(groupKind, statusForPath(repositoryStore.getState().status, path, groupKind))
-        );
-        const editable = isScmDiffEditable(groupKind, sides.newFile !== null);
-        let fileDiff: FileDiffMetadata | undefined;
-        let annotations: DiffLineAnnotation<HunkAnnotationMeta>[] = [];
-
-        if (patch.trim() !== "") {
-          fileDiff = parsePatchFiles(patch)[0]?.files[0];
-          if (fileDiff) fileDiff.cacheKey = cacheKey;
-          annotations = hunkAnnotations((await commands.getFileHunks(path, staged)).hunks);
-          if (cancelled) return;
-        }
+        const sides = emptyPatchSides(path, cacheKey, payload.original, payload.modified, payload.presence);
+        const editable = payload.editable;
+        const annotations = hunkAnnotations(payload.hunks);
 
         if (!editable) {
           findHost = createPierreFindHost({
@@ -536,22 +485,16 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
             themeType,
             wordWrap,
             diffMode: mode,
-            enableLineSelection: enableScmLineSelection(groupKind),
+            enableLineSelection: payload.enableLineSelection,
             ...settings.diff,
           }),
-          loadDiffFiles: fileDiff
-            ? async () => ({
-                oldFile: { name: path, contents: diff.original, cacheKey },
-                newFile: { name: path, contents: diff.modified, cacheKey },
-              })
-            : undefined,
           renderAnnotation: (annotation: DiffLineAnnotation) => {
             if (!settingsStore.getState().settings.diff.showInlineHunkActions) return;
-            const identity = annotations.find(
+            const hunkId = annotations.find(
               (item) => item.side === annotation.side && item.lineNumber === annotation.lineNumber
-            )?.metadata.identity;
-            if (!identity) return;
-            return renderHunkButtons(identity, groupKind, (next, action) => {
+            )?.metadata.hunkId;
+            if (!hunkId) return;
+            return renderHunkButtons(hunkId, payload.staged, (next, action) => {
               void runHunkAction(next, action);
             });
           },
@@ -579,18 +522,27 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
         }
 
         scrollHost?.beginRender();
-        if (fileDiff) {
+        if (sides.newFile === null) {
           file.render({
-            fileDiff,
+            oldFile: sides.oldFile,
+            newFile: null,
             lineAnnotations: annotations.map((item) => ({ side: item.side, lineNumber: item.lineNumber })),
             containerWrapper: content,
           });
-        } else if (sides.newFile === null) {
-          file.render({ oldFile: sides.oldFile, newFile: null, containerWrapper: content });
         } else if (sides.oldFile === null) {
-          file.render({ oldFile: null, newFile: sides.newFile, containerWrapper: content });
+          file.render({
+            oldFile: null,
+            newFile: sides.newFile,
+            lineAnnotations: annotations.map((item) => ({ side: item.side, lineNumber: item.lineNumber })),
+            containerWrapper: content,
+          });
         } else {
-          file.render({ oldFile: sides.oldFile, newFile: sides.newFile, containerWrapper: content });
+          file.render({
+            oldFile: sides.oldFile,
+            newFile: sides.newFile,
+            lineAnnotations: annotations.map((item) => ({ side: item.side, lineNumber: item.lineNumber })),
+            containerWrapper: content,
+          });
         }
         scrollHost?.sync();
 
@@ -638,7 +590,7 @@ const PierreScmFileDiff = (props: PierreScmDiffProps) => {
           themeType,
           wordWrap,
           diffMode: currentDiffSettings.layout,
-          enableLineSelection: enableScmLineSelection(props.groupKind),
+          enableLineSelection: lineSelectionEnabled,
           ...currentDiffSettings,
         }),
       });

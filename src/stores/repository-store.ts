@@ -4,15 +4,15 @@ import type {
   CommitEntry,
   DiffContent,
   FileBlame,
+  LastCommitInfo,
   RepositoryIdentity,
-  RepositoryMetadata,
   RepositoryStatus,
   ResourceGroupKind,
   BranchEntry,
+  SessionActions,
   StashEntry,
   TagEntry,
 } from "../lib/git-types";
-import { resetStatusStore, statusStore } from "./status-store";
 
 export type SelectedFile = {
   path: string;
@@ -43,11 +43,19 @@ interface RepositoryState {
   error: string | null;
   stashes: StashEntry[];
   amendMode: boolean;
+  commitMessage: string;
   fileFilter: string;
   commitLog: CommitEntry[];
   selectedCommit: string | null;
   commitDetail: CommitDetail | null;
+  fileHistoryPath: string | null;
   tags: TagEntry[];
+  lastCommit: LastCommitInfo | null;
+  actions: SessionActions | null;
+  sessionGeneration: number;
+  sessionRevision: number;
+  statusGeneration: number;
+  statusRevision: number;
   terminalGroups: TerminalGroup[];
   activeGroupId: number | null;
   terminalIdCounter: number;
@@ -59,8 +67,6 @@ interface RepositoryState {
   setStashes: (stashes: StashEntry[]) => void;
   setAmendMode: (amend: boolean) => void;
   setIdentity: (identity: RepositoryIdentity | null, options?: { reset?: boolean }) => void;
-  applyMetadata: (metadata: RepositoryMetadata) => void;
-  syncStatusGroups: () => void;
   setSelectedFile: (file: SelectedFile | null) => void;
   setDiff: (diff: DiffContent | null) => void;
   bindDiffToCurrentLoad: () => void;
@@ -73,6 +79,7 @@ interface RepositoryState {
   setCommitLog: (log: CommitEntry[]) => void;
   setSelectedCommit: (id: string | null) => void;
   setCommitDetail: (detail: CommitDetail | null) => void;
+
   addTerminalGroup: () => void;
   removeTerminalGroup: (groupId: number) => void;
   setActiveGroup: (groupId: number) => void;
@@ -97,11 +104,22 @@ export const repositoryStore = createStore<RepositoryState>((set, get) => ({
   error: null,
   stashes: [],
   amendMode: false,
+  commitMessage: "",
   fileFilter: "",
+
   commitLog: [],
   selectedCommit: null,
   commitDetail: null,
+  fileHistoryPath: null,
   tags: [],
+
+  lastCommit: null,
+  actions: null,
+  sessionGeneration: 0,
+  sessionRevision: 0,
+  statusGeneration: 0,
+  statusRevision: 0,
+
   terminalGroups: [],
   activeGroupId: null,
   terminalIdCounter: 0,
@@ -112,15 +130,26 @@ export const repositoryStore = createStore<RepositoryState>((set, get) => ({
   setTags: (tags) => set({ tags }),
   setStashes: (stashes) => set({ stashes }),
   setAmendMode: (amend) => set({ amendMode: amend }),
-  setIdentity: (identity, options) => {
-    const previousRoot = get().status?.root ?? null;
-    const nextRoot = identity?.root ?? null;
-    const shouldReset = options?.reset ?? previousRoot !== nextRoot;
-    if (shouldReset) {
-      resetStatusStore();
-    }
+  setIdentity: (identity, _options) => {
     if (!identity) {
-      set({ status: null, selectedFile: null, diff: null, diffLoadId: null, blame: null, cursorLine: null });
+      set({
+        status: null,
+        selectedFile: null,
+        diff: null,
+        diffLoadId: null,
+        blame: null,
+        cursorLine: null,
+        actions: null,
+        lastCommit: null,
+        commitMessage: "",
+        commitDetail: null,
+        fileHistoryPath: null,
+        sessionGeneration: 0,
+        sessionRevision: 0,
+        statusGeneration: 0,
+        statusRevision: 0,
+      });
+
       return;
     }
     set({
@@ -135,42 +164,11 @@ export const repositoryStore = createStore<RepositoryState>((set, get) => ({
       },
     });
   },
-  applyMetadata: (metadata) => {
-    const { status } = get();
-    const groups = status?.groups ?? [];
-    set({
-      status: {
-        root: metadata.root,
-        headBranch: metadata.headBranch,
-        headCommit: metadata.headCommit,
-        ahead: metadata.ahead,
-        behind: metadata.behind,
-        groups,
-        operationState: metadata.operationState,
-      },
-    });
-  },
-  syncStatusGroups: () => {
-    const { status, selectedFile } = get();
-    if (!status) return;
-    const groups = statusStore.getState().groups;
-    if (selectedFile && !groups.some((group) => group.files.some((file) => file.path === selectedFile.path))) {
-      set({
-        status: { ...status, groups },
-        selectedFile: null,
-        diff: null,
-        diffLoadId: null,
-        blame: null,
-        cursorLine: null,
-      });
-      return;
-    }
-    set({ status: { ...status, groups } });
-  },
+
   setSelectedFile: (selectedFile) =>
     set((state) => ({
       selectedFile,
-      selectedLoadId: selectedFile ? state.selectedLoadId + 1 : state.selectedLoadId,
+      selectedLoadId: state.selectedLoadId + 1,
       blame: null,
       cursorLine: null,
     })),

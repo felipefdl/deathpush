@@ -287,6 +287,26 @@ impl GitCli {
     Ok(())
   }
 
+  pub async fn cherry_pick_continue(&self) -> Result<()> {
+    self.run(&["cherry-pick", "--continue"]).await?;
+    Ok(())
+  }
+
+  pub async fn cherry_pick_abort(&self) -> Result<()> {
+    self.run(&["cherry-pick", "--abort"]).await?;
+    Ok(())
+  }
+
+  pub async fn revert_continue(&self) -> Result<()> {
+    self.run(&["revert", "--continue"]).await?;
+    Ok(())
+  }
+
+  pub async fn revert_abort(&self) -> Result<()> {
+    self.run(&["revert", "--abort"]).await?;
+    Ok(())
+  }
+
   pub async fn reset_to_commit(&self, commit_id: &str, mode: &str) -> Result<()> {
     let flag = match mode {
       "hard" => "--hard",
@@ -338,38 +358,6 @@ impl GitCli {
     Ok(())
   }
 
-  pub async fn stash_show(&self, index: usize) -> Result<String> {
-    self
-      .run(&["stash", "show", "-p", &format!("stash@{{{}}}", index)])
-      .await
-  }
-
-  pub async fn init_repository(path: &std::path::Path) -> Result<()> {
-    let start = Instant::now();
-    let output = async_command_ready("git")
-      .await
-      .args(["init", &path.to_string_lossy()])
-      .output()
-      .await
-      .map_err(map_git_not_found)?;
-    emit_git_command(
-      &format!("init {}", path.to_string_lossy()),
-      start.elapsed().as_millis() as u64,
-    );
-    if !output.status.success() {
-      let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-      return Err(Error::GitCli(stderr));
-    }
-    Ok(())
-  }
-
-  pub async fn get_unified_diff(&self, path: &str, staged: bool) -> Result<String> {
-    if staged {
-      self.run(&["diff", "--cached", "--", path]).await
-    } else {
-      self.run(&["diff", "--", path]).await
-    }
-  }
 
   pub async fn apply_patch(&self, patch: &str, cached: bool, reverse: bool) -> Result<()> {
     use tokio::io::AsyncWriteExt;

@@ -1,205 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { PathsChanged, StatusEntry, StatusPatch, StatusSnapshot } from "../lib/git-types";
-import {
-  applyIncomingPatch,
-  beginRepositorySession,
-  enqueueStatusPatch,
-  flushPendingPatches,
-  pathsChangedIntersects,
-} from "./use-repository-events";
-import { statusStore } from "../stores/status-store";
-import { repositoryStore } from "../stores/repository-store";
-
-const entry = (path: string, group: StatusEntry["group"] = "workingTree"): StatusEntry => ({
-  group,
-  path,
-  status: "modified",
-  renamePath: null,
-});
-
-const patch = (overrides: Partial<StatusPatch> = {}): StatusPatch => ({
-  generation: 1,
-  baseRevision: 0,
-  revision: 1,
-  upserts: [],
-  removals: [],
-  phase: "settled",
-  ...overrides,
-});
-
-beforeEach(() => {
-  beginRepositorySession();
-  repositoryStore.setState({
-    status: {
-      root: "/repo",
-      headBranch: "main",
-      headCommit: null,
-      ahead: 0,
-      behind: 0,
-      groups: [],
-      operationState: "none",
-    },
-    selectedFile: { path: "gone.ts", staged: false, groupKind: "workingTree" },
-    selectedLoadId: 1,
-    diff: { path: "gone.ts", original: "", modified: "x", originalLanguage: null, fileType: "text" },
-    diffLoadId: 1,
-    blame: null,
-    cursorLine: null,
-  });
-});
-
-describe("applyIncomingPatch", () => {
-  it("applies a patch and projects groups onto repository status", async () => {
-    const result = await applyIncomingPatch(
-      patch({
-        upserts: [entry("a.ts")],
-        metadata: {
-          root: "/repo",
-          headBranch: "main",
-          headCommit: "abc",
-          ahead: 1,
-          behind: 0,
-          operationState: "none",
-        },
-      }),
-      async () => {
-        throw new Error("should not recover");
-      }
-    );
-
-    expect(result).toBe("applied");
-    expect(statusStore.getState().groups[0]?.files[0]?.path).toBe("a.ts");
-    expect(repositoryStore.getState().status?.groups[0]?.files[0]?.path).toBe("a.ts");
-    expect(repositoryStore.getState().status?.ahead).toBe(1);
-    expect(repositoryStore.getState().status?.headCommit).toBe("abc");
-  });
-
-  it("recovers from a revision gap via snapshot", async () => {
-    await applyIncomingPatch(patch({ upserts: [entry("a.ts")] }), async () => {
-      throw new Error("should not recover");
-    });
-
-    const snapshot: StatusSnapshot = {
-      generation: 1,
-      revision: 5,
-      phase: "settled",
-      metadata: {
-        root: "/repo",
-        headBranch: "main",
-        headCommit: "def",
-        ahead: 0,
-        behind: 2,
-        operationState: "none",
-      },
-      entries: [entry("recovered.ts", "index")],
-    };
-    const recover = vi.fn(async () => snapshot);
-
-    const result = await applyIncomingPatch(
-      patch({ baseRevision: 4, revision: 5, upserts: [entry("skip.ts")] }),
-      recover
-    );
-
-    expect(result).toBe("gap");
-    expect(recover).toHaveBeenCalledOnce();
-    expect(statusStore.getState().revision).toBe(5);
-    expect(statusStore.getState().groups.map((group) => group.kind)).toEqual(["index"]);
-    expect(repositoryStore.getState().status?.groups[0]?.files[0]?.path).toBe("recovered.ts");
-    expect(repositoryStore.getState().status?.behind).toBe(2);
-  });
-
-  it("clears the selected file when it leaves the status map", async () => {
-    await applyIncomingPatch(patch({ upserts: [entry("kept.ts")] }), async () => {
-      throw new Error("should not recover");
-    });
-
-    expect(repositoryStore.getState().selectedFile).toBeNull();
-    expect(repositoryStore.getState().diff).toBeNull();
-  });
-});
-
-describe("repository session", () => {
-  it("drops queued patches from a prior repository when switching identity", async () => {
-    await applyIncomingPatch(
-      patch({
-        generation: 5,
-        upserts: [entry("from-a.ts")],
-      }),
-      async () => {
-        throw new Error("should not recover");
-      }
-    );
-    enqueueStatusPatch(
-      patch({
-        generation: 5,
-        baseRevision: 1,
-        revision: 2,
-        upserts: [entry("queued-a.ts")],
-      })
-    );
-
-    repositoryStore.getState().setIdentity({ root: "/repo-b", headBranch: "main" });
-    beginRepositorySession();
-
-    enqueueStatusPatch(
-      patch({
-        generation: 1,
-        upserts: [entry("from-b.ts")],
-      })
-    );
-    await flushPendingPatches();
-
-    const files = statusStore
-      .getState()
-      .groups.flatMap((group) => group.files)
-      .map((file) => file.path);
-    expect(files).toEqual(["from-b.ts"]);
-    expect(statusStore.getState().generation).toBe(1);
-    expect(repositoryStore.getState().status?.groups[0]?.files[0]?.path).toBe("from-b.ts");
-  });
-
-  it("applies a queued batch before publishing one repository projection", async () => {
-    const roots: string[][] = [];
-    const unsubscribe = repositoryStore.subscribe((state) => {
-      roots.push((state.status?.groups ?? []).flatMap((group) => group.files.map((file) => file.path)));
-    });
-
-    enqueueStatusPatch(patch({ upserts: [entry("one.ts")] }));
-    enqueueStatusPatch(
-      patch({
-        baseRevision: 1,
-        revision: 2,
-        upserts: [entry("two.ts")],
-      })
-    );
-    await flushPendingPatches();
-    unsubscribe();
-
-    expect(statusStore.getState().groups[0]?.files.map((file) => file.path)).toEqual(["one.ts", "two.ts"]);
-    expect(roots.filter((paths) => paths.length > 0)).toEqual([["one.ts", "two.ts"]]);
-  });
-
-  it("applies a queued batch as one status-store update", async () => {
-    const revisions: number[] = [];
-    const unsubscribe = statusStore.subscribe((state) => {
-      revisions.push(state.revision);
-    });
-
-    enqueueStatusPatch(patch({ upserts: [entry("one.ts")] }));
-    enqueueStatusPatch(
-      patch({
-        baseRevision: 1,
-        revision: 2,
-        upserts: [entry("two.ts")],
-      })
-    );
-    await flushPendingPatches();
-    unsubscribe();
-
-    expect(statusStore.getState().groups[0]?.files.map((file) => file.path)).toEqual(["one.ts", "two.ts"]);
-    expect(revisions).toEqual([2]);
-  });
-});
+import { describe, expect, it } from "vite-plus/test";
+import type { PathsChanged } from "../lib/git-types";
+import { pathsChangedIntersects, shouldRefreshExplorer } from "./use-repository-events";
 
 describe("pathsChangedIntersects", () => {
   const event = (overrides: Partial<PathsChanged>): PathsChanged => ({
@@ -220,5 +21,22 @@ describe("pathsChangedIntersects", () => {
   it("matches a subtree path", () => {
     expect(pathsChangedIntersects(event({ paths: ["src"], scope: "subtree" }), "src/a.ts")).toBe(true);
     expect(pathsChangedIntersects(event({ paths: ["src"], scope: "subtree" }), "lib/a.ts")).toBe(false);
+  });
+});
+
+describe("shouldRefreshExplorer", () => {
+  it("refreshes on repository, subtree, or structural events", () => {
+    expect(
+      shouldRefreshExplorer({ paths: [], kind: "content", scope: "repository", generation: 1, storm: false })
+    ).toBe(true);
+    expect(
+      shouldRefreshExplorer({ paths: ["src"], kind: "content", scope: "subtree", generation: 1, storm: false })
+    ).toBe(true);
+    expect(
+      shouldRefreshExplorer({ paths: ["a.ts"], kind: "structural", scope: "exact", generation: 1, storm: false })
+    ).toBe(true);
+    expect(
+      shouldRefreshExplorer({ paths: ["a.ts"], kind: "content", scope: "exact", generation: 1, storm: false })
+    ).toBe(false);
   });
 });

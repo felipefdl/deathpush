@@ -2,9 +2,8 @@ import { createSignal, onSettled } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
 import { repositoryStore } from "../../stores/repository-store";
 import { addRecentProject } from "../../lib/recent-projects";
-import * as commands from "../../lib/tauri-commands";
-import { beginRepositorySession } from "../../hooks/use-repository-events";
-import { recoverFromSnapshot } from "../../hooks/use-repository";
+import { sendIntent } from "../../lib/session-client";
+
 
 type CloneDialogProps = {
   onClose: () => void;
@@ -14,7 +13,8 @@ export const CloneDialog = (props: CloneDialogProps) => {
   const [url, setUrl] = createSignal("");
   const [directory, setDirectory] = createSignal("");
   const [cloning, setCloning] = createSignal(false);
-  const { setIdentity, setError } = repositoryStore.getState();
+  const { setError } = repositoryStore.getState();
+
   let inputRef: HTMLInputElement | undefined;
   let overlayRef: HTMLDivElement | undefined;
 
@@ -33,26 +33,20 @@ export const CloneDialog = (props: CloneDialogProps) => {
     const urlValue = url().trim();
     const directoryValue = directory().trim();
     if (!urlValue || !directoryValue) return;
-    const repoName =
-      urlValue
-        .split("/")
-        .pop()
-        ?.replace(/\.git$/, "") ?? "repo";
-    const targetPath = `${directoryValue}/${repoName}`;
     setCloning(true);
     try {
-      const identity = await commands.cloneRepository(urlValue, targetPath);
-      beginRepositorySession();
-      addRecentProject(identity.root, identity.headBranch ?? undefined);
-      setIdentity(identity, { reset: false });
-      void recoverFromSnapshot().catch(() => undefined);
-      props.onClose();
+      const result = await sendIntent({ type: "cloneRepository", url: urlValue, directory: directoryValue });
+      if (result.kind === "snapshot") {
+        addRecentProject(result.snapshot.repo.root, result.snapshot.repo.headBranch ?? undefined);
+        props.onClose();
+      }
     } catch (err) {
       setError(String(err));
     } finally {
       setCloning(false);
     }
   };
+
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape") {

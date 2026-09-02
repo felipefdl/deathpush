@@ -10,7 +10,8 @@ import { normalizeWordWrap, pierreHostStyle } from "../../lib/pierre/normalize-e
 import { getPierreWorkerPool } from "../../lib/pierre/worker";
 import { sessionCacheKey, type SaveSession } from "../../lib/pierre/save-session";
 import { sha256Utf8 } from "../../lib/pierre/sha";
-import { stageFiles, writeFile } from "../../lib/tauri-commands";
+import { sendIntent } from "../../lib/session-client";
+
 
 export type PierreUnresolvedProps = {
   path: string;
@@ -96,9 +97,8 @@ export const PierreUnresolved = (props: PierreUnresolvedProps) => {
         onMergeConflictResolve: (file: FileContents) => {
           void enqueueMergeResolve(path, async () => {
             try {
-              await writeFile(path, file.contents);
+              await sendIntent({ type: "resolveConflict", path, contents: file.contents });
               if (session) session.diskSha = await sha256Utf8(file.contents);
-              await stageFiles([path]);
             } catch (error) {
               setError(String(error));
             }
