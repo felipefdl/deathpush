@@ -1,7 +1,8 @@
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SOURCE_ROOT = new URL("../src/", import.meta.url);
+const SOURCE_ROOT = fileURLToPath(new URL("../src/", import.meta.url));
 const CODICON_SOURCE = new URL("../node_modules/@vscode/codicons/dist/codicon.css", import.meta.url);
 const OUTPUT = new URL("../src/styles/codicons.css", import.meta.url);
 const COMPUTED_ICON_SAFE_LIST = [
@@ -37,7 +38,7 @@ const sourceFiles = async (directory) => {
 };
 
 const usedIcons = new Set(COMPUTED_ICON_SAFE_LIST.map((name) => `codicon-${name}`));
-for (const path of await sourceFiles(SOURCE_ROOT.pathname)) {
+for (const path of await sourceFiles(SOURCE_ROOT)) {
   if (![".ts", ".tsx"].includes(extname(path)) || path.endsWith(".test.ts") || path.endsWith(".test.tsx")) continue;
   const source = await readFile(path, "utf8");
   for (const match of source.matchAll(/\bcodicon-([a-z](?:[a-z0-9-]*[a-z0-9])?)(?![a-z0-9-]|\$\{)/g)) {
