@@ -28,9 +28,8 @@ export const ResourceTree = (props: ResourceTreeProps) => {
 
   const selectedPathsForItem = (item: TreeContextMenuItem): string[] => {
     const selected = treeModel?.getSelectedPaths() ?? [];
-    return selected.includes(item.path) ? selected : [item.path];
+    return selected.includes(item.path) ? [...selected] : [item.path];
   };
-
 
   const showDiff = (file: FileEntry): void => {
     void loadDiff(file.path, isStaged, props.groupKind);
@@ -164,7 +163,6 @@ export const ResourceTree = (props: ResourceTreeProps) => {
     }
     return items;
   };
-
 
   const treeOptions: FileTreeHostProps["options"] = {
     onSelectionChange: (selectedPaths) => {

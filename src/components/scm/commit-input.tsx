@@ -113,7 +113,6 @@ export const CommitInput = () => {
     }
   };
 
-
   return (
     <>
       {status() ? (

@@ -40,13 +40,13 @@ describe("useKeyboardShortcuts Escape", () => {
     isPierreFindHostOpenMock.mockReturnValue(false);
     repositoryStore.setState({
       selectedFile: { path: "a.ts", staged: false, groupKind: "workingTree" },
-      diff: { path: "a.ts", original: "old", modified: "new", fileType: "text" },
+      diff: { path: "a.ts", original: "old", modified: "new", originalLanguage: null, fileType: "text" },
       sessionGeneration: 0,
       sessionRevision: 1,
     });
     explorerStore.setState({
       selectedPath: "README.md",
-      fileContent: { path: "README.md", contents: "hi", language: "markdown" },
+      fileContent: { path: "README.md", content: "hi", language: "markdown", fileType: "text", contentHash: "hash:hi" },
     });
   });
 

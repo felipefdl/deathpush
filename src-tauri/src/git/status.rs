@@ -146,7 +146,7 @@ pub fn scan_scopes(root: &Path, scopes: &[StatusScope]) -> Result<StatusScan> {
     for entry in scan_entries(&repo, &mut opts)? {
       merged.insert(
         StatusKey {
-          group: entry.group.clone(),
+          group: entry.group,
           path: entry.path.clone(),
         },
         entry,
@@ -168,7 +168,7 @@ pub fn scan_scopes(root: &Path, scopes: &[StatusScope]) -> Result<StatusScan> {
       for entry in scan_entries(&repo, &mut opts)? {
         merged.insert(
           StatusKey {
-            group: entry.group.clone(),
+            group: entry.group,
             path: entry.path.clone(),
           },
           entry,
@@ -185,7 +185,7 @@ pub fn scan_scopes(root: &Path, scopes: &[StatusScope]) -> Result<StatusScan> {
         if path_in_scopes(&entry.path, &scopes) {
           merged.insert(
             StatusKey {
-              group: entry.group.clone(),
+              group: entry.group,
               path: entry.path.clone(),
             },
             entry,

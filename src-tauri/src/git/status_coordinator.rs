@@ -872,7 +872,7 @@ impl StatusCoordinator {
       .map(|entry| {
         (
           StatusKey {
-            group: entry.group.clone(),
+            group: entry.group,
             path: entry.path.clone(),
           },
           entry,

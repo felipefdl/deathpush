@@ -12,7 +12,6 @@ import { sessionCacheKey, type SaveSession } from "../../lib/pierre/save-session
 import { sha256Utf8 } from "../../lib/pierre/sha";
 import { sendIntent } from "../../lib/session-client";
 
-
 export type PierreUnresolvedProps = {
   path: string;
   contents: string;

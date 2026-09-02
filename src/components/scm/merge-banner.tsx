@@ -48,7 +48,11 @@ export const MergeBanner = (props: MergeBannerProps) => {
           </button>
         ) : null}
         {operation()?.abort ? (
-          <button class="merge-banner-btn merge-banner-btn-danger" onClick={() => void run("operationAbort")} title="Abort">
+          <button
+            class="merge-banner-btn merge-banner-btn-danger"
+            onClick={() => void run("operationAbort")}
+            title="Abort"
+          >
             Abort
           </button>
         ) : null}

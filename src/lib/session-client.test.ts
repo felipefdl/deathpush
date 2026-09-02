@@ -98,7 +98,6 @@ const dummyBlame = (): FileBlame => ({
   lineGroups: [],
 });
 
-
 describe("sendIntent", () => {
   beforeEach(() => {
     repositoryStore.setState({
@@ -239,7 +238,7 @@ describe("sendIntent", () => {
       sessionGeneration: 0,
       sessionRevision: 1,
       selectedFile: { path: "keep.ts", staged: false, groupKind: "workingTree" },
-      diff: { path: "keep.ts", original: "a", modified: "b", fileType: "text" },
+      diff: { path: "keep.ts", original: "a", modified: "b", originalLanguage: null, fileType: "text" },
     });
     sessionIntentMock.mockResolvedValue({
       kind: "ack",
@@ -336,7 +335,7 @@ describe("sendIntent", () => {
       sessionRevision: 1,
       selectedLoadId: 4,
       selectedFile: { path: "keep.ts", staged: false, groupKind: "workingTree" },
-      diff: { path: "keep.ts", original: "a", modified: "b", fileType: "text" },
+      diff: { path: "keep.ts", original: "a", modified: "b", originalLanguage: null, fileType: "text" },
     });
     sessionIntentMock.mockResolvedValue({
       kind: "ack",
@@ -437,8 +436,6 @@ describe("acceptedDiff", () => {
   });
 });
 
-
-
 describe("applySessionStatus", () => {
   beforeEach(() => {
     repositoryStore.setState({
@@ -513,7 +510,6 @@ describe("applySessionStatus", () => {
     expect(repositoryStore.getState().selectedFile).toBeNull();
     expect(repositoryStore.getState().selectedLoadId).toBe(5);
   });
-
 
   it("does not overwrite history extras on an ordinary status event", () => {
     repositoryStore.setState({
@@ -997,7 +993,7 @@ describe("applySessionStatus", () => {
       statusGeneration: 0,
       statusRevision: 1,
       selectedFile: { path: "a.ts", staged: false, groupKind: "workingTree" },
-      diff: { path: "a.ts", original: "a", modified: "b", fileType: "text" },
+      diff: { path: "a.ts", original: "a", modified: "b", originalLanguage: null, fileType: "text" },
       status: { ...settledRepo, groups: [] },
     });
     const ack = Promise.withResolvers<{

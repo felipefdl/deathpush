@@ -129,7 +129,6 @@ export const ResourceGroupView = (props: ResourceGroupViewProps) => {
     }
   };
 
-
   const isIndex = () => props.group.kind === "index";
 
   return (

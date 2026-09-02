@@ -28,7 +28,8 @@ class FakeWorker {
       this.emit({ type: "success", requestType: "initialize", id: request.id, sentAt: 0 });
       return;
     }
-    if (request.type !== "file" || request.file == null) return;
+    if (request.type !== "file") return;
+    if (request.file === undefined) return;
     this.received.push(request.file.name);
     const reply = (): void => {
       this.emit({
@@ -108,7 +109,7 @@ describe("Pierre 1.3.6 idle-worker selection", () => {
       cacheKey: "pierre-warmup:ts",
     });
 
-    await expect.poll(() => workers.some((worker) => worker.pendingReply != null)).toBe(true);
+    await expect.poll(() => workers.some((worker) => worker.pendingReply !== null)).toBe(true);
     expect(manager.getStats().busyWorkers).toBe(1);
 
     let rustSettled = false;
@@ -123,10 +124,10 @@ describe("Pierre 1.3.6 idle-worker selection", () => {
       });
 
     await expect.poll(() => rustSettled).toBe(true);
-    expect(workers.some((worker) => worker.pendingReply != null)).toBe(true);
+    expect(workers.some((worker) => worker.pendingReply !== null)).toBe(true);
     expect(manager.getStats().busyWorkers).toBe(1);
 
-    workers.find((worker) => worker.pendingReply != null)?.pendingReply?.();
+    workers.find((worker) => worker.pendingReply !== null)?.pendingReply?.();
     await tsPrime;
   });
 });

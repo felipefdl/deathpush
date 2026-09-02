@@ -39,9 +39,9 @@ export const shouldMountTextPierre = (
   diff: { path: string } | null,
   diffLoadId: number | null
 ): boolean =>
-  selectedFile != null &&
+  selectedFile !== null &&
   selectedFile.groupKind !== "merge" &&
-  diff != null &&
+  diff !== null &&
   diff.path === selectedFile.path &&
   diffLoadId === selectedLoadId;
 

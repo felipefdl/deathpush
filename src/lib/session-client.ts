@@ -21,7 +21,6 @@ const isNewerCursor = (
   currentRevision: number
 ): boolean => generation > currentGeneration || (generation === currentGeneration && revision > currentRevision);
 
-
 const payloadMatchesSession = (result: { sessionGeneration: number; sessionRevision: number }): boolean => {
   const current = repositoryStore.getState();
   if (result.sessionGeneration !== current.sessionGeneration) {
@@ -153,7 +152,9 @@ export const applySessionSnapshot = (snapshot: SessionSnapshot): void => {
       : {}),
     selectedFile: nextFile,
     selectedLoadId:
-      (!nextFile && previous.selectedFile) || (nextFile && fileChanged) ? state.selectedLoadId + 1 : state.selectedLoadId,
+      (!nextFile && previous.selectedFile) || (nextFile && fileChanged)
+        ? state.selectedLoadId + 1
+        : state.selectedLoadId,
     amendMode: snapshot.scm.amendMode,
     commitMessage: snapshot.scm.commitMessage,
     fileFilter: snapshot.scm.fileFilter,

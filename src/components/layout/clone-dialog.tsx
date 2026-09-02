@@ -4,7 +4,6 @@ import { repositoryStore } from "../../stores/repository-store";
 import { addRecentProject } from "../../lib/recent-projects";
 import { sendIntent } from "../../lib/session-client";
 
-
 type CloneDialogProps = {
   onClose: () => void;
 };
@@ -46,7 +45,6 @@ export const CloneDialog = (props: CloneDialogProps) => {
       setCloning(false);
     }
   };
-
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape") {

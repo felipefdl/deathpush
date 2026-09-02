@@ -2,7 +2,6 @@ import { createEffect, createSignal, onSettled } from "solid-js";
 import {
   FileDiff,
   parseDiffFromFile,
-  parsePatchFiles,
   type DiffLineAnnotation,
   type FileContents,
   type FileDiffMetadata,

@@ -25,7 +25,6 @@ export const StatusBar = () => {
       ? `${behind() > 0 ? `${behind()}\u2193 ` : ""}${ahead() > 0 ? `${ahead()}\u2191` : ""}`
       : "";
 
-
   const cursorBlame = createMemo(() => {
     const blameData = blame();
     const line = cursorLine();

@@ -17,7 +17,6 @@ const { repositoryState } = vi.hoisted(() => ({
   },
 }));
 
-
 vi.mock("../../stores/repository-store", () => ({
   repositoryStore: { getState: () => repositoryState },
 }));
@@ -38,7 +37,6 @@ vi.mock("../../hooks/use-stash", () => ({
 vi.mock("../../hooks/use-branches", () => ({
   useBranches: () => ({ mergeBranch: vi.fn(), rebaseBranch: vi.fn() }),
 }));
-
 
 describe("OverflowMenu", () => {
   afterEach(() => cleanup());

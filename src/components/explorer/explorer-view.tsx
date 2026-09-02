@@ -235,7 +235,6 @@ export const ExplorerView = (props: ExplorerViewProps) => {
     await refreshTree();
   };
 
-
   const getItemContextMenu = (item: TreeContextMenuItem): ContextMenuItem[] => {
     const path = stripDirectorySuffix(item.path);
     const isDirectory = item.kind === "directory";
@@ -315,7 +314,6 @@ export const ExplorerView = (props: ExplorerViewProps) => {
             repositoryStore.getState().setError(String(error))
           ),
       }
-
     );
     return items;
   };

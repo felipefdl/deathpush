@@ -18,7 +18,7 @@ export const rememberScmDiffPayload = (handoff: ScmDiffHandoff, payload: DiffPay
 export const takeScmDiffPayload = (handoff: ScmDiffHandoff): DiffPayload | null => {
   const hit = cached;
   if (
-    hit == null ||
+    hit === null ||
     hit.path !== handoff.path ||
     hit.staged !== handoff.staged ||
     hit.groupKind !== handoff.groupKind ||

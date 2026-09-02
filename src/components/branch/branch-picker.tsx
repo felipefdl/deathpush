@@ -18,15 +18,8 @@ export const BranchPicker = (props: BranchPickerProps) => {
   const [renameValue, setRenameValue] = createSignal("");
   const branches = useStore(repositoryStore, (s) => s.branches);
   const tags = useStore(repositoryStore, (s) => s.tags);
-  const {
-    switchBranch,
-    createNewBranch,
-    renameBranch,
-    removeBranch,
-    removeRemoteBranch,
-    mergeBranch,
-    rebaseBranch,
-  } = useBranches();
+  const { switchBranch, createNewBranch, renameBranch, removeBranch, removeRemoteBranch, mergeBranch, rebaseBranch } =
+    useBranches();
   const { createTag, removeTag, pushTagToRemote, removeRemoteTag } = useTags();
   let inputRef: HTMLInputElement | undefined;
   let renameInputRef: HTMLInputElement | undefined;
@@ -35,7 +28,6 @@ export const BranchPicker = (props: BranchPickerProps) => {
   onSettled(() => {
     inputRef?.focus();
   });
-
 
   createEffect(
     () => renaming(),
@@ -98,7 +90,6 @@ export const BranchPicker = (props: BranchPickerProps) => {
     if (!confirmed) return;
     await removeRemoteBranch(name);
   };
-
 
   const handleMerge = async (name: string) => {
     await mergeBranch(name);

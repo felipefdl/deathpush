@@ -5,7 +5,6 @@ import { layoutStore } from "../../stores/layout-store";
 import { repositoryStore } from "../../stores/repository-store";
 import { settingsStore } from "../../stores/settings-store";
 
-
 export const DiffHeader = (props: { isDirty?: boolean }) => {
   const selectedFile = useStore(repositoryStore, (s) => s.selectedFile);
   const isDiffDirty = useStore(repositoryStore, (s) => s.isDiffDirty);
@@ -28,15 +27,13 @@ export const DiffHeader = (props: { isDirty?: boolean }) => {
       fetchedPath = path;
       const requestGeneration = repositoryStore.getState().sessionGeneration;
       const requestRoot = repositoryStore.getState().status?.root;
-      void sendIntent({ type: "openBlame", path })
-        .then((result) => {
-          const current = repositoryStore.getState();
-          if (current.sessionGeneration !== requestGeneration) return;
-          if (requestRoot !== undefined && current.status?.root !== requestRoot) return;
-          if (!acceptedBlame(result)) return;
-          setBlame(result.payload);
-        })
-
+      void sendIntent({ type: "openBlame", path }).then((result) => {
+        const current = repositoryStore.getState();
+        if (current.sessionGeneration !== requestGeneration) return;
+        if (requestRoot !== undefined && current.status?.root !== requestRoot) return;
+        if (!acceptedBlame(result)) return;
+        setBlame(result.payload);
+      });
     }
   );
 

@@ -7,7 +7,6 @@ import { sendDestructiveIntent, sendIntent } from "../../lib/session-client";
 import { ContextMenu, type ContextMenuItem } from "../scm/context-menu";
 import type { CommitEntry } from "../../lib/git-types";
 
-
 const failedAvatarUrls = new Set<string>();
 
 type AuthorAvatarProps = {
@@ -42,7 +41,6 @@ const AuthorAvatar = (props: AuthorAvatarProps) => {
   );
 };
 
-
 type CommitListProps = {
   onLoadMore: () => void;
   onSelectCommit: (id: string) => void;
@@ -70,7 +68,6 @@ export const CommitList = (props: CommitListProps) => {
       setError(String(err));
     }
   };
-
 
   const handleContextMenu = (e: MouseEvent, commitId: string) => {
     e.preventDefault();

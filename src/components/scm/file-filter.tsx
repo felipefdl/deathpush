@@ -17,7 +17,6 @@ export const FileFilter = () => {
     }, 150);
   };
 
-
   onSettled(() => {
     return () => clearTimeout(timer);
   });
@@ -45,7 +44,6 @@ export const FileFilter = () => {
             setFileFilter("");
             void sendIntent({ type: "setFileFilter", filter: "" });
           }}
-
         >
           <span class="codicon codicon-close" />
         </button>

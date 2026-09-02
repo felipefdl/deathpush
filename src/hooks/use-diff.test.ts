@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { Intent } from "../lib/git-types";
+import type { Intent, RepositoryStatus } from "../lib/git-types";
 import { repositoryStore } from "../stores/repository-store";
 import { useDiff } from "./use-diff";
 import { loadScmDiffSources } from "../components/pierre/pierre-file-diff";
@@ -10,10 +10,9 @@ const { sendIntentMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("../lib/session-client", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return { ...actual, sendIntent: sendIntentMock };
 });
-
 
 const diffPayload = {
   path: "src/a.ts",
@@ -43,16 +42,15 @@ const diffOutcome = (payload: typeof diffPayload = diffPayload): DiffOutcome => 
   payload,
 });
 
-const repoStatus = {
+const repoStatus: RepositoryStatus = {
   root: "/repo",
   headBranch: "main",
   headCommit: "abc",
   ahead: 0,
   behind: 0,
-  groups: [] as const,
-  operationState: "none" as const,
+  groups: [],
+  operationState: "none",
 };
-
 
 describe("loadDiff", () => {
   beforeEach(() => {
@@ -353,5 +351,4 @@ describe("loadDiff", () => {
     await useDiff().loadDiff("src/a.ts", false, "workingTree");
     expect(repositoryStore.getState().diff).toBeNull();
   });
-
 });

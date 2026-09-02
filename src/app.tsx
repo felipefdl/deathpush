@@ -20,7 +20,6 @@ import { layoutStore } from "./stores/layout-store";
 import * as commands from "./lib/tauri-commands";
 import { sendDestructiveIntent, sendIntent } from "./lib/session-client";
 
-
 import { settingsStore } from "./stores/settings-store";
 import { explorerStore } from "./stores/explorer-store";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";

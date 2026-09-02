@@ -7,8 +7,6 @@ import { useBranches } from "../../hooks/use-branches";
 import { flushAll } from "../../lib/pierre/flush-registry";
 import { sendDestructiveIntent, sendIntent } from "../../lib/session-client";
 
-
-
 type OverflowMenuProps = {
   anchorRef: HTMLButtonElement | undefined;
   onClose: () => void;

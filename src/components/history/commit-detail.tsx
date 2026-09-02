@@ -120,7 +120,9 @@ export const CommitDetail = () => {
                     <span class="commit-detail-file-path" title={file().path}>
                       {file().oldPath ? `${file().oldPath} -> ${file().path}` : file().path}
                     </span>
-                    <span class={["commit-file-badge", `badge-${file().status}`]}>{commitFileLetter(file().status)}</span>
+                    <span class={["commit-file-badge", `badge-${file().status}`]}>
+                      {commitFileLetter(file().status)}
+                    </span>
                   </div>
                 )}
               </For>

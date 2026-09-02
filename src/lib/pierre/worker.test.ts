@@ -1,14 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+type PrimeFile = { name: string; contents: string; cacheKey: string };
+
+type PoolCreateOptions = {
+  poolOptions: { workerFactory: unknown; poolSize: number };
+  highlighterOptions: {
+    preferredHighlighter: string;
+    lineDiffType: string;
+    langs?: unknown;
+  };
+};
+
 const { getOrCreateWorkerPoolSingletonMock, pool } = vi.hoisted(() => {
   const pool = {
     initialize: vi.fn(async () => undefined),
-    primeFileHighlightCache: vi.fn(async () => undefined),
+    primeFileHighlightCache: vi.fn(async (_file: PrimeFile) => undefined),
     setRenderOptions: vi.fn(),
   };
   return {
     pool,
-    getOrCreateWorkerPoolSingletonMock: vi.fn(() => pool),
+    getOrCreateWorkerPoolSingletonMock: vi.fn((_options: PoolCreateOptions) => pool),
   };
 });
 
@@ -61,7 +72,7 @@ describe("getPierreWorkerPool", () => {
         lineDiffType: "word-alt",
       },
     });
-    expect(getOrCreateWorkerPoolSingletonMock.mock.calls[0]?.[0].highlighterOptions.langs).toBeUndefined();
+    expect(getOrCreateWorkerPoolSingletonMock.mock.calls[0]?.[0]?.highlighterOptions.langs).toBeUndefined();
   });
 });
 
@@ -81,7 +92,7 @@ describe("warmPierreWorkerPool", () => {
 
   it("avoids transferring typescript and tsx grammars on a later click", async () => {
     const primed = new Set<string>();
-    pool.primeFileHighlightCache.mockImplementation(async (file: { name: string }) => {
+    pool.primeFileHighlightCache.mockImplementation(async (file) => {
       if (file.name.endsWith(".tsx")) primed.add("tsx");
       else if (file.name.endsWith(".ts")) primed.add("typescript");
     });
@@ -94,7 +105,7 @@ describe("warmPierreWorkerPool", () => {
     expect(pool.initialize).toHaveBeenCalledOnce();
     expect(primed.has("typescript")).toBe(true);
     expect(primed.has("tsx")).toBe(true);
-    expect(pool.primeFileHighlightCache.mock.calls.map((call) => call[0].name)).toEqual(["warmup.ts", "warmup.tsx"]);
+    expect(pool.primeFileHighlightCache.mock.calls.map(([file]) => file?.name)).toEqual(["warmup.ts", "warmup.tsx"]);
   });
 });
 
@@ -124,7 +135,7 @@ describe("schedulePierreWorkerWarmup", () => {
     await Promise.resolve();
 
     expect(pool.primeFileHighlightCache).toHaveBeenCalled();
-    expect(pool.primeFileHighlightCache.mock.calls.map((call) => call[0].name)).toEqual(["warmup.ts", "warmup.tsx"]);
+    expect(pool.primeFileHighlightCache.mock.calls.map(([file]) => file?.name)).toEqual(["warmup.ts", "warmup.tsx"]);
   });
 
   it("retries pool initialize and ts prime after a background rejection", async () => {
