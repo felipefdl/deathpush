@@ -249,10 +249,12 @@ fn is_sanitized_prefix(key: &str) -> bool {
 #[cfg(all(test, not(windows)))]
 mod tests {
   use std::ffi::OsString;
+  use std::sync::Mutex;
   use std::time::{Duration, Instant};
 
   use super::*;
 
+  static SHELL_ENV_TEST: Mutex<()> = Mutex::new(());
   struct FakeCommandGuard {
     original: Option<OsString>,
   }
@@ -316,8 +318,8 @@ mod tests {
 
   #[tokio::test]
   async fn shell_env_resolves_in_background_with_inherited_fallback() {
+    let _lock = SHELL_ENV_TEST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let fake_command = FakeCommandGuard::set("sleep 30");
-
     let started_at = Instant::now();
     let resolver = ShellEnvResolver::start();
     assert!(started_at.elapsed() < Duration::from_millis(200));
@@ -346,6 +348,7 @@ mod tests {
 
   #[test]
   fn shell_env_timeout_kills_hung_child() {
+    let _lock = SHELL_ENV_TEST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let _timeout = TimeoutMsGuard::set("200");
     let pid_file = tempfile::NamedTempFile::new().unwrap();
     let pid_path = pid_file.path().to_string_lossy().replace('\'', "");
