@@ -522,9 +522,7 @@ mod tests {
     repo.worktree("linked", &linked, None).unwrap();
 
     let specs = extra_watch_specs(&linked);
-    let git_dir = specs
-      .iter()
-      .find(|spec| spec.path.to_string_lossy().contains("worktrees/linked"));
+    let git_dir = specs.iter().find(|spec| spec.path.ends_with("worktrees/linked"));
     assert!(git_dir.is_some(), "expected worktree git dir, got {specs:?}");
     assert_eq!(git_dir.unwrap().mode, RecursiveMode::Recursive);
 
