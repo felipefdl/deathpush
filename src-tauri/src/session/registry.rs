@@ -430,7 +430,6 @@ mod tests {
     assert!(json.contains("branches"), "{json}");
   }
 
-
   #[test]
   fn status_event_omits_extras_when_patch_has_no_metadata() {
     let (directory, oid) = init_repo();

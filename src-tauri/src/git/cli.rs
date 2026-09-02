@@ -358,7 +358,6 @@ impl GitCli {
     Ok(())
   }
 
-
   pub async fn apply_patch(&self, patch: &str, cached: bool, reverse: bool) -> Result<()> {
     use tokio::io::AsyncWriteExt;
 

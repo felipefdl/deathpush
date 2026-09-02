@@ -8,7 +8,9 @@ use crate::commands::{invalidate_status, invalidate_status_paths, update_window_
 use crate::error::{Error, Result};
 use crate::git::cli::GitCli;
 use crate::git::repository_runtime::RepositoryRuntimeRegistry;
-use crate::session::apply::{FinishApply, RefreshImpact, apply_intent, finish_apply, outcome_should_bump, stamp_outcome};
+use crate::session::apply::{
+  FinishApply, RefreshImpact, apply_intent, finish_apply, outcome_should_bump, stamp_outcome,
+};
 use crate::session::registry::{SessionHandle, SessionRegistry, force_refresh_git2_extras};
 use crate::session::types::{Intent, IntentOutcome, SessionSnapshot};
 use crate::types::RepositoryStatus;

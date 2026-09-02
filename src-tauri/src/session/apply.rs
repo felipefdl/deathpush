@@ -831,14 +831,18 @@ fn session_scm(state: &SessionState) -> SessionScm {
 mod tests {
   use std::path::Path;
 
-  use super::{ApplyOutput, FinishApply, RefreshImpact, apply_intent, finish_apply, outcome_should_bump, stamp_outcome};
+  use super::{
+    ApplyOutput, FinishApply, RefreshImpact, apply_intent, finish_apply, outcome_should_bump, stamp_outcome,
+  };
   use crate::git::cli::GitCli;
   use crate::session::registry::SessionState;
   use crate::session::types::{
     DiffPayload, DiffPresence, FileSelection, Intent, IntentOutcome, OperationActions, SessionActions, SessionPatch,
     SyncAction, SyncKind,
   };
-  use crate::types::{FileBlame, FileEntry, FileStatus, RepoOperationState, RepositoryStatus, ResourceGroup, ResourceGroupKind};
+  use crate::types::{
+    FileBlame, FileEntry, FileStatus, RepoOperationState, RepositoryStatus, ResourceGroup, ResourceGroupKind,
+  };
 
   fn empty_status(root: &str) -> RepositoryStatus {
     RepositoryStatus {
