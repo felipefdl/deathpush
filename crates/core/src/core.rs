@@ -58,14 +58,16 @@ impl Core {
     (id, self.hub.subscribe(id))
   }
 
-  pub fn close_session(&self, id: SessionId) {
+  pub async fn close_session(&self, id: SessionId) {
+    let intent_lock = self.sessions.intent_lock(id);
+    let _intent_guard = intent_lock.lock().await;
     self.lock_windows().remove(&id);
     self.runtimes.remove_session(id);
-    self.sessions.remove(id);
-    if let Ok(mut terminals) = self.terminals.lock() {
-      terminals.retain(|_, session| session.session != id);
-    }
+    let mut terminals = self.terminals.lock().unwrap_or_else(|err| err.into_inner());
+    terminals.retain(|_, session| session.session != id);
+    drop(terminals);
     self.hub.unsubscribe(id);
+    self.sessions.remove(id);
   }
 
   /// Runs a future on core's tokio runtime. The handle is a plain future the app can await anywhere.
@@ -123,8 +125,54 @@ mod tests {
       core.repo_root(id).unwrap(),
       std::fs::canonicalize(directory.path()).unwrap()
     );
-    core.close_session(id);
+    core.runtime_handle().block_on(core.close_session(id));
     assert!(core.repo_root(id).is_err());
+  }
+
+  #[test]
+  fn close_session_waits_for_in_flight_intent() {
+    let directory = init_repo();
+    let core = Core::new(directory.path().to_path_buf()).unwrap();
+    let (id, _events) = core.open_session();
+    let path = directory.path().to_string_lossy().into_owned();
+    core
+      .runtime_handle()
+      .block_on(core.session_intent(id, Intent::OpenRepository { path }))
+      .unwrap();
+    let mut handle = core.sessions.handle(id).unwrap();
+
+    let lock = core.sessions.intent_lock(id);
+    let runtime = core.runtime_handle();
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let lock_task = runtime.spawn(async move {
+      let _guard = lock.lock().await;
+      started_tx.send(()).ok();
+      let _ = release_rx.await;
+    });
+    runtime.block_on(started_rx).unwrap();
+
+    let close_core = core.clone();
+    let close_task = runtime.spawn(async move {
+      close_core.close_session(id).await;
+    });
+    runtime.block_on(tokio::task::yield_now());
+    assert!(!close_task.is_finished(), "close_session must wait on the intent lock");
+
+    handle
+      .with_mut(|session| {
+        session.commit_message = "in-flight".into();
+      })
+      .unwrap();
+
+    release_tx.send(()).ok();
+    runtime.block_on(async {
+      close_task.await.unwrap();
+      lock_task.await.unwrap();
+    });
+
+    assert!(core.repo_root(id).is_err());
+    assert!(!core.sessions.contains(id));
   }
 
   #[test]

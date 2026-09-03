@@ -75,12 +75,10 @@ impl Core {
   }
 
   pub fn install_cli(&self) -> Result<()> {
-    let resource_dir = self.resource_dir.clone();
-
     if cfg!(target_os = "windows") {
-      install_windows(&resource_dir)
+      install_windows(&self.resource_dir)
     } else {
-      install_unix(&resource_dir)
+      install_unix(&self.resource_dir)
     }
   }
 

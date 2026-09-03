@@ -126,6 +126,15 @@ impl SessionRegistry {
     locks.remove(&id);
   }
 
+  #[cfg(test)]
+  pub(crate) fn contains(&self, id: SessionId) -> bool {
+    self
+      .windows
+      .lock()
+      .unwrap_or_else(|err| err.into_inner())
+      .contains_key(&id)
+  }
+
   pub fn with_mut<T>(&self, id: SessionId, callback: impl FnOnce(&mut SessionState) -> T) -> Result<T> {
     let mut map = self.windows.lock().map_err(|err| Error::Other(err.to_string()))?;
     let state = map.entry(id).or_default();
