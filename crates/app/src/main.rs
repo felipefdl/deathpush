@@ -8,6 +8,9 @@ use gpui_kit::*;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 mod assets;
+mod config;
+mod theme;
+mod zoom;
 
 actions!(deathpush, [Quit]);
 
@@ -109,6 +112,8 @@ fn main() {
     cx.text_system()
       .add_fonts(assets::font_files())
       .expect("bundled fonts load");
+    config::AppConfig::init(cx);
+    theme::init(cx);
     cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
     cx.on_action(|_: &Quit, cx| cx.quit());
     let core = core.clone();

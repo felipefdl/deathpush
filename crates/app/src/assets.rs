@@ -40,6 +40,20 @@ pub fn font_files() -> Vec<Cow<'static, [u8]>> {
     .collect()
 }
 
+/// Every bundled theme as `(id, json)`.
+pub fn theme_files() -> Vec<(String, String)> {
+  let mut files: Vec<(String, String)> = Embedded::iter()
+    .filter(|name| name.starts_with("themes/") && name.ends_with(".json"))
+    .filter_map(|name| {
+      let id = name.trim_start_matches("themes/").trim_end_matches(".json").to_string();
+      let data = Embedded::get(&name)?.data;
+      Some((id, String::from_utf8_lossy(&data).into_owned()))
+    })
+    .collect();
+  files.sort_by(|a, b| a.0.cmp(&b.0));
+  files
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -57,5 +71,12 @@ mod tests {
   fn falls_back_to_gpui_kit_icons() {
     let listed = AppAssets.list("icons/").unwrap();
     assert!(listed.iter().any(|name| name.ends_with("folder.svg")));
+  }
+
+  #[test]
+  fn lists_every_bundled_theme() {
+    let files = theme_files();
+    assert_eq!(files.len(), 65);
+    assert!(files.iter().any(|(id, _)| id == "vesper"));
   }
 }

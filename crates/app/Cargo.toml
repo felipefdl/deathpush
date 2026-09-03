@@ -15,7 +15,10 @@ name = "deathpush"
 path = "src/main.rs"
 
 [dependencies]
+chrono.workspace = true
 deathpush-core.workspace = true
+dirs.workspace = true
+futures.workspace = true
 gpui-kit.workspace = true
 rust-embed.workspace = true
 serde.workspace = true
@@ -27,3 +30,4 @@ url.workspace = true
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true
