@@ -44,6 +44,7 @@ pub struct Shell {
   focus_handle: FocusHandle,
   last_saved_bounds: Option<SavedWindow>,
   cli_installed: bool,
+  opening_generation: u64,
 }
 
 impl Shell {
@@ -70,6 +71,7 @@ impl Shell {
       focus_handle: cx.focus_handle(),
       last_saved_bounds: None,
       cli_installed,
+      opening_generation: 0,
     };
     shell.listen(events, cx);
     zoom::apply_zoom_to_window(zoom::current_level(cx), window);
@@ -87,6 +89,7 @@ impl Shell {
       Some(path) => cx.defer_in(window, move |this, window, cx| this.open_repository(path, window, cx)),
       None => cx.defer_in(window, |this, window, cx| this.show_welcome(window, cx)),
     }
+    shell.focus_handle.focus(window, cx);
     shell
   }
 
@@ -124,8 +127,10 @@ impl Shell {
   pub fn open_repository(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
     if let Screen::Welcome(_) = &self.screen {
       self.overlay = Some(Overlay::Opening);
+      self.opening_generation += 1;
       cx.notify();
     }
+    let generation = self.opening_generation;
     let core = self.core.clone();
     let runtime = core.clone();
     let session = self.session;
@@ -138,7 +143,7 @@ impl Shell {
     cx.spawn_in(window, async move |this, cx| {
       let result = task.await;
       let _ = this.update_in(cx, |this, window, cx| {
-        if matches!(this.overlay, Some(Overlay::Opening)) {
+        if matches!(this.overlay, Some(Overlay::Opening)) && this.opening_generation == generation {
           this.overlay = None;
         }
         match result {
@@ -299,10 +304,14 @@ impl Render for Shell {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     self.save_bounds_if_changed(window, cx);
     self.sync_menus(window, cx);
-    let context = match self.screen {
-      Screen::Boot => CONTEXT_APP,
-      Screen::Welcome(_) => CONTEXT_WELCOME,
-      Screen::Repository(_) => CONTEXT_REPOSITORY,
+    let screen_context = match self.screen {
+      Screen::Boot => None,
+      Screen::Welcome(_) => Some(CONTEXT_WELCOME),
+      Screen::Repository(_) => Some(CONTEXT_REPOSITORY),
+    };
+    let key_context = match screen_context {
+      Some(screen) => format!("{CONTEXT_APP} {screen}"),
+      None => CONTEXT_APP.to_string(),
     };
     let title_bar = render_title_bar(self.title.clone(), self.menu_context(), window, cx);
     let body: AnyElement = match &self.screen {
@@ -320,7 +329,7 @@ impl Render for Shell {
       // Some(Overlay::Licenses(view)) => Some(view.clone().into_any_element()),
     };
     div()
-      .key_context(CONTEXT_APP)
+      .key_context(key_context.as_str())
       .track_focus(&self.focus_handle)
       .size_full()
       .flex()
@@ -352,10 +361,34 @@ impl Render for Shell {
           .relative()
           .flex_1()
           .min_h_0()
-          .key_context(context)
           .child(body)
           .children(overlay)
           .children(self.render_toast(cx)),
       )
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use core::prelude::v1::test;
+  use gpui_kit::TestAppContext;
+
+  #[gpui_kit::test]
+  fn shell_root_is_focused_after_construction(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    window
+      .update(cx, |shell, window, cx| {
+        assert_eq!(window.focused(cx).as_ref(), Some(&shell.focus_handle));
+      })
+      .unwrap();
   }
 }
