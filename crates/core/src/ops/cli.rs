@@ -1,8 +1,8 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
 
-use crate::error::Error;
+use crate::core::Core;
+use crate::error::{Error, Result};
 
 // On Linux the .deb/.rpm already installs /usr/bin/dp, so the CLI
 // install only needs to handle macOS and Windows. Skip "deathpush"
@@ -39,61 +39,57 @@ fn find_cli_path(name: &str) -> PathBuf {
   }
 }
 
-#[tauri::command]
-pub async fn check_cli_installed() -> Result<CliInstallStatus, Error> {
-  let dp = find_cli_path("dp");
-  let dp_exists = dp.exists();
+impl Core {
+  pub fn check_cli_installed(&self) -> Result<CliInstallStatus> {
+    let dp = find_cli_path("dp");
+    let dp_exists = dp.exists();
 
-  // On Linux the .deb/.rpm installs /usr/bin/dp directly, so we only
-  // need to check for that. On other platforms both symlinks are required.
-  #[cfg(target_os = "linux")]
-  let (installed, deathpush_path) = (dp_exists, Some("/usr/bin/deathpush".to_string()));
+    // On Linux the .deb/.rpm installs /usr/bin/dp directly, so we only
+    // need to check for that. On other platforms both symlinks are required.
+    #[cfg(target_os = "linux")]
+    let (installed, deathpush_path) = (dp_exists, Some("/usr/bin/deathpush".to_string()));
 
-  #[cfg(not(target_os = "linux"))]
-  let (installed, deathpush_path) = {
-    let deathpush = find_cli_path("deathpush");
-    let deathpush_exists = deathpush.exists();
-    (
-      dp_exists && deathpush_exists,
-      if deathpush_exists {
-        Some(deathpush.to_string_lossy().into())
+    #[cfg(not(target_os = "linux"))]
+    let (installed, deathpush_path) = {
+      let deathpush = find_cli_path("deathpush");
+      let deathpush_exists = deathpush.exists();
+      (
+        dp_exists && deathpush_exists,
+        if deathpush_exists {
+          Some(deathpush.to_string_lossy().into())
+        } else {
+          None
+        },
+      )
+    };
+
+    Ok(CliInstallStatus {
+      installed,
+      dp_path: if dp_exists {
+        Some(dp.to_string_lossy().into())
       } else {
         None
       },
-    )
-  };
-
-  Ok(CliInstallStatus {
-    installed,
-    dp_path: if dp_exists {
-      Some(dp.to_string_lossy().into())
-    } else {
-      None
-    },
-    deathpush_path,
-  })
-}
-
-#[tauri::command]
-pub async fn install_cli(app: AppHandle) -> Result<(), Error> {
-  let resource_dir = app
-    .path()
-    .resource_dir()
-    .map_err(|e| Error::Other(format!("Failed to resolve resource dir: {e}")))?;
-
-  if cfg!(target_os = "windows") {
-    install_windows(&resource_dir)
-  } else {
-    install_unix(&resource_dir)
+      deathpush_path,
+    })
   }
-}
 
-#[tauri::command]
-pub async fn uninstall_cli() -> Result<(), Error> {
-  if cfg!(target_os = "windows") {
-    uninstall_windows()
-  } else {
-    uninstall_unix()
+  pub fn install_cli(&self) -> Result<()> {
+    let resource_dir = self.resource_dir.clone();
+
+    if cfg!(target_os = "windows") {
+      install_windows(&resource_dir)
+    } else {
+      install_unix(&resource_dir)
+    }
+  }
+
+  pub fn uninstall_cli(&self) -> Result<()> {
+    if cfg!(target_os = "windows") {
+      uninstall_windows()
+    } else {
+      uninstall_unix()
+    }
   }
 }
 
@@ -102,8 +98,8 @@ pub async fn uninstall_cli() -> Result<(), Error> {
 // ---------------------------------------------------------------------------
 
 #[cfg(unix)]
-fn install_unix(resource_dir: &Path) -> Result<(), Error> {
-  let script_path = resource_dir.join("resources/bin/dp");
+fn install_unix(resource_dir: &Path) -> Result<()> {
+  let script_path = resource_dir.join("bin/dp");
 
   if !script_path.exists() {
     return Err(Error::Other(format!(
@@ -132,12 +128,12 @@ fn install_unix(resource_dir: &Path) -> Result<(), Error> {
 }
 
 #[cfg(not(unix))]
-fn install_unix(_resource_dir: &Path) -> Result<(), Error> {
+fn install_unix(_resource_dir: &Path) -> Result<()> {
   Err(Error::Other("Unix install not supported on this platform".into()))
 }
 
 #[cfg(unix)]
-fn uninstall_unix() -> Result<(), Error> {
+fn uninstall_unix() -> Result<()> {
   let dir = install_dir();
   if dir_is_writable(&dir) {
     remove_symlinks(&dir)
@@ -147,12 +143,12 @@ fn uninstall_unix() -> Result<(), Error> {
 }
 
 #[cfg(not(unix))]
-fn uninstall_unix() -> Result<(), Error> {
+fn uninstall_unix() -> Result<()> {
   Err(Error::Other("Unix uninstall not supported on this platform".into()))
 }
 
 #[cfg(unix)]
-fn create_symlinks(script_path: &Path, dir: &Path) -> Result<(), Error> {
+fn create_symlinks(script_path: &Path, dir: &Path) -> Result<()> {
   let script_str = script_path.to_string_lossy();
   for name in SYMLINK_NAMES {
     let link = dir.join(name);
@@ -167,7 +163,7 @@ fn create_symlinks(script_path: &Path, dir: &Path) -> Result<(), Error> {
 }
 
 #[cfg(unix)]
-fn remove_symlinks(dir: &Path) -> Result<(), Error> {
+fn remove_symlinks(dir: &Path) -> Result<()> {
   for name in SYMLINK_NAMES {
     let link = dir.join(name);
     if link.exists() || link.symlink_metadata().is_ok() {
@@ -178,7 +174,7 @@ fn remove_symlinks(dir: &Path) -> Result<(), Error> {
 }
 
 #[cfg(unix)]
-fn install_with_elevated(script_path: &Path, dir: &Path) -> Result<(), Error> {
+fn install_with_elevated(script_path: &Path, dir: &Path) -> Result<()> {
   let script_str = script_path.to_string_lossy();
   let dir_str = dir.to_string_lossy();
   let mut cmds = Vec::new();
@@ -198,7 +194,7 @@ fn install_with_elevated(script_path: &Path, dir: &Path) -> Result<(), Error> {
 }
 
 #[cfg(unix)]
-fn uninstall_with_elevated(dir: &Path) -> Result<(), Error> {
+fn uninstall_with_elevated(dir: &Path) -> Result<()> {
   let dir_str = dir.to_string_lossy();
   let mut cmds = Vec::new();
   for name in SYMLINK_NAMES {
@@ -214,7 +210,7 @@ fn uninstall_with_elevated(dir: &Path) -> Result<(), Error> {
 }
 
 #[cfg(unix)]
-fn run_osascript_sudo(shell_cmd: &str, description: &str) -> Result<(), Error> {
+fn run_osascript_sudo(shell_cmd: &str, description: &str) -> Result<()> {
   let escaped = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
   let script = format!("do shell script \"{}\" with administrator privileges", escaped);
 
@@ -235,7 +231,7 @@ fn run_osascript_sudo(shell_cmd: &str, description: &str) -> Result<(), Error> {
 }
 
 #[cfg(unix)]
-fn run_pkexec_sudo(shell_cmd: &str, description: &str) -> Result<(), Error> {
+fn run_pkexec_sudo(shell_cmd: &str, description: &str) -> Result<()> {
   let output = std::process::Command::new("pkexec")
     .args(["sh", "-c", shell_cmd])
     .output()
@@ -257,8 +253,8 @@ fn run_pkexec_sudo(shell_cmd: &str, description: &str) -> Result<(), Error> {
 // ---------------------------------------------------------------------------
 
 #[cfg(target_os = "windows")]
-fn install_windows(resource_dir: &Path) -> Result<(), Error> {
-  let script_path = resource_dir.join("resources/bin/dp.cmd");
+fn install_windows(resource_dir: &Path) -> Result<()> {
+  let script_path = resource_dir.join("bin/dp.cmd");
 
   if !script_path.exists() {
     return Err(Error::Other(format!(
@@ -284,12 +280,12 @@ fn install_windows(resource_dir: &Path) -> Result<(), Error> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn install_windows(_resource_dir: &Path) -> Result<(), Error> {
+fn install_windows(_resource_dir: &Path) -> Result<()> {
   Err(Error::Other("Windows install not supported on this platform".into()))
 }
 
 #[cfg(target_os = "windows")]
-fn uninstall_windows() -> Result<(), Error> {
+fn uninstall_windows() -> Result<()> {
   let dir = install_dir();
 
   for name in SYMLINK_NAMES {
@@ -310,12 +306,12 @@ fn uninstall_windows() -> Result<(), Error> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn uninstall_windows() -> Result<(), Error> {
+fn uninstall_windows() -> Result<()> {
   Err(Error::Other("Windows uninstall not supported on this platform".into()))
 }
 
 #[cfg(target_os = "windows")]
-fn add_to_user_path(dir: &Path) -> Result<(), Error> {
+fn add_to_user_path(dir: &Path) -> Result<()> {
   use winreg::RegKey;
   use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
 
@@ -348,7 +344,7 @@ fn add_to_user_path(dir: &Path) -> Result<(), Error> {
 }
 
 #[cfg(target_os = "windows")]
-fn remove_from_user_path(dir: &Path) -> Result<(), Error> {
+fn remove_from_user_path(dir: &Path) -> Result<()> {
   use winreg::RegKey;
   use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
 

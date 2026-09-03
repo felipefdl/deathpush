@@ -1,35 +1,36 @@
-use crate::error::Error;
+use crate::core::Core;
+use crate::error::Result;
 use crate::util::async_command_ready;
 
-#[tauri::command]
-pub async fn get_git_config(key: String) -> Result<String, Error> {
-  let output = async_command_ready("git")
-    .await
-    .args(["config", "--global", "--get", &key])
-    .output()
-    .await
-    .map_err(|e| Error::Other(format!("Failed to run git config: {e}")))?;
+impl Core {
+  pub async fn get_git_config(&self, key: &str) -> Result<String> {
+    let output = async_command_ready("git")
+      .await
+      .args(["config", "--global", "--get", key])
+      .output()
+      .await
+      .map_err(|e| crate::error::Error::Other(format!("Failed to run git config: {e}")))?;
 
-  if !output.status.success() {
-    return Ok(String::new());
+    if !output.status.success() {
+      return Ok(String::new());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
   }
 
-  Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
+  pub async fn set_git_config(&self, key: &str, value: &str) -> Result<()> {
+    let output = async_command_ready("git")
+      .await
+      .args(["config", "--global", key, value])
+      .output()
+      .await
+      .map_err(|e| crate::error::Error::Other(format!("Failed to run git config: {e}")))?;
 
-#[tauri::command]
-pub async fn set_git_config(key: String, value: String) -> Result<(), Error> {
-  let output = async_command_ready("git")
-    .await
-    .args(["config", "--global", &key, &value])
-    .output()
-    .await
-    .map_err(|e| Error::Other(format!("Failed to run git config: {e}")))?;
+    if !output.status.success() {
+      let stderr = String::from_utf8_lossy(&output.stderr);
+      return Err(crate::error::Error::Other(format!("git config failed: {stderr}")));
+    }
 
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    return Err(Error::Other(format!("git config failed: {stderr}")));
+    Ok(())
   }
-
-  Ok(())
 }

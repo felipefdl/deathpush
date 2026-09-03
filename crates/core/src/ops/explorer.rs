@@ -1,15 +1,12 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
-use std::sync::Mutex;
 
-use tauri::{Manager, State, WebviewWindow};
-
-use crate::commands::repository::AppRepoState;
+use crate::core::Core;
 use crate::error::{Error, Result};
 use crate::git::cli::GitCli;
 use crate::git::diff::{blob_to_data_uri, detect_language, is_image_file};
-use crate::git::repository_runtime::RepositoryRuntimeRegistry;
+use crate::session::SessionId;
 use crate::types::{ContentSearchResult, ExplorerEntry, FileContent, FuzzyFileResult};
 use crate::util::async_command_ready;
 
@@ -141,218 +138,179 @@ fn collect_directory_entries(root: &Path, relative: &str) -> Result<Vec<Explorer
   Ok(entries)
 }
 
-#[tauri::command]
-pub async fn list_repository_tree(
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<Vec<ExplorerEntry>> {
-  let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let window_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
-    window_state.cli_root.clone().ok_or(Error::NoRepository)?
-  };
-
-  collect_repository_entries(&root).await
-}
-
-#[tauri::command]
-pub async fn list_repository_children(
-  path: String,
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<Vec<ExplorerEntry>> {
-  let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let window_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
-    window_state.cli_root.clone().ok_or(Error::NoRepository)?
-  };
-
-  collect_directory_entries(&root, &path)
-}
-
-#[tauri::command]
-pub async fn read_file_content(
-  path: String,
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<FileContent> {
-  let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
-    win_state.cli_root.clone().ok_or(Error::NoRepository)?
-  };
-
-  // Path traversal protection
-  let canon_root = root
-    .canonicalize()
-    .map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
-  let target = root.join(&path);
-  let canon_target = target
-    .canonicalize()
-    .map_err(|e| Error::Other(format!("Cannot resolve file path: {}", e)))?;
-  if !canon_target.starts_with(&canon_root) {
-    return Err(Error::Other("Path traversal denied".into()));
+impl Core {
+  pub async fn list_repository_tree(&self, id: SessionId) -> Result<Vec<ExplorerEntry>> {
+    let root = self.repo_root(id)?;
+    collect_repository_entries(&root).await
   }
 
-  // Check file exists
-  if !canon_target.is_file() {
-    return Err(Error::Other("File not found".into()));
+  pub fn list_repository_children(&self, id: SessionId, path: &str) -> Result<Vec<ExplorerEntry>> {
+    let root = self.repo_root(id)?;
+    collect_directory_entries(&root, path)
   }
 
-  // Size check
-  let metadata = fs::metadata(&canon_target)?;
-  if metadata.len() > MAX_FILE_SIZE {
-    return Ok(FileContent {
-      content_hash: crate::content_hash::sha256_utf8(""),
-      path,
-      content: String::new(),
-      language: None,
-      file_type: "large".to_string(),
-    });
-  }
+  pub fn read_file_content(&self, id: SessionId, path: &str) -> Result<FileContent> {
+    let root = self.repo_root(id)?;
 
-  // Image files
-  if is_image_file(&path) {
-    let bytes = fs::read(&canon_target)?;
-    let data_uri = blob_to_data_uri(&bytes, &path);
-    return Ok(FileContent {
-      content_hash: crate::content_hash::sha256_utf8(&data_uri),
-      path,
-      content: data_uri,
-      language: None,
-      file_type: "image".to_string(),
-    });
-  }
-
-  // Read raw bytes for binary detection
-  let bytes = fs::read(&canon_target)?;
-
-  // Binary detection: check for null bytes in first 8KB
-  let check_len = bytes.len().min(BINARY_CHECK_SIZE);
-  if bytes[..check_len].contains(&0) {
-    return Ok(FileContent {
-      content_hash: crate::content_hash::sha256_utf8(""),
-      path,
-      content: String::new(),
-      language: None,
-      file_type: "binary".to_string(),
-    });
-  }
-
-  // Try UTF-8 conversion
-  match String::from_utf8(bytes) {
-    Ok(content) => {
-      let language = detect_language(&path);
-      Ok(FileContent {
-        content_hash: crate::content_hash::sha256_utf8(&content),
-        path,
-        content,
-        language,
-        file_type: "text".to_string(),
-      })
+    // Path traversal protection
+    let canon_root = root
+      .canonicalize()
+      .map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
+    let target = root.join(path);
+    let canon_target = target
+      .canonicalize()
+      .map_err(|e| Error::Other(format!("Cannot resolve file path: {}", e)))?;
+    if !canon_target.starts_with(&canon_root) {
+      return Err(Error::Other("Path traversal denied".into()));
     }
-    Err(_) => Ok(FileContent {
-      content_hash: crate::content_hash::sha256_utf8(""),
-      path,
-      content: String::new(),
-      language: None,
-      file_type: "binary".to_string(),
-    }),
+
+    // Check file exists
+    if !canon_target.is_file() {
+      return Err(Error::Other("File not found".into()));
+    }
+
+    // Size check
+    let metadata = fs::metadata(&canon_target)?;
+    if metadata.len() > MAX_FILE_SIZE {
+      return Ok(FileContent {
+        content_hash: crate::content_hash::sha256_utf8(""),
+        path: path.to_string(),
+        content: String::new(),
+        language: None,
+        file_type: "large".to_string(),
+      });
+    }
+
+    // Image files
+    if is_image_file(path) {
+      let bytes = fs::read(&canon_target)?;
+      let data_uri = blob_to_data_uri(&bytes, path);
+      return Ok(FileContent {
+        content_hash: crate::content_hash::sha256_utf8(&data_uri),
+        path: path.to_string(),
+        content: data_uri,
+        language: None,
+        file_type: "image".to_string(),
+      });
+    }
+
+    // Read raw bytes for binary detection
+    let bytes = fs::read(&canon_target)?;
+
+    // Binary detection: check for null bytes in first 8KB
+    let check_len = bytes.len().min(BINARY_CHECK_SIZE);
+    if bytes[..check_len].contains(&0) {
+      return Ok(FileContent {
+        content_hash: crate::content_hash::sha256_utf8(""),
+        path: path.to_string(),
+        content: String::new(),
+        language: None,
+        file_type: "binary".to_string(),
+      });
+    }
+
+    // Try UTF-8 conversion
+    match String::from_utf8(bytes) {
+      Ok(content) => {
+        let language = detect_language(path);
+        Ok(FileContent {
+          content_hash: crate::content_hash::sha256_utf8(&content),
+          path: path.to_string(),
+          content,
+          language,
+          file_type: "text".to_string(),
+        })
+      }
+      Err(_) => Ok(FileContent {
+        content_hash: crate::content_hash::sha256_utf8(""),
+        path: path.to_string(),
+        content: String::new(),
+        language: None,
+        file_type: "binary".to_string(),
+      }),
+    }
   }
-}
 
-#[tauri::command]
-pub async fn fuzzy_find_files(
-  query: String,
-  max_results: usize,
-  window: WebviewWindow,
-) -> Result<Vec<FuzzyFileResult>> {
-  let runtime = window
-    .state::<RepositoryRuntimeRegistry>()
-    .runtime_for_window(window.label())
-    .ok_or(Error::NoRepository)?;
-  runtime.fuzzy_find(&query, max_results)
-}
-
-#[tauri::command]
-pub async fn search_file_contents(
-  query: String,
-  max_results: usize,
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<Vec<ContentSearchResult>> {
-  if query.is_empty() {
-    return Ok(vec![]);
+  pub fn fuzzy_find_files(&self, id: SessionId, query: &str, max_results: usize) -> Result<Vec<FuzzyFileResult>> {
+    let runtime = self.runtimes.runtime_for_session(id).ok_or(Error::NoRepository)?;
+    runtime.fuzzy_find(query, max_results)
   }
 
-  let root = {
-    let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let win_state = guard.get(window.label()).ok_or(Error::NoRepository)?;
-    win_state.cli_root.clone().ok_or(Error::NoRepository)?
-  };
-
-  let output = async_command_ready("git")
-    .await
-    .args([
-      "grep",
-      "-n",
-      "--column",
-      "-I",
-      "-F",
-      "--no-recurse-submodules",
-      "--untracked",
-      "-e",
-      &query,
-      "--",
-      ".",
-    ])
-    .current_dir(&root)
-    .output()
-    .await
-    .map_err(|e| Error::Other(e.to_string()))?;
-
-  // git grep exits 1 when no matches found -- not an error
-  if !output.status.success() {
-    let code = output.status.code().unwrap_or(-1);
-    if code == 1 {
+  pub async fn search_file_contents(
+    &self,
+    id: SessionId,
+    query: &str,
+    max_results: usize,
+  ) -> Result<Vec<ContentSearchResult>> {
+    if query.is_empty() {
       return Ok(vec![]);
     }
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    return Err(Error::GitCli(stderr));
-  }
 
-  let stdout = String::from_utf8_lossy(&output.stdout);
-  let mut results = Vec::new();
+    let root = self.repo_root(id)?;
 
-  for line in stdout.lines() {
-    if results.len() >= max_results {
-      break;
+    let output = async_command_ready("git")
+      .await
+      .args([
+        "grep",
+        "-n",
+        "--column",
+        "-I",
+        "-F",
+        "--no-recurse-submodules",
+        "--untracked",
+        "-e",
+        query,
+        "--",
+        ".",
+      ])
+      .current_dir(&root)
+      .output()
+      .await
+      .map_err(|e| Error::Other(e.to_string()))?;
+
+    // git grep exits 1 when no matches found -- not an error
+    if !output.status.success() {
+      let code = output.status.code().unwrap_or(-1);
+      if code == 1 {
+        return Ok(vec![]);
+      }
+      let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+      return Err(Error::GitCli(stderr));
     }
-    // Format: file:linenum:column:content
-    let Some((path, rest)) = line.split_once(':') else {
-      continue;
-    };
-    let Some((line_num_str, rest)) = rest.split_once(':') else {
-      continue;
-    };
-    let Some((col_str, content)) = rest.split_once(':') else {
-      continue;
-    };
-    let Ok(line_number) = line_num_str.parse::<usize>() else {
-      continue;
-    };
-    let Ok(column) = col_str.parse::<usize>() else {
-      continue;
-    };
-    results.push(ContentSearchResult {
-      path: path.to_string(),
-      line_number,
-      column,
-      line_content: content.to_string(),
-    });
-  }
 
-  Ok(results)
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut results = Vec::new();
+
+    for line in stdout.lines() {
+      if results.len() >= max_results {
+        break;
+      }
+      // Format: file:linenum:column:content
+      let Some((path, rest)) = line.split_once(':') else {
+        continue;
+      };
+      let Some((line_num_str, rest)) = rest.split_once(':') else {
+        continue;
+      };
+      let Some((col_str, content)) = rest.split_once(':') else {
+        continue;
+      };
+      let Ok(line_number) = line_num_str.parse::<usize>() else {
+        continue;
+      };
+      let Ok(column) = col_str.parse::<usize>() else {
+        continue;
+      };
+      results.push(ContentSearchResult {
+        path: path.to_string(),
+        line_number,
+        column,
+        line_content: content.to_string(),
+      });
+    }
+
+    Ok(results)
+  }
 }
 
 #[cfg(test)]

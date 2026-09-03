@@ -1,46 +1,18 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tauri::{State, WebviewWindow};
 
-use crate::error::{Error, Result};
+use crate::core::Core;
+use crate::error::Result;
 use crate::git::repository::GitRepository;
+use crate::session::SessionId;
 use crate::types::ProjectInfo;
-
-pub struct CliPaths {
-  pub paths: Mutex<HashMap<String, String>>,
-}
 
 #[derive(Default)]
 pub struct RepoState {
   pub repo: Option<GitRepository>,
   pub cli_root: Option<PathBuf>,
-}
-
-#[derive(Default)]
-pub struct AppRepoState {
-  pub windows: HashMap<String, RepoState>,
-}
-
-impl AppRepoState {
-  pub fn get(&self, label: &str) -> Option<&RepoState> {
-    self.windows.get(label)
-  }
-
-  pub fn get_mut(&mut self, label: &str) -> &mut RepoState {
-    self.windows.entry(label.to_string()).or_default()
-  }
-
-  pub fn remove(&mut self, label: &str) {
-    self.windows.remove(label);
-  }
-}
-
-#[tauri::command]
-pub fn get_initial_path(state: State<'_, CliPaths>, window: WebviewWindow) -> Option<String> {
-  state.paths.lock().ok().and_then(|mut map| map.remove(window.label()))
 }
 
 #[derive(Deserialize)]
@@ -76,16 +48,16 @@ fn scan_projects_in(path: &Path, depth: u32) -> Vec<ProjectInfo> {
       continue;
     }
 
-    if current_depth < depth {
-      if let Ok(entries) = std::fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-          let entry_path = entry.path();
-          if entry_path.is_dir() {
-            let file_name = entry.file_name();
-            let name = file_name.to_string_lossy();
-            if !name.starts_with('.') {
-              queue.push_back((entry_path, current_depth + 1));
-            }
+    if current_depth < depth
+      && let Ok(entries) = std::fs::read_dir(&dir)
+    {
+      for entry in entries.flatten() {
+        let entry_path = entry.path();
+        if entry_path.is_dir() {
+          let file_name = entry.file_name();
+          let name = file_name.to_string_lossy();
+          if !name.starts_with('.') {
+            queue.push_back((entry_path, current_depth + 1));
           }
         }
       }
@@ -95,8 +67,7 @@ fn scan_projects_in(path: &Path, depth: u32) -> Vec<ProjectInfo> {
   projects
 }
 
-#[tauri::command]
-pub fn scan_workspace_projects(entries: Vec<WorkspaceScanEntry>) -> Result<Vec<ProjectInfo>> {
+pub fn scan_workspace_projects(entries: &[WorkspaceScanEntry]) -> Result<Vec<ProjectInfo>> {
   let mut seen = HashSet::new();
   let mut projects = Vec::new();
   for entry in entries {
@@ -188,18 +159,6 @@ fn discover_nested_in(root: &Path) -> Vec<NestedRepository> {
   repos
 }
 
-#[tauri::command]
-pub fn discover_nested_repositories(
-  state: State<'_, Mutex<AppRepoState>>,
-  window: WebviewWindow,
-) -> Result<Vec<NestedRepository>> {
-  let label = window.label().to_string();
-  let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-  let cli_root = win_state.cli_root.as_ref().ok_or(Error::NoRepository)?;
-  Ok(discover_nested_in(cli_root))
-}
-
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeInfo {
@@ -209,70 +168,73 @@ pub struct WorktreeInfo {
   pub is_main: bool,
 }
 
-#[tauri::command]
-pub fn detect_worktrees(state: State<'_, Mutex<AppRepoState>>, window: WebviewWindow) -> Result<Vec<WorktreeInfo>> {
-  let label = window.label().to_string();
-  let guard = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  let win_state = guard.get(&label).ok_or(Error::NoRepository)?;
-  let cli_root = win_state.cli_root.as_ref().ok_or(Error::NoRepository)?;
-
-  let repo = git2::Repository::open(cli_root)?;
-
-  let mut result = Vec::new();
-
-  // Main worktree
-  if let Some(workdir) = repo.workdir() {
-    let name = workdir
-      .file_name()
-      .map(|n| n.to_string_lossy().to_string())
-      .unwrap_or_default();
-    let branch = repo.head().ok().and_then(|h| {
-      if h.is_branch() {
-        h.shorthand().ok().map(|s| s.to_string())
-      } else {
-        None
-      }
-    });
-    result.push(WorktreeInfo {
-      path: workdir.to_string_lossy().to_string(),
-      name,
-      branch,
-      is_main: true,
-    });
+impl Core {
+  pub fn discover_nested_repositories(&self, id: SessionId) -> Result<Vec<NestedRepository>> {
+    let root = self.repo_root(id)?;
+    Ok(discover_nested_in(&root))
   }
 
-  // Linked worktrees
-  if let Ok(worktrees) = repo.worktrees() {
-    let mut linked: Vec<WorktreeInfo> = Vec::new();
-    for wt_name in worktrees.iter().filter_map(|n| n.ok().flatten()) {
-      if let Ok(wt) = repo.find_worktree(wt_name) {
-        let wt_path = wt.path().to_path_buf();
-        let branch = git2::Repository::open(&wt_path).ok().and_then(|r| {
-          r.head().ok().and_then(|h| {
-            if h.is_branch() {
-              h.shorthand().ok().map(|s| s.to_string())
-            } else {
-              None
-            }
-          })
-        });
-        let name = wt_path
-          .file_name()
-          .map(|n| n.to_string_lossy().to_string())
-          .unwrap_or_else(|| wt_name.to_string());
-        linked.push(WorktreeInfo {
-          path: wt_path.to_string_lossy().to_string(),
-          name,
-          branch,
-          is_main: false,
-        });
-      }
+  pub fn detect_worktrees(&self, id: SessionId) -> Result<Vec<WorktreeInfo>> {
+    let cli_root = self.repo_root(id)?;
+
+    let repo = git2::Repository::open(&cli_root)?;
+
+    let mut result = Vec::new();
+
+    // Main worktree
+    if let Some(workdir) = repo.workdir() {
+      let name = workdir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+      let branch = repo.head().ok().and_then(|h| {
+        if h.is_branch() {
+          h.shorthand().ok().map(|s| s.to_string())
+        } else {
+          None
+        }
+      });
+      result.push(WorktreeInfo {
+        path: workdir.to_string_lossy().to_string(),
+        name,
+        branch,
+        is_main: true,
+      });
     }
-    linked.sort_by_key(|a| a.name.to_lowercase());
-    result.extend(linked);
-  }
 
-  Ok(result)
+    // Linked worktrees
+    if let Ok(worktrees) = repo.worktrees() {
+      let mut linked: Vec<WorktreeInfo> = Vec::new();
+      for wt_name in worktrees.iter().filter_map(|n| n.ok().flatten()) {
+        if let Ok(wt) = repo.find_worktree(wt_name) {
+          let wt_path = wt.path().to_path_buf();
+          let branch = git2::Repository::open(&wt_path).ok().and_then(|r| {
+            r.head().ok().and_then(|h| {
+              if h.is_branch() {
+                h.shorthand().ok().map(|s| s.to_string())
+              } else {
+                None
+              }
+            })
+          });
+          let name = wt_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| wt_name.to_string());
+          linked.push(WorktreeInfo {
+            path: wt_path.to_string_lossy().to_string(),
+            name,
+            branch,
+            is_main: false,
+          });
+        }
+      }
+      linked.sort_by_key(|a| a.name.to_lowercase());
+      result.extend(linked);
+    }
+
+    Ok(result)
+  }
 }
 
 #[cfg(test)]
@@ -375,7 +337,7 @@ mod tests {
     let _ = init_with_commit(&deep);
     let _ = init_with_commit(&overlap);
 
-    let projects = scan_workspace_projects(vec![
+    let projects = scan_workspace_projects(&[
       WorkspaceScanEntry {
         directory: first.path().to_string_lossy().to_string(),
         depth: 1,
@@ -405,7 +367,7 @@ mod tests {
     assert_eq!(projects[0].path, overlap.to_string_lossy().to_string());
     assert_eq!(projects[1].path, shallow.to_string_lossy().to_string());
 
-    let with_deep = scan_workspace_projects(vec![
+    let with_deep = scan_workspace_projects(&[
       WorkspaceScanEntry {
         directory: first.path().to_string_lossy().to_string(),
         depth: 2,
@@ -432,7 +394,7 @@ mod tests {
     let project = directory.path().join("repo");
     let _ = init_with_commit(&project);
 
-    let projects = scan_workspace_projects(vec![
+    let projects = scan_workspace_projects(&[
       WorkspaceScanEntry {
         directory: directory.path().to_string_lossy().to_string(),
         depth: 1,

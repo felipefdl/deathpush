@@ -1,11 +1,9 @@
-use std::sync::Mutex;
-
 use serde::Serialize;
-use tauri::{State, WebviewWindow};
 
-use crate::commands::repository::AppRepoState;
+use crate::core::Core;
 use crate::error::{Error, Result};
-use crate::pty::{PtySession, TerminalState};
+use crate::pty::PtySession;
+use crate::session::SessionId;
 use crate::util::sync_command;
 
 #[derive(Serialize)]
@@ -14,56 +12,75 @@ pub struct SpawnResult {
   pub shell: String,
 }
 
-#[tauri::command]
-pub async fn terminal_spawn(
-  cols: u16,
-  rows: u16,
-  shell_path: Option<String>,
-  shell_args: Option<String>,
-  window: WebviewWindow,
-  repo_state: State<'_, Mutex<AppRepoState>>,
-  terminal_state: State<'_, TerminalState>,
-) -> Result<SpawnResult> {
-  let cwd = {
-    let guard = repo_state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    guard
-      .get(window.label())
-      .and_then(|s| s.cli_root.clone())
-      .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| ".".to_string()).into())
-  };
-
-  let label = window.label().to_string();
-  let cwd_str = cwd.to_string_lossy();
-  let new_session = PtySession::spawn(window, &cwd_str, cols, rows, label, shell_path, shell_args)?;
-  let id = new_session.id;
-  let shell = new_session.shell_name.clone();
-
-  let mut sessions = terminal_state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  sessions.insert(id, new_session);
-  Ok(SpawnResult { id, shell })
-}
-
-#[tauri::command]
-pub async fn terminal_write(id: u64, data: String, state: State<'_, TerminalState>) -> Result<()> {
-  let sessions = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  let session = sessions.get(&id).ok_or(Error::Other("No terminal session".into()))?;
-  session.write_data(&data)
-}
-
-#[tauri::command]
-pub async fn terminal_resize(id: u64, cols: u16, rows: u16, state: State<'_, TerminalState>) -> Result<()> {
-  let sessions = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  if let Some(session) = sessions.get(&id) {
-    session.resize(cols, rows)?;
+impl Core {
+  pub fn terminal_spawn(
+    &self,
+    id: SessionId,
+    cols: u16,
+    rows: u16,
+    shell_path: Option<String>,
+    shell_args: Option<String>,
+  ) -> Result<SpawnResult> {
+    let cwd = self
+      .repo_root(id)
+      .unwrap_or_else(|_| std::env::var("HOME").unwrap_or_else(|_| ".".to_string()).into());
+    let cwd_str = cwd.to_string_lossy();
+    let session = PtySession::spawn(&cwd_str, cols, rows, id, shell_path, shell_args, self.hub.clone())?;
+    let terminal = session.id;
+    let shell = session.shell_name.clone();
+    let mut sessions = self.terminals.lock().map_err(|e| Error::Other(e.to_string()))?;
+    sessions.insert(terminal, session);
+    Ok(SpawnResult { id: terminal, shell })
   }
-  Ok(())
-}
 
-#[tauri::command]
-pub async fn terminal_kill(id: u64, state: State<'_, TerminalState>) -> Result<()> {
-  let mut sessions = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-  sessions.remove(&id);
-  Ok(())
+  pub fn terminal_write(&self, terminal: u64, data: &str) -> Result<()> {
+    let sessions = self.terminals.lock().map_err(|e| Error::Other(e.to_string()))?;
+    let session = sessions
+      .get(&terminal)
+      .ok_or(Error::Other("No terminal session".into()))?;
+    session.write_data(data)
+  }
+
+  pub fn terminal_resize(&self, terminal: u64, cols: u16, rows: u16) -> Result<()> {
+    let sessions = self.terminals.lock().map_err(|e| Error::Other(e.to_string()))?;
+    if let Some(session) = sessions.get(&terminal) {
+      session.resize(cols, rows)?;
+    }
+    Ok(())
+  }
+
+  pub fn terminal_kill(&self, terminal: u64) -> Result<()> {
+    let mut sessions = self.terminals.lock().map_err(|e| Error::Other(e.to_string()))?;
+    sessions.remove(&terminal);
+    Ok(())
+  }
+
+  pub fn terminal_foreground_process(&self, terminal: u64) -> Result<String> {
+    let (child_pid, shell_name) = {
+      let sessions = self.terminals.lock().map_err(|e| Error::Other(e.to_string()))?;
+      let session = sessions
+        .get(&terminal)
+        .ok_or(Error::Other("No terminal session".into()))?;
+      (session.child_pid, session.shell_name.clone())
+    };
+
+    Ok(get_foreground_process_name(child_pid, &shell_name))
+  }
+
+  pub fn terminals_have_active_process(&self) -> Result<bool> {
+    let snapshots: Vec<(u32, String)> = {
+      let sessions = self.terminals.lock().map_err(|e| Error::Other(e.to_string()))?;
+      sessions
+        .values()
+        .map(|session| (session.child_pid, session.shell_name.clone()))
+        .collect()
+    };
+    Ok(
+      snapshots
+        .iter()
+        .any(|(pid, shell)| get_foreground_process_name(*pid, shell) != *shell),
+    )
+  }
 }
 
 fn get_foreground_process_name(shell_pid: u32, shell_name: &str) -> String {
@@ -93,31 +110,4 @@ fn get_foreground_process_name(shell_pid: u32, shell_name: &str) -> String {
     .file_name()
     .map(|n| n.to_string_lossy().to_string())
     .unwrap_or(name)
-}
-
-#[tauri::command]
-pub async fn terminal_foreground_process(id: u64, state: State<'_, TerminalState>) -> Result<String> {
-  let (child_pid, shell_name) = {
-    let sessions = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    let session = sessions.get(&id).ok_or(Error::Other("No terminal session".into()))?;
-    (session.child_pid, session.shell_name.clone())
-  };
-
-  Ok(get_foreground_process_name(child_pid, &shell_name))
-}
-
-#[tauri::command]
-pub async fn terminals_have_active_process(state: State<'_, TerminalState>) -> Result<bool> {
-  let snapshots: Vec<(u32, String)> = {
-    let sessions = state.lock().map_err(|e| Error::Other(e.to_string()))?;
-    sessions
-      .values()
-      .map(|session| (session.child_pid, session.shell_name.clone()))
-      .collect()
-  };
-  Ok(
-    snapshots
-      .iter()
-      .any(|(pid, shell)| get_foreground_process_name(*pid, shell) != *shell),
-  )
 }
