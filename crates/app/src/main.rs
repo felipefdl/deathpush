@@ -1,134 +1,105 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-
-use deathpush_core::session::types::{Intent, IntentOutcome};
-use deathpush_core::{Core, CoreEvent, SessionId};
-use gpui_kit::component::Root;
-use gpui_kit::*;
-use tokio::sync::mpsc::UnboundedReceiver;
-
 mod actions;
 mod assets;
+mod cli_install;
 mod config;
 mod keymap;
 mod menus;
+mod open_requests;
+mod overlays;
+mod repo_placeholder;
+mod shell;
 mod theme;
+mod title_bar;
+mod welcome;
+mod window;
 mod zoom;
+
+use std::path::PathBuf;
+
+use deathpush_core::Core;
+use gpui_kit::*;
+
+use crate::open_requests::{OpenRequest, OpenRequests};
+use crate::window::{WindowRegistry, on_window_closed, open_shell_window};
 
 fn assets_dir() -> PathBuf {
   PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets")
 }
 
-struct Shell {
-  core: Arc<Core>,
-  session: SessionId,
-  title: SharedString,
-  status_events: usize,
-  error: Option<SharedString>,
-}
-
-impl Shell {
-  fn new(core: Arc<Core>, session: SessionId, events: UnboundedReceiver<CoreEvent>, cx: &mut Context<Self>) -> Self {
-    let shell = Self {
-      core,
-      session,
-      title: "DeathPush".into(),
-      status_events: 0,
-      error: None,
-    };
-    shell.listen(events, cx);
-    shell
-  }
-
-  fn listen(&self, mut events: UnboundedReceiver<CoreEvent>, cx: &mut Context<Self>) {
-    cx.spawn(async move |this, cx| {
-      while let Some(event) = events.recv().await {
-        let alive = this.update(cx, |this, cx| {
-          if matches!(event, CoreEvent::SessionStatus(_)) {
-            this.status_events += 1;
-            cx.notify();
-          }
-        });
-        if alive.is_err() {
-          break;
-        }
-      }
-    })
-    .detach();
-  }
-
-  fn open(&mut self, path: String, cx: &mut Context<Self>) {
-    let core = self.core.clone();
-    let session = self.session;
-    let task = {
-      let runtime = core.clone();
-      runtime.spawn(async move { core.session_intent(session, Intent::OpenRepository { path }).await })
-    };
-    cx.spawn(async move |this, cx| {
-      let result = task.await;
-      this
-        .update(cx, |this, cx| {
-          match result {
-            Ok(Ok(IntentOutcome::Snapshot { snapshot })) => {
-              this.title =
-                deathpush_core::ops::window_title(&snapshot.repo.root, snapshot.repo.head_branch.as_deref()).into();
-            }
-            Ok(Ok(other)) => this.error = Some(format!("unexpected outcome: {other:?}").into()),
-            Ok(Err(err)) => this.error = Some(err.to_string().into()),
-            Err(err) => this.error = Some(err.to_string().into()),
-          }
-          cx.notify();
-        })
-        .ok();
-    })
-    .detach();
-  }
-}
-
-impl Render for Shell {
-  fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-    div()
-      .flex()
-      .flex_col()
-      .gap_2()
-      .p_4()
-      .size_full()
-      .child(self.title.clone())
-      .child(format!("status events: {}", self.status_events))
-      .children(
-        self
-          .error
-          .clone()
-          .map(|error| div().text_color(rgb(0xf85149)).child(error)),
-      )
-  }
-}
-
 fn main() {
   tracing_subscriber::fmt::init();
   let core = Core::new(assets_dir()).expect("core failed to start");
-  let initial_path = std::env::args().nth(1).filter(|p| std::path::Path::new(p).is_dir());
-  gpui_kit::application().with_assets(assets::AppAssets).run(move |cx| {
+  let initial_path = std::env::args().nth(1).map(PathBuf::from).filter(|p| p.is_dir());
+  let mut requests = OpenRequests::new();
+  let rx = requests.rx.take().expect("receiver");
+  let url_tx = requests.tx.clone();
+  let reopen_tx = requests.tx.clone();
+
+  let app = gpui_kit::application()
+    .with_assets(assets::AppAssets)
+    .with_quit_mode(if cfg!(target_os = "macos") {
+      QuitMode::Explicit
+    } else {
+      QuitMode::LastWindowClosed
+    });
+  app.on_open_urls(move |urls| {
+    for request in OpenRequests::from_urls(&urls) {
+      let _ = url_tx.unbounded_send(request);
+    }
+  });
+  app.on_reopen(move |_cx| {
+    let _ = reopen_tx.unbounded_send(OpenRequest::NewWindow);
+  });
+
+  app.run(move |cx| {
     gpui_kit::init(cx);
     cx.text_system()
       .add_fonts(assets::font_files())
       .expect("bundled fonts load");
+    cx.set_app_identity("com.deathpush.app", "DeathPush");
     config::AppConfig::init(cx);
     theme::init(cx);
     cx.bind_keys(keymap::bindings());
+    let mut registry = WindowRegistry::default();
+    registry.core = Some(core.clone());
+    cx.set_global(registry);
     menus::refresh_menus(cx);
-    cx.on_action(|_: &actions::Quit, cx| cx.quit());
-    let core = core.clone();
+
+    cx.on_action(|_: &actions::Quit, cx| {
+      config::AppConfig::save_now(cx);
+      cx.quit();
+    });
+    cx.on_action(|_: &actions::Hide, cx| cx.hide());
+    cx.on_action(|_: &actions::HideOthers, cx| cx.hide_other_apps());
+    cx.on_action(|_: &actions::ShowAll, cx| cx.unhide_other_apps());
+    cx.on_action(|_: &actions::NewWindow, cx| {
+      open_shell_window(None, cx);
+    });
+    cx.on_window_closed(|cx, window_id| on_window_closed(window_id, cx))
+      .detach();
+
+    if !cfg!(target_os = "macos") {
+      cx.register_url_scheme("deathpush").detach();
+    }
+
+    cx.activate(true);
+    open_shell_window(initial_path.clone(), cx);
+
+    let mut rx = rx;
     cx.spawn(async move |cx| {
-      cx.open_window(WindowOptions::default(), |window, cx| {
-        let (session, events) = core.open_session();
-        let view = cx.new(|cx| Shell::new(core.clone(), session, events, cx));
-        if let Some(path) = initial_path.clone() {
-          view.update(cx, |shell, cx| shell.open(path, cx));
-        }
-        cx.new(|cx| Root::new(view, window, cx))
-      })
-      .expect("failed to open window");
+      use futures::StreamExt;
+      while let Some(request) = rx.next().await {
+        cx.update(|cx| match request {
+          OpenRequest::Repository(path) => {
+            open_shell_window(Some(path), cx);
+          }
+          OpenRequest::NewWindow => {
+            if cx.windows().is_empty() {
+              open_shell_window(None, cx);
+            }
+          }
+        });
+      }
     })
     .detach();
   });
