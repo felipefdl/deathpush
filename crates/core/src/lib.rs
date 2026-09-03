@@ -1,5 +1,6 @@
 //! DeathPush core: git, sessions, watcher, terminal state. No UI dependency.
 
+pub mod config;
 pub mod content_hash;
 pub mod core;
 pub mod error;
