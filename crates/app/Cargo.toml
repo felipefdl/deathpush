@@ -8,6 +8,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 default-run = "deathpush"
+build = "build.rs"
 
 [[bin]]
 name = "deathpush"
@@ -16,9 +17,13 @@ path = "src/main.rs"
 [dependencies]
 deathpush-core.workspace = true
 gpui-kit.workspace = true
+rust-embed.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }

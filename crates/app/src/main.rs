@@ -7,6 +7,8 @@ use gpui_kit::component::Root;
 use gpui_kit::*;
 use tokio::sync::mpsc::UnboundedReceiver;
 
+mod assets;
+
 actions!(deathpush, [Quit]);
 
 fn assets_dir() -> PathBuf {
@@ -102,8 +104,11 @@ fn main() {
   tracing_subscriber::fmt::init();
   let core = Core::new(assets_dir()).expect("core failed to start");
   let initial_path = std::env::args().nth(1).filter(|p| std::path::Path::new(p).is_dir());
-  gpui_kit::application().run(move |cx| {
+  gpui_kit::application().with_assets(assets::AppAssets).run(move |cx| {
     gpui_kit::init(cx);
+    cx.text_system()
+      .add_fonts(assets::font_files())
+      .expect("bundled fonts load");
     cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
     cx.on_action(|_: &Quit, cx| cx.quit());
     let core = core.clone();

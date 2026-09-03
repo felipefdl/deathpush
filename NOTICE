@@ -10,3 +10,9 @@ trademarks of Felipe Lima and are NOT licensed under the Apache License 2.0.
 You may not use the DeathPush name, logo, or branding to promote or endorse
 products derived from this software without prior written permission from
 Felipe Lima.
+
+Third-party assets bundled with the app:
+
+- MesloLGS DZ Nerd Font Mono (assets/fonts/nerd-font): Apache License 2.0, https://github.com/ryanoasis/nerd-fonts
+- Codicons (assets/icons): CC-BY-4.0, https://github.com/microsoft/vscode-codicons
+- tm-themes (assets/themes): MIT, https://github.com/shikijs/textmate-grammars-themes
