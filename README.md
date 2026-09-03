@@ -27,7 +27,7 @@ DeathPush is a standalone desktop Git client for people who like the VS Code Sou
 ## What You Can Do
 
 - Track changes across staged, unstaged, and untracked files.
-- Diff files inline or side by side with Pierre views.
+- Diff files inline or side by side.
 - Diff images side-by-side (PNG, JPG, GIF, WebP, AVIF, SVG, and more).
 - Stage and unstage files. Discard, commit, and amend without losing momentum.
 - Push, pull, fetch, checkout, and create branches quickly.
@@ -79,7 +79,7 @@ DeathPush is built with a hybrid Git engine:
 
 - `git2` for fast read operations (status, diff, branches, log, tags).
 - Native `git` CLI for write operations (commit, push/pull, stash, checkout, reset, clone), so hooks, signing, credentials, SSH config, and LFS keep working as expected.
-- Pierre diffs with Shiki highlighting.
+- Diffs come from git2 with tree-sitter highlighting.
 - Auto-update support: get notified and install new versions without leaving the app.
 
 Stack: GPUI (Rust) through gpui-kit, git2 and the git CLI, libghostty-vt for the terminal.

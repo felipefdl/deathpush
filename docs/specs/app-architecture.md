@@ -36,10 +36,12 @@ Core methods run on core's tokio runtime through `spawn`. The join handle is a p
 
 Every former emit becomes a `CoreEvent` on an async channel per session:
 
-- `SessionStatus` from the repository runtime, carrying status patches and, after a refs or stash invalidation, the refreshed lists as extras
-- `WatcherError` when the file watcher fails to start
-- `GitOutput` lines from the CLI runner, feeding the Output tab
-- `TerminalUpdated(PaneId)` and `TerminalExited(PaneId)` from pane threads
+- `SessionStatus`: a status patch from the repository runtime, carrying refs and stash refreshes as extras after an invalidation
+- `PathsChanged`: filesystem paths the watcher reported
+- `WatcherError`: the file watcher failed to start
+- `GitCommand`: one git CLI invocation with its duration, feeding the Output tab
+- `TerminalData`: raw bytes from a PTY, until the terminal module replaces it with VT snapshots
+- `TerminalExited`: the PTY child exited
 
 ### Terminal module
 
