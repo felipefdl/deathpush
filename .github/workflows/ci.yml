@@ -38,6 +38,9 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'windows-11-arm' && 'aarch64-pc-windows-msvc' || '' }}
           components: rustfmt, clippy
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
       - uses: swatinem/rust-cache@v2
       - name: Install Linux deps
         if: startsWith(matrix.platform, 'ubuntu')
