@@ -1,8 +1,6 @@
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
-
-use tauri::{AppHandle, Emitter};
 
 use crate::error::{Error, Result};
 use crate::types::StashEntry;
@@ -16,30 +14,31 @@ fn map_git_not_found(err: std::io::Error) -> Error {
   }
 }
 
-static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+pub type GitCommandSink = Arc<dyn Fn(GitCommandEvent) + Send + Sync>;
 
-pub fn set_app_handle(handle: AppHandle) {
-  let _ = APP_HANDLE.set(handle);
+static COMMAND_SINK: OnceLock<GitCommandSink> = OnceLock::new();
+
+/// Installed once by `Core::new`. Later calls are ignored.
+pub fn set_command_sink(sink: GitCommandSink) {
+  let _ = COMMAND_SINK.set(sink);
 }
 
-#[derive(serde::Serialize, Clone)]
-struct GitCommandEvent {
-  command: String,
-  duration_ms: u64,
-  timestamp: String,
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommandEvent {
+  pub command: String,
+  pub duration_ms: u64,
+  pub timestamp: String,
 }
 
 fn emit_git_command(args_str: &str, duration_ms: u64) {
-  if let Some(app) = APP_HANDLE.get() {
+  if let Some(sink) = COMMAND_SINK.get() {
     let now = chrono::Local::now();
-    let _ = app.emit(
-      "git:command",
-      GitCommandEvent {
-        command: format!("git {args_str}"),
-        duration_ms,
-        timestamp: now.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
-      },
-    );
+    sink(GitCommandEvent {
+      command: format!("git {args_str}"),
+      duration_ms,
+      timestamp: now.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+    });
   }
 }
 

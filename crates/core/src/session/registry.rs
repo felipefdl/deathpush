@@ -11,6 +11,7 @@ use crate::types::{
   TagEntry,
 };
 
+use super::SessionId;
 use super::policy::derive_actions;
 use super::types::{
   COMMIT_LOG_PAGE, FileSelection, SessionActions, SessionRepo, SessionScm, SessionSelection, SessionSnapshot,
@@ -48,7 +49,7 @@ impl SessionState {
 
 pub struct SessionHandle<'a> {
   registry: &'a SessionRegistry,
-  label: String,
+  id: SessionId,
   generation: u64,
 }
 
@@ -64,7 +65,7 @@ impl SessionAccess for SessionState {
 
 impl SessionHandle<'_> {
   pub fn with_mut<T>(&mut self, f: impl FnOnce(&mut SessionState) -> T) -> Result<T> {
-    self.registry.with_mut(&self.label, |state| {
+    self.registry.with_mut(self.id, |state| {
       if state.session_generation != self.generation {
         Err(Error::Other("session generation mismatch".into()))
       } else {
@@ -96,19 +97,19 @@ impl SessionAccess for SessionHandle<'_> {
 
 #[derive(Default)]
 pub struct SessionRegistry {
-  windows: Mutex<HashMap<String, SessionState>>,
-  intent_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+  windows: Mutex<HashMap<SessionId, SessionState>>,
+  intent_locks: Mutex<HashMap<SessionId, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl SessionRegistry {
-  pub fn reset(&self, label: &str) {
+  pub fn reset(&self, id: SessionId) {
     if let Ok(mut map) = self.windows.lock() {
       let session_generation = map
-        .get(label)
+        .get(&id)
         .map(|state| state.session_generation.saturating_add(1))
         .unwrap_or(0);
       map.insert(
-        label.to_string(),
+        id,
         SessionState {
           session_generation,
           ..SessionState::default()
@@ -117,45 +118,45 @@ impl SessionRegistry {
     }
   }
 
-  pub fn remove(&self, label: &str) {
+  pub fn remove(&self, id: SessionId) {
     if let Ok(mut map) = self.windows.lock() {
-      map.remove(label);
+      map.remove(&id);
     }
     let mut locks = self.intent_locks.lock().unwrap_or_else(|err| err.into_inner());
-    locks.remove(label);
+    locks.remove(&id);
   }
 
-  pub fn with_mut<T>(&self, label: &str, callback: impl FnOnce(&mut SessionState) -> T) -> Result<T> {
+  pub fn with_mut<T>(&self, id: SessionId, callback: impl FnOnce(&mut SessionState) -> T) -> Result<T> {
     let mut map = self.windows.lock().map_err(|err| Error::Other(err.to_string()))?;
-    let state = map.entry(label.to_string()).or_default();
+    let state = map.entry(id).or_default();
     Ok(callback(state))
   }
 
-  pub fn intent_lock(&self, label: &str) -> Arc<tokio::sync::Mutex<()>> {
+  pub fn intent_lock(&self, id: SessionId) -> Arc<tokio::sync::Mutex<()>> {
     let mut map = self.intent_locks.lock().unwrap_or_else(|err| err.into_inner());
     map
-      .entry(label.to_string())
+      .entry(id)
       .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
       .clone()
   }
 
-  pub fn handle(&self, label: &str) -> Result<SessionHandle<'_>> {
-    let generation = self.with_mut(label, |state| state.session_generation)?;
+  pub fn handle(&self, id: SessionId) -> Result<SessionHandle<'_>> {
+    let generation = self.with_mut(id, |state| state.session_generation)?;
     Ok(SessionHandle {
       registry: self,
-      label: label.to_string(),
+      id,
       generation,
     })
   }
 
   pub fn status_event(
     &self,
-    label: &str,
+    id: SessionId,
     status: &RepositoryStatus,
     phase: StatusPhase,
     patch: &StatusPatch,
   ) -> Result<SessionStatusEvent> {
-    self.with_mut(label, |state| {
+    self.with_mut(id, |state| {
       let head_changed = patch
         .metadata
         .as_ref()
@@ -356,7 +357,7 @@ mod tests {
     let root = directory.path().to_string_lossy().into_owned();
     let registry = SessionRegistry::default();
     registry
-      .with_mut("w", |state| {
+      .with_mut(SessionId(1), |state| {
         state.cached_head = Some(oid.clone());
         state.last_commit = Some(LastCommitInfo {
           short_id: "old".into(),
@@ -367,7 +368,7 @@ mod tests {
       .unwrap();
     let event = registry
       .status_event(
-        "w",
+        SessionId(1),
         &status(&root, &oid),
         StatusPhase::Settled,
         &patch(&root, Some(&oid)),
@@ -385,7 +386,7 @@ mod tests {
     let registry = SessionRegistry::default();
     let event = registry
       .status_event(
-        "w",
+        SessionId(1),
         &status(&root, &oid),
         StatusPhase::Settled,
         &patch(&root, Some(&oid)),
@@ -408,7 +409,7 @@ mod tests {
     let root = directory.path().to_string_lossy().into_owned();
     let registry = SessionRegistry::default();
     registry
-      .with_mut("w", |state| {
+      .with_mut(SessionId(1), |state| {
         state.stashes = vec![crate::types::StashEntry {
           index: 0,
           message: "keep me".into(),
@@ -417,7 +418,7 @@ mod tests {
       .unwrap();
     let event = registry
       .status_event(
-        "w",
+        SessionId(1),
         &status(&root, &oid),
         StatusPhase::Settled,
         &patch(&root, Some(&oid)),
@@ -436,7 +437,12 @@ mod tests {
     let root = directory.path().to_string_lossy().into_owned();
     let registry = SessionRegistry::default();
     let event = registry
-      .status_event("w", &status(&root, &oid), StatusPhase::Settled, &patch(&root, None))
+      .status_event(
+        SessionId(1),
+        &status(&root, &oid),
+        StatusPhase::Settled,
+        &patch(&root, None),
+      )
       .unwrap();
     assert!(event.extras.is_none());
   }
@@ -455,14 +461,14 @@ mod tests {
     let root = directory.path().to_string_lossy().into_owned();
     let registry = SessionRegistry::default();
     registry
-      .with_mut("w", |state| {
+      .with_mut(SessionId(1), |state| {
         state.session_generation = 2;
         state.session_revision = 9;
       })
       .unwrap();
     let event = registry
       .status_event(
-        "w",
+        SessionId(1),
         &status(&root, &oid),
         StatusPhase::Settled,
         &patch(&root, Some(&oid)),
@@ -481,7 +487,7 @@ mod tests {
     let root = directory.path().to_string_lossy().into_owned();
     let registry = SessionRegistry::default();
     registry
-      .with_mut("w", |state| {
+      .with_mut(SessionId(1), |state| {
         state.session_generation = 5;
         state.session_revision = 4;
         state.cached_head = Some(oid.clone());
@@ -492,7 +498,7 @@ mod tests {
         });
       })
       .unwrap();
-    let mut handle = registry.handle("w").unwrap();
+    let mut handle = registry.handle(SessionId(1)).unwrap();
     let snapshot = handle
       .snapshot(&status(&root, &oid), StatusPhase::Settled, 0, 0)
       .unwrap();
@@ -509,7 +515,7 @@ mod tests {
     let root = directory.path().to_string_lossy().into_owned();
     let registry = SessionRegistry::default();
     registry
-      .with_mut("w", |state| {
+      .with_mut(SessionId(1), |state| {
         state.session_generation = 2;
         state.session_revision = 5;
       })
@@ -518,7 +524,7 @@ mod tests {
     patch.generation = 4;
     patch.revision = 9;
     let event = registry
-      .status_event("w", &status(&root, &oid), StatusPhase::Settled, &patch)
+      .status_event(SessionId(1), &status(&root, &oid), StatusPhase::Settled, &patch)
       .unwrap();
     assert_eq!(event.status_generation, 4);
     assert_eq!(event.status_revision, 9);
@@ -531,7 +537,7 @@ mod tests {
     let (directory, oid) = init_repo();
     let root = directory.path().to_string_lossy().into_owned();
     let registry = SessionRegistry::default();
-    let mut handle = registry.handle("w").unwrap();
+    let mut handle = registry.handle(SessionId(1)).unwrap();
     let snapshot = handle
       .snapshot(&status(&root, &oid), StatusPhase::Settled, 4, 9)
       .unwrap();
@@ -558,15 +564,15 @@ mod tests {
   fn reset_advances_generation_and_clears_revision() {
     let registry = SessionRegistry::default();
     registry
-      .with_mut("w", |state| {
+      .with_mut(SessionId(1), |state| {
         state.session_generation = 3;
         state.session_revision = 9;
         state.commit_message = "keep".into();
       })
       .unwrap();
-    registry.reset("w");
+    registry.reset(SessionId(1));
     registry
-      .with_mut("w", |state| {
+      .with_mut(SessionId(1), |state| {
         assert_eq!(state.session_generation, 4);
         assert_eq!(state.session_revision, 0);
         assert_eq!(state.commit_message, "");
@@ -577,9 +583,9 @@ mod tests {
   #[test]
   fn reset_unknown_window_starts_at_generation_zero() {
     let registry = SessionRegistry::default();
-    registry.reset("fresh");
+    registry.reset(SessionId(2));
     registry
-      .with_mut("fresh", |state| {
+      .with_mut(SessionId(2), |state| {
         assert_eq!(state.session_generation, 0);
         assert_eq!(state.session_revision, 0);
       })
@@ -589,9 +595,11 @@ mod tests {
   #[tokio::test]
   async fn reset_during_handle_use_does_not_commit() {
     let registry = SessionRegistry::default();
-    registry.with_mut("w", |s| s.commit_message = "old".into()).unwrap();
-    let mut handle = registry.handle("w").unwrap();
-    registry.reset("w");
+    registry
+      .with_mut(SessionId(1), |s| s.commit_message = "old".into())
+      .unwrap();
+    let mut handle = registry.handle(SessionId(1)).unwrap();
+    registry.reset(SessionId(1));
     let err = handle
       .with_mut(|s| {
         s.commit_message = "from-old-gen".into();
@@ -599,7 +607,7 @@ mod tests {
       .unwrap_err();
     assert!(err.to_string().contains("generation"), "{err}");
     registry
-      .with_mut("w", |s| {
+      .with_mut(SessionId(1), |s| {
         assert_eq!(s.commit_message, "");
         assert_eq!(s.session_generation, 1);
       })
@@ -609,20 +617,24 @@ mod tests {
   #[tokio::test]
   async fn overlapping_intents_on_one_window_serialize() {
     let registry = std::sync::Arc::new(SessionRegistry::default());
-    registry.with_mut("w", |s| s.commit_message = "before".into()).unwrap();
-    let lock = registry.intent_lock("w");
+    registry
+      .with_mut(SessionId(1), |s| s.commit_message = "before".into())
+      .unwrap();
+    let lock = registry.intent_lock(SessionId(1));
     let guard = lock.lock().await;
     let registry_b = registry.clone();
     let (started_tx, started_rx) = tokio::sync::oneshot::channel();
     let task = tokio::spawn(async move {
-      let lock = registry_b.intent_lock("w");
+      let lock = registry_b.intent_lock(SessionId(1));
       started_tx.send(()).ok();
       let _guard = lock.lock().await;
-      registry_b.with_mut("w", |s| s.commit_message.clone()).unwrap()
+      registry_b.with_mut(SessionId(1), |s| s.commit_message.clone()).unwrap()
     });
     started_rx.await.unwrap();
     tokio::task::yield_now().await;
-    registry.with_mut("w", |s| s.commit_message = "after-a".into()).unwrap();
+    registry
+      .with_mut(SessionId(1), |s| s.commit_message = "after-a".into())
+      .unwrap();
     drop(guard);
     let seen = task.await.unwrap();
     assert_eq!(seen, "after-a");
@@ -631,8 +643,8 @@ mod tests {
   #[tokio::test]
   async fn two_windows_do_not_share_an_intent_lock() {
     let registry = SessionRegistry::default();
-    let a = registry.intent_lock("a");
-    let b = registry.intent_lock("b");
+    let a = registry.intent_lock(SessionId(1));
+    let b = registry.intent_lock(SessionId(2));
     assert!(!std::sync::Arc::ptr_eq(&a, &b));
   }
 
@@ -641,10 +653,10 @@ mod tests {
     let (directory, oid) = init_repo();
     let root = directory.path().to_string_lossy().into_owned();
     let registry = SessionRegistry::default();
-    let lock = registry.intent_lock("w");
+    let lock = registry.intent_lock(SessionId(1));
     let _guard = lock.lock().await;
     let event = registry.status_event(
-      "w",
+      SessionId(1),
       &status(&root, &oid),
       StatusPhase::Settled,
       &patch(&root, Some(&oid)),
@@ -662,9 +674,9 @@ mod tests {
   #[tokio::test]
   async fn remove_drops_intent_lock() {
     let registry = SessionRegistry::default();
-    let first = registry.intent_lock("w");
-    registry.remove("w");
-    let second = registry.intent_lock("w");
+    let first = registry.intent_lock(SessionId(1));
+    registry.remove(SessionId(1));
+    let second = registry.intent_lock(SessionId(1));
     assert!(!std::sync::Arc::ptr_eq(&first, &second));
   }
 }

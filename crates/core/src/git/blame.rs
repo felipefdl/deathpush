@@ -106,11 +106,12 @@ fn parse_porcelain_blame(output: &str) -> Vec<BlameLineGroup> {
 
     let (author_name, author_email, author_date, summary) = commits.get(commit_id).cloned().unwrap_or_default();
 
-    if let Some(last) = groups.last_mut() {
-      if last.commit_id == *commit_id && last.end_line + 1 == *line_num {
-        last.end_line = *line_num;
-        continue;
-      }
+    if let Some(last) = groups.last_mut()
+      && last.commit_id == *commit_id
+      && last.end_line + 1 == *line_num
+    {
+      last.end_line = *line_num;
+      continue;
     }
 
     groups.push(BlameLineGroup {

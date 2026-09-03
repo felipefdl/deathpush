@@ -7,52 +7,52 @@ pub fn parse_unified_diff(diff_output: &str) -> Vec<DiffHunk> {
   let mut i = 0;
 
   while i < lines.len() {
-    if lines[i].starts_with("@@") {
-      if let Some(hunk) = parse_hunk_header(lines[i]) {
-        let mut hunk = hunk;
-        let mut old_line = hunk.old_start;
-        let mut new_line = hunk.new_start;
-        i += 1;
+    if lines[i].starts_with("@@")
+      && let Some(hunk) = parse_hunk_header(lines[i])
+    {
+      let mut hunk = hunk;
+      let mut old_line = hunk.old_start;
+      let mut new_line = hunk.new_start;
+      i += 1;
 
-        while i < lines.len() && !lines[i].starts_with("@@") && !lines[i].starts_with("diff --git") {
-          let line = lines[i];
-          if let Some(content) = line.strip_prefix('+') {
-            hunk.lines.push(DiffLine {
-              content: content.to_string(),
-              line_type: "add".to_string(),
-              old_line_number: None,
-              new_line_number: Some(new_line),
-            });
-            new_line += 1;
-          } else if let Some(content) = line.strip_prefix('-') {
-            hunk.lines.push(DiffLine {
-              content: content.to_string(),
-              line_type: "remove".to_string(),
-              old_line_number: Some(old_line),
-              new_line_number: None,
-            });
-            old_line += 1;
-          } else if line.starts_with(' ') || line.is_empty() {
-            let content = if line.is_empty() { "" } else { &line[1..] };
-            hunk.lines.push(DiffLine {
-              content: content.to_string(),
-              line_type: "context".to_string(),
-              old_line_number: Some(old_line),
-              new_line_number: Some(new_line),
-            });
-            old_line += 1;
-            new_line += 1;
-          } else {
-            // No newline at end of file marker or other non-diff line
-            i += 1;
-            continue;
-          }
+      while i < lines.len() && !lines[i].starts_with("@@") && !lines[i].starts_with("diff --git") {
+        let line = lines[i];
+        if let Some(content) = line.strip_prefix('+') {
+          hunk.lines.push(DiffLine {
+            content: content.to_string(),
+            line_type: "add".to_string(),
+            old_line_number: None,
+            new_line_number: Some(new_line),
+          });
+          new_line += 1;
+        } else if let Some(content) = line.strip_prefix('-') {
+          hunk.lines.push(DiffLine {
+            content: content.to_string(),
+            line_type: "remove".to_string(),
+            old_line_number: Some(old_line),
+            new_line_number: None,
+          });
+          old_line += 1;
+        } else if line.starts_with(' ') || line.is_empty() {
+          let content = if line.is_empty() { "" } else { &line[1..] };
+          hunk.lines.push(DiffLine {
+            content: content.to_string(),
+            line_type: "context".to_string(),
+            old_line_number: Some(old_line),
+            new_line_number: Some(new_line),
+          });
+          old_line += 1;
+          new_line += 1;
+        } else {
+          // No newline at end of file marker or other non-diff line
           i += 1;
+          continue;
         }
-
-        hunks.push(hunk);
-        continue;
+        i += 1;
       }
+
+      hunks.push(hunk);
+      continue;
     }
     i += 1;
   }

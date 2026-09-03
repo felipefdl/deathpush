@@ -98,11 +98,11 @@ impl ShellEnvResolver {
       .worker
       .lock()
       .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(worker) = worker_slot.take() {
-      if worker.join().is_err() {
-        tracing::warn!("shell environment resolver thread panicked, using inherited env");
-        let _ = self.state.resolution.set(Resolution::InheritedFallback);
-      }
+    if let Some(worker) = worker_slot.take()
+      && worker.join().is_err()
+    {
+      tracing::warn!("shell environment resolver thread panicked, using inherited env");
+      let _ = self.state.resolution.set(Resolution::InheritedFallback);
     }
     drop(worker_slot);
 
@@ -126,10 +126,10 @@ pub(crate) fn wait_for_resolved_env_blocking() -> Option<&'static HashMap<String
     return resolved;
   }
 
-  if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-    if matches!(runtime.runtime_flavor(), tokio::runtime::RuntimeFlavor::MultiThread) {
-      return tokio::task::block_in_place(|| resolver.join_worker());
-    }
+  if let Ok(runtime) = tokio::runtime::Handle::try_current()
+    && matches!(runtime.runtime_flavor(), tokio::runtime::RuntimeFlavor::MultiThread)
+  {
+    return tokio::task::block_in_place(|| resolver.join_worker());
   }
 
   resolver.join_worker()
@@ -317,6 +317,7 @@ mod tests {
   }
 
   #[tokio::test]
+  #[allow(clippy::await_holding_lock)]
   async fn shell_env_resolves_in_background_with_inherited_fallback() {
     let _lock = SHELL_ENV_TEST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let fake_command = FakeCommandGuard::set("sleep 30");

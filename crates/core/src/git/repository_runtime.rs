@@ -6,9 +6,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use nucleo_matcher::pattern::{Atom, AtomKind, CaseMatching, Normalization};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
-use tauri::{Emitter, Manager, WebviewWindow};
+use std::sync::Weak;
 
 use crate::error::{Error, Result};
+use crate::events::{CoreEvent, EventHub};
 use crate::git::branch::list_branches;
 use crate::git::invalidation::GitInvalidation;
 use crate::git::log::{get_commit_log, last_commit_info};
@@ -17,6 +18,7 @@ use crate::git::status::StatusScope;
 use crate::git::status_coordinator::StatusCoordinator;
 use crate::git::tag::list_tags;
 use crate::git::watcher::{self, WatcherHandle, WatcherMessage};
+use crate::session::SessionId;
 use crate::session::SessionRegistry;
 use crate::session::types::{COMMIT_LOG_PAGE, SessionStatusExtras};
 use crate::types::{FuzzyFileResult, PathsChanged, RepositoryStatus, StashEntry, StatusPatch, StatusPhase};
@@ -147,8 +149,16 @@ struct Inflight {
 #[derive(Default)]
 struct RegistryState {
   runtimes: HashMap<PathBuf, Arc<RepositoryRuntime>>,
-  windows: HashMap<String, PathBuf>,
+  windows: HashMap<SessionId, PathBuf>,
   inflight: HashMap<PathBuf, Inflight>,
+}
+
+/// What runtime callbacks need to reach sessions without a UI handle.
+#[derive(Clone)]
+pub struct RuntimeContext {
+  pub hub: Arc<EventHub>,
+  pub sessions: Arc<SessionRegistry>,
+  pub registry: Weak<RepositoryRuntimeRegistry>,
 }
 
 #[derive(Default)]
@@ -157,30 +167,40 @@ pub struct RepositoryRuntimeRegistry {
 }
 
 impl RepositoryRuntimeRegistry {
-  pub fn open_for_window(&self, label: &str, path: &Path, window: &WebviewWindow) -> Result<PathBuf> {
-    let handle = window.app_handle().clone();
+  pub fn open_for_session(
+    self: &Arc<Self>,
+    id: SessionId,
+    path: &Path,
+    hub: Arc<EventHub>,
+    sessions: Arc<SessionRegistry>,
+  ) -> Result<PathBuf> {
+    let ctx = RuntimeContext {
+      hub,
+      sessions,
+      registry: Arc::downgrade(self),
+    };
     self.open_with(
-      label,
+      id,
       path,
       move |root, coordinator, sink| {
-        let patch_handle = handle.clone();
-        let paths_handle = handle.clone();
+        let patch_ctx = ctx.clone();
+        let paths_ctx = ctx.clone();
+        let git_ctx = ctx.clone();
         let patch_root = root.to_path_buf();
         let paths_root = root.to_path_buf();
-        let coord = coordinator.clone();
-        let git_handle = handle.clone();
         let git_root = root.to_path_buf();
+        let coord = coordinator.clone();
         coordinator.bind_git_invalidation(Arc::new(move |kind| {
-          apply_git_list_invalidation(&git_handle, &git_root, kind);
+          apply_git_list_invalidation(&git_ctx, &git_root, kind);
         }));
         coordinator.bind_emitters(
           Arc::new(move |patch: StatusPatch| {
             let status = coord.snapshot();
             let phase = coord.snapshot_cursor().phase;
-            emit_session_status(&patch_handle, &patch_root, &status, phase, &patch);
+            emit_session_status(&patch_ctx, &patch_root, &status, phase, &patch);
           }),
           Arc::new(move |paths: PathsChanged| {
-            emit_to_runtime_windows(&paths_handle, &paths_root, "repository:paths-changed", &paths);
+            emit_to_root_sessions(&paths_ctx, &paths_root, CoreEvent::PathsChanged(paths));
           }),
         );
 
@@ -188,30 +208,30 @@ impl RepositoryRuntimeRegistry {
           Ok(watcher) => Some(watcher),
           Err(err) => {
             tracing::warn!("failed to start watcher: {:?}", err);
-            let _ = handle.emit(
-              "watcher:error",
-              format!("File watching unavailable: {}. Changes won't auto-refresh.", err),
-            );
+            ctx.hub.broadcast(CoreEvent::WatcherError(format!(
+              "File watching unavailable: {}. Changes won't auto-refresh.",
+              err
+            )));
             None
           }
         }
       },
       || {},
     )?;
-    self.root_for_window(label).ok_or(Error::NoRepository)
+    self.root_for_session(id).ok_or(Error::NoRepository)
   }
 
-  pub fn root_for_window(&self, label: &str) -> Option<PathBuf> {
-    self.state.lock().ok()?.windows.get(label).cloned()
+  pub fn root_for_session(&self, id: SessionId) -> Option<PathBuf> {
+    self.state.lock().ok()?.windows.get(&id).cloned()
   }
 
-  pub fn runtime_for_window(&self, label: &str) -> Option<Arc<RepositoryRuntime>> {
+  pub fn runtime_for_session(&self, id: SessionId) -> Option<Arc<RepositoryRuntime>> {
     let state = self.state.lock().ok()?;
-    let root = state.windows.get(label)?;
+    let root = state.windows.get(&id)?;
     state.runtimes.get(root).cloned()
   }
 
-  pub fn window_labels_for_root(&self, root: &Path) -> Vec<String> {
+  pub fn sessions_for_root(&self, root: &Path) -> Vec<SessionId> {
     let Ok(state) = self.state.lock() else {
       return Vec::new();
     };
@@ -219,7 +239,7 @@ impl RepositoryRuntimeRegistry {
       .windows
       .iter()
       .filter(|(_, window_root)| window_root.as_path() == root)
-      .map(|(label, _)| label.clone())
+      .map(|(id, _)| *id)
       .collect()
   }
 
@@ -227,16 +247,16 @@ impl RepositoryRuntimeRegistry {
     self.state.lock().ok()?.runtimes.get(root).cloned()
   }
 
-  pub fn with_runtime<T>(&self, label: &str, callback: impl FnOnce(&RepositoryRuntime) -> Result<T>) -> Result<T> {
-    let runtime = self.runtime_for_window(label).ok_or(Error::NoRepository)?;
+  pub fn with_runtime<T>(&self, id: SessionId, callback: impl FnOnce(&RepositoryRuntime) -> Result<T>) -> Result<T> {
+    let runtime = self.runtime_for_session(id).ok_or(Error::NoRepository)?;
     callback(&runtime)
   }
 
-  pub fn remove_window(&self, label: &str) {
+  pub fn remove_session(&self, id: SessionId) {
     let Ok(mut state) = self.state.lock() else {
       return;
     };
-    let Some(root) = state.windows.remove(label) else {
+    let Some(root) = state.windows.remove(&id) else {
       return;
     };
     if !state.windows.values().any(|window_root| window_root == &root) {
@@ -246,7 +266,7 @@ impl RepositoryRuntimeRegistry {
 
   fn open_with(
     &self,
-    label: &str,
+    id: SessionId,
     path: &Path,
     start_watcher: impl FnOnce(&Path, Arc<StatusCoordinator>, mpsc::SyncSender<WatcherMessage>) -> Option<WatcherHandle>,
     on_inflight: impl FnOnce(),
@@ -257,7 +277,7 @@ impl RepositoryRuntimeRegistry {
     let slot = {
       let mut state = self.state.lock().map_err(|err| Error::Other(err.to_string()))?;
       if let Some(runtime) = state.runtimes.get(&root).cloned() {
-        Self::bind_window(&mut state, label, &root);
+        Self::bind_session(&mut state, id, &root);
         return Ok(runtime);
       }
       let inflight = state.inflight.entry(root.clone()).or_insert_with(|| Inflight {
@@ -288,7 +308,7 @@ impl RepositoryRuntimeRegistry {
 
     let mut state = self.state.lock().map_err(|err| Error::Other(err.to_string()))?;
     state.runtimes.entry(root.clone()).or_insert_with(|| runtime.clone());
-    Self::bind_window(&mut state, label, &root);
+    Self::bind_session(&mut state, id, &root);
     if let Some(current) = state.inflight.get_mut(&root)
       && Arc::ptr_eq(&current.slot, &slot)
     {
@@ -300,8 +320,8 @@ impl RepositoryRuntimeRegistry {
     Ok(runtime)
   }
 
-  fn bind_window(state: &mut RegistryState, label: &str, root: &Path) {
-    let previous_root = state.windows.insert(label.to_string(), root.to_path_buf());
+  fn bind_session(state: &mut RegistryState, id: SessionId, root: &Path) {
+    let previous_root = state.windows.insert(id, root.to_path_buf());
     if let Some(previous_root) = previous_root
       && previous_root != root
       && !state.windows.values().any(|window_root| window_root == &previous_root)
@@ -311,27 +331,27 @@ impl RepositoryRuntimeRegistry {
   }
 
   #[cfg(test)]
-  fn open_for_window_with(
+  fn open_for_session_with(
     &self,
-    label: &str,
+    id: SessionId,
     path: &Path,
     start_watcher: impl FnOnce(&Path) -> Option<WatcherHandle>,
   ) -> Result<PathBuf> {
     self
-      .open_with(label, path, |root, _, _| start_watcher(root), || {})
+      .open_with(id, path, |root, _, _| start_watcher(root), || {})
       .map(|runtime| runtime.root.clone())
   }
 
   #[cfg(test)]
-  fn open_for_window_with_inflight(
+  fn open_for_session_with_inflight(
     &self,
-    label: &str,
+    id: SessionId,
     path: &Path,
     start_watcher: impl FnOnce(&Path) -> Option<WatcherHandle>,
     on_inflight: impl FnOnce(),
   ) -> Result<PathBuf> {
     self
-      .open_with(label, path, |root, _, _| start_watcher(root), on_inflight)
+      .open_with(id, path, |root, _, _| start_watcher(root), on_inflight)
       .map(|runtime| runtime.root.clone())
   }
 
@@ -345,70 +365,54 @@ impl RepositoryRuntimeRegistry {
 }
 
 fn emit_session_status(
-  handle: &tauri::AppHandle,
+  ctx: &RuntimeContext,
   root: &Path,
   status: &RepositoryStatus,
   phase: StatusPhase,
   patch: &StatusPatch,
 ) {
-  let Some(sessions) = handle.try_state::<SessionRegistry>() else {
+  let Some(registry) = ctx.registry.upgrade() else {
     return;
   };
-  let Some(registry) = handle.try_state::<RepositoryRuntimeRegistry>() else {
-    return;
-  };
-  for label in registry.window_labels_for_root(root) {
-    let Ok(event) = sessions.status_event(&label, status, phase, patch) else {
+  for id in registry.sessions_for_root(root) {
+    let Ok(event) = ctx.sessions.status_event(id, status, phase, patch) else {
       continue;
     };
-    if let Some(window) = handle.get_webview_window(&label) {
-      let _ = window.emit("session:status", &event);
-    }
+    ctx.hub.send(id, CoreEvent::SessionStatus(event));
   }
 }
 
-fn emit_to_runtime_windows<T: Clone + serde::Serialize>(
-  handle: &tauri::AppHandle,
+fn emit_to_root_sessions(ctx: &RuntimeContext, root: &Path, event: CoreEvent) {
+  let Some(registry) = ctx.registry.upgrade() else {
+    return;
+  };
+  for id in registry.sessions_for_root(root) {
+    ctx.hub.send(id, event.clone());
+  }
+}
+
+fn apply_git_list_invalidation(ctx: &RuntimeContext, root: &Path, kind: GitInvalidation) {
+  let Some(registry) = ctx.registry.upgrade() else {
+    return;
+  };
+  let ids = registry.sessions_for_root(root);
+  let extras = refresh_git_lists(root, &ctx.sessions, &ids, kind);
+  emit_session_status_partial(ctx, &registry, root, &extras);
+}
+
+fn emit_session_status_partial(
+  ctx: &RuntimeContext,
+  registry: &RepositoryRuntimeRegistry,
   root: &Path,
-  event: &str,
-  payload: &T,
+  extras: &SessionStatusExtras,
 ) {
-  let Some(registry) = handle.try_state::<RepositoryRuntimeRegistry>() else {
-    return;
-  };
-  for label in registry.window_labels_for_root(root) {
-    if let Some(window) = handle.get_webview_window(&label) {
-      let _ = window.emit(event, payload);
-    }
-  }
-}
-
-fn apply_git_list_invalidation(handle: &tauri::AppHandle, root: &Path, kind: GitInvalidation) {
-  let Some(sessions) = handle.try_state::<SessionRegistry>() else {
-    return;
-  };
-  let Some(registry) = handle.try_state::<RepositoryRuntimeRegistry>() else {
-    return;
-  };
-  let labels = registry.window_labels_for_root(root);
-  let extras = refresh_git_lists(root, &sessions, &labels, kind);
-  emit_session_status_partial(handle, root, &extras);
-}
-
-fn emit_session_status_partial(handle: &tauri::AppHandle, root: &Path, extras: &SessionStatusExtras) {
-  let Some(sessions) = handle.try_state::<SessionRegistry>() else {
-    return;
-  };
-  let Some(registry) = handle.try_state::<RepositoryRuntimeRegistry>() else {
-    return;
-  };
   let Some(runtime) = registry.runtime_for_root(root) else {
     return;
   };
   let status = runtime.coordinator.snapshot();
   let cursor = runtime.coordinator.snapshot_cursor();
-  for label in registry.window_labels_for_root(root) {
-    let Ok(mut event) = sessions.with_mut(&label, |state| {
+  for id in registry.sessions_for_root(root) {
+    let Ok(mut event) = ctx.sessions.with_mut(id, |state| {
       crate::session::registry::build_status_event(
         &status,
         cursor.phase,
@@ -421,9 +425,7 @@ fn emit_session_status_partial(handle: &tauri::AppHandle, root: &Path, extras: &
       continue;
     };
     event.extras = Some(extras.clone());
-    if let Some(window) = handle.get_webview_window(&label) {
-      let _ = window.emit("session:status", &event);
-    }
+    ctx.hub.send(id, CoreEvent::SessionStatus(event));
   }
 }
 
@@ -456,7 +458,7 @@ fn list_stashes(root: &Path) -> Vec<StashEntry> {
 pub(crate) fn refresh_git_lists(
   root: &Path,
   sessions: &SessionRegistry,
-  labels: &[String],
+  ids: &[SessionId],
   kind: GitInvalidation,
 ) -> SessionStatusExtras {
   let Ok(repo) = GitRepository::open(root) else {
@@ -486,8 +488,8 @@ pub(crate) fn refresh_git_lists(
     },
     GitInvalidation::Ignore | GitInvalidation::Status => empty_extras(),
   };
-  for label in labels {
-    let _ = sessions.with_mut(label, |state| {
+  for id in ids {
+    let _ = sessions.with_mut(*id, |state| {
       if let Some(branches) = extras.branches.as_ref() {
         state.branches = branches.clone();
       }
@@ -597,6 +599,7 @@ mod tests {
 
   use super::RepositoryRuntimeRegistry;
   use crate::git::watcher::WatcherHandle;
+  use crate::session::SessionId;
   use crate::types::BranchEntry;
 
   fn git_repository() -> TempDir {
@@ -612,13 +615,13 @@ mod tests {
     let watcher_count = AtomicUsize::new(0);
 
     registry
-      .open_for_window_with("first", directory.path(), |_| {
+      .open_for_session_with(SessionId(1), directory.path(), |_| {
         watcher_count.fetch_add(1, Ordering::SeqCst);
         Some(WatcherHandle::for_test())
       })
       .unwrap();
     registry
-      .open_for_window_with("second", &directory.path().join("."), |_| {
+      .open_for_session_with(SessionId(2), &directory.path().join("."), |_| {
         watcher_count.fetch_add(1, Ordering::SeqCst);
         Some(WatcherHandle::for_test())
       })
@@ -627,37 +630,37 @@ mod tests {
     assert_eq!(watcher_count.load(Ordering::SeqCst), 1);
     assert_eq!(registry.runtime_count(), 1);
     assert!(Arc::ptr_eq(
-      &registry.runtime_for_window("first").unwrap(),
-      &registry.runtime_for_window("second").unwrap(),
+      &registry.runtime_for_session(SessionId(1)).unwrap(),
+      &registry.runtime_for_session(SessionId(2)).unwrap(),
     ));
 
-    registry.remove_window("first");
+    registry.remove_session(SessionId(1));
     assert_eq!(registry.runtime_count(), 1);
-    assert!(registry.runtime_for_window("second").is_some());
+    assert!(registry.runtime_for_session(SessionId(2)).is_some());
 
-    registry.remove_window("second");
+    registry.remove_session(SessionId(2));
     assert_eq!(registry.runtime_count(), 0);
   }
 
   #[test]
-  fn window_labels_for_root_exclude_other_repositories() {
+  fn sessions_for_root_exclude_other_repositories() {
     let first_dir = git_repository();
     let second_dir = git_repository();
     let registry = RepositoryRuntimeRegistry::default();
     let first_root = registry
-      .open_for_window_with("one", first_dir.path(), |_| Some(WatcherHandle::for_test()))
+      .open_for_session_with(SessionId(1), first_dir.path(), |_| Some(WatcherHandle::for_test()))
       .unwrap();
     registry
-      .open_for_window_with("two", first_dir.path(), |_| Some(WatcherHandle::for_test()))
+      .open_for_session_with(SessionId(2), first_dir.path(), |_| Some(WatcherHandle::for_test()))
       .unwrap();
     registry
-      .open_for_window_with("other", second_dir.path(), |_| Some(WatcherHandle::for_test()))
+      .open_for_session_with(SessionId(3), second_dir.path(), |_| Some(WatcherHandle::for_test()))
       .unwrap();
 
-    let mut labels = registry.window_labels_for_root(&first_root);
-    labels.sort();
-    assert_eq!(labels, vec!["one".to_string(), "two".to_string()]);
-    assert!(!labels.iter().any(|label| label == "other"));
+    let mut ids = registry.sessions_for_root(&first_root);
+    ids.sort();
+    assert_eq!(ids, vec![SessionId(1), SessionId(2)]);
+    assert!(!ids.contains(&SessionId(3)));
   }
 
   #[test]
@@ -665,13 +668,13 @@ mod tests {
     let directory = git_repository();
     let registry = RepositoryRuntimeRegistry::default();
     registry
-      .open_for_window_with("main", directory.path(), |_| Some(WatcherHandle::for_test()))
+      .open_for_session_with(SessionId(1), directory.path(), |_| Some(WatcherHandle::for_test()))
       .unwrap();
 
     registry
-      .with_runtime("main", |runtime| {
+      .with_runtime(SessionId(1), |runtime| {
         assert!(registry.state.try_lock().is_ok());
-        assert_eq!(registry.root_for_window("main").as_deref(), Some(runtime.root()));
+        assert_eq!(registry.root_for_session(SessionId(1)).as_deref(), Some(runtime.root()));
         Ok(())
       })
       .unwrap();
@@ -687,8 +690,8 @@ mod tests {
     std::thread::scope(|scope| {
       scope.spawn(|| {
         registry
-          .open_for_window_with_inflight(
-            "first",
+          .open_for_session_with_inflight(
+            SessionId(1),
             directory.path(),
             |_| {
               watcher_count.fetch_add(1, Ordering::SeqCst);
@@ -702,8 +705,8 @@ mod tests {
       });
       scope.spawn(|| {
         registry
-          .open_for_window_with_inflight(
-            "second",
+          .open_for_session_with_inflight(
+            SessionId(2),
             directory.path(),
             |_| {
               watcher_count.fetch_add(1, Ordering::SeqCst);
@@ -720,8 +723,8 @@ mod tests {
     assert_eq!(watcher_count.load(Ordering::SeqCst), 1);
     assert_eq!(registry.runtime_count(), 1);
     assert!(Arc::ptr_eq(
-      &registry.runtime_for_window("first").unwrap(),
-      &registry.runtime_for_window("second").unwrap(),
+      &registry.runtime_for_session(SessionId(1)).unwrap(),
+      &registry.runtime_for_session(SessionId(2)).unwrap(),
     ));
   }
 
@@ -737,8 +740,8 @@ mod tests {
     std::thread::scope(|scope| {
       scope.spawn(|| {
         registry
-          .open_for_window_with_inflight(
-            "first",
+          .open_for_session_with_inflight(
+            SessionId(1),
             directory.path(),
             |_| {
               watcher_count.fetch_add(1, Ordering::SeqCst);
@@ -753,8 +756,8 @@ mod tests {
       });
       scope.spawn(|| {
         registry
-          .open_for_window_with_inflight(
-            "second",
+          .open_for_session_with_inflight(
+            SessionId(2),
             directory.path(),
             |_| {
               watcher_count.fetch_add(1, Ordering::SeqCst);
@@ -769,9 +772,9 @@ mod tests {
       });
 
       first_bound.wait();
-      registry.remove_window("first");
+      registry.remove_session(SessionId(1));
       registry
-        .open_for_window_with("third", directory.path(), |_| {
+        .open_for_session_with(SessionId(3), directory.path(), |_| {
           watcher_count.fetch_add(1, Ordering::SeqCst);
           Some(WatcherHandle::for_test())
         })
@@ -782,8 +785,8 @@ mod tests {
     assert_eq!(watcher_count.load(Ordering::SeqCst), 1);
     assert_eq!(registry.runtime_count(), 1);
     assert!(Arc::ptr_eq(
-      &registry.runtime_for_window("second").unwrap(),
-      &registry.runtime_for_window("third").unwrap(),
+      &registry.runtime_for_session(SessionId(2)).unwrap(),
+      &registry.runtime_for_session(SessionId(3)).unwrap(),
     ));
   }
 
@@ -811,9 +814,9 @@ mod tests {
     commit_readme(&directory);
     let registry = RepositoryRuntimeRegistry::default();
     registry
-      .open_for_window_with("w", directory.path(), |_| Some(WatcherHandle::for_test()))
+      .open_for_session_with(SessionId(1), directory.path(), |_| Some(WatcherHandle::for_test()))
       .unwrap();
-    let runtime = registry.runtime_for_window("w").unwrap();
+    let runtime = registry.runtime_for_session(SessionId(1)).unwrap();
     let first = runtime.fuzzy_find("", 100).unwrap();
     assert!(first.iter().any(|result| result.path == "README.md"));
     let fills = runtime.file_index_fills_for_test();
@@ -830,9 +833,9 @@ mod tests {
     std::fs::write(directory.path().join("noise.log"), "n\n").unwrap();
     let registry = RepositoryRuntimeRegistry::default();
     registry
-      .open_for_window_with("w", directory.path(), |_| Some(WatcherHandle::for_test()))
+      .open_for_session_with(SessionId(1), directory.path(), |_| Some(WatcherHandle::for_test()))
       .unwrap();
-    let runtime = registry.runtime_for_window("w").unwrap();
+    let runtime = registry.runtime_for_session(SessionId(1)).unwrap();
     let before = runtime.fuzzy_find("", 100).unwrap();
     assert!(before.iter().any(|result| result.path == "noise.log"));
     std::fs::write(directory.path().join(".gitignore"), "noise.log\n").unwrap();
@@ -848,9 +851,9 @@ mod tests {
     commit_readme(&directory);
     let registry = RepositoryRuntimeRegistry::default();
     registry
-      .open_for_window_with("w", directory.path(), |_| Some(WatcherHandle::for_test()))
+      .open_for_session_with(SessionId(1), directory.path(), |_| Some(WatcherHandle::for_test()))
       .unwrap();
-    let runtime = registry.runtime_for_window("w").unwrap();
+    let runtime = registry.runtime_for_session(SessionId(1)).unwrap();
     runtime.fuzzy_find("", 100).unwrap();
     let fills = runtime.file_index_fills_for_test();
     std::fs::write(directory.path().join("README.md"), "changed\n").unwrap();
@@ -864,7 +867,7 @@ mod tests {
     commit_readme(&directory);
     let sessions = crate::session::registry::SessionRegistry::default();
     sessions
-      .with_mut("w", |state| {
+      .with_mut(SessionId(1), |state| {
         state.branches = vec![BranchEntry {
           name: "cached".into(),
           is_head: true,
@@ -878,12 +881,12 @@ mod tests {
     let extras = super::refresh_git_lists(
       directory.path(),
       &sessions,
-      &["w".into()],
+      &[SessionId(1)],
       crate::git::invalidation::GitInvalidation::Status,
     );
     assert!(extras.branches.is_none());
     sessions
-      .with_mut("w", |state| {
+      .with_mut(SessionId(1), |state| {
         assert_eq!(state.branches[0].name, "cached");
       })
       .unwrap();
@@ -898,7 +901,7 @@ mod tests {
     let extras = super::refresh_git_lists(
       directory.path(),
       &sessions,
-      &["w".into()],
+      &[SessionId(1)],
       crate::git::invalidation::GitInvalidation::Refs,
     );
     assert!(extras.branches.is_some());
@@ -910,7 +913,7 @@ mod tests {
     assert!(!json.contains("lastCommit"), "{json}");
     assert!(json.contains("branches"), "{json}");
     sessions
-      .with_mut("w", |state| {
+      .with_mut(SessionId(1), |state| {
         assert!(
           state.branches.iter().any(|branch| branch.name == "feature"),
           "{:?}",
@@ -928,15 +931,15 @@ mod tests {
     stash_wip(&directory, "wip");
     let registry = RepositoryRuntimeRegistry::default();
     registry
-      .open_for_window_with("w", directory.path(), |_| Some(WatcherHandle::for_test()))
+      .open_for_session_with(SessionId(1), directory.path(), |_| Some(WatcherHandle::for_test()))
       .unwrap();
-    let runtime = registry.runtime_for_window("w").unwrap();
+    let runtime = registry.runtime_for_session(SessionId(1)).unwrap();
     let groups_json = serde_json::to_string(&runtime.status().unwrap().groups).unwrap();
     let sessions = crate::session::registry::SessionRegistry::default();
     let extras = super::refresh_git_lists(
       directory.path(),
       &sessions,
-      &["w".into()],
+      &[SessionId(1)],
       crate::git::invalidation::GitInvalidation::Stash,
     );
     assert!(extras.stashes.is_some());
@@ -947,7 +950,7 @@ mod tests {
       groups_json
     );
     sessions
-      .with_mut("w", |state| {
+      .with_mut(SessionId(1), |state| {
         assert!(!state.stashes.is_empty());
         assert!(state.stashes.iter().any(|stash| stash.message.contains("wip")));
       })
@@ -961,26 +964,26 @@ mod tests {
     stash_wip(&directory, "shared");
     let registry = RepositoryRuntimeRegistry::default();
     registry
-      .open_for_window_with("first", directory.path(), |_| Some(WatcherHandle::for_test()))
+      .open_for_session_with(SessionId(1), directory.path(), |_| Some(WatcherHandle::for_test()))
       .unwrap();
     registry
-      .open_for_window_with("second", directory.path(), |_| Some(WatcherHandle::for_test()))
+      .open_for_session_with(SessionId(2), directory.path(), |_| Some(WatcherHandle::for_test()))
       .unwrap();
     let sessions = crate::session::registry::SessionRegistry::default();
     let extras = super::refresh_git_lists(
       directory.path(),
       &sessions,
-      &["first".into(), "second".into()],
+      &[SessionId(1), SessionId(2)],
       crate::git::invalidation::GitInvalidation::Stash,
     );
     assert!(extras.stashes.is_some());
     assert!(extras.branches.is_none());
-    for label in ["first", "second"] {
+    for id in [SessionId(1), SessionId(2)] {
       sessions
-        .with_mut(label, |state| {
+        .with_mut(id, |state| {
           assert!(
             !state.stashes.is_empty(),
-            "{label} missing stash extras: {:?}",
+            "{id:?} missing stash extras: {:?}",
             state.stashes
           );
         })

@@ -22,7 +22,7 @@ fn entry_keys(entries: &[StatusEntry]) -> BTreeMap<StatusKey, StatusEntry> {
     .map(|entry| {
       (
         StatusKey {
-          group: entry.group.clone(),
+          group: entry.group,
           path: entry.path.clone(),
         },
         entry.clone(),

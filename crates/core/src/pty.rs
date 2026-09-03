@@ -4,38 +4,33 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use tauri::{Emitter, Manager, WebviewWindow};
 
 use crate::error::{Error, Result};
+use crate::events::{CoreEvent, EventHub};
+use crate::session::SessionId;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
 pub type TerminalState = Mutex<HashMap<u64, PtySession>>;
 
-#[derive(serde::Serialize, Clone)]
-struct TerminalDataEvent {
-  id: u64,
-  data: String,
-}
-
 pub struct PtySession {
   pub id: u64,
   pub shell_name: String,
   pub child_pid: u32,
-  pub window_label: String,
+  pub session: SessionId,
   writer: Arc<Mutex<Box<dyn Write + Send>>>,
   master: Box<dyn MasterPty + Send>,
 }
 
 impl PtySession {
   pub fn spawn(
-    window: WebviewWindow,
     cwd: &str,
     cols: u16,
     rows: u16,
-    window_label: String,
+    session: SessionId,
     shell_path: Option<String>,
     shell_args: Option<String>,
+    hub: Arc<EventHub>,
   ) -> Result<Self> {
     let id = NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed);
     let pty_system = native_pty_system();
@@ -85,8 +80,7 @@ impl PtySession {
     let writer = Arc::new(Mutex::new(writer));
 
     let session_id = id;
-    let app_handle = window.app_handle().clone();
-    let label_for_thread = window_label.clone();
+    let thread_hub = hub.clone();
     #[cfg(windows)]
     let writer_for_reader = Arc::clone(&writer);
     thread::spawn(move || {
@@ -152,25 +146,21 @@ impl PtySession {
               }
             }
 
-            if let Some(w) = app_handle.get_webview_window(&label_for_thread) {
-              let _ = w.emit("terminal:data", TerminalDataEvent { id: session_id, data });
-            }
+            thread_hub.send(session, CoreEvent::TerminalData { id: session_id, data });
           }
           Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
           Err(_) => break,
         }
       }
       let exit_msg = "\r\n\x1b[90m[Process exited. Press any key to restart.]\x1b[0m".to_string();
-      if let Some(w) = app_handle.get_webview_window(&label_for_thread) {
-        let _ = w.emit(
-          "terminal:data",
-          TerminalDataEvent {
-            id: session_id,
-            data: exit_msg,
-          },
-        );
-        let _ = w.emit("terminal:exit", session_id);
-      }
+      thread_hub.send(
+        session,
+        CoreEvent::TerminalData {
+          id: session_id,
+          data: exit_msg,
+        },
+      );
+      thread_hub.send(session, CoreEvent::TerminalExited { id: session_id });
       let _ = child.wait();
     });
 
@@ -178,7 +168,7 @@ impl PtySession {
       id,
       shell_name,
       child_pid,
-      window_label,
+      session,
       writer,
       master: pair.master,
     })

@@ -1021,8 +1021,10 @@ mod tests {
   #[tokio::test]
   async fn clear_file_history_patches_head_log() {
     let (directory, _) = init_repo();
-    let mut state = SessionState::default();
-    state.file_history_path = Some("README.md".into());
+    let mut state = SessionState {
+      file_history_path: Some("README.md".into()),
+      ..SessionState::default()
+    };
     let root = directory.path();
     let output = apply_intent(
       Intent::ClearFileHistory,
@@ -1281,9 +1283,11 @@ mod tests {
 
   #[tokio::test]
   async fn needs_confirmation_is_not_stamped_and_does_not_bump() {
-    let mut state = SessionState::default();
-    state.session_generation = 2;
-    state.session_revision = 7;
+    let mut state = SessionState {
+      session_generation: 2,
+      session_revision: 7,
+      ..SessionState::default()
+    };
     let intent = Intent::DeleteFile {
       path: "gone.rs".into(),
       confirmed: false,
@@ -1325,14 +1329,16 @@ mod tests {
 
   #[tokio::test]
   async fn clear_file_ack_stamps_after_bump() {
-    let mut state = SessionState::default();
-    state.session_generation = 1;
-    state.session_revision = 2;
-    state.selection = Some(FileSelection {
-      path: "a.rs".into(),
-      staged: false,
-      group_kind: ResourceGroupKind::WorkingTree,
-    });
+    let mut state = SessionState {
+      session_generation: 1,
+      session_revision: 2,
+      selection: Some(FileSelection {
+        path: "a.rs".into(),
+        staged: false,
+        group_kind: ResourceGroupKind::WorkingTree,
+      }),
+      ..SessionState::default()
+    };
     let intent = Intent::ClearFile;
     let output = apply_intent(intent.clone(), Path::new("/tmp"), &empty_status("/tmp"), &mut state)
       .await

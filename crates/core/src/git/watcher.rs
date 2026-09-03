@@ -153,13 +153,14 @@ pub fn extra_watch_specs(repo_root: &Path) -> Vec<WatchSpec> {
       path: common_dir.clone(),
       mode: RecursiveMode::NonRecursive,
     });
-    if let Ok(refs) = std::fs::canonicalize(common_dir.join("refs")) {
-      if refs != git_dir && refs != common_dir {
-        specs.push(WatchSpec {
-          path: refs,
-          mode: RecursiveMode::Recursive,
-        });
-      }
+    if let Ok(refs) = std::fs::canonicalize(common_dir.join("refs"))
+      && refs != git_dir
+      && refs != common_dir
+    {
+      specs.push(WatchSpec {
+        path: refs,
+        mode: RecursiveMode::Recursive,
+      });
     }
   }
   specs
@@ -556,7 +557,7 @@ mod tests {
     };
     let classified = classify_watched_path(
       Path::new("/linked"),
-      &[git_dir.clone()],
+      std::slice::from_ref(&git_dir),
       &git_dir.path.join("HEAD"),
       EventKind::Modify(ModifyKind::Any),
     )
