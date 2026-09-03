@@ -48,14 +48,13 @@ If you already know VS Code Source Control, DeathPush feels immediately familiar
 
 ## Prerequisites
 
-- [Vite+](https://viteplus.dev/) (`vp`) with Node.js 24 and pnpm
-- [Rust toolchain](https://rustup.rs/) (edition 2024, minimum rustc 1.85.0)
+- Rust stable (1.97 or newer)
+- [Zig](https://ziglang.org/) 0.16.0 on PATH, for the terminal core
 - [`just`](https://github.com/casey/just) task runner (`cargo install just`)
 
 ## Get Running in 60 Seconds
 
 ```sh
-vp install
 just dev
 ```
 
@@ -68,10 +67,10 @@ just build
 Quality checks:
 
 ```sh
-just lint    # vp lint + cargo clippy
-just test    # vp test
-just fmt     # vp fmt + cargo fmt
-just check   # vp check + cargo check
+just lint    # clippy, warnings denied
+just test    # cargo test --workspace
+just fmt     # rustfmt
+just check   # cargo check, all targets
 ```
 
 ## Under the Hood
@@ -83,7 +82,7 @@ DeathPush is built with a hybrid Git engine:
 - Pierre diffs with Shiki highlighting.
 - Auto-update support: get notified and install new versions without leaving the app.
 
-Stack: Tauri v2 (Rust) + Solid 2 + TypeScript + Zustand + Pierre diffs and trees.
+Stack: GPUI (Rust) through gpui-kit, git2 and the git CLI, libghostty-vt for the terminal.
 
 ## License
 
