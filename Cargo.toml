@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/app"]
+exclude = ["src-tauri"]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2024"
+rust-version = "1.97"
+license = "Apache-2.0"
+authors = ["felipefdl"]
+repository = "https://github.com/felipefdl/deathpush"
+
+[workspace.dependencies]
+deathpush-core = { path = "crates/core" }
+base64 = "0.23"
+chrono = "0.4"
+git2 = { version = "0.21", features = ["vendored-openssl"] }
+gpui-kit = "0.6.0"
+libghostty-vt = "0.2.1"
+md5 = "0.8"
+notify = "8"
+nucleo-matcher = "0.3"
+portable-pty = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+trash = "5"
+url = "2"
+
+[profile.dev.package.gpui-pre]
+opt-level = 3
+
+[profile.dev.package.gpui-pre-platform]
+opt-level = 3
+
+[profile.dev.package.gpui-pre-macros]
+opt-level = 3

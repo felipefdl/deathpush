@@ -1,0 +1,24 @@
+[package]
+name = "deathpush"
+description = "A desktop Git client with the VS Code Source Control UX"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+default-run = "deathpush"
+
+[[bin]]
+name = "deathpush"
+path = "src/main.rs"
+
+[dependencies]
+deathpush-core.workspace = true
+gpui-kit.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
