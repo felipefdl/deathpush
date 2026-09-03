@@ -29,7 +29,7 @@ pub fn window_title(root: &str, head_branch: Option<&str>) -> String {
 impl Core {
   pub fn repo_root(&self, id: SessionId) -> Result<PathBuf> {
     self
-      .lock_windows()
+      .lock_repos()
       .get(&id)
       .and_then(|state| state.cli_root.clone())
       .ok_or(Error::NoRepository)
@@ -57,8 +57,8 @@ impl Core {
     let runtime = self.runtimes.runtime_for_session(id).ok_or(Error::NoRepository)?;
     invalidate(&runtime)?;
     let repo = runtime.open_repository()?;
-    let mut windows = self.lock_windows();
-    let state = windows.get_mut(&id).ok_or(Error::NoRepository)?;
+    let mut repos = self.lock_repos();
+    let state = repos.get_mut(&id).ok_or(Error::NoRepository)?;
     state.repo = Some(repo);
     Ok(())
   }

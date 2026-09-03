@@ -16,7 +16,7 @@ base64 = "0.23"
 chrono = "0.4"
 git2 = { version = "0.21", features = ["vendored-openssl"] }
 gpui-kit = "0.6.0"
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs" }
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
 md5 = "0.8"
 notify = "8"
 nucleo-matcher = "0.3"

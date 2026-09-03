@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::core::Core;
 use crate::error::{Error, Result};
 
-// On Linux the .deb/.rpm already installs /usr/bin/dp, so the CLI
+// On Linux the .deb already installs /usr/bin/dp, so the CLI
 // install only needs to handle macOS and Windows. Skip "deathpush"
 // on Linux to avoid shadowing the binary at /usr/bin/deathpush.
 #[cfg(target_os = "linux")]

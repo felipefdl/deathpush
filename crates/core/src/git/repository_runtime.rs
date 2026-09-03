@@ -208,10 +208,13 @@ impl RepositoryRuntimeRegistry {
           Ok(watcher) => Some(watcher),
           Err(err) => {
             tracing::warn!("failed to start watcher: {:?}", err);
-            ctx.hub.broadcast(CoreEvent::WatcherError(format!(
-              "File watching unavailable: {}. Changes won't auto-refresh.",
-              err
-            )));
+            ctx.hub.send(
+              id,
+              CoreEvent::WatcherError(format!(
+                "File watching unavailable: {}. Changes won't auto-refresh.",
+                err
+              )),
+            );
             None
           }
         }

@@ -23,7 +23,7 @@ pub struct Core {
   pub(crate) sessions: Arc<SessionRegistry>,
   pub(crate) runtimes: Arc<RepositoryRuntimeRegistry>,
   pub(crate) terminals: TerminalState,
-  pub(crate) windows: Mutex<HashMap<SessionId, RepoState>>,
+  pub(crate) repos: Mutex<HashMap<SessionId, RepoState>>,
   pub(crate) resource_dir: PathBuf,
   next_session: AtomicU64,
 }
@@ -47,7 +47,7 @@ impl Core {
       sessions: Arc::new(SessionRegistry::default()),
       runtimes: Arc::new(RepositoryRuntimeRegistry::default()),
       terminals: TerminalState::new(HashMap::new()),
-      windows: Mutex::new(HashMap::new()),
+      repos: Mutex::new(HashMap::new()),
       resource_dir,
       next_session: AtomicU64::new(1),
     }))
@@ -60,14 +60,16 @@ impl Core {
 
   pub async fn close_session(&self, id: SessionId) {
     let intent_lock = self.sessions.intent_lock(id);
-    let _intent_guard = intent_lock.lock().await;
-    self.lock_windows().remove(&id);
+    let guard = intent_lock.lock().await;
+    self.lock_repos().remove(&id);
     self.runtimes.remove_session(id);
     let mut terminals = self.terminals.lock().unwrap_or_else(|err| err.into_inner());
     terminals.retain(|_, session| session.session != id);
     drop(terminals);
     self.hub.unsubscribe(id);
     self.sessions.remove(id);
+    drop(guard);
+    self.sessions.remove_intent_lock(id);
   }
 
   /// Runs a future on core's tokio runtime. The handle is a plain future the app can await anywhere.
@@ -83,8 +85,8 @@ impl Core {
     self.runtime.handle().clone()
   }
 
-  pub(crate) fn lock_windows(&self) -> std::sync::MutexGuard<'_, HashMap<SessionId, RepoState>> {
-    self.windows.lock().unwrap_or_else(|err| err.into_inner())
+  pub(crate) fn lock_repos(&self) -> std::sync::MutexGuard<'_, HashMap<SessionId, RepoState>> {
+    self.repos.lock().unwrap_or_else(|err| err.into_inner())
   }
 }
 
@@ -173,6 +175,50 @@ mod tests {
 
     assert!(core.repo_root(id).is_err());
     assert!(!core.sessions.contains(id));
+  }
+
+  #[test]
+  fn close_session_keeps_intent_lock_arc_until_guard_drops() {
+    let directory = init_repo();
+    let core = Core::new(directory.path().to_path_buf()).unwrap();
+    let (id, _events) = core.open_session();
+    let path = directory.path().to_string_lossy().into_owned();
+    core
+      .runtime_handle()
+      .block_on(core.session_intent(id, Intent::OpenRepository { path }))
+      .unwrap();
+
+    let first = core.sessions.intent_lock(id);
+    let runtime = core.runtime_handle();
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let lock = first.clone();
+    let lock_task = runtime.spawn(async move {
+      let _guard = lock.lock().await;
+      started_tx.send(()).ok();
+      let _ = release_rx.await;
+    });
+    runtime.block_on(started_rx).unwrap();
+
+    let close_core = core.clone();
+    let close_task = runtime.spawn(async move {
+      close_core.close_session(id).await;
+    });
+    runtime.block_on(tokio::task::yield_now());
+    assert!(!close_task.is_finished(), "close_session must wait on the intent lock");
+
+    core.sessions.remove(id);
+    let during = core.sessions.intent_lock(id);
+    assert!(
+      std::sync::Arc::ptr_eq(&first, &during),
+      "intent_lock during close_session must be the same Arc"
+    );
+
+    release_tx.send(()).ok();
+    runtime.block_on(async {
+      close_task.await.unwrap();
+      lock_task.await.unwrap();
+    });
   }
 
   #[test]

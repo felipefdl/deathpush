@@ -124,11 +124,11 @@ impl Core {
         .runtimes
         .open_for_session(id, &PathBuf::from(path), self.hub.clone(), self.sessions.clone())?;
     let repo = self.runtimes.with_runtime(id, |runtime| runtime.open_repository())?;
-    let mut windows = self.lock_windows();
-    let state = windows.entry(id).or_default();
+    let mut repos = self.lock_repos();
+    let state = repos.entry(id).or_default();
     state.cli_root = Some(repo_root);
     state.repo = Some(repo);
-    drop(windows);
+    drop(repos);
     self.sessions.reset(id);
     Ok(())
   }

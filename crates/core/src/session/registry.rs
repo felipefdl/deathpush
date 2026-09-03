@@ -97,13 +97,13 @@ impl SessionAccess for SessionHandle<'_> {
 
 #[derive(Default)]
 pub struct SessionRegistry {
-  windows: Mutex<HashMap<SessionId, SessionState>>,
+  sessions: Mutex<HashMap<SessionId, SessionState>>,
   intent_locks: Mutex<HashMap<SessionId, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl SessionRegistry {
   pub fn reset(&self, id: SessionId) {
-    if let Ok(mut map) = self.windows.lock() {
+    if let Ok(mut map) = self.sessions.lock() {
       let session_generation = map
         .get(&id)
         .map(|state| state.session_generation.saturating_add(1))
@@ -119,9 +119,12 @@ impl SessionRegistry {
   }
 
   pub fn remove(&self, id: SessionId) {
-    if let Ok(mut map) = self.windows.lock() {
+    if let Ok(mut map) = self.sessions.lock() {
       map.remove(&id);
     }
+  }
+
+  pub fn remove_intent_lock(&self, id: SessionId) {
     let mut locks = self.intent_locks.lock().unwrap_or_else(|err| err.into_inner());
     locks.remove(&id);
   }
@@ -129,14 +132,14 @@ impl SessionRegistry {
   #[cfg(test)]
   pub(crate) fn contains(&self, id: SessionId) -> bool {
     self
-      .windows
+      .sessions
       .lock()
       .unwrap_or_else(|err| err.into_inner())
       .contains_key(&id)
   }
 
   pub fn with_mut<T>(&self, id: SessionId, callback: impl FnOnce(&mut SessionState) -> T) -> Result<T> {
-    let mut map = self.windows.lock().map_err(|err| Error::Other(err.to_string()))?;
+    let mut map = self.sessions.lock().map_err(|err| Error::Other(err.to_string()))?;
     let state = map.entry(id).or_default();
     Ok(callback(state))
   }
@@ -685,6 +688,9 @@ mod tests {
     let registry = SessionRegistry::default();
     let first = registry.intent_lock(SessionId(1));
     registry.remove(SessionId(1));
+    let during = registry.intent_lock(SessionId(1));
+    assert!(std::sync::Arc::ptr_eq(&first, &during));
+    registry.remove_intent_lock(SessionId(1));
     let second = registry.intent_lock(SessionId(1));
     assert!(!std::sync::Arc::ptr_eq(&first, &second));
   }

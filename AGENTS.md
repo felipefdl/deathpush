@@ -35,7 +35,7 @@ DeathPush is a standalone desktop Git client built on GPUI (Rust) that replicate
 ### Core boundary
 
 - `Core::new(resource_dir)` starts the shell env resolver, builds the tokio runtime, installs the git command sink.
-- Sessions: `open_session()` returns a `SessionId` and a `CoreEvent` receiver. `close_session(id)` drops runtime binding, session state, PTYs, and the channel.
+- Sessions: `open_session()` returns a `SessionId` and a `CoreEvent` receiver. `close_session(id)` is async and awaited; it drops runtime binding, session state, PTYs, and the channel.
 - Operations are methods on `Core` keyed by `SessionId`. Async only where the body awaits.
 - `CoreEvent`: `SessionStatus` (status patches, including refs and stash refreshes in `extras`), `PathsChanged`, `WatcherError`, `GitCommand`, `TerminalData`, `TerminalExited`.
 
