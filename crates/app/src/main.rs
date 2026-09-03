@@ -7,12 +7,13 @@ use gpui_kit::component::Root;
 use gpui_kit::*;
 use tokio::sync::mpsc::UnboundedReceiver;
 
+mod actions;
 mod assets;
 mod config;
+mod keymap;
+mod menus;
 mod theme;
 mod zoom;
-
-actions!(deathpush, [Quit]);
 
 fn assets_dir() -> PathBuf {
   PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets")
@@ -114,8 +115,9 @@ fn main() {
       .expect("bundled fonts load");
     config::AppConfig::init(cx);
     theme::init(cx);
-    cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
-    cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.bind_keys(keymap::bindings());
+    menus::refresh_menus(cx);
+    cx.on_action(|_: &actions::Quit, cx| cx.quit());
     let core = core.clone();
     cx.spawn(async move |cx| {
       cx.open_window(WindowOptions::default(), |window, cx| {
