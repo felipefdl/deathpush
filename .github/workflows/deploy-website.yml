@@ -5,9 +5,7 @@ on:
     branches: [main]
     paths:
       - "website/**"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - "package.json"
+      - ".github/workflows/deploy-website.yml"
   workflow_dispatch:
 
 permissions:
@@ -31,12 +29,14 @@ jobs:
           run-install: false
 
       - run: vp install --frozen-lockfile
+        working-directory: website
 
-      - run: vp run --filter website build
+      - run: vp run build
+        working-directory: website
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: ./website/dist
+          path: website/dist
 
   deploy:
     needs: build

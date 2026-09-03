@@ -2,6 +2,18 @@
   "name": "website",
   "type": "module",
   "version": "0.0.1",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.20.0",
+      "onFail": "download"
+    },
+    "packageManager": {
+      "name": "pnpm",
+      "version": "11.24.0",
+      "onFail": "download"
+    }
+  },
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
