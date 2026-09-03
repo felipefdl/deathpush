@@ -11,6 +11,7 @@ pub mod pty;
 pub mod session;
 pub mod shell_env;
 pub mod terminal;
+pub mod theme;
 pub mod types;
 pub mod util;
 
