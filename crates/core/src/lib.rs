@@ -3,6 +3,7 @@
 pub mod config;
 pub mod content_hash;
 pub mod core;
+pub mod deep_link;
 pub mod error;
 pub mod events;
 pub mod git;
@@ -14,6 +15,7 @@ pub mod terminal;
 pub mod theme;
 pub mod types;
 pub mod util;
+pub mod workspace;
 
 pub use core::Core;
 pub use error::{Error, Result};

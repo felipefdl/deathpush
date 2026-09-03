@@ -21,6 +21,7 @@ libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0
 md5 = "0.8"
 notify = "8"
 nucleo-matcher = "0.3"
+percent-encoding = "2"
 portable-pty = "0.9"
 rust-embed = "8"
 serde = { version = "1", features = ["derive"] }

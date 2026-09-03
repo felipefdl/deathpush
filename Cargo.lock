@@ -1433,6 +1433,7 @@ dependencies = [
  "md5",
  "notify 8.2.0",
  "nucleo-matcher",
+ "percent-encoding",
  "portable-pty",
  "serde",
  "serde_json",
