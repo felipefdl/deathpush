@@ -1,11 +1,8 @@
-use std::path::Path;
-
 use git2::{DiffOptions, Oid, Sort};
 
 use crate::error::{Error, Result};
-use crate::git::diff::{blob_to_data_uri, detect_language, is_image_file};
 use crate::git::repository::GitRepository;
-use crate::types::{CommitDetail, CommitDiffContent, CommitEntry, CommitFileEntry, FileStatus, LastCommitInfo};
+use crate::types::{CommitDetail, CommitEntry, CommitFileEntry, FileStatus, LastCommitInfo};
 
 pub fn compute_avatar_url(email: &str) -> String {
   let email_lower = email.trim().to_lowercase();
@@ -112,51 +109,6 @@ pub fn commit_file_status(status: git2::Delta) -> FileStatus {
   }
 }
 
-pub fn get_commit_file_diff(repo: &GitRepository, commit_id: &str, path: &str) -> Result<CommitDiffContent> {
-  let r = repo.inner();
-  let oid = Oid::from_str(commit_id).map_err(|e| Error::Other(format!("invalid commit id: {}", e)))?;
-  let commit = r.find_commit(oid)?;
-  let tree = commit.tree()?;
-
-  if is_image_file(path) {
-    let modified = read_blob_from_tree_base64(r, &tree, path).unwrap_or_default();
-
-    let original = if commit.parent_count() > 0 {
-      let parent_tree = commit.parent(0)?.tree()?;
-      read_blob_from_tree_base64(r, &parent_tree, path).unwrap_or_default()
-    } else {
-      String::new()
-    };
-
-    return Ok(CommitDiffContent {
-      path: path.to_string(),
-      original,
-      modified,
-      language: None,
-      file_type: "image".to_string(),
-    });
-  }
-
-  let modified = read_blob_from_tree(r, &tree, path).unwrap_or_default();
-
-  let original = if commit.parent_count() > 0 {
-    let parent_tree = commit.parent(0)?.tree()?;
-    read_blob_from_tree(r, &parent_tree, path).unwrap_or_default()
-  } else {
-    String::new()
-  };
-
-  let language = detect_language(path);
-
-  Ok(CommitDiffContent {
-    path: path.to_string(),
-    original,
-    modified,
-    language,
-    file_type: "text".to_string(),
-  })
-}
-
 fn commit_to_entry(commit: &git2::Commit) -> CommitEntry {
   let id = commit.id().to_string();
   let short_id = id[..7.min(id.len())].to_string();
@@ -191,18 +143,6 @@ fn format_git_time(time: &git2::Time) -> String {
     Some(d) => d.to_rfc3339(),
     None => secs.to_string(),
   }
-}
-
-fn read_blob_from_tree(repo: &git2::Repository, tree: &git2::Tree, path: &str) -> Option<String> {
-  let entry = tree.get_path(Path::new(path)).ok()?;
-  let blob = repo.find_blob(entry.id()).ok()?;
-  String::from_utf8(blob.content().to_vec()).ok()
-}
-
-fn read_blob_from_tree_base64(repo: &git2::Repository, tree: &git2::Tree, path: &str) -> Option<String> {
-  let entry = tree.get_path(Path::new(path)).ok()?;
-  let blob = repo.find_blob(entry.id()).ok()?;
-  Some(blob_to_data_uri(blob.content(), path))
 }
 
 #[cfg(test)]

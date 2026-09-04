@@ -37,9 +37,11 @@ struct RowsKey {
   separators: HunkSeparators,
 }
 
+/// How the diff panel paints: the SCM file, or a read-only commit file.
 #[derive(Clone, PartialEq, Eq)]
 pub enum DiffMode {
   Scm,
+  /// Commit file. Empty `path` hides the body until a file is clicked.
   Commit {
     commit: String,
     path: String,
@@ -116,6 +118,7 @@ impl DiffPanel {
     self.rows.as_ref()
   }
 
+  /// Switch between SCM and commit-file presentation.
   pub fn set_mode(&mut self, mode: DiffMode, cx: &mut Context<Self>) {
     if self.mode != mode {
       self.mode = mode;
@@ -123,6 +126,7 @@ impl DiffPanel {
     }
   }
 
+  /// The panel's current presentation.
   pub fn mode(&self) -> &DiffMode {
     &self.mode
   }
@@ -482,20 +486,24 @@ impl Render for DiffPanel {
         settings.diff.show_inline_hunk_actions,
       )
     };
-    let (selected, scm_load_ready, kind, diff_path) = {
+    let commit_mode = match &self.mode {
+      DiffMode::Commit { commit, path, status } => Some((commit.clone(), path.clone(), status.clone())),
+      DiffMode::Scm => None,
+    };
+    let (selected, scm_load_ready, kind, commit_ready) = {
       let state = self.model.read(cx).state();
+      let commit_ready = match &commit_mode {
+        Some((commit, path, _)) => state.commit_diff_ready(commit, path),
+        None => false,
+      };
       (
         state.selected_file.clone(),
         state.diff_load_id == Some(state.selected_load_id),
         classify(state.diff.as_ref()),
-        state.diff.as_ref().map(|payload| payload.path.clone()),
+        commit_ready,
       )
     };
-    let commit_header = match &self.mode {
-      DiffMode::Commit { path, status, .. } => Some((path.clone(), status.clone())),
-      DiffMode::Scm => None,
-    };
-    if commit_header.is_some() {
+    if commit_mode.is_some() {
       show_hunk_actions = false;
     }
     let weak = cx.weak_entity();
@@ -513,7 +521,7 @@ impl Render for DiffPanel {
           cx.notify();
         }
       }));
-    let load_ready = if let Some((path, status)) = commit_header {
+    let load_ready = if let Some((_commit, path, status)) = commit_mode {
       if path.is_empty() {
         return root.child(div().flex_1().min_h_0());
       }
@@ -524,7 +532,7 @@ impl Render for DiffPanel {
         weak.clone(),
         palette,
       ));
-      diff_path.as_deref() == Some(path.as_str())
+      commit_ready
     } else {
       let Some(selection) = selected else {
         return root.child(states::render_empty(palette));

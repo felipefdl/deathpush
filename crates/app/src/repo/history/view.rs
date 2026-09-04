@@ -10,6 +10,7 @@ use crate::repo::layout_model::LayoutModel;
 use crate::repo::model::RepoModel;
 use crate::theme::{ActivePalette, hsla};
 
+/// The History main panel: commit list, detail, and a commit-mode DiffPanel.
 pub struct HistoryView {
   repo: Entity<RepoModel>,
   layout: Entity<LayoutModel>,
@@ -20,6 +21,7 @@ pub struct HistoryView {
 }
 
 impl HistoryView {
+  /// Build the History split. The given DiffPanel is switched to Commit mode.
   pub fn new(
     repo: Entity<RepoModel>,
     layout: Entity<LayoutModel>,
@@ -48,6 +50,7 @@ impl HistoryView {
     }
   }
 
+  /// Flip the changed-files list between a flat list and a nested tree.
   pub fn toggle_files_as_tree(&mut self, cx: &mut Context<Self>) {
     self.files_as_tree = !self.files_as_tree;
     cx.notify();

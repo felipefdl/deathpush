@@ -92,6 +92,7 @@ pub fn render_header(
     )
 }
 
+/// Path, status letter, and the layout toggle only (no hunk or history actions).
 pub fn render_commit_header(
   path: &str,
   status: FileStatus,

@@ -367,18 +367,22 @@ impl RepoModel {
     self.session
   }
 
+  /// Load the commit's detail into `state.commit_detail`.
   pub fn select_commit(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
     self.dispatch(Intent::SelectCommit { id }, window, cx);
   }
 
+  /// Append the next page of the commit log.
   pub fn load_more_log(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     self.dispatch(Intent::LoadMoreLog, window, cx);
   }
 
+  /// Open the file's diff at `commit`. Does not change the SCM file selection.
   pub fn open_commit_diff(&mut self, commit: String, path: String, window: &mut Window, cx: &mut Context<Self>) {
     self.dispatch(Intent::OpenCommitDiff { commit, path }, window, cx);
   }
 
+  /// Clear the file-history filter and restore the full commit log.
   pub fn clear_file_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     self.dispatch(Intent::ClearFileHistory, window, cx);
   }
@@ -415,6 +419,9 @@ impl RepoModel {
       return;
     }
     self.state.mark_commit_intent(&intent);
+    if let Intent::OpenCommitDiff { commit, path } = &intent {
+      self.state.request_commit_diff(commit.clone(), path.clone());
+    }
     let clear_file = matches!(intent, Intent::ClearFile);
     if clear_file {
       self.state.pending_clear_file = true;
@@ -895,8 +902,15 @@ impl RepoModel {
           .accept_payload(session_generation, session_revision, root_at_send.as_deref())
           == PayloadVerdict::Accept
         {
-          self.state.diff = Some(payload);
-          self.state.diff_load_id = Some(self.state.selected_load_id);
+          match &sent {
+            Intent::OpenCommitDiff { commit, path } => {
+              self.state.apply_commit_diff_payload(commit, path, payload);
+            }
+            _ => {
+              self.state.diff = Some(payload);
+              self.state.diff_load_id = Some(self.state.selected_load_id);
+            }
+          }
         }
       }
       IntentOutcome::Blame {

@@ -4,9 +4,9 @@ use crate::error::{Error, Result};
 use crate::git::blame::{get_file_blame, get_file_log};
 
 use crate::git::cli::GitCli;
-use crate::git::diff::scm_file_diff;
+use crate::git::diff::{commit_file_diff, scm_file_diff};
 use crate::git::hunk::{find_hunk_index, generate_hunk_patch_from_hunks, generate_lines_patch, hunk_id};
-use crate::git::log::{get_commit_detail, get_commit_file_diff, get_commit_log};
+use crate::git::log::{get_commit_detail, get_commit_log};
 use crate::git::repository::GitRepository;
 use crate::types::{FileStatus, RepositoryStatus, ResourceGroupKind};
 
@@ -745,17 +745,17 @@ fn open_scm_diff(
 }
 
 fn open_commit_diff(repo: &GitRepository, commit: &str, path: &str) -> Result<DiffPayload> {
-  let diff = get_commit_file_diff(repo, commit, path)?;
-  let old_exists = !diff.original.is_empty();
-  let new_exists = !diff.modified.is_empty();
-  let content_hash = crate::content_hash::sha256_utf8(&diff.modified);
+  let diff = commit_file_diff(repo, commit, path)?;
+  let old_exists = !diff.content.original.is_empty();
+  let new_exists = !diff.content.modified.is_empty();
+  let content_hash = crate::content_hash::sha256_utf8(&diff.content.modified);
   Ok(DiffPayload {
-    path: diff.path,
-    original: diff.original,
-    modified: diff.modified,
-    language: diff.language,
-    file_type: diff.file_type,
-    hunks: Vec::new(),
+    path: diff.content.path,
+    original: diff.content.original,
+    modified: diff.content.modified,
+    language: diff.content.original_language,
+    file_type: diff.content.file_type,
+    hunks: diff.hunks.iter().map(DiffHunkPayload::from).collect(),
     presence: DiffPresence { old_exists, new_exists },
     editable: false,
     enable_line_selection: false,

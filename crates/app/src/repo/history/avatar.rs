@@ -6,11 +6,13 @@ use gpui_kit::*;
 
 use crate::theme::hsla;
 
+/// Author avatar: a remote URL when known, otherwise initials and a stable hue.
 pub enum Avatar {
   Remote(SharedString),
   Initials { text: String, hue: f32 },
 }
 
+/// Remote when `avatar_url` is non-empty, otherwise initials from the author name.
 pub fn avatar_for(entry: &CommitEntry) -> Avatar {
   if entry.avatar_url.is_empty() {
     Avatar::Initials {
@@ -24,7 +26,7 @@ pub fn avatar_for(entry: &CommitEntry) -> Avatar {
 
 /// Mix the author hue into the theme background. `gpui_kit::hsla` is used because the hue
 /// comes from core's `avatar_hue` (hashed author name), not a literal color.
-pub fn fallback_fill(hue: f32, background: Rgba) -> Rgba {
+fn fallback_fill(hue: f32, background: Rgba) -> Rgba {
   let rgb: gpui_kit::Rgba = gpui_kit::hsla(hue / 360., 0.55, 0.5, 1.).into();
   background.mix(
     Rgba {

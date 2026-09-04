@@ -14,7 +14,7 @@ use crate::repo::changes::rows::{status_color, status_letter};
 use crate::repo::explorer::icons::{IconKind, icon_for};
 use crate::theme::hsla;
 
-pub fn file_label(file: &CommitFileEntry) -> String {
+fn file_label(file: &CommitFileEntry) -> String {
   match &file.old_path {
     Some(old) if !old.is_empty() => format!("{old} -> {}", file.path),
     _ => file.path.clone(),
@@ -282,11 +282,7 @@ fn render_file_row(
   palette: UiPalette,
 ) -> AnyElement {
   let selected = selected_path == Some(file.path.as_str());
-  let label = if depth == 0 {
-    file_label(file)
-  } else {
-    file.path.rsplit('/').next().unwrap_or(&file.path).to_string()
-  };
+  let label = file_label(file);
   let name = file.path.rsplit('/').next().unwrap_or(&file.path);
   let icon = icon_for(IconKind::Standard, name, false, false);
   let letter = status_letter(file.status.clone());
@@ -391,5 +387,11 @@ mod tests {
       old_path: None,
     };
     assert_eq!(file_label(&plain), "b.rs");
+    let nested = CommitFileEntry {
+      path: "src/b.rs".into(),
+      status: FileStatus::Renamed,
+      old_path: Some("src/a.rs".into()),
+    };
+    assert_eq!(file_label(&nested), "src/a.rs -> src/b.rs");
   }
 }

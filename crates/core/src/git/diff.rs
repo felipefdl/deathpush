@@ -4,7 +4,7 @@ use std::path::Path;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::git::repository::GitRepository;
 use crate::types::{DiffContent, DiffHunk, DiffLine};
 
@@ -62,7 +62,32 @@ pub fn scm_file_diff(repo: &GitRepository, path: &str, staged: bool) -> Result<S
   } else {
     inner.diff_index_to_workdir(None, Some(&mut opts))?
   };
+  file_diff_from_git_diff(inner, workdir, path, &diff)
+}
 
+/// Diff `path` between the commit's first parent tree and the commit tree (empty tree for a root commit).
+pub fn commit_file_diff(repo: &GitRepository, commit_id: &str, path: &str) -> Result<ScmFileDiff> {
+  let inner = repo.inner();
+  let oid = git2::Oid::from_str(commit_id).map_err(|err| Error::Other(format!("invalid commit id: {err}")))?;
+  let commit = inner.find_commit(oid)?;
+  let new_tree = commit.tree()?;
+  let old_tree = if commit.parent_count() > 0 {
+    Some(commit.parent(0)?.tree()?)
+  } else {
+    None
+  };
+  let mut opts = git2::DiffOptions::new();
+  opts.pathspec(path).context_lines(3);
+  let diff = inner.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
+  file_diff_from_git_diff(inner, repo.root(), path, &diff)
+}
+
+fn file_diff_from_git_diff(
+  inner: &git2::Repository,
+  workdir: &Path,
+  path: &str,
+  diff: &git2::Diff<'_>,
+) -> Result<ScmFileDiff> {
   let mut old_file: Option<(git2::Oid, Option<std::path::PathBuf>, bool, bool)> = None;
   let mut new_file: Option<(git2::Oid, Option<std::path::PathBuf>, bool, bool)> = None;
   let mut content_path = path.to_string();
@@ -139,7 +164,7 @@ pub fn scm_file_diff(repo: &GitRepository, path: &str, staged: bool) -> Result<S
   let modified = modified_bytes
     .and_then(|bytes| String::from_utf8(bytes).ok())
     .unwrap_or_default();
-  let mut hunks = collect_diff_hunks(&diff)?;
+  let mut hunks = collect_diff_hunks(diff)?;
   if hunks.is_empty() && original.is_empty() && !modified.is_empty() {
     hunks = all_add_hunks(&modified);
   }
@@ -700,5 +725,37 @@ mod tests {
     let diff = scm_file_diff(&repo, "data.bin", false).unwrap();
     assert_eq!(diff.content.file_type, "binary");
     assert!(diff.hunks.is_empty());
+  }
+
+  fn commit_path(repo: &GitRepository, path: &str, content: &str, message: &str) -> String {
+    let inner = repo.inner();
+    std::fs::write(repo.root().join(path), content).unwrap();
+    let mut index = inner.index().unwrap();
+    index.add_path(Path::new(path)).unwrap();
+    index.write().unwrap();
+    let tree_id = index.write_tree().unwrap();
+    let tree = inner.find_tree(tree_id).unwrap();
+    let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+    let parent = inner.head().unwrap().peel_to_commit().unwrap();
+    inner
+      .commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])
+      .unwrap()
+      .to_string()
+  }
+
+  #[test]
+  fn commit_diff_of_a_changed_text_file_has_hunks() {
+    let (_directory, repo) = init_repo();
+    let id = commit_path(&repo, "README.md", "hello world\n", "change readme");
+    let diff = commit_file_diff(&repo, &id, "README.md").unwrap();
+    assert!(!diff.hunks.is_empty());
+    assert_eq!(diff.content.original, "hello\n");
+    assert_eq!(diff.content.modified, "hello world\n");
+    assert!(
+      diff
+        .hunks
+        .iter()
+        .any(|hunk| hunk.lines.iter().any(|line| line.line_type == "add"))
+    );
   }
 }

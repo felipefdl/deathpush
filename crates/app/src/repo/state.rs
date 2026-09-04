@@ -19,6 +19,9 @@ pub struct RepoState {
   pub selected_load_id: u64,
   pub diff: Option<DiffPayload>,
   pub diff_load_id: Option<u64>,
+  pub commit_diff_load_id: u64,
+  pub commit_diff_ready_id: Option<u64>,
+  pub pending_commit_diff: Option<(String, String)>,
   pub branches: Vec<BranchEntry>,
   pub stashes: Vec<StashEntry>,
   pub tags: Vec<TagEntry>,
@@ -393,6 +396,34 @@ impl RepoState {
     }
   }
 
+  /// Record a commit-file diff request so a later outcome can be matched or rejected as stale.
+  pub fn request_commit_diff(&mut self, commit: String, path: String) {
+    self.commit_diff_load_id += 1;
+    self.pending_commit_diff = Some((commit, path));
+  }
+
+  /// True when `state.diff` is the latest requested commit file (`commit`, `path`).
+  pub fn commit_diff_ready(&self, commit: &str, path: &str) -> bool {
+    self.commit_diff_ready_id == Some(self.commit_diff_load_id)
+      && self.diff.as_ref().is_some_and(|payload| payload.path == path)
+      && self
+        .pending_commit_diff
+        .as_ref()
+        .is_some_and(|(pending_commit, pending_path)| pending_commit == commit && pending_path == path)
+  }
+
+  /// Apply a commit-file diff only when it matches the latest `request_commit_diff`.
+  pub fn apply_commit_diff_payload(&mut self, commit: &str, path: &str, payload: DiffPayload) {
+    if self
+      .pending_commit_diff
+      .as_ref()
+      .is_some_and(|(pending_commit, pending_path)| pending_commit == commit && pending_path == path)
+    {
+      self.diff = Some(payload);
+      self.commit_diff_ready_id = Some(self.commit_diff_load_id);
+    }
+  }
+
   /// Decide whether a stamped Diff or Blame belongs to the current session, and advance the watermark when it is newer.
   pub fn accept_payload(&mut self, generation: u64, revision: u64, root_at_send: Option<&str>) -> PayloadVerdict {
     if generation != self.session_generation {
@@ -423,7 +454,7 @@ impl RepoState {
 mod tests {
   use super::*;
   use deathpush_core::session::types::{
-    OperationActions, SessionRepo, SessionScm, SessionSelection, SyncAction, SyncKind,
+    DiffPresence, OperationActions, SessionRepo, SessionScm, SessionSelection, SyncAction, SyncKind,
   };
   use deathpush_core::types::{RepoOperationState, ResourceGroup, ResourceGroupKind, StatusPhase};
 
@@ -761,5 +792,54 @@ mod tests {
     state.resolve_commit_outcome(false);
     state.mark_commit_intent(&Intent::CommitAndSync { confirmed: false });
     assert!(state.committing);
+  }
+
+  fn commit_diff_payload(path: &str, hash: &str) -> DiffPayload {
+    DiffPayload {
+      path: path.into(),
+      original: "old\n".into(),
+      modified: hash.into(),
+      language: Some("rust".into()),
+      file_type: "text".into(),
+      hunks: vec![],
+      presence: DiffPresence {
+        old_exists: true,
+        new_exists: true,
+      },
+      editable: false,
+      enable_line_selection: false,
+      staged: false,
+      content_hash: hash.into(),
+    }
+  }
+
+  #[test]
+  fn switching_commits_sharing_a_path_does_not_keep_the_previous_commit_diff() {
+    let mut state = RepoState::default();
+    state.request_commit_diff("aaa".into(), "foo.rs".into());
+    state.apply_commit_diff_payload("aaa", "foo.rs", commit_diff_payload("foo.rs", "aaa"));
+    assert!(state.commit_diff_ready("aaa", "foo.rs"));
+    assert_eq!(
+      state.diff.as_ref().map(|payload| payload.content_hash.as_str()),
+      Some("aaa")
+    );
+
+    state.request_commit_diff("bbb".into(), "foo.rs".into());
+    assert!(!state.commit_diff_ready("bbb", "foo.rs"));
+    assert!(!state.commit_diff_ready("aaa", "foo.rs"));
+
+    state.apply_commit_diff_payload("aaa", "foo.rs", commit_diff_payload("foo.rs", "aaa"));
+    assert!(!state.commit_diff_ready("bbb", "foo.rs"));
+    assert_eq!(
+      state.diff.as_ref().map(|payload| payload.content_hash.as_str()),
+      Some("aaa")
+    );
+
+    state.apply_commit_diff_payload("bbb", "foo.rs", commit_diff_payload("foo.rs", "bbb"));
+    assert!(state.commit_diff_ready("bbb", "foo.rs"));
+    assert_eq!(
+      state.diff.as_ref().map(|payload| payload.content_hash.as_str()),
+      Some("bbb")
+    );
   }
 }
