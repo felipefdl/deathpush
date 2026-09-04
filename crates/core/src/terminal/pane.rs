@@ -1,7 +1,7 @@
 //! One OS thread per terminal pane. libghostty types stay here; the app sees snapshots.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -120,19 +120,28 @@ enum CommandEffect {
   Clean,
 }
 
+const COMMAND_QUEUE_CAP: usize = 1024;
+const BATCH_COMMAND_LIMIT: usize = 256;
+const BATCH_BYTE_LIMIT: usize = 64 * 1024;
+
 /// Bytes the pane thread wants written to the PTY (encoded keys, mouse reports, pasted text).
 pub type PtyWriter = Box<dyn Fn(Vec<u8>) + Send + 'static>;
 
 /// Handle to a pane thread. Dropping it shuts the thread down and joins.
 pub struct PaneHandle {
-  tx: Sender<PaneCommand>,
+  tx: SyncSender<PaneCommand>,
   slot: Arc<Mutex<Option<Arc<PaneSnapshot>>>>,
   mouse_tracking: Arc<AtomicBool>,
   join: Option<JoinHandle<()>>,
 }
 
 impl PaneHandle {
-  /// Spawns the thread. `wake` is called after every new snapshot (the app schedules a redraw). `writer` receives PTY input.
+  /// Spawns the pane thread.
+  ///
+  /// `writer` receives encoded PTY input on the pane thread.
+  /// `wake` runs on the pane thread after every new snapshot so the app can schedule a redraw.
+  /// It must not block, must hold only weak or lifetime-safe app state, and is finished by the
+  /// time [`Drop`] returns.
   pub fn spawn(
     cols: u16,
     rows: u16,
@@ -140,7 +149,7 @@ impl PaneHandle {
     writer: PtyWriter,
     wake: Box<dyn Fn() + Send + 'static>,
   ) -> Result<PaneHandle> {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = mpsc::sync_channel(COMMAND_QUEUE_CAP);
     let slot = Arc::new(Mutex::new(None));
     let mouse_tracking = Arc::new(AtomicBool::new(false));
     let (ready_tx, ready_rx) = mpsc::channel();
@@ -178,7 +187,7 @@ impl PaneHandle {
     }
   }
 
-  /// Queue a command for the pane thread.
+  /// Queue a command for the pane thread. Blocks if the queue (1024) is full.
   pub fn send(&self, command: PaneCommand) {
     let _ = self.tx.send(command);
   }
@@ -223,6 +232,7 @@ struct PaneThread {
   cell_w: u32,
   cell_h: u32,
   pty_buf: Vec<u8>,
+  last_snapshot_error: Option<String>,
 }
 
 impl PaneThread {
@@ -235,6 +245,7 @@ impl PaneThread {
     slot: Arc<Mutex<Option<Arc<PaneSnapshot>>>>,
     mouse_tracking: Arc<AtomicBool>,
   ) -> Result<Self> {
+    let (cols, rows) = clamp_grid(cols, rows);
     let mut terminal = Terminal::new(cols, rows).map_err(vt_err)?;
     let cell_w = 8;
     let cell_h = 16;
@@ -263,31 +274,45 @@ impl PaneThread {
       cell_w,
       cell_h,
       pty_buf: Vec::new(),
+      last_snapshot_error: None,
     })
   }
 
   fn run(mut self, rx: Receiver<PaneCommand>) {
     while let Ok(first) = rx.recv() {
-      let mut dirty = false;
+      if matches!(first, PaneCommand::Shutdown) {
+        break;
+      }
+      let mut bytes = command_bytes(&first);
+      let mut commands = 1usize;
+      let mut dirty = matches!(self.apply(first), CommandEffect::Dirty);
       let mut shutdown = false;
-      let mut pending = Some(first);
-      while let Some(command) = pending.take() {
-        match self.apply(command) {
-          CommandEffect::Shutdown => {
+      while commands < BATCH_COMMAND_LIMIT && bytes < BATCH_BYTE_LIMIT {
+        match rx.try_recv() {
+          Ok(PaneCommand::Shutdown) => {
             shutdown = true;
             break;
           }
-          CommandEffect::Dirty => dirty = true,
-          CommandEffect::Clean => {}
+          Ok(command) => {
+            bytes = bytes.saturating_add(command_bytes(&command));
+            commands += 1;
+            if matches!(self.apply(command), CommandEffect::Dirty) {
+              dirty = true;
+            }
+          }
+          Err(TryRecvError::Empty) => break,
+          Err(TryRecvError::Disconnected) => {
+            shutdown = true;
+            break;
+          }
         }
-        pending = rx.try_recv().ok();
+      }
+      if shutdown {
+        break;
       }
       self.update_mouse_tracking();
       if dirty {
         self.publish();
-      }
-      if shutdown {
-        break;
       }
     }
   }
@@ -313,6 +338,7 @@ impl PaneThread {
         cell_w,
         cell_h,
       } => {
+        let (cols, rows) = clamp_grid(cols, rows);
         self.cols = cols;
         self.rows = rows;
         self.cell_w = cell_w.max(1);
@@ -348,7 +374,7 @@ impl PaneThread {
     } else {
       key::Action::Release
     };
-    let text = if input.press { input.text } else { None };
+    let text = if input.press { printable_utf8(input.text) } else { None };
     self
       .key_event
       .set_action(action)
@@ -368,7 +394,7 @@ impl PaneThread {
   }
 
   fn handle_mouse(&mut self, input: MouseInput) {
-    if !self.terminal.is_mouse_tracking().unwrap_or(false) {
+    if !self.mouse_tracking_now() {
       return;
     }
     let action = match input.action {
@@ -419,21 +445,37 @@ impl PaneThread {
     (self.writer)(std::mem::take(&mut self.pty_buf));
   }
 
+  fn mouse_tracking_now(&self) -> bool {
+    match self.terminal.is_mouse_tracking() {
+      Ok(tracking) => tracking,
+      Err(err) => {
+        tracing::warn!(%err, "mouse tracking query failed");
+        false
+      }
+    }
+  }
+
   fn update_mouse_tracking(&self) {
-    let tracking = self.terminal.is_mouse_tracking().unwrap_or(false);
-    self.mouse_tracking.store(tracking, Ordering::Release);
+    self.mouse_tracking.store(self.mouse_tracking_now(), Ordering::Release);
   }
 
   fn publish(&mut self) {
     match self.build_snapshot() {
       Ok(snapshot) => {
+        self.last_snapshot_error = None;
         let snapshot = Arc::new(snapshot);
         if let Ok(mut slot) = self.slot.lock() {
           *slot = Some(Arc::clone(&snapshot));
         }
         (self.wake)();
       }
-      Err(err) => tracing::warn!(%err, "terminal snapshot failed"),
+      Err(err) => {
+        let kind = err.to_string();
+        if self.last_snapshot_error.as_deref() != Some(kind.as_str()) {
+          tracing::warn!(%err, "terminal snapshot failed");
+          self.last_snapshot_error = Some(kind);
+        }
+      }
     }
   }
 
@@ -468,30 +510,27 @@ impl PaneThread {
       while let Some(row) = row_iter.next() {
         let mut cell_iter = self.cell_iter.update(row).map_err(vt_err)?;
         while let Some(cell) = cell_iter.next() {
-          let graphemes = cell.graphemes().unwrap_or_default();
-          let text = if graphemes.is_empty() {
-            String::from(" ")
+          let mut text = String::new();
+          if cell.graphemes_len().map_err(vt_err)? == 0 {
+            text.push(' ');
           } else {
-            graphemes.into_iter().collect()
-          };
-          let style = cell.style().unwrap_or_default();
+            cell.graphemes_utf8(&mut text).map_err(vt_err)?;
+            if text.is_empty() {
+              text.push(' ');
+            }
+          }
+          let style = cell.style().map_err(vt_err)?;
           let fg = cell
             .fg_color()
-            .ok()
-            .flatten()
+            .map_err(vt_err)?
             .map(|color| Rgb(color.r, color.g, color.b))
             .or(Some(default_fg));
           let bg = cell
             .bg_color()
-            .ok()
-            .flatten()
+            .map_err(vt_err)?
             .map(|color| Rgb(color.r, color.g, color.b))
             .or(Some(default_bg));
-          let wide = cell
-            .raw_cell()
-            .ok()
-            .and_then(|raw| raw.wide().ok())
-            .is_some_and(|wide| wide == CellWide::Wide);
+          let wide = cell.raw_cell().map_err(vt_err)?.wide().map_err(vt_err)? == CellWide::Wide;
           cells.push(SnapshotCell {
             text,
             fg,
@@ -502,20 +541,16 @@ impl PaneThread {
             inverse: style.inverse,
             underline: style.underline != Underline::None,
             strikethrough: style.strikethrough,
-            selected: cell.is_selected().unwrap_or(false),
+            selected: cell.is_selected().map_err(vt_err)?,
             wide,
           });
         }
       }
       (cols, rows, cells, cursor, default_fg, default_bg, cursor_color)
     };
-    let viewport_offset = self
-      .terminal
-      .scrollbar()
-      .ok()
-      .map(|bar| bar.total.saturating_sub(bar.offset.saturating_add(bar.len)) as usize)
-      .unwrap_or(0);
-    let scrollback_rows = self.terminal.scrollback_rows().unwrap_or(0);
+    let bar = self.terminal.scrollbar().map_err(vt_err)?;
+    let viewport_offset = bar.total.saturating_sub(bar.offset.saturating_add(bar.len)) as usize;
+    let scrollback_rows = self.terminal.scrollback_rows().map_err(vt_err)?;
     self.seq += 1;
     Ok(PaneSnapshot {
       seq: self.seq,
@@ -534,6 +569,27 @@ impl PaneThread {
 
 fn vt_err(err: impl std::fmt::Display) -> Error {
   Error::Other(err.to_string())
+}
+
+fn clamp_grid(cols: u16, rows: u16) -> (u16, u16) {
+  (cols.max(1), rows.max(1))
+}
+
+fn command_bytes(command: &PaneCommand) -> usize {
+  match command {
+    PaneCommand::Bytes(bytes) => bytes.len(),
+    _ => 0,
+  }
+}
+
+fn printable_utf8(text: Option<String>) -> Option<String> {
+  let text = text?;
+  let filtered: String = text.chars().filter(|ch| is_printable_char(*ch)).collect();
+  if filtered.is_empty() { None } else { Some(filtered) }
+}
+
+fn is_printable_char(ch: char) -> bool {
+  !matches!(ch, '\u{0000}'..='\u{001F}' | '\u{007F}' | '\u{F700}'..='\u{F8FF}')
 }
 
 fn mods_from(mods: &KeyMods) -> key::Mods {
@@ -837,5 +893,45 @@ mod tests {
     assert_eq!(key_from_name("f1"), Some(Key::F1));
     assert_eq!(key_from_name("f24"), Some(Key::F24));
     assert_eq!(key_from_name("not-a-key"), None);
+  }
+
+  #[test]
+  fn zero_sized_spawn_clamps_to_one() {
+    let handle = PaneHandle::spawn(0, 0, None, noop_writer(), Box::new(|| {})).unwrap();
+    handle.send(PaneCommand::Bytes(b"x".to_vec()));
+    let snap = wait_snapshot(&handle, |snap| snap.seq > 0);
+    assert_eq!(snap.cols, 1);
+    assert_eq!(snap.rows, 1);
+    assert_eq!(snap.row_text(0), "x");
+  }
+
+  #[test]
+  fn zero_sized_resize_clamps_to_one() {
+    let handle = PaneHandle::spawn(20, 4, None, noop_writer(), Box::new(|| {})).unwrap();
+    handle.send(PaneCommand::Resize {
+      cols: 0,
+      rows: 0,
+      cell_w: 8,
+      cell_h: 16,
+    });
+    let snap = wait_snapshot(&handle, |snap| snap.seq > 0);
+    assert_eq!(snap.cols, 1);
+    assert_eq!(snap.rows, 1);
+  }
+
+  #[test]
+  fn named_control_key_drops_control_character_text() {
+    let collected = Arc::new(Mutex::new(Vec::new()));
+    let writer_buf = Arc::clone(&collected);
+    let writer: PtyWriter = Box::new(move |bytes| writer_buf.lock().unwrap().extend(bytes));
+    let handle = PaneHandle::spawn(20, 4, None, writer, Box::new(|| {})).unwrap();
+    handle.send(PaneCommand::Key(KeyInput {
+      key: "enter".into(),
+      text: Some("\r".into()),
+      mods: KeyMods::default(),
+      press: true,
+    }));
+    let got = wait_bytes(&collected, |bytes| bytes.contains(&b'\r'));
+    assert!(got.contains(&b'\r'), "expected CR from enter, got {got:?}");
   }
 }
