@@ -1,12 +1,12 @@
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::Textarea;
-use gpui_kit::component::menu::DropdownMenu;
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Disableable, Icon};
 use gpui_kit::*;
 
 use super::view::{ChangesChrome, ChangesView};
-use crate::actions::{CommitAmendMode, CommitAndPush, CommitAndSync, CommitFromBox};
+use crate::actions::{CommitAmendMode, CommitAndPush, CommitAndSync};
 use crate::config::AppConfig;
 use crate::theme::{ActivePalette, hsla};
 
@@ -49,6 +49,7 @@ pub fn render_commit_box(
   let committing = chrome.committing;
   let disabled = !can_commit || committing;
   let button_tooltip = commit_button_tooltip(chrome.amend_mode);
+  let view_entity = cx.weak_entity();
 
   div().px_2().pb_2().child(
     div()
@@ -94,8 +95,15 @@ pub fn render_commit_box(
               .tooltip("More commit options")
               .disabled(disabled)
               .dropdown_menu(move |menu, _, _| {
+                let view_entity = view_entity.clone();
                 menu
-                  .menu_with_disabled("Commit", Box::new(CommitFromBox), !can_commit)
+                  .item(
+                    PopupMenuItem::new("Commit")
+                      .disabled(!can_commit)
+                      .on_click(move |_, window, cx| {
+                        let _ = view_entity.update(cx, |this, cx| this.commit(window, cx));
+                      }),
+                  )
                   .menu_with_disabled("Commit (Amend)", Box::new(CommitAmendMode), !can_commit)
                   .menu_with_disabled("Commit & Push", Box::new(CommitAndPush), !can_commit)
                   .menu_with_disabled("Commit & Sync", Box::new(CommitAndSync), !can_commit)
