@@ -88,6 +88,8 @@ pub struct ExplorerModel {
   last_refresh: Option<Instant>,
   refresh_generation: u64,
   select_after_load: Option<(String, bool)>,
+  /// True while a create listing or write is in flight; a second Enter is ignored.
+  create_in_flight: bool,
 }
 
 impl EventEmitter<ExplorerEvent> for ExplorerModel {}
@@ -110,6 +112,7 @@ impl ExplorerModel {
       last_refresh: None,
       refresh_generation: 0,
       select_after_load: None,
+      create_in_flight: false,
     }
   }
 
@@ -212,6 +215,7 @@ impl ExplorerModel {
   }
 
   pub fn begin_create(&mut self, parent: &str, is_directory: bool, cx: &mut Context<Self>) {
+    self.create_in_flight = false;
     let existing = child_names(&self.roots, parent);
     let base = if is_directory { "New Folder" } else { "New File" };
     let name = next_entry_name(&existing, base);
@@ -224,6 +228,7 @@ impl ExplorerModel {
   }
 
   pub fn begin_rename(&mut self, path: &str, cx: &mut Context<Self>) {
+    self.create_in_flight = false;
     let Some(node) = find_node(&self.roots, path) else {
       return;
     };
@@ -236,6 +241,9 @@ impl ExplorerModel {
 
   pub fn commit_edit(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
     let _ = window;
+    if self.create_in_flight {
+      return;
+    }
     let Some(edit) = self.edit.clone() else {
       return;
     };
@@ -248,8 +256,14 @@ impl ExplorerModel {
         parent, is_directory, ..
       } => match loaded_child_names(&self.roots, &parent) {
         Some(names) if name_taken(&names, &name) => Self::toast_exists(cx, &name),
-        Some(_) => self.start_create(parent, name, is_directory, cx),
-        None => self.create_after_listing(parent, name, is_directory, cx),
+        Some(_) => {
+          self.create_in_flight = true;
+          self.start_create(parent, name, is_directory, cx);
+        }
+        None => {
+          self.create_in_flight = true;
+          self.create_after_listing(parent, name, is_directory, cx);
+        }
       },
       EditState::Renaming { path, name: current } => {
         if name == current {
@@ -284,6 +298,7 @@ impl ExplorerModel {
   }
 
   pub fn cancel_edit(&mut self, cx: &mut Context<Self>) {
+    self.create_in_flight = false;
     self.edit = None;
     self.emit_changed(cx);
   }
@@ -546,6 +561,7 @@ impl ExplorerModel {
       let result = task.await;
       let _ = this.update(cx, |this, cx| {
         if this.refresh_generation != generation {
+          this.create_in_flight = false;
           return;
         }
         match result {
@@ -556,14 +572,25 @@ impl ExplorerModel {
               node.children = Some(children);
             }
             this.load_expanded_descendants(&parent, cx);
+            if !creating_still_live(this.edit.as_ref(), &parent, &name, is_directory) {
+              this.create_in_flight = false;
+              return;
+            }
             if name_taken(&names, &name) {
+              this.create_in_flight = false;
               Self::toast_exists(cx, &name);
               return;
             }
             this.start_create(parent, name, is_directory, cx);
           }
-          Ok(Err(err)) => this.fail(err.to_string(), cx),
-          Err(err) => this.fail(err.to_string(), cx),
+          Ok(Err(err)) => {
+            this.create_in_flight = false;
+            this.fail(err.to_string(), cx);
+          }
+          Err(err) => {
+            this.create_in_flight = false;
+            this.fail(err.to_string(), cx);
+          }
         }
       });
     })
@@ -598,11 +625,13 @@ impl ExplorerModel {
       let result = join_unit(task.await);
       let _ = this.update(cx, |this, cx| match result {
         Ok(()) => {
+          this.create_in_flight = false;
           this.edit = None;
           this.select_after_load = select_after;
           this.reload_tree(cx);
         }
         Err(message) => {
+          this.create_in_flight = false;
           if let Some(name) = exists_name {
             this.emit_core_error(message, &name, cx);
           } else {
@@ -695,6 +724,17 @@ pub fn should_reload(kind: PathChangeKind) -> bool {
 
 fn name_taken(existing: &[String], name: &str) -> bool {
   existing.iter().any(|item| item == name)
+}
+
+fn creating_still_live(edit: Option<&EditState>, parent: &str, name: &str, is_directory: bool) -> bool {
+  matches!(
+    edit,
+    Some(EditState::Creating {
+      parent: live_parent,
+      name: live_name,
+      is_directory: live_dir,
+    }) if live_parent == parent && live_name == name && *live_dir == is_directory
+  )
 }
 
 fn retain_expanded(expanded: &HashSet<String>, roots: &[Node]) -> HashSet<String> {
@@ -1133,5 +1173,26 @@ mod tests {
     assert_eq!(remap_path("src", "lib", "src"), "lib");
     assert_eq!(remap_path("src", "lib", "src/main.rs"), "lib/main.rs");
     assert_eq!(remap_path("a.rs", "b.rs", "src/main.rs"), "src/main.rs");
+  }
+
+  #[test]
+  fn creating_still_live_requires_the_same_creating_edit() {
+    let creating = EditState::Creating {
+      parent: "src".into(),
+      is_directory: false,
+      name: "a.rs".into(),
+    };
+    assert!(creating_still_live(Some(&creating), "src", "a.rs", false));
+    assert!(!creating_still_live(Some(&creating), "src", "b.rs", false));
+    assert!(!creating_still_live(None, "src", "a.rs", false));
+    assert!(!creating_still_live(
+      Some(&EditState::Renaming {
+        path: "src/a.rs".into(),
+        name: "a.rs".into(),
+      }),
+      "src",
+      "a.rs",
+      false
+    ));
   }
 }
