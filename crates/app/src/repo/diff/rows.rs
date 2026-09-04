@@ -143,7 +143,7 @@ fn render_side_row(left: &DiffRow, right: &DiffRow, paint: &RowPaint) -> AnyElem
 
 fn render_separator(row: &DiffRow, paint: &RowPaint) -> Div {
   let mut row_el = div()
-    .h(px(22.0))
+    .h(px(paint.line_height))
     .flex()
     .items_center()
     .px_2()
