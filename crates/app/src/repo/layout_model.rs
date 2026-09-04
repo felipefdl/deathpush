@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use deathpush_core::config::layout::{MainView, PanelTab, ProjectLayout, SidebarView, load_layout, save_layout};
+use deathpush_core::config::layout::{
+  MainView, PanelTab, ProjectLayout, SidebarView, layout_path, load_layout, save_layout,
+};
 use gpui_kit::*;
 
 use crate::config::AppConfig;
@@ -27,9 +29,14 @@ impl LayoutModel {
   }
 
   pub fn load_from(dir: PathBuf, root: &str, always_open_terminal: bool) -> Self {
+    let path = layout_path(&dir, root);
+    let mut layout = load_layout(&dir, root, always_open_terminal);
+    if !path.exists() && !layout.collapsed_panes.iter().any(|pane| pane == "scm.nested") {
+      layout.collapsed_panes.push("scm.nested".into());
+    }
     Self {
       root: root.to_string(),
-      layout: load_layout(&dir, root, always_open_terminal),
+      layout,
       dir,
       revision: 0,
     }
@@ -116,7 +123,6 @@ impl LayoutModel {
     self.changed(cx);
   }
 
-  #[allow(dead_code)]
   pub fn dock_terminal(&mut self, cx: &mut Context<Self>) {
     if self.layout.terminal_maximized {
       self.layout.terminal_maximized = false;
@@ -124,10 +130,13 @@ impl LayoutModel {
     }
   }
 
-  #[allow(dead_code)]
   pub fn toggle_pane_collapsed(&mut self, id: &str, cx: &mut Context<Self>) {
     self.layout.toggle_pane(id);
     self.changed(cx);
+  }
+
+  pub fn is_collapsed(&self, id: &str) -> bool {
+    self.layout.collapsed_panes.iter().any(|pane| pane == id)
   }
 }
 
@@ -164,5 +173,13 @@ mod tests {
     cx.executor().advance_clock(Duration::from_millis(600));
     cx.run_until_parked();
     assert!(!deathpush_core::config::layout::layout_path(dir.path(), "/repos/a").exists());
+  }
+
+  #[test]
+  fn nested_repositories_start_collapsed() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let model = LayoutModel::load_from(dir.path().to_path_buf(), "/r", false);
+    assert!(model.is_collapsed("scm.nested"));
+    assert!(!model.is_collapsed("scm.changes"));
   }
 }

@@ -236,7 +236,7 @@ pub struct CommitDiffContent {
   pub file_type: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct StashEntry {
   pub index: usize,

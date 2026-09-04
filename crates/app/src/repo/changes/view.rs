@@ -1,5 +1,9 @@
+use std::collections::HashSet;
+
+use deathpush_core::config::layout::MainView;
 use deathpush_core::session::types::{Intent, SessionActions};
-use deathpush_core::types::RepoOperationState;
+use deathpush_core::types::{RepoOperationState, ResourceGroupKind};
+use gpui_kit::base::ResizableState;
 use gpui_kit::component::Sizable;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
@@ -8,6 +12,7 @@ use gpui_kit::*;
 use super::banner::render_banner;
 use super::commit_box::{self, render_commit_box};
 use super::filter::{self, FILTER_DEBOUNCE_MS};
+use super::groups::{FileRow, GroupBody, GroupId, assemble_groups, render_groups};
 use super::toolbar::render_toolbar;
 use crate::actions::*;
 use crate::repo::layout_model::LayoutModel;
@@ -26,14 +31,16 @@ pub(crate) struct ChangesChrome {
 
 pub struct ChangesView {
   pub(crate) model: Entity<RepoModel>,
-  #[allow(dead_code)]
-  layout: Entity<LayoutModel>,
+  pub(crate) layout: Entity<LayoutModel>,
   pub(crate) commit: Entity<TextareaState>,
   filter: Entity<InputState>,
   filter_text: String,
   filter_generation: u64,
   commit_generation: u64,
   pub(crate) committing: bool,
+  pub(crate) selected: HashSet<(ResourceGroupKind, String)>,
+  pub(crate) anchor: Option<(GroupId, usize)>,
+  pub(crate) groups_state: Entity<ResizableState>,
   window_handle: AnyWindowHandle,
   focus_handle: FocusHandle,
 }
@@ -118,6 +125,9 @@ impl ChangesView {
       filter_generation: 0,
       commit_generation: 0,
       committing: false,
+      selected: HashSet::new(),
+      anchor: None,
+      groups_state: cx.new(|_| ResizableState::default()),
       window_handle: window.window_handle(),
       focus_handle: cx.focus_handle(),
     }
@@ -133,7 +143,6 @@ impl ChangesView {
     self.send(Intent::Commit { confirmed: false }, window, cx);
   }
 
-  #[allow(dead_code)]
   pub fn filter_text(&self) -> &str {
     &self.filter_text
   }
@@ -147,6 +156,206 @@ impl ChangesView {
     let _ = self.window_handle.update(cx, |_, window, cx| {
       model.update(cx, |model, cx| model.dispatch(intent, window, cx));
     });
+  }
+
+  pub(crate) fn on_file_click(
+    &mut self,
+    row: FileRow,
+    group_id: GroupId,
+    index: usize,
+    event: &ClickEvent,
+    window: &mut Window,
+    cx: &mut Context<Self>,
+  ) {
+    let modifiers = event.modifiers();
+    if modifiers.shift && self.anchor.is_some_and(|(group, _)| group == group_id) {
+      self.select_range(group_id, index, cx);
+      return;
+    }
+    if modifiers.secondary() {
+      let key = (row.group_kind, row.path.clone());
+      if !self.selected.remove(&key) {
+        self.selected.insert(key);
+      }
+      if self.anchor.is_none() {
+        self.anchor = Some((group_id, index));
+      }
+      cx.notify();
+      return;
+    }
+    self.select_file(&row, group_id, index, window, cx);
+  }
+
+  pub(crate) fn select_file(
+    &mut self,
+    row: &FileRow,
+    group_id: GroupId,
+    index: usize,
+    window: &mut Window,
+    cx: &mut Context<Self>,
+  ) {
+    self.selected.clear();
+    self.selected.insert((row.group_kind, row.path.clone()));
+    self.anchor = Some((group_id, index));
+    self.layout.update(cx, |layout, cx| {
+      layout.select_main_view(MainView::Changes, cx);
+      layout.dock_terminal(cx);
+    });
+    self.send(
+      Intent::OpenScmDiff {
+        path: row.path.clone(),
+        staged: row.staged,
+        group_kind: Some(row.group_kind),
+      },
+      window,
+      cx,
+    );
+    cx.notify();
+  }
+
+  fn select_range(&mut self, group_id: GroupId, index: usize, cx: &mut Context<Self>) {
+    let Some((anchor_group, anchor_index)) = self.anchor else {
+      return;
+    };
+    if anchor_group != group_id {
+      return;
+    }
+    let groups = assemble_groups(self.model.read(cx).state(), self.filter_text());
+    let Some(group) = groups.iter().find(|group| group.id == group_id) else {
+      return;
+    };
+    let GroupBody::Files(rows) = &group.body else {
+      return;
+    };
+    if rows.is_empty() {
+      return;
+    }
+    let last = rows.len() - 1;
+    let start = anchor_index.min(index).min(last);
+    let end = anchor_index.max(index).min(last);
+    self.selected.clear();
+    for row in &rows[start..=end] {
+      self.selected.insert((row.group_kind, row.path.clone()));
+    }
+    cx.notify();
+  }
+
+  fn target_keys(&self, row: &FileRow) -> Vec<(ResourceGroupKind, String, bool)> {
+    let key = (row.group_kind, row.path.clone());
+    if self.selected.contains(&key) {
+      self
+        .selected
+        .iter()
+        .map(|(kind, path)| (*kind, path.clone(), *kind == ResourceGroupKind::Index))
+        .collect()
+    } else {
+      vec![(row.group_kind, row.path.clone(), row.staged)]
+    }
+  }
+
+  fn target_paths(&self, row: &FileRow) -> Vec<String> {
+    self.target_keys(row).into_iter().map(|(_, path, _)| path).collect()
+  }
+
+  pub(crate) fn menu_open_changes(&mut self, row: &FileRow, window: &mut Window, cx: &mut Context<Self>) {
+    let targets = self.target_keys(row);
+    self.selected = targets.iter().map(|(kind, path, _)| (*kind, path.clone())).collect();
+    if !targets.is_empty() {
+      self.layout.update(cx, |layout, cx| {
+        layout.select_main_view(MainView::Changes, cx);
+        layout.dock_terminal(cx);
+      });
+      for (kind, path, staged) in &targets {
+        self.send(
+          Intent::OpenScmDiff {
+            path: path.clone(),
+            staged: *staged,
+            group_kind: Some(*kind),
+          },
+          window,
+          cx,
+        );
+      }
+    }
+    cx.notify();
+  }
+
+  pub(crate) fn menu_open_file(&mut self, row: &FileRow, _: &mut Window, cx: &mut Context<Self>) {
+    for path in self.target_paths(row) {
+      self.model.update(cx, |model, cx| model.open_in_editor(path, cx));
+    }
+  }
+
+  pub(crate) fn menu_show_history(&mut self, row: &FileRow, window: &mut Window, cx: &mut Context<Self>) {
+    self
+      .layout
+      .update(cx, |layout, cx| layout.select_main_view(MainView::History, cx));
+    for path in self.target_paths(row) {
+      self.send(Intent::OpenFileHistory { path }, window, cx);
+    }
+  }
+
+  pub(crate) fn menu_stage(&mut self, row: &FileRow, window: &mut Window, cx: &mut Context<Self>) {
+    self.send(
+      Intent::Stage {
+        paths: self.target_paths(row),
+      },
+      window,
+      cx,
+    );
+  }
+
+  pub(crate) fn menu_unstage(&mut self, row: &FileRow, window: &mut Window, cx: &mut Context<Self>) {
+    self.send(
+      Intent::Unstage {
+        paths: self.target_paths(row),
+      },
+      window,
+      cx,
+    );
+  }
+
+  pub(crate) fn menu_discard(&mut self, row: &FileRow, window: &mut Window, cx: &mut Context<Self>) {
+    self.send(
+      Intent::Discard {
+        paths: self.target_paths(row),
+        confirmed: false,
+      },
+      window,
+      cx,
+    );
+  }
+
+  pub(crate) fn menu_copy_path(&mut self, row: &FileRow, _: &mut Window, cx: &mut Context<Self>) {
+    let root = self.model.read(cx).root_path();
+    let text = self
+      .target_paths(row)
+      .into_iter()
+      .map(|path| match &root {
+        Some(root) => root.join(&path).to_string_lossy().into_owned(),
+        None => path,
+      })
+      .collect::<Vec<_>>()
+      .join("\n");
+    cx.write_to_clipboard(ClipboardItem::new_string(text));
+  }
+
+  pub(crate) fn menu_copy_relative(&mut self, row: &FileRow, _: &mut Window, cx: &mut Context<Self>) {
+    cx.write_to_clipboard(ClipboardItem::new_string(self.target_paths(row).join("\n")));
+  }
+
+  pub(crate) fn menu_reveal(&mut self, row: &FileRow, _: &mut Window, cx: &mut Context<Self>) {
+    for path in self.target_paths(row) {
+      self
+        .model
+        .update(cx, |model, cx| model.reveal_in_file_manager(path, cx));
+    }
+  }
+
+  pub(crate) fn menu_trash(&mut self, row: &FileRow, window: &mut Window, cx: &mut Context<Self>) {
+    for path in self.target_paths(row) {
+      self.send(Intent::DeleteFile { path, confirmed: false }, window, cx);
+    }
   }
 
   fn render_empty_repo(cx: &mut Context<Self>) -> impl IntoElement {
@@ -201,13 +410,13 @@ impl ChangesView {
 
 impl Render for ChangesView {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    let (repo_open, has_changes, empty_groups, chrome) = {
+    let (repo_open, has_changes, chrome, groups) = {
       let state = self.model.read(cx).state();
       let status = state.status.as_ref();
+      let groups = assemble_groups(state, &self.filter_text);
       (
         status.is_some(),
         state.has_changes(),
-        !state.has_changes() && state.stashes.is_empty() && state.nested_repositories.is_empty(),
         ChangesChrome {
           actions: state.actions.clone(),
           network_busy: state.network_busy(),
@@ -219,6 +428,7 @@ impl Render for ChangesView {
           amend_mode: state.amend_mode,
           head_branch: state.head_branch().map(str::to_string),
         },
+        groups,
       )
     };
     let mut root = div()
@@ -288,10 +498,12 @@ impl Render for ChangesView {
         ),
       );
     }
-    if empty_groups {
-      root = root.child(Self::render_watermark(cx));
+    if groups.is_empty() {
+      if self.filter_text.is_empty() {
+        root = root.child(Self::render_watermark(cx));
+      }
     } else {
-      root = root.child(div().flex_1().min_h_0().child(div()));
+      root = root.child(render_groups(self, &groups, window, cx));
     }
     root
   }

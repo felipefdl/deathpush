@@ -86,7 +86,7 @@ pub fn scan_workspace_projects(entries: &[WorkspaceScanEntry]) -> Result<Vec<Pro
   Ok(projects)
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct NestedRepository {
   pub path: String,

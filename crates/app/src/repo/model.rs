@@ -112,7 +112,6 @@ impl RepoModel {
     .detach();
   }
 
-  #[allow(dead_code)]
   pub fn open_in_editor(&self, path: String, cx: &mut Context<Self>) {
     let core = self.core.clone();
     let runtime = core.clone();
@@ -133,7 +132,6 @@ impl RepoModel {
     .detach();
   }
 
-  #[allow(dead_code)]
   pub fn reveal_in_file_manager(&self, path: String, cx: &mut Context<Self>) {
     let core = self.core.clone();
     let runtime = core.clone();
@@ -154,7 +152,6 @@ impl RepoModel {
     .detach();
   }
 
-  #[allow(dead_code)]
   pub fn root_path(&self) -> Option<PathBuf> {
     self.state.root().map(PathBuf::from)
   }

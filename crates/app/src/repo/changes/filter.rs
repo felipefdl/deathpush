@@ -4,7 +4,6 @@ use gpui_kit::*;
 
 pub const FILTER_DEBOUNCE_MS: u64 = 150;
 
-#[allow(dead_code)]
 pub fn matches_filter(path: &str, filter: &str) -> bool {
   filter.is_empty() || path.to_lowercase().contains(&filter.to_lowercase())
 }
