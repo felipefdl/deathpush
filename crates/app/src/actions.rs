@@ -77,5 +77,10 @@ actions!(
     WelcomeListEscape,
     Cancel,
     Confirm,
+    ExplorerRename,
+    ExplorerDelete,
+    ExplorerCut,
+    ExplorerCopy,
+    ExplorerPaste,
   ]
 );

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -49,6 +50,15 @@ pub enum EditState {
     path: String,
     name: String,
   },
+}
+
+impl EditState {
+  pub fn path(&self) -> String {
+    match self {
+      Self::Creating { parent, name, .. } => join_repo_path(parent, name),
+      Self::Renaming { path, .. } => path.clone(),
+    }
+  }
 }
 
 #[allow(dead_code)]
@@ -185,7 +195,23 @@ impl ExplorerModel {
   }
 
   pub fn visible_rows(&self, status: Option<&RepositoryStatus>) -> Vec<Row> {
-    flatten(&self.roots, &self.expanded, &self.filter, status, &self.selected)
+    let roots = self.display_roots();
+    flatten(&roots, &self.expanded, &self.filter, status, &self.selected)
+  }
+
+  pub fn display_roots(&self) -> Cow<'_, [Node]> {
+    match &self.edit {
+      Some(EditState::Creating {
+        parent,
+        is_directory,
+        name,
+      }) => {
+        let mut roots = self.roots.clone();
+        ensure_entry(&mut roots, &join_repo_path(parent, name), *is_directory);
+        Cow::Owned(roots)
+      }
+      _ => Cow::Borrowed(&self.roots),
+    }
   }
 
   pub fn mark(&mut self, op: ClipboardOp, cx: &mut Context<Self>) {
@@ -224,6 +250,13 @@ impl ExplorerModel {
       is_directory,
       name,
     });
+    if !parent.is_empty() {
+      self.expanded.insert(parent.to_string());
+      let needs_load = find_node(&self.roots, parent).is_some_and(|node| node.is_directory && node.children.is_none());
+      if needs_load {
+        self.load_children(parent, cx);
+      }
+    }
     self.emit_changed(cx);
   }
 
@@ -366,6 +399,32 @@ impl ExplorerModel {
           this.reload_tree(cx);
         }
       });
+      done(result);
+    })
+    .detach();
+  }
+
+  pub fn move_into(
+    &mut self,
+    source: &str,
+    into: &str,
+    on_conflict: Option<&'static str>,
+    window: &mut Window,
+    cx: &mut Context<Self>,
+    done: impl FnOnce(Result<(), String>) + 'static,
+  ) {
+    let _ = window;
+    let core = self.core.clone();
+    let session = self.session;
+    let dest = into.to_string();
+    let sources = vec![source.to_string()];
+    let handle = core.runtime_handle().clone();
+    let task = handle.spawn_blocking(move || core.move_entries(session, &sources, &dest, on_conflict));
+    cx.spawn(async move |this, cx| {
+      let result = join_unit(task.await);
+      if result.is_ok() {
+        let _ = this.update(cx, |this, cx| this.reload_tree(cx));
+      }
       done(result);
     })
     .detach();
@@ -1019,7 +1078,7 @@ fn child_names(nodes: &[Node], parent: &str) -> Vec<String> {
     .unwrap_or_default()
 }
 
-fn parent_path(path: &str) -> String {
+pub(crate) fn parent_path(path: &str) -> String {
   match path.rsplit_once('/') {
     Some((parent, _)) => parent.to_string(),
     None => String::new(),

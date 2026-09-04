@@ -18,6 +18,8 @@ pub const CONTEXT_CHANGES_INPUT: &str = "Changes > Input";
 pub const CONTEXT_DIFF: &str = "Diff";
 pub const CONTEXT_BRANCH_LIST: &str = "BranchList";
 pub const CONTEXT_BRANCH_LIST_INPUT: &str = "BranchList > Input";
+pub const CONTEXT_EXPLORER: &str = "Explorer";
+pub const CONTEXT_EXPLORER_INPUT: &str = "Explorer > Input";
 
 /// (keystrokes, action name, context). Pure so it can be tested per platform.
 pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static str>)> {
@@ -64,6 +66,13 @@ pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static st
       "WelcomeListEscape",
       Some(CONTEXT_WELCOME_LIST_INPUT),
     ),
+    ("f2".to_string(), "ExplorerRename", Some(CONTEXT_EXPLORER)),
+    ("delete".to_string(), "ExplorerDelete", Some(CONTEXT_EXPLORER)),
+    (format!("{m}-backspace"), "ExplorerDelete", Some(CONTEXT_EXPLORER)),
+    (format!("{m}-c"), "ExplorerCopy", Some(CONTEXT_EXPLORER)),
+    (format!("{m}-x"), "ExplorerCut", Some(CONTEXT_EXPLORER)),
+    (format!("{m}-v"), "ExplorerPaste", Some(CONTEXT_EXPLORER)),
+    ("escape".to_string(), "Cancel", Some(CONTEXT_EXPLORER_INPUT)),
   ];
   if mac {
     rows.push(("cmd-w".to_string(), "CloseWindow", Some(CONTEXT_APP)));
@@ -115,6 +124,11 @@ fn binding_for(keys: &str, name: &str, context: Option<&str>) -> KeyBinding {
     "Hide" => KeyBinding::new(keys, Hide, context),
     "HideOthers" => KeyBinding::new(keys, HideOthers, context),
     "InspectElement" => KeyBinding::new(keys, InspectElement, context),
+    "ExplorerRename" => KeyBinding::new(keys, ExplorerRename, context),
+    "ExplorerDelete" => KeyBinding::new(keys, ExplorerDelete, context),
+    "ExplorerCut" => KeyBinding::new(keys, ExplorerCut, context),
+    "ExplorerCopy" => KeyBinding::new(keys, ExplorerCopy, context),
+    "ExplorerPaste" => KeyBinding::new(keys, ExplorerPaste, context),
     other => unreachable!("unknown action {other}"),
   }
 }
@@ -201,6 +215,36 @@ mod tests {
           keys == &format!("{primary}-c") && *name == "CopyDiffSelection" && *ctx == Some(CONTEXT_DIFF)
         }),
         "{primary}-c -> CopyDiffSelection in Diff"
+      );
+    }
+  }
+
+  #[test]
+  fn explorer_keys_bind_in_explorer_context() {
+    for (mac, primary) in [(true, "cmd"), (false, "ctrl")] {
+      let rows = binding_table(mac);
+      let context = Some(CONTEXT_EXPLORER);
+      let expected = [
+        ("f2".to_string(), "ExplorerRename"),
+        ("delete".to_string(), "ExplorerDelete"),
+        (format!("{primary}-backspace"), "ExplorerDelete"),
+        (format!("{primary}-c"), "ExplorerCopy"),
+        (format!("{primary}-x"), "ExplorerCut"),
+        (format!("{primary}-v"), "ExplorerPaste"),
+      ];
+      for (key, name) in expected {
+        assert!(
+          rows
+            .iter()
+            .any(|(keys, action, ctx)| keys == &key && *action == name && *ctx == context),
+          "{key} -> {name} in Explorer"
+        );
+      }
+      assert!(
+        rows.iter().any(|(keys, action, ctx)| {
+          keys == "escape" && *action == "Cancel" && *ctx == Some(CONTEXT_EXPLORER_INPUT)
+        }),
+        "escape -> Cancel in Explorer > Input"
       );
     }
   }

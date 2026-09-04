@@ -494,6 +494,18 @@ impl Render for Shell {
       .flex_col()
       .bg(cx.theme().background)
       .text_color(cx.theme().foreground)
+      .on_drop::<ExternalPaths>(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+        let Screen::Repository(view) = &this.screen else {
+          return;
+        };
+        let explorer = view.read(cx).explorer().clone();
+        let sources: Vec<String> = paths
+          .paths()
+          .iter()
+          .map(|path| path.to_string_lossy().into_owned())
+          .collect();
+        explorer.update(cx, |explorer, cx| explorer.import_external(sources, window, cx));
+      }))
       .on_action(cx.listener(|_, _: &NewWindow, _, cx| {
         open_shell_window(None, cx);
       }))
