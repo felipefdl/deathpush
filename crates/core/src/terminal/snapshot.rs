@@ -1,55 +1,97 @@
 //! Pure terminal snapshot types. Send + Sync; no libghostty types.
 
+/// An RGB color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Rgb(pub u8, pub u8, pub u8);
+pub struct Rgb(
+  /// Red, 0-255.
+  pub u8,
+  /// Green, 0-255.
+  pub u8,
+  /// Blue, 0-255.
+  pub u8,
+);
 
+/// One cell in a pane snapshot.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SnapshotCell {
+  /// Cell text; a single space when empty.
   pub text: String,
+  /// Foreground color, falling back to the snapshot default.
   pub fg: Option<Rgb>,
+  /// Background color, falling back to the snapshot default.
   pub bg: Option<Rgb>,
+  /// Bold.
   pub bold: bool,
+  /// Italic.
   pub italic: bool,
+  /// Faint.
   pub faint: bool,
+  /// Inverse video.
   pub inverse: bool,
+  /// Any underline style.
   pub underline: bool,
+  /// Strikethrough.
   pub strikethrough: bool,
+  /// Inside the current selection.
   pub selected: bool,
+  /// Wide character (width 2).
   pub wide: bool,
 }
 
+/// Cursor shape in a snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CursorShape {
+  /// Block cursor.
   Block,
+  /// Underline cursor.
   Underline,
+  /// Bar cursor.
   Bar,
 }
 
+/// Cursor position and style in a snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CursorSnapshot {
+  /// Column in the viewport, 0-based.
   pub x: u16,
+  /// Row in the viewport, 0-based.
   pub y: u16,
+  /// Whether the cursor is visible.
   pub visible: bool,
+  /// Whether the cursor is blinking.
   pub blinking: bool,
+  /// Visual shape.
   pub shape: CursorShape,
 }
 
+/// One frame of a pane, row-major `cells` of `rows * cols`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneSnapshot {
+  /// Monotonic snapshot sequence; the first published frame is 1.
   pub seq: u64,
+  /// Viewport columns.
   pub cols: u16,
+  /// Viewport rows.
   pub rows: u16,
+  /// Cells in row-major order.
   pub cells: Vec<SnapshotCell>,
+  /// Cursor when it is in the viewport.
   pub cursor: Option<CursorSnapshot>,
+  /// Default background.
   pub background: Rgb,
+  /// Default foreground.
   pub foreground: Rgb,
+  /// Cursor color when the terminal set one.
   pub cursor_color: Option<Rgb>,
+  /// Rows scrolled back from the bottom.
   pub viewport_offset: usize,
+  /// Scrollback rows (total minus viewport).
   pub scrollback_rows: usize,
 }
 
 impl PaneSnapshot {
+  /// Cell at (`x`, `y`), if it is inside the grid.
   pub fn cell(&self, x: u16, y: u16) -> Option<&SnapshotCell> {
     if x >= self.cols || y >= self.rows {
       return None;
@@ -57,6 +99,7 @@ impl PaneSnapshot {
     self.cells.get(usize::from(y) * usize::from(self.cols) + usize::from(x))
   }
 
+  /// Visible text of row `y`, trailing spaces trimmed.
   pub fn row_text(&self, y: u16) -> String {
     if y >= self.rows {
       return String::new();
@@ -70,6 +113,7 @@ impl PaneSnapshot {
     text.trim_end().to_string()
   }
 
+  /// Inclusive cell range in reading order; rows joined by newlines, trailing spaces trimmed per row.
   pub fn selection_text(&self, start: (u16, u16), end: (u16, u16)) -> String {
     let (start, end) = order_cells(start, end);
     if self.cols == 0 || self.rows == 0 {
@@ -97,6 +141,7 @@ impl PaneSnapshot {
     lines.join("\n")
   }
 
+  /// Inclusive word range at (`x`, `y`) using whitespace boundaries.
   pub fn word_at(&self, x: u16, y: u16) -> Option<((u16, u16), (u16, u16))> {
     let cell = self.cell(x, y)?;
     if is_word_break(&cell.text) {

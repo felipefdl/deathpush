@@ -16,68 +16,114 @@ use libghostty_vt::{RenderState, Terminal};
 use crate::error::{Error, Result};
 use crate::terminal::snapshot::{CursorShape, CursorSnapshot, PaneSnapshot, Rgb, SnapshotCell};
 
+/// Keyboard modifiers on a pane key or mouse event.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct KeyMods {
+  /// Shift is held.
   pub shift: bool,
+  /// Alt/Option is held.
   pub alt: bool,
+  /// Control is held.
   pub ctrl: bool,
+  /// Super/Command/Windows is held.
   pub super_: bool,
 }
 
+/// A key event from the focused pane, using gpui key names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyInput {
+  /// gpui key name, such as `"a"`, `"enter"`, or `"f1"`.
   pub key: String,
+  /// Layout character from `key_char`, when present.
   pub text: Option<String>,
+  /// Modifiers held with the key.
   pub mods: KeyMods,
+  /// `true` for press, `false` for release.
   pub press: bool,
 }
 
+/// Mouse action forwarded to the pane thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseAction {
+  /// Button down.
   Press,
+  /// Button up.
   Release,
+  /// Pointer moved.
   Motion,
 }
 
+/// Mouse button forwarded to the pane thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseButton {
+  /// Primary button.
   Left,
+  /// Middle button.
   Middle,
+  /// Secondary button.
   Right,
+  /// Wheel up, encoded as button four when tracking.
   WheelUp,
+  /// Wheel down, encoded as button five when tracking.
   WheelDown,
 }
 
+/// A mouse event in cell coordinates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MouseInput {
+  /// Press, release, or motion.
   pub action: MouseAction,
+  /// Button for the event, if any.
   pub button: Option<MouseButton>,
+  /// Column, 0-based.
   pub x: u16,
+  /// Row, 0-based.
   pub y: u16,
+  /// Modifiers held with the mouse event.
   pub mods: KeyMods,
 }
 
+/// Work for the pane thread.
 #[derive(Debug)]
 pub enum PaneCommand {
+  /// Bytes from the PTY, written into the VT parser.
   Bytes(Vec<u8>),
+  /// Encode a key and write the result to the PTY.
   Key(KeyInput),
+  /// Encode a mouse event when tracking is on.
   Mouse(MouseInput),
+  /// Resize the terminal grid and cell pixel size.
   Resize {
+    /// Column count.
     cols: u16,
+    /// Row count.
     rows: u16,
+    /// Cell width in pixels.
     cell_w: u32,
+    /// Cell height in pixels.
     cell_h: u32,
   },
+  /// Scroll the viewport by a row delta (negative is up).
   Scroll(isize),
+  /// Pin the viewport to the active area.
   ScrollToBottom,
+  /// Set the scrollback byte limit; `None` is unlimited.
   SetScrollbackBytes(Option<usize>),
+  /// Stop the pane thread.
   Shutdown,
+}
+
+enum CommandEffect {
+  Shutdown,
+  Dirty,
+  Clean,
 }
 
 /// Bytes the pane thread wants written to the PTY (encoded keys, mouse reports, pasted text).
 pub type PtyWriter = Box<dyn Fn(Vec<u8>) + Send + 'static>;
 
+/// Handle to a pane thread. Dropping it shuts the thread down and joins.
 pub struct PaneHandle {
   tx: Sender<PaneCommand>,
   slot: Arc<Mutex<Option<Arc<PaneSnapshot>>>>,
@@ -132,10 +178,12 @@ impl PaneHandle {
     }
   }
 
+  /// Queue a command for the pane thread.
   pub fn send(&self, command: PaneCommand) {
     let _ = self.tx.send(command);
   }
 
+  /// Latest published snapshot, if any.
   pub fn snapshot(&self) -> Option<Arc<PaneSnapshot>> {
     self.slot.lock().ok()?.clone()
   }
@@ -146,6 +194,7 @@ impl PaneHandle {
   }
 }
 
+/// Sends [`PaneCommand::Shutdown`] and joins the pane thread.
 impl Drop for PaneHandle {
   fn drop(&mut self) {
     let _ = self.tx.send(PaneCommand::Shutdown);
@@ -219,54 +268,19 @@ impl PaneThread {
 
   fn run(mut self, rx: Receiver<PaneCommand>) {
     while let Ok(first) = rx.recv() {
-      let mut commands = vec![first];
-      while let Ok(next) = rx.try_recv() {
-        commands.push(next);
-      }
       let mut dirty = false;
       let mut shutdown = false;
-      for command in commands {
-        match command {
-          PaneCommand::Shutdown => {
+      let mut pending = Some(first);
+      while let Some(command) = pending.take() {
+        match self.apply(command) {
+          CommandEffect::Shutdown => {
             shutdown = true;
             break;
           }
-          PaneCommand::Bytes(bytes) => {
-            self.terminal.vt_write(&bytes);
-            dirty = true;
-          }
-          PaneCommand::Key(input) => self.handle_key(input),
-          PaneCommand::Mouse(input) => self.handle_mouse(input),
-          PaneCommand::Resize {
-            cols,
-            rows,
-            cell_w,
-            cell_h,
-          } => {
-            self.cols = cols;
-            self.rows = rows;
-            self.cell_w = cell_w.max(1);
-            self.cell_h = cell_h.max(1);
-            if let Err(err) = self.terminal.resize(cols, rows, self.cell_w, self.cell_h) {
-              tracing::warn!(%err, "terminal resize failed");
-            }
-            dirty = true;
-          }
-          PaneCommand::Scroll(delta) => {
-            self.terminal.scroll_viewport(ScrollViewport::Delta(delta));
-            dirty = true;
-          }
-          PaneCommand::ScrollToBottom => {
-            self.terminal.scroll_viewport(ScrollViewport::Bottom);
-            dirty = true;
-          }
-          PaneCommand::SetScrollbackBytes(bytes) => {
-            if let Err(err) = self.terminal.set_scrollback_max_bytes(bytes) {
-              tracing::warn!(%err, "set scrollback failed");
-            }
-            dirty = true;
-          }
+          CommandEffect::Dirty => dirty = true,
+          CommandEffect::Clean => {}
         }
+        pending = rx.try_recv().ok();
       }
       self.update_mouse_tracking();
       if dirty {
@@ -274,6 +288,53 @@ impl PaneThread {
       }
       if shutdown {
         break;
+      }
+    }
+  }
+
+  fn apply(&mut self, command: PaneCommand) -> CommandEffect {
+    match command {
+      PaneCommand::Shutdown => CommandEffect::Shutdown,
+      PaneCommand::Bytes(bytes) => {
+        self.terminal.vt_write(&bytes);
+        CommandEffect::Dirty
+      }
+      PaneCommand::Key(input) => {
+        self.handle_key(input);
+        CommandEffect::Clean
+      }
+      PaneCommand::Mouse(input) => {
+        self.handle_mouse(input);
+        CommandEffect::Clean
+      }
+      PaneCommand::Resize {
+        cols,
+        rows,
+        cell_w,
+        cell_h,
+      } => {
+        self.cols = cols;
+        self.rows = rows;
+        self.cell_w = cell_w.max(1);
+        self.cell_h = cell_h.max(1);
+        if let Err(err) = self.terminal.resize(cols, rows, self.cell_w, self.cell_h) {
+          tracing::warn!(%err, "terminal resize failed");
+        }
+        CommandEffect::Dirty
+      }
+      PaneCommand::Scroll(delta) => {
+        self.terminal.scroll_viewport(ScrollViewport::Delta(delta));
+        CommandEffect::Dirty
+      }
+      PaneCommand::ScrollToBottom => {
+        self.terminal.scroll_viewport(ScrollViewport::Bottom);
+        CommandEffect::Dirty
+      }
+      PaneCommand::SetScrollbackBytes(bytes) => {
+        if let Err(err) = self.terminal.set_scrollback_max_bytes(bytes) {
+          tracing::warn!(%err, "set scrollback failed");
+        }
+        CommandEffect::Dirty
       }
     }
   }
@@ -589,6 +650,27 @@ pub fn key_from_name(name: &str) -> Option<libghostty_vt::key::Key> {
       b'.' => Some(Key::Period),
       b'/' => Some(Key::Slash),
       b' ' => Some(Key::Space),
+      b'!' => Some(Key::Digit1),
+      b'@' => Some(Key::Digit2),
+      b'#' => Some(Key::Digit3),
+      b'$' => Some(Key::Digit4),
+      b'%' => Some(Key::Digit5),
+      b'^' => Some(Key::Digit6),
+      b'&' => Some(Key::Digit7),
+      b'*' => Some(Key::Digit8),
+      b'(' => Some(Key::Digit9),
+      b')' => Some(Key::Digit0),
+      b'_' => Some(Key::Minus),
+      b'+' => Some(Key::Equal),
+      b'{' => Some(Key::BracketLeft),
+      b'}' => Some(Key::BracketRight),
+      b'|' => Some(Key::Backslash),
+      b':' => Some(Key::Semicolon),
+      b'"' => Some(Key::Quote),
+      b'<' => Some(Key::Comma),
+      b'>' => Some(Key::Period),
+      b'?' => Some(Key::Slash),
+      b'~' => Some(Key::Backquote),
       _ => None,
     };
   }
@@ -716,6 +798,27 @@ mod tests {
     assert_eq!(key_from_name("0"), Some(Key::Digit0));
     assert_eq!(key_from_name("9"), Some(Key::Digit9));
     assert_eq!(key_from_name("-"), Some(Key::Minus));
+    assert_eq!(key_from_name("!"), Some(Key::Digit1));
+    assert_eq!(key_from_name("@"), Some(Key::Digit2));
+    assert_eq!(key_from_name("#"), Some(Key::Digit3));
+    assert_eq!(key_from_name("$"), Some(Key::Digit4));
+    assert_eq!(key_from_name("%"), Some(Key::Digit5));
+    assert_eq!(key_from_name("^"), Some(Key::Digit6));
+    assert_eq!(key_from_name("&"), Some(Key::Digit7));
+    assert_eq!(key_from_name("*"), Some(Key::Digit8));
+    assert_eq!(key_from_name("("), Some(Key::Digit9));
+    assert_eq!(key_from_name(")"), Some(Key::Digit0));
+    assert_eq!(key_from_name("_"), Some(Key::Minus));
+    assert_eq!(key_from_name("+"), Some(Key::Equal));
+    assert_eq!(key_from_name("{"), Some(Key::BracketLeft));
+    assert_eq!(key_from_name("}"), Some(Key::BracketRight));
+    assert_eq!(key_from_name("|"), Some(Key::Backslash));
+    assert_eq!(key_from_name(":"), Some(Key::Semicolon));
+    assert_eq!(key_from_name("\""), Some(Key::Quote));
+    assert_eq!(key_from_name("<"), Some(Key::Comma));
+    assert_eq!(key_from_name(">"), Some(Key::Period));
+    assert_eq!(key_from_name("?"), Some(Key::Slash));
+    assert_eq!(key_from_name("~"), Some(Key::Backquote));
     assert_eq!(key_from_name("enter"), Some(Key::Enter));
     assert_eq!(key_from_name("escape"), Some(Key::Escape));
     assert_eq!(key_from_name("tab"), Some(Key::Tab));
