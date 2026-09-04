@@ -1,10 +1,12 @@
 use std::collections::HashSet;
 
+use deathpush_core::ops::repository::NestedRepository;
 use deathpush_core::session::types::{
   DiffPayload, FileSelection, SessionActions, SessionPatch, SessionSnapshot, SessionStatusEvent, SessionStatusExtras,
 };
 use deathpush_core::types::{
-  BranchEntry, CommitDetail, CommitEntry, FileBlame, LastCommitInfo, RepositoryStatus, StashEntry, TagEntry,
+  BranchEntry, CommitDetail, CommitEntry, FileBlame, LastCommitInfo, RepositoryStatus, ResourceGroupKind, StashEntry,
+  TagEntry,
 };
 
 /// The repository window's view of core, ported from the deleted repository store and session client.
@@ -36,8 +38,16 @@ pub struct RepoState {
   pub blame: Option<FileBlame>,
   pub cursor_line: Option<usize>,
   pub pending_clear_file: bool,
-  #[allow(dead_code)]
-  pub operations: HashSet<String>,
+  pub running: HashSet<NetworkOp>,
+  pub nested_repositories: Vec<NestedRepository>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NetworkOp {
+  Pull,
+  Push,
+  Fetch,
+  Sync,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +88,44 @@ fn same_file(a: Option<&FileSelection>, b: Option<&FileSelection>) -> bool {
 impl RepoState {
   pub fn root(&self) -> Option<&str> {
     self.status.as_ref().map(|status| status.root.as_str())
+  }
+
+  pub fn network_busy(&self) -> bool {
+    !self.running.is_empty()
+  }
+
+  pub fn has_changes(&self) -> bool {
+    self.group_file_count(|_| true) > 0
+  }
+
+  #[allow(dead_code)]
+  pub fn staged_count(&self) -> usize {
+    self.group_file_count(|kind| kind == ResourceGroupKind::Index)
+  }
+
+  #[allow(dead_code)]
+  pub fn unstaged_count(&self) -> usize {
+    self.group_file_count(|kind| matches!(kind, ResourceGroupKind::WorkingTree | ResourceGroupKind::Untracked))
+  }
+
+  #[allow(dead_code)]
+  pub fn merge_count(&self) -> usize {
+    self.group_file_count(|kind| kind == ResourceGroupKind::Merge)
+  }
+
+  fn group_file_count(&self, matches: impl Fn(ResourceGroupKind) -> bool) -> usize {
+    self
+      .status
+      .as_ref()
+      .map(|status| {
+        status
+          .groups
+          .iter()
+          .filter(|group| matches(group.kind))
+          .map(|group| group.files.len())
+          .sum()
+      })
+      .unwrap_or(0)
   }
 
   #[allow(dead_code)]
@@ -589,6 +637,55 @@ mod tests {
     assert_eq!(state.session_revision, 3);
     assert_eq!(state.accept_payload(2, 5, None), PayloadVerdict::Accept);
     assert_eq!(state.session_revision, 5);
+  }
+
+  #[test]
+  fn counts_and_busy_flags_read_the_groups() {
+    use deathpush_core::types::{FileEntry, FileStatus};
+
+    fn file(path: &str, status: FileStatus) -> FileEntry {
+      FileEntry {
+        path: path.into(),
+        status,
+        rename_path: None,
+      }
+    }
+
+    let mut state = RepoState::default();
+    assert!(!state.has_changes());
+    state.status = Some(RepositoryStatus {
+      root: "/r".into(),
+      head_branch: Some("main".into()),
+      head_commit: None,
+      ahead: 0,
+      behind: 0,
+      groups: vec![
+        ResourceGroup {
+          kind: ResourceGroupKind::Index,
+          label: "Staged Changes".into(),
+          files: vec![file("a.rs", FileStatus::IndexModified)],
+        },
+        ResourceGroup {
+          kind: ResourceGroupKind::WorkingTree,
+          label: "Changes".into(),
+          files: vec![file("b.rs", FileStatus::Modified), file("c.rs", FileStatus::Untracked)],
+        },
+        ResourceGroup {
+          kind: ResourceGroupKind::Merge,
+          label: "Merge Changes".into(),
+          files: vec![],
+        },
+      ],
+      operation_state: RepoOperationState::None,
+    });
+    assert!(state.has_changes());
+    assert_eq!(
+      (state.staged_count(), state.unstaged_count(), state.merge_count()),
+      (1, 2, 0)
+    );
+    assert!(!state.network_busy());
+    state.running.insert(NetworkOp::Fetch);
+    assert!(state.network_busy());
   }
 
   #[test]

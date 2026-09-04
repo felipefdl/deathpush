@@ -1,3 +1,4 @@
+pub mod changes;
 pub mod diff;
 pub mod layout_model;
 pub mod main_panel;

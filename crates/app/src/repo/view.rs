@@ -6,6 +6,7 @@ use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
+use super::changes::ChangesView;
 use super::layout_model::LayoutModel;
 use super::main_panel::render_main_panel;
 use super::model::RepoModel;
@@ -22,6 +23,7 @@ pub struct RepoView {
   model: Entity<RepoModel>,
   layout: Entity<LayoutModel>,
   output: Entity<OutputLog>,
+  changes: Entity<ChangesView>,
   body_state: Entity<ResizableState>,
   main_state: Entity<ResizableState>,
   pub(crate) focus_handle: FocusHandle,
@@ -32,15 +34,18 @@ impl RepoView {
     model: Entity<RepoModel>,
     layout: Entity<LayoutModel>,
     output: Entity<OutputLog>,
+    window: &mut Window,
     cx: &mut Context<Self>,
   ) -> Self {
     cx.observe(&model, |_, _, cx| cx.notify()).detach();
     cx.observe(&layout, |_, _, cx| cx.notify()).detach();
     cx.observe(&output, |_, _, cx| cx.notify()).detach();
+    let changes = cx.new(|cx| ChangesView::new(model.clone(), layout.clone(), window, cx));
     Self {
       model,
       layout,
       output,
+      changes,
       body_state: cx.new(|_| ResizableState::default()),
       main_state: cx.new(|_| ResizableState::default()),
       focus_handle: cx.focus_handle(),
@@ -58,6 +63,11 @@ impl RepoView {
 
   pub fn output(&self) -> &Entity<OutputLog> {
     &self.output
+  }
+
+  #[allow(dead_code)]
+  pub fn changes(&self) -> &Entity<ChangesView> {
+    &self.changes
   }
 
   pub fn focus(&self, window: &mut Window, cx: &mut App) {
@@ -82,8 +92,12 @@ impl RepoView {
     let select = move |view: SidebarView, _: &mut Window, cx: &mut App| {
       layout_entity.update(cx, |layout, cx| layout.select_sidebar_view(view, cx));
     };
-    let sidebar =
-      render_sidebar(layout.sidebar_view, select, div().size_full().into_any_element(), cx).into_any_element();
+    let sidebar_body = if layout.sidebar_view == SidebarView::Scm {
+      self.changes.clone().into_any_element()
+    } else {
+      div().into_any_element()
+    };
+    let sidebar = render_sidebar(layout.sidebar_view, select, sidebar_body, cx).into_any_element();
     let main_panel = render_main_panel(layout.main_view, cx).into_any_element();
     let terminal =
       render_terminal_panel(layout.panel_tab, layout.terminal_maximized, &self.output, cx).into_any_element();
@@ -259,7 +273,9 @@ mod tests {
   use deathpush_core::session::types::{
     OperationActions, SessionActions, SessionRepo, SessionScm, SessionSelection, SessionSnapshot, SyncAction, SyncKind,
   };
-  use deathpush_core::types::{RepoOperationState, StatusPhase};
+  use deathpush_core::types::{
+    FileEntry, FileStatus, RepoOperationState, ResourceGroup, ResourceGroupKind, StatusPhase,
+  };
   use gpui_kit::TestAppContext;
 
   use crate::config::AppConfig;
@@ -334,17 +350,79 @@ mod tests {
       let snapshot = snapshot(&root);
       let layout_dir = layout_dir.clone();
       let root = root.clone();
-      move |_, cx| {
+      move |window, cx| {
         let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
         let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
         let output = cx.new(|_| OutputLog::default());
-        RepoView::new(model, layout, output, cx)
+        RepoView::new(model, layout, output, window, cx)
       }
     });
     window
       .update(cx, |view, window, cx| {
         view.focus(window, cx);
         assert_eq!(window.focused(cx).as_ref(), Some(&view.focus_handle));
+      })
+      .unwrap();
+  }
+
+  fn populated_snapshot(root: &str) -> SessionSnapshot {
+    let mut snapshot = snapshot(root);
+    snapshot.groups = vec![
+      ResourceGroup {
+        kind: ResourceGroupKind::Index,
+        label: "Staged Changes".into(),
+        files: vec![FileEntry {
+          path: "a.rs".into(),
+          status: FileStatus::IndexModified,
+          rename_path: None,
+        }],
+      },
+      ResourceGroup {
+        kind: ResourceGroupKind::WorkingTree,
+        label: "Changes".into(),
+        files: vec![FileEntry {
+          path: "b.rs".into(),
+          status: FileStatus::Modified,
+          rename_path: None,
+        }],
+      },
+    ];
+    snapshot
+  }
+
+  #[gpui_kit::test]
+  fn changes_view_renders_with_status_groups(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let layout_dir = config_dir.path().to_path_buf();
+    let root = layout_dir.to_string_lossy().into_owned();
+    let window = cx.add_window({
+      let core = core.clone();
+      let snapshot = snapshot(&root);
+      let layout_dir = layout_dir.clone();
+      let root = root.clone();
+      move |window, cx| {
+        let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
+        let output = cx.new(|_| OutputLog::default());
+        RepoView::new(model, layout, output, window, cx)
+      }
+    });
+    window
+      .update(cx, |view, window, cx| {
+        view.model().update(cx, |model, _| {
+          model.state_mut().apply_snapshot(populated_snapshot(&root));
+        });
+        window.refresh();
+        assert!(view.changes().read(cx).filter_text().is_empty());
+        assert!(view.model().read(cx).state().has_changes());
       })
       .unwrap();
   }

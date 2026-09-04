@@ -129,6 +129,7 @@ impl Shell {
     });
     self.apply_titles(&root, branch.as_deref(), window);
     let model = cx.new(|_| crate::repo::model::RepoModel::new(self.core.clone(), self.session, snapshot));
+    model.update(cx, |model, cx| model.refresh_nested_repositories(cx));
     let layout_model = crate::repo::layout_model::LayoutModel::load(&root, cx);
     let layout = cx.new(|_| layout_model);
     let output = cx.new(|_| crate::repo::output_log::OutputLog::default());
@@ -151,7 +152,7 @@ impl Shell {
       },
     )
     .detach();
-    let view = cx.new(|cx| crate::repo::RepoView::new(model, layout, output, cx));
+    let view = cx.new(|cx| crate::repo::RepoView::new(model, layout, output, window, cx));
     view.update(cx, |view, cx| view.focus(window, cx));
     self.screen = Screen::Repository(view);
     self.sync_menus(window, cx);
