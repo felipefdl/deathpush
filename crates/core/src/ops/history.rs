@@ -33,11 +33,16 @@ pub fn avatar_hue(name: &str) -> f32 {
   AVATAR_HUES[(fnv1a_64(name.as_bytes()) % AVATAR_HUES.len() as u64) as usize]
 }
 
+/// One folder or file in the changed-files tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileNode {
+  /// Last path segment.
   pub name: String,
+  /// Repo-relative path.
   pub path: String,
+  /// Nested folders and files. Empty on a file leaf.
   pub children: Vec<FileNode>,
+  /// The commit file on a leaf. `None` on a folder.
   pub file: Option<CommitFileEntry>,
 }
 
@@ -112,6 +117,7 @@ pub fn commit_id_menu_label(short_id: &str) -> String {
   format!("Copy Commit ID ({short_id})")
 }
 
+/// History commit-menu reset items: label and `git reset` mode.
 pub const RESET_MODES: [(&str, &str); 3] = [
   ("Reset (Soft)", "soft"),
   ("Reset (Mixed)", "mixed"),

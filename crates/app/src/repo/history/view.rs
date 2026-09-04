@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
+use deathpush_core::ops::history::{FileNode, changed_files_tree};
 use deathpush_core::session::types::Intent;
-use deathpush_core::types::FileStatus;
+use deathpush_core::types::{CommitEntry, CommitFileEntry, FileStatus};
 use gpui_kit::base::{ResizableState, h_resizable, resizable_panel};
 use gpui_kit::*;
 
@@ -10,12 +13,38 @@ use crate::repo::layout_model::LayoutModel;
 use crate::repo::model::RepoModel;
 use crate::theme::{ActivePalette, hsla};
 
+#[derive(Clone)]
+struct HistoryDerived {
+  log: Arc<Vec<CommitEntry>>,
+  selected: Option<String>,
+  file_history_path: Option<String>,
+  has_more: bool,
+  entry: Option<CommitEntry>,
+  files: Arc<Vec<CommitFileEntry>>,
+  tree: Arc<Vec<FileNode>>,
+}
+
+impl Default for HistoryDerived {
+  fn default() -> Self {
+    Self {
+      log: Arc::new(Vec::new()),
+      selected: None,
+      file_history_path: None,
+      has_more: false,
+      entry: None,
+      files: Arc::new(Vec::new()),
+      tree: Arc::new(Vec::new()),
+    }
+  }
+}
+
 /// The History main panel: commit list, detail, and a commit-mode DiffPanel.
 pub struct HistoryView {
   repo: Entity<RepoModel>,
   layout: Entity<LayoutModel>,
   diff: Entity<DiffPanel>,
   files_as_tree: bool,
+  derived: HistoryDerived,
   split_state: Entity<ResizableState>,
   focus_handle: FocusHandle,
 }
@@ -28,7 +57,11 @@ impl HistoryView {
     diff: Entity<DiffPanel>,
     cx: &mut Context<Self>,
   ) -> Self {
-    cx.observe(&repo, |_, _, cx| cx.notify()).detach();
+    cx.observe(&repo, |this, _, cx| {
+      this.sync_from_model(cx);
+      cx.notify();
+    })
+    .detach();
     cx.observe(&layout, |_, _, cx| cx.notify()).detach();
     diff.update(cx, |panel, cx| {
       panel.set_mode(
@@ -40,14 +73,62 @@ impl HistoryView {
         cx,
       );
     });
-    Self {
+    let mut this = Self {
       repo,
       layout,
       diff,
       files_as_tree: false,
+      derived: HistoryDerived::default(),
       split_state: cx.new(|_| ResizableState::default()),
       focus_handle: cx.focus_handle(),
+    };
+    this.sync_from_model(cx);
+    this
+  }
+
+  fn sync_from_model(&mut self, cx: &mut Context<Self>) {
+    if self.repo.read(cx).state().selected_commit.is_none() {
+      self.diff.update(cx, |panel, cx| {
+        panel.set_mode(
+          DiffMode::Commit {
+            commit: String::new(),
+            path: String::new(),
+            status: FileStatus::Modified,
+          },
+          cx,
+        );
+      });
     }
+    let state = self.repo.read(cx).state();
+    let selected = state.selected_commit.clone();
+    let entry = selected.as_ref().and_then(|id| {
+      state
+        .commit_detail
+        .as_ref()
+        .filter(|detail| &detail.commit.id == id)
+        .map(|detail| detail.commit.clone())
+        .or_else(|| state.commit_log.iter().find(|commit| &commit.id == id).cloned())
+    });
+    let files = state
+      .commit_detail
+      .as_ref()
+      .filter(|detail| selected.as_ref() == Some(&detail.commit.id))
+      .map(|detail| detail.files.clone())
+      .unwrap_or_default();
+    let tree = if self.derived.files.as_slice() == files.as_slice() {
+      self.derived.tree.clone()
+    } else {
+      Arc::new(changed_files_tree(&files))
+    };
+    self.derived = HistoryDerived {
+      log: Arc::new(state.commit_log.clone()),
+      selected,
+      file_history_path: state.file_history_path.clone(),
+      has_more: state.log_has_more,
+      entry,
+      files: Arc::new(files),
+      tree,
+    };
   }
 
   /// Flip the changed-files list between a flat list and a nested tree.
@@ -135,52 +216,29 @@ impl Render for HistoryView {
   fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let palette = cx.global::<ActivePalette>().0;
     let list_width = self.layout.read(cx).layout().history_list_width;
-    let (log, selected, file_history, entry, files) = {
-      let state = self.repo.read(cx).state();
-      let selected = state.selected_commit.clone();
-      let entry = selected.as_ref().and_then(|id| {
-        state
-          .commit_detail
-          .as_ref()
-          .filter(|detail| &detail.commit.id == id)
-          .map(|detail| detail.commit.clone())
-          .or_else(|| state.commit_log.iter().find(|commit| &commit.id == id).cloned())
-      });
-      let files = state
-        .commit_detail
-        .as_ref()
-        .filter(|detail| selected.as_ref() == Some(&detail.commit.id))
-        .map(|detail| detail.files.clone())
-        .unwrap_or_default();
-      (
-        state.commit_log.clone(),
-        selected,
-        state.file_history_path.clone(),
-        entry,
-        files,
-      )
-    };
     let selected_file = match self.diff.read(cx).mode() {
       DiffMode::Commit { path, .. } if !path.is_empty() => Some(path.clone()),
       _ => None,
     };
     let view = cx.weak_entity();
     let list = list::render_list(
-      &log,
-      selected.as_deref(),
-      file_history.as_deref(),
+      self.derived.log.clone(),
+      self.derived.selected.as_deref(),
+      self.derived.file_history_path.as_deref(),
+      self.derived.has_more,
       view.clone(),
       palette,
     )
     .into_any_element();
     let mut detail = div().size_full().flex().flex_col();
-    detail = match entry {
+    detail = match self.derived.entry.as_ref() {
       Some(entry) => {
         let commit_id = entry.id.clone();
         detail
-          .child(detail::render_header(&entry, view.clone(), palette))
+          .child(detail::render_header(entry, view.clone(), palette))
           .child(detail::render_files(
-            &files,
+            &self.derived.files,
+            &self.derived.tree,
             self.files_as_tree,
             selected_file.as_deref(),
             &commit_id,

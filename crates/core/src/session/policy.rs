@@ -245,8 +245,8 @@ pub fn push_needs_confirmation(force: bool, confirmed: bool) -> bool {
   force && confirmation_required(confirmed)
 }
 
-pub fn reset_needs_confirmation(mode: &str, confirmed: bool) -> bool {
-  mode == "hard" && confirmation_required(confirmed)
+pub fn reset_needs_confirmation(_mode: &str, confirmed: bool) -> bool {
+  confirmation_required(confirmed)
 }
 
 pub fn repo_name_from_url(url: &str) -> String {
@@ -450,11 +450,13 @@ mod tests {
   }
 
   #[test]
-  fn hard_reset_requires_confirmation() {
+  fn reset_requires_confirmation() {
     assert!(reset_needs_confirmation("hard", false));
     assert!(!reset_needs_confirmation("hard", true));
-    assert!(!reset_needs_confirmation("soft", false));
-    assert!(!reset_needs_confirmation("mixed", false));
+    assert!(reset_needs_confirmation("soft", false));
+    assert!(!reset_needs_confirmation("soft", true));
+    assert!(reset_needs_confirmation("mixed", false));
+    assert!(!reset_needs_confirmation("mixed", true));
   }
 
   #[test]

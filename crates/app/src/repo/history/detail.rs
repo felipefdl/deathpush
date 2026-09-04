@@ -1,5 +1,5 @@
 use chrono::Utc;
-use deathpush_core::ops::history::{FileNode, changed_files_tree, merge_parents_label};
+use deathpush_core::ops::history::{FileNode, merge_parents_label};
 use deathpush_core::relative_time::relative_time;
 use deathpush_core::theme::UiPalette;
 use deathpush_core::types::{CommitEntry, CommitFileEntry};
@@ -143,6 +143,7 @@ pub fn render_header(entry: &CommitEntry, view: WeakEntity<HistoryView>, palette
 
 pub fn render_files(
   files: &[CommitFileEntry],
+  tree: &[FileNode],
   as_tree: bool,
   selected_path: Option<&str>,
   commit: &str,
@@ -196,12 +197,13 @@ pub fn render_files(
         .overflow_y_scroll()
         .flex()
         .flex_col()
-        .children(file_rows(files, as_tree, selected_path, commit, view, palette)),
+        .children(file_rows(files, tree, as_tree, selected_path, commit, view, palette)),
     )
 }
 
 fn file_rows(
   files: &[CommitFileEntry],
+  tree: &[FileNode],
   as_tree: bool,
   selected_path: Option<&str>,
   commit: &str,
@@ -209,7 +211,7 @@ fn file_rows(
   palette: UiPalette,
 ) -> Vec<AnyElement> {
   if as_tree {
-    flatten_tree(&changed_files_tree(files), 0)
+    flatten_tree(tree, 0)
       .into_iter()
       .map(|(depth, node)| render_tree_row(&node, depth, selected_path, commit, view.clone(), palette))
       .collect()

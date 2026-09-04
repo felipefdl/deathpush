@@ -363,9 +363,7 @@ impl ChangesView {
     self
       .layout
       .update(cx, |layout, cx| layout.select_main_view(MainView::History, cx));
-    for path in self.target_paths(row) {
-      self.send(Intent::OpenFileHistory { path }, window, cx);
-    }
+    self.send(Intent::OpenFileHistory { path: row.path.clone() }, window, cx);
   }
 
   pub(crate) fn menu_stage(&mut self, row: &FileRow, window: &mut Window, cx: &mut Context<Self>) {

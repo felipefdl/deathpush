@@ -106,10 +106,10 @@ pub const BRANCH_MENU: [&str; 7] = [
   "Delete Remote Branch",
 ];
 
-/// Current: checkout and copy. Origin remotes add remote delete. Other remotes omit it. Local non-current: all but remote delete.
+/// Current: checkout, copy, and rename. Origin remotes add remote delete. Other remotes omit it. Local non-current: all but remote delete.
 pub fn branch_menu_items(row: &BranchRow) -> Vec<&'static str> {
   if row.is_head {
-    vec![BRANCH_MENU[0], BRANCH_MENU[1]]
+    vec![BRANCH_MENU[0], BRANCH_MENU[1], BRANCH_MENU[4]]
   } else if row.is_remote {
     if origin_branch_name(&row.name).is_some() {
       vec![BRANCH_MENU[0], BRANCH_MENU[1], BRANCH_MENU[6]]
@@ -118,6 +118,29 @@ pub fn branch_menu_items(row: &BranchRow) -> Vec<&'static str> {
     }
   } else {
     BRANCH_MENU[..6].to_vec()
+  }
+}
+
+fn remote_short_name(name: &str) -> &str {
+  match name.split_once('/') {
+    Some((_, rest)) if !rest.is_empty() => rest,
+    _ => name,
+  }
+}
+
+/// Checkout a local row, or create/switch the tracking branch for a remote row.
+pub fn checkout_intent(row: &BranchRow, local_names: &[String]) -> Intent {
+  if !row.is_remote {
+    return Intent::CheckoutBranch { name: row.name.clone() };
+  }
+  let short = remote_short_name(&row.name).to_string();
+  if local_names.iter().any(|name| name == &short) {
+    Intent::CheckoutBranch { name: short }
+  } else {
+    Intent::CreateBranch {
+      name: short,
+      from: Some(row.name.clone()),
+    }
   }
 }
 
@@ -315,8 +338,8 @@ impl BranchPicker {
       self.save_rename(window, cx);
       return;
     }
-    if let Some(row) = self.derived.branches.first() {
-      self.send_and_close(Intent::CheckoutBranch { name: row.name.clone() }, window, cx);
+    if let Some(row) = self.derived.branches.first().cloned() {
+      self.checkout(&row, window, cx);
     }
   }
 
@@ -328,8 +351,17 @@ impl BranchPicker {
     self.close(cx);
   }
 
-  fn checkout(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
-    self.send_and_close(Intent::CheckoutBranch { name }, window, cx);
+  fn checkout(&mut self, row: &BranchRow, window: &mut Window, cx: &mut Context<Self>) {
+    let locals: Vec<String> = self
+      .model
+      .read(cx)
+      .state()
+      .branches
+      .iter()
+      .filter(|branch| !branch.is_remote)
+      .map(|branch| branch.name.clone())
+      .collect();
+    self.send_and_close(checkout_intent(row, &locals), window, cx);
   }
 
   fn create_branch(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -410,7 +442,7 @@ impl BranchPicker {
 
   fn on_menu(&mut self, item: &'static str, row: &BranchRow, window: &mut Window, cx: &mut Context<Self>) {
     match item {
-      "Checkout" => self.checkout(row.name.clone(), window, cx),
+      "Checkout" => self.checkout(row, window, cx),
       "Copy Branch Name" => cx.write_to_clipboard(ClipboardItem::new_string(row.name.clone())),
       "Merge into Current Branch" => self.send_and_close(Intent::MergeBranch { name: row.name.clone() }, window, cx),
       "Rebase onto {name}" => self.send_and_close(Intent::RebaseBranch { name: row.name.clone() }, window, cx),
@@ -619,6 +651,7 @@ fn render_branch_row(
     ahead_behind_badges(row.ahead, row.behind)
   };
   let name = row.name.clone();
+  let click_row = row.clone();
   let click_view = view.clone();
   let menu_row = row.clone();
   let menu_view = view;
@@ -653,7 +686,7 @@ fn render_branch_row(
   }
   el = el
     .on_click(move |_, window, cx| {
-      let _ = click_view.update(cx, |this, cx| this.checkout(name.clone(), window, cx));
+      let _ = click_view.update(cx, |this, cx| this.checkout(&click_row, window, cx));
     })
     .child(
       div()
@@ -957,7 +990,7 @@ mod tests {
   fn menu_items_per_row_kind() {
     assert_eq!(
       branch_menu_items(&row("main", true, false)),
-      ["Checkout", "Copy Branch Name"]
+      ["Checkout", "Copy Branch Name", "Rename Branch..."]
     );
     assert_eq!(
       branch_menu_items(&row("feat", false, false)),
@@ -977,6 +1010,26 @@ mod tests {
     assert_eq!(
       branch_menu_items(&row("upstream/topic", false, true)),
       ["Checkout", "Copy Branch Name"]
+    );
+  }
+
+  #[test]
+  fn remote_checkout_creates_or_switches_tracking_branch() {
+    let remote = row("origin/feat", false, true);
+    assert_eq!(
+      checkout_intent(&remote, &["main".into()]),
+      Intent::CreateBranch {
+        name: "feat".into(),
+        from: Some("origin/feat".into()),
+      }
+    );
+    assert_eq!(
+      checkout_intent(&remote, &["feat".into()]),
+      Intent::CheckoutBranch { name: "feat".into() }
+    );
+    assert_eq!(
+      checkout_intent(&row("main", true, false), &["main".into()]),
+      Intent::CheckoutBranch { name: "main".into() }
     );
   }
 

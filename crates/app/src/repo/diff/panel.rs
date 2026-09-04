@@ -181,8 +181,31 @@ impl DiffPanel {
     }
     let plan = (|| {
       let state = self.model.read(cx).state();
-      let Some(payload) = state.diff.as_ref() else {
-        return Plan::Clear;
+      let payload = match &self.mode {
+        DiffMode::Scm => {
+          if state.selected_file.is_none() {
+            return Plan::Clear;
+          }
+          if !state.scm_diff_ready() {
+            return Plan::Skip;
+          }
+          let Some(payload) = state.diff.as_ref() else {
+            return Plan::Clear;
+          };
+          payload
+        }
+        DiffMode::Commit { commit, path, .. } => {
+          if path.is_empty() {
+            return Plan::Clear;
+          }
+          if !state.commit_diff_ready(commit, path) {
+            return Plan::Skip;
+          }
+          let Some(payload) = state.commit_diff.as_ref() else {
+            return Plan::Clear;
+          };
+          payload
+        }
       };
       let key = RowsKey {
         content_hash: payload.content_hash.clone(),
@@ -196,10 +219,11 @@ impl DiffPanel {
       let hash_changed = self.rows_key.content_hash != key.content_hash;
       let hunk_ids: Vec<String> = payload.hunks.iter().map(|hunk| hunk.id.clone()).collect();
       let staged = payload.staged;
-      let merge = state
-        .selected_file
-        .as_ref()
-        .is_some_and(|file| file.group_kind == ResourceGroupKind::Merge);
+      let merge = matches!(self.mode, DiffMode::Scm)
+        && state
+          .selected_file
+          .as_ref()
+          .is_some_and(|file| file.group_kind == ResourceGroupKind::Merge);
       match classify(Some(payload)) {
         DiffKind::Text => {
           let rows = Arc::new(build_rows(
@@ -496,10 +520,16 @@ impl Render for DiffPanel {
         Some((commit, path, _)) => state.commit_diff_ready(commit, path),
         None => false,
       };
+      let scm_load_ready = state.scm_diff_ready();
+      let payload = match &self.mode {
+        DiffMode::Scm if scm_load_ready => state.diff.as_ref(),
+        DiffMode::Commit { commit, path, .. } if !path.is_empty() && commit_ready => state.commit_diff.as_ref(),
+        _ => None,
+      };
       (
         state.selected_file.clone(),
-        state.diff_load_id == Some(state.selected_load_id),
-        classify(state.diff.as_ref()),
+        scm_load_ready,
+        classify(payload),
         commit_ready,
       )
     };

@@ -6,13 +6,15 @@ use gpui_kit::*;
 
 use crate::actions::{ShowBranchPicker, ShowHistory, ZoomReset};
 use crate::config::AppConfig;
+use crate::overlays::branch_picker::ahead_behind_badges;
 use crate::repo::state::RepoState;
 use crate::theme::{ActivePalette, hsla};
 use crate::zoom;
 
-/// `{behind}↓ {ahead}↑`, or None when both are zero.
+/// Behind first, then ahead. Each zero badge is hidden. None when both are zero.
 pub fn sync_badge(ahead: usize, behind: usize) -> Option<String> {
-  (ahead > 0 || behind > 0).then(|| format!("{behind}↓ {ahead}↑"))
+  let badges = ahead_behind_badges(ahead, behind);
+  (!badges.is_empty()).then(|| badges.join(" "))
 }
 
 /// The first line of a commit message, cut to `max` characters with an ellipsis.
@@ -123,6 +125,8 @@ mod tests {
   #[test]
   fn badge_hides_when_both_are_zero() {
     assert_eq!(sync_badge(0, 0), None);
+    assert_eq!(sync_badge(2, 0).as_deref(), Some("2↑"));
+    assert_eq!(sync_badge(0, 3).as_deref(), Some("3↓"));
     assert_eq!(sync_badge(2, 1).as_deref(), Some("1↓ 2↑"));
   }
 

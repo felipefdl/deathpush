@@ -44,6 +44,24 @@ pub struct ScmFileDiff {
   pub hunks: Vec<DiffHunk>,
 }
 
+pub(crate) fn detect_renames(diff: &mut git2::Diff<'_>) -> Result<()> {
+  let mut opts = git2::DiffFindOptions::new();
+  opts.renames(true);
+  diff.find_similar(Some(&mut opts))?;
+  Ok(())
+}
+
+fn rel_path(path: Option<&Path>) -> Option<String> {
+  path
+    .map(|path| path.to_string_lossy().replace('\\', "/"))
+    .filter(|path| !path.is_empty())
+}
+
+fn delta_matches_path(delta: &git2::DiffDelta<'_>, path: &str) -> bool {
+  rel_path(delta.new_file().path()).as_deref() == Some(path)
+    || rel_path(delta.old_file().path()).as_deref() == Some(path)
+}
+
 pub fn scm_file_diff(repo: &GitRepository, path: &str, staged: bool) -> Result<ScmFileDiff> {
   let workdir = repo.root();
   let inner = repo.inner();
@@ -76,9 +94,38 @@ pub fn commit_file_diff(repo: &GitRepository, commit_id: &str, path: &str) -> Re
   } else {
     None
   };
+  let mut full = inner.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None)?;
+  detect_renames(&mut full)?;
+  let mut old_path = None;
+  let mut new_path = None;
+  full.foreach(
+    &mut |delta, _| {
+      if delta_matches_path(&delta, path) {
+        old_path = rel_path(delta.old_file().path());
+        new_path = rel_path(delta.new_file().path());
+      }
+      true
+    },
+    None,
+    None,
+    None,
+  )?;
   let mut opts = git2::DiffOptions::new();
-  opts.pathspec(path).context_lines(3);
-  let diff = inner.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
+  opts.context_lines(3);
+  match (old_path.as_deref(), new_path.as_deref()) {
+    (Some(old), Some(new)) if old != new => {
+      opts.pathspec(old);
+      opts.pathspec(new);
+    }
+    (Some(matched), _) | (_, Some(matched)) => {
+      opts.pathspec(matched);
+    }
+    _ => {
+      opts.pathspec(path);
+    }
+  }
+  let mut diff = inner.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
+  detect_renames(&mut diff)?;
   file_diff_from_git_diff(inner, repo.root(), path, &diff)
 }
 

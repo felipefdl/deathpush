@@ -43,6 +43,7 @@ pub struct Shell {
   pub title: SharedString,
   pub window_index: usize,
   focus_handle: FocusHandle,
+  overlay_restore: Option<WeakFocusHandle>,
   last_saved_bounds: Option<SavedWindow>,
   cli_installed: bool,
   opening_generation: u64,
@@ -70,6 +71,7 @@ impl Shell {
       title: "DeathPush".into(),
       window_index,
       focus_handle: cx.focus_handle(),
+      overlay_restore: None,
       last_saved_bounds: None,
       cli_installed,
       opening_generation: 0,
@@ -273,13 +275,27 @@ impl Shell {
     cx.notify();
   }
 
+  fn remember_overlay_opener(&mut self, window: &Window, cx: &App) {
+    if self.overlay.is_none() && self.overlay_restore.is_none() {
+      self.overlay_restore = window.focused(cx).map(|handle| handle.downgrade());
+    }
+  }
+
   pub fn set_overlay(&mut self, overlay: Option<Overlay>, window: &mut Window, cx: &mut Context<Self>) {
     self.abandon_theme_picker(cx);
+    if overlay.is_some() {
+      self.remember_overlay_opener(window, cx);
+    }
+    let closing = overlay.is_none();
     self.overlay = overlay;
-    if self.overlay.is_none() {
-      match &self.screen {
-        Screen::Repository(view) => view.update(cx, |view, cx| view.focus(window, cx)),
-        _ => self.focus_handle.focus(window, cx),
+    if closing {
+      if let Some(handle) = self.overlay_restore.take().and_then(|handle| handle.upgrade()) {
+        handle.focus(window, cx);
+      } else {
+        match &self.screen {
+          Screen::Repository(view) => view.update(cx, |view, cx| view.focus(window, cx)),
+          _ => self.focus_handle.focus(window, cx),
+        }
       }
     }
     cx.notify();
@@ -345,6 +361,7 @@ impl Shell {
   }
 
   pub fn open_clone_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    self.remember_overlay_opener(window, cx);
     let dialog = cx.new(|cx| crate::overlays::clone_dialog::CloneDialog::new(window, cx));
     cx.subscribe_in(
       &dialog,
@@ -403,6 +420,7 @@ impl Shell {
   }
 
   pub fn open_workspace_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    self.remember_overlay_opener(window, cx);
     let entries = AppConfig::get(cx).settings.projects.workspaces.clone();
     let dialog = cx.new(|cx| crate::overlays::workspace_settings::WorkspaceSettingsDialog::new(&entries, window, cx));
     cx.subscribe_in(
@@ -431,6 +449,7 @@ impl Shell {
       return;
     };
     let repo = repo.clone();
+    self.remember_overlay_opener(window, cx);
     let overlay = cx.new(|cx| crate::overlays::quick_open::QuickOpen::new(repo, window, cx));
     cx.subscribe_in(
       &overlay,
@@ -452,6 +471,7 @@ impl Shell {
       return;
     };
     let model = repo.read(cx).model().clone();
+    self.remember_overlay_opener(window, cx);
     let overlay = cx.new(|cx| crate::overlays::branch_picker::BranchPicker::new(model, window, cx));
     cx.subscribe_in(
       &overlay,
@@ -469,6 +489,7 @@ impl Shell {
       view.update(cx, |view, cx| view.focus(window, cx));
       return;
     }
+    self.remember_overlay_opener(window, cx);
     let overlay = cx.new(|cx| crate::overlays::theme_picker::ThemePicker::new(window, cx));
     cx.subscribe_in(
       &overlay,
@@ -482,6 +503,7 @@ impl Shell {
   }
 
   pub fn open_licenses(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    self.remember_overlay_opener(window, cx);
     let dialog = cx.new(crate::overlays::licenses::LicensesDialog::new);
     dialog.update(cx, |dialog, cx| dialog.focus(window, cx));
     cx.subscribe_in(

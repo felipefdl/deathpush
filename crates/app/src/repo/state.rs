@@ -2,8 +2,8 @@ use std::collections::HashSet;
 
 use deathpush_core::ops::repository::NestedRepository;
 use deathpush_core::session::types::{
-  DiffPayload, FileSelection, Intent, SessionActions, SessionPatch, SessionSnapshot, SessionStatusEvent,
-  SessionStatusExtras,
+  COMMIT_LOG_PAGE, DiffPayload, FileSelection, Intent, SessionActions, SessionPatch, SessionSnapshot,
+  SessionStatusEvent, SessionStatusExtras,
 };
 use deathpush_core::types::{
   BranchEntry, CommitDetail, CommitEntry, FileBlame, FileContent, LastCommitInfo, RepositoryStatus, ResourceGroupKind,
@@ -19,6 +19,7 @@ pub struct RepoState {
   pub selected_load_id: u64,
   pub diff: Option<DiffPayload>,
   pub diff_load_id: Option<u64>,
+  pub commit_diff: Option<DiffPayload>,
   pub commit_diff_load_id: u64,
   pub commit_diff_ready_id: Option<u64>,
   pub pending_commit_diff: Option<(String, String)>,
@@ -26,6 +27,7 @@ pub struct RepoState {
   pub stashes: Vec<StashEntry>,
   pub tags: Vec<TagEntry>,
   pub commit_log: Vec<CommitEntry>,
+  pub log_has_more: bool,
   pub selected_commit: Option<String>,
   pub commit_detail: Option<CommitDetail>,
   pub file_history_path: Option<String>,
@@ -217,6 +219,7 @@ impl RepoState {
       self.tags = tags.clone();
     }
     if let Some(commit_log) = &extras.commit_log {
+      self.log_has_more = commit_log.len() >= COMMIT_LOG_PAGE;
       self.commit_log = commit_log.clone();
     }
     if let Some(stashes) = &extras.stashes {
@@ -289,6 +292,7 @@ impl RepoState {
     self.amend_mode = snapshot.scm.amend_mode;
     self.commit_message = snapshot.scm.commit_message.clone();
     self.file_filter = snapshot.scm.file_filter.clone();
+    self.log_has_more = snapshot.commit_log.len() >= COMMIT_LOG_PAGE;
     self.commit_log = snapshot.commit_log;
     self.branches = snapshot.branches;
     self.stashes = snapshot.stashes;
@@ -320,9 +324,16 @@ impl RepoState {
       }
       SessionPatch::FileHistory { path, commit_log } => {
         self.file_history_path = path;
+        self.log_has_more = commit_log.len() >= COMMIT_LOG_PAGE;
+        self.commit_log = commit_log;
+        self.selected_commit = None;
+        self.commit_detail = None;
+      }
+      SessionPatch::CommitLog { commit_log } => {
+        let added = commit_log.len().saturating_sub(self.commit_log.len());
+        self.log_has_more = added >= COMMIT_LOG_PAGE;
         self.commit_log = commit_log;
       }
-      SessionPatch::CommitLog { commit_log } => self.commit_log = commit_log,
       SessionPatch::Commit { id, detail } => {
         self.selected_commit = id;
         self.commit_detail = detail;
@@ -402,14 +413,19 @@ impl RepoState {
     self.pending_commit_diff = Some((commit, path));
   }
 
-  /// True when `state.diff` is the latest requested commit file (`commit`, `path`).
+  /// True when `state.commit_diff` is the latest requested commit file (`commit`, `path`).
   pub fn commit_diff_ready(&self, commit: &str, path: &str) -> bool {
     self.commit_diff_ready_id == Some(self.commit_diff_load_id)
-      && self.diff.as_ref().is_some_and(|payload| payload.path == path)
+      && self.commit_diff.as_ref().is_some_and(|payload| payload.path == path)
       && self
         .pending_commit_diff
         .as_ref()
         .is_some_and(|(pending_commit, pending_path)| pending_commit == commit && pending_path == path)
+  }
+
+  /// True when `state.diff` is the latest requested SCM file.
+  pub fn scm_diff_ready(&self) -> bool {
+    self.diff_load_id == Some(self.selected_load_id)
   }
 
   /// Apply a commit-file diff only when it matches the latest `request_commit_diff`.
@@ -419,18 +435,15 @@ impl RepoState {
       .as_ref()
       .is_some_and(|(pending_commit, pending_path)| pending_commit == commit && pending_path == path)
     {
-      self.diff = Some(payload);
+      self.commit_diff = Some(payload);
       self.commit_diff_ready_id = Some(self.commit_diff_load_id);
-      self.diff_load_id = None;
     }
   }
 
-  /// Apply an SCM diff and drop commit-file readiness so History cannot paint this payload.
+  /// Apply an SCM diff without touching the commit-file payload.
   pub fn apply_scm_diff_payload(&mut self, payload: DiffPayload) {
     self.diff = Some(payload);
     self.diff_load_id = Some(self.selected_load_id);
-    self.commit_diff_ready_id = None;
-    self.pending_commit_diff = None;
   }
 
   /// Decide whether a stamped Diff or Blame belongs to the current session, and advance the watermark when it is newer.
@@ -829,7 +842,7 @@ mod tests {
     state.apply_commit_diff_payload("aaa", "foo.rs", commit_diff_payload("foo.rs", "aaa"));
     assert!(state.commit_diff_ready("aaa", "foo.rs"));
     assert_eq!(
-      state.diff.as_ref().map(|payload| payload.content_hash.as_str()),
+      state.commit_diff.as_ref().map(|payload| payload.content_hash.as_str()),
       Some("aaa")
     );
 
@@ -840,20 +853,16 @@ mod tests {
     state.apply_commit_diff_payload("aaa", "foo.rs", commit_diff_payload("foo.rs", "aaa"));
     assert!(!state.commit_diff_ready("bbb", "foo.rs"));
     assert_eq!(
-      state.diff.as_ref().map(|payload| payload.content_hash.as_str()),
+      state.commit_diff.as_ref().map(|payload| payload.content_hash.as_str()),
       Some("aaa")
     );
 
     state.apply_commit_diff_payload("bbb", "foo.rs", commit_diff_payload("foo.rs", "bbb"));
     assert!(state.commit_diff_ready("bbb", "foo.rs"));
     assert_eq!(
-      state.diff.as_ref().map(|payload| payload.content_hash.as_str()),
+      state.commit_diff.as_ref().map(|payload| payload.content_hash.as_str()),
       Some("bbb")
     );
-  }
-
-  fn scm_diff_ready(state: &RepoState) -> bool {
-    state.diff_load_id == Some(state.selected_load_id)
   }
 
   #[test]
@@ -862,22 +871,30 @@ mod tests {
     state.request_commit_diff("aaa".into(), "foo.rs".into());
     state.apply_commit_diff_payload("aaa", "foo.rs", commit_diff_payload("foo.rs", "commit"));
     assert!(state.commit_diff_ready("aaa", "foo.rs"));
-    assert!(!scm_diff_ready(&state));
+    assert!(!state.scm_diff_ready());
 
     state.apply_scm_diff_payload(commit_diff_payload("foo.rs", "scm"));
-    assert!(!state.commit_diff_ready("aaa", "foo.rs"));
-    assert!(scm_diff_ready(&state));
+    assert!(state.commit_diff_ready("aaa", "foo.rs"));
+    assert!(state.scm_diff_ready());
     assert_eq!(
       state.diff.as_ref().map(|payload| payload.content_hash.as_str()),
       Some("scm")
+    );
+    assert_eq!(
+      state.commit_diff.as_ref().map(|payload| payload.content_hash.as_str()),
+      Some("commit")
     );
 
     state.request_commit_diff("aaa".into(), "foo.rs".into());
     state.apply_commit_diff_payload("aaa", "foo.rs", commit_diff_payload("foo.rs", "commit"));
     assert!(state.commit_diff_ready("aaa", "foo.rs"));
-    assert!(!scm_diff_ready(&state));
+    assert!(state.scm_diff_ready());
     assert_eq!(
       state.diff.as_ref().map(|payload| payload.content_hash.as_str()),
+      Some("scm")
+    );
+    assert_eq!(
+      state.commit_diff.as_ref().map(|payload| payload.content_hash.as_str()),
       Some("commit")
     );
   }

@@ -341,7 +341,7 @@ pub async fn apply_intent(
     }
     Intent::CreateBranch { name, from } => {
       cli.create_branch(&name, from.as_deref()).await?;
-      Ok(ApplyOutput::Refresh(RefreshImpact::Refs))
+      Ok(ApplyOutput::Refresh(RefreshImpact::Snapshot))
     }
     Intent::DeleteBranch { name, force, confirmed } => {
       if confirmation_required(confirmed) {
@@ -401,9 +401,14 @@ pub async fn apply_intent(
       confirmed,
     } => {
       if reset_needs_confirmation(&mode, confirmed) {
+        let message = if mode == "hard" {
+          "Hard reset discards all uncommitted changes. This action is irreversible.".into()
+        } else {
+          "Reset the current branch to this commit?".into()
+        };
         return Ok(ApplyOutput::NeedsConfirmation {
           action: "reset".into(),
-          message: "Hard reset discards all uncommitted changes. This action is irreversible.".into(),
+          message,
         });
       }
       cli.reset_to_commit(&commit, &mode).await?;
@@ -431,6 +436,8 @@ pub async fn apply_intent(
       Ok(session.with_mut(|state| {
         state.file_history_path = Some(path.clone());
         state.commit_log = commit_log;
+        state.selected_commit = None;
+        state.commit_detail = None;
         ApplyOutput::Patch(SessionPatch::FileHistory {
           path: state.file_history_path.clone(),
           commit_log: state.commit_log.clone(),
@@ -443,6 +450,8 @@ pub async fn apply_intent(
       Ok(session.with_mut(|state| {
         state.file_history_path = None;
         state.commit_log = commit_log;
+        state.selected_commit = None;
+        state.commit_detail = None;
         ApplyOutput::Patch(SessionPatch::FileHistory {
           path: None,
           commit_log: state.commit_log.clone(),
@@ -997,7 +1006,10 @@ mod tests {
   #[tokio::test]
   async fn open_file_history_patches_file_history() {
     let (directory, _) = init_repo();
-    let mut state = SessionState::default();
+    let mut state = SessionState {
+      selected_commit: Some("abc".into()),
+      ..SessionState::default()
+    };
     let root = directory.path();
     let output = apply_intent(
       Intent::OpenFileHistory {
@@ -1016,6 +1028,8 @@ mod tests {
       }
       other => panic!("{other:?}"),
     }
+    assert!(state.selected_commit.is_none());
+    assert!(state.commit_detail.is_none());
   }
 
   #[tokio::test]
@@ -1023,6 +1037,7 @@ mod tests {
     let (directory, _) = init_repo();
     let mut state = SessionState {
       file_history_path: Some("README.md".into()),
+      selected_commit: Some("abc".into()),
       ..SessionState::default()
     };
     let root = directory.path();
@@ -1042,6 +1057,8 @@ mod tests {
       other => panic!("{other:?}"),
     }
     assert!(state.file_history_path.is_none());
+    assert!(state.selected_commit.is_none());
+    assert!(state.commit_detail.is_none());
   }
 
   #[tokio::test]
@@ -1130,7 +1147,39 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn create_branch_is_refs() {
+  async fn reset_prompts_for_every_mode() {
+    let (directory, id) = init_repo();
+    let root = directory.path();
+    for mode in ["soft", "mixed", "hard"] {
+      let output = apply_intent(
+        Intent::Reset {
+          commit: id.clone(),
+          mode: mode.into(),
+          confirmed: false,
+        },
+        root,
+        &empty_status(&root.to_string_lossy()),
+        &mut SessionState::default(),
+      )
+      .await
+      .unwrap();
+      match output {
+        ApplyOutput::NeedsConfirmation { message, .. } if mode == "hard" => {
+          assert_eq!(
+            message,
+            "Hard reset discards all uncommitted changes. This action is irreversible."
+          );
+        }
+        ApplyOutput::NeedsConfirmation { message, .. } => {
+          assert_eq!(message, "Reset the current branch to this commit?");
+        }
+        other => panic!("{mode}: {other:?}"),
+      }
+    }
+  }
+
+  #[tokio::test]
+  async fn create_branch_is_snapshot() {
     let (directory, _) = init_repo();
     let root = directory.path();
     let output = apply_intent(
@@ -1145,7 +1194,7 @@ mod tests {
     .await
     .unwrap();
     match output {
-      ApplyOutput::Refresh(RefreshImpact::Refs) => {}
+      ApplyOutput::Refresh(RefreshImpact::Snapshot) => {}
       other => panic!("{other:?}"),
     }
   }

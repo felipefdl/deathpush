@@ -1,7 +1,8 @@
+use std::sync::Arc;
+
 use chrono::Utc;
 use deathpush_core::ops::history::{RESET_MODES, commit_id_menu_label};
 use deathpush_core::relative_time::relative_time;
-use deathpush_core::session::types::COMMIT_LOG_PAGE;
 use deathpush_core::theme::UiPalette;
 use deathpush_core::types::CommitEntry;
 use gpui_kit::component::button::{Button, ButtonVariants};
@@ -15,14 +16,14 @@ use super::view::HistoryView;
 use crate::theme::hsla;
 
 pub fn render_list(
-  log: &[CommitEntry],
+  log: Arc<Vec<CommitEntry>>,
   selected: Option<&str>,
   file_history_path: Option<&str>,
+  has_more: bool,
   view: WeakEntity<HistoryView>,
   palette: UiPalette,
 ) -> impl IntoElement {
   let empty = log.is_empty();
-  let show_more = !empty && log.len().is_multiple_of(COMMIT_LOG_PAGE);
   div()
     .size_full()
     .flex()
@@ -33,22 +34,29 @@ pub fn render_list(
     .children(file_history_path.map(|path| render_chip(path, view.clone(), palette)))
     .when(empty, |el| el.child(render_empty(palette)))
     .when(!empty, |el| {
-      let rows: Vec<AnyElement> = log
-        .iter()
-        .map(|entry| {
-          render_commit_row(entry, selected == Some(entry.id.as_str()), view.clone(), palette).into_any_element()
-        })
-        .collect();
-      el.child(
-        div()
-          .id("history-log")
-          .flex_1()
-          .min_h_0()
-          .overflow_y_scroll()
-          .children(rows),
-      )
+      let count = log.len();
+      let selected = selected.map(str::to_string);
+      let list_log = log.clone();
+      let list_view = view.clone();
+      let list = uniform_list("history-log", count, move |range, _, _| {
+        range
+          .filter_map(|index| {
+            let entry = list_log.get(index)?;
+            Some(
+              render_commit_row(
+                entry,
+                selected.as_deref() == Some(entry.id.as_str()),
+                list_view.clone(),
+                palette,
+              )
+              .into_any_element(),
+            )
+          })
+          .collect()
+      });
+      el.child(list.flex_1().min_h_0())
     })
-    .when(show_more, |el| {
+    .when(has_more, |el| {
       let load = view.clone();
       el.child(
         div().flex_shrink_0().p_2().child(

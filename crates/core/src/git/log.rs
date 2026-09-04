@@ -1,6 +1,7 @@
 use git2::{DiffOptions, Oid, Sort};
 
 use crate::error::{Error, Result};
+use crate::git::diff::detect_renames;
 use crate::git::repository::GitRepository;
 use crate::types::{CommitDetail, CommitEntry, CommitFileEntry, FileStatus, LastCommitInfo};
 
@@ -64,7 +65,8 @@ pub fn get_commit_detail(repo: &GitRepository, commit_id: &str) -> Result<Commit
   };
 
   let mut diff_opts = DiffOptions::new();
-  let diff = r.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_opts))?;
+  let mut diff = r.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut diff_opts))?;
+  detect_renames(&mut diff)?;
 
   let mut files: Vec<CommitFileEntry> = Vec::new();
   diff.foreach(
@@ -183,6 +185,55 @@ mod tests {
     let url_padded = compute_avatar_url("  test@example.com  ");
     let url_clean = compute_avatar_url("test@example.com");
     assert_eq!(url_padded, url_clean);
+  }
+
+  #[test]
+  fn commit_detail_detects_renames() {
+    use std::path::Path;
+
+    use crate::git::diff::commit_file_diff;
+    use crate::git::repository::GitRepository;
+
+    let directory = tempfile::TempDir::new().unwrap();
+    let repo = git2::Repository::init(directory.path()).unwrap();
+    {
+      let mut config = repo.config().unwrap();
+      config.set_str("user.name", "Test").unwrap();
+      config.set_str("user.email", "test@example.com").unwrap();
+    }
+    let root = repo.workdir().unwrap();
+    std::fs::write(root.join("old.txt"), "rename me\n").unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(Path::new("old.txt")).unwrap();
+    index.write().unwrap();
+    let tree_id = index.write_tree().unwrap();
+    let tree = repo.find_tree(tree_id).unwrap();
+    let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+    repo.commit(Some("HEAD"), &sig, &sig, "add\n", &tree, &[]).unwrap();
+
+    std::fs::rename(root.join("old.txt"), root.join("new.txt")).unwrap();
+    let mut index = repo.index().unwrap();
+    index.remove_path(Path::new("old.txt")).unwrap();
+    index.add_path(Path::new("new.txt")).unwrap();
+    index.write().unwrap();
+    let tree_id = index.write_tree().unwrap();
+    let tree = repo.find_tree(tree_id).unwrap();
+    let parent = repo.head().unwrap().peel_to_commit().unwrap();
+    let oid = repo
+      .commit(Some("HEAD"), &sig, &sig, "rename\n", &tree, &[&parent])
+      .unwrap();
+
+    let git = GitRepository::open(directory.path()).unwrap();
+    let detail = get_commit_detail(&git, &oid.to_string()).unwrap();
+    assert_eq!(detail.files.len(), 1);
+    assert_eq!(detail.files[0].path, "new.txt");
+    assert_eq!(detail.files[0].old_path.as_deref(), Some("old.txt"));
+    assert_eq!(detail.files[0].status, FileStatus::Renamed);
+
+    let diff = commit_file_diff(&git, &oid.to_string(), "new.txt").unwrap();
+    assert_eq!(diff.content.path, "new.txt");
+    assert_eq!(diff.content.original, "rename me\n");
+    assert_eq!(diff.content.modified, "rename me\n");
   }
 
   #[test]
