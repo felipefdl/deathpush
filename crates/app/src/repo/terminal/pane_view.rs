@@ -3,6 +3,7 @@
 //! Create a wake pair, pass the callback to [`PaneHandle::spawn`], then
 //! [`PaneView::new`] with the receiver.
 
+use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -41,6 +42,7 @@ pub struct PaneView {
   sent_presses: Vec<SentPress>,
   wheel_accum: f32,
   marked_text: Option<String>,
+  marked_selection: Range<usize>,
   paint_cache: PaintCache,
 }
 
@@ -113,6 +115,7 @@ impl PaneView {
       sent_presses: Vec::new(),
       wheel_accum: 0.0,
       marked_text: None,
+      marked_selection: 0..0,
       paint_cache: PaintCache::default(),
     }
   }
@@ -306,16 +309,15 @@ impl PaneView {
   }
 
   pub(crate) fn note_sent_key(&mut self, key: String, mods: KeyMods) {
+    if self.sent_presses.iter().any(|press| press.key == key) {
+      return;
+    }
     self.sent_presses.push(SentPress { key, mods });
   }
 
-  pub(crate) fn take_sent_key(&mut self, key: &str) -> bool {
-    if let Some(index) = self.sent_presses.iter().rposition(|press| press.key == key) {
-      self.sent_presses.remove(index);
-      true
-    } else {
-      false
-    }
+  pub(crate) fn take_sent_key(&mut self, key: &str) -> Option<KeyMods> {
+    let index = self.sent_presses.iter().rposition(|press| press.key == key)?;
+    Some(self.sent_presses.remove(index).mods)
   }
 
   pub(crate) fn wheel_accum(&mut self) -> &mut f32 {
@@ -403,21 +405,59 @@ impl PaneView {
   fn last_grid(&self) -> Option<(u16, u16, u32, u32)> {
     self.grid
   }
+
+  #[cfg(test)]
+  fn sent_press_count(&self) -> usize {
+    self.sent_presses.len()
+  }
+}
+
+fn utf16_len(text: &str) -> usize {
+  text.encode_utf16().count()
+}
+
+fn utf16_to_utf8(text: &str, utf16_offset: usize, round_up: bool) -> usize {
+  let mut remaining = utf16_offset;
+  for (byte_i, ch) in text.char_indices() {
+    if remaining == 0 {
+      return byte_i;
+    }
+    let width = ch.len_utf16();
+    if remaining < width {
+      return if round_up { byte_i + ch.len_utf8() } else { byte_i };
+    }
+    remaining -= width;
+  }
+  text.len()
+}
+
+fn clamp_utf16_range(text: &str, range: Range<usize>) -> Range<usize> {
+  let len = utf16_len(text);
+  let start = range.start.min(len);
+  let end = range.end.min(len).max(start);
+  start..end
+}
+
+fn utf16_range_to_bytes(text: &str, range: Range<usize>) -> Range<usize> {
+  let range = clamp_utf16_range(text, range);
+  let start = utf16_to_utf8(text, range.start, false);
+  let end = utf16_to_utf8(text, range.end, true);
+  start.min(end)..end.max(start)
 }
 
 impl EntityInputHandler for PaneView {
   fn text_for_range(
     &mut self,
-    range: std::ops::Range<usize>,
-    adjusted_range: &mut Option<std::ops::Range<usize>>,
+    range: Range<usize>,
+    adjusted_range: &mut Option<Range<usize>>,
     _window: &mut Window,
     _cx: &mut Context<Self>,
   ) -> Option<String> {
     let text = self.marked_text.as_deref().unwrap_or("");
-    let start = range.start.min(text.len());
-    let end = range.end.min(text.len());
-    *adjusted_range = Some(start..end);
-    Some(text.get(start..end).unwrap_or("").to_string())
+    let utf16 = clamp_utf16_range(text, range);
+    *adjusted_range = Some(utf16.clone());
+    let bytes = utf16_range_to_bytes(text, utf16);
+    Some(text.get(bytes).unwrap_or("").to_string())
   }
 
   fn selected_text_range(
@@ -426,19 +466,19 @@ impl EntityInputHandler for PaneView {
     _window: &mut Window,
     _cx: &mut Context<Self>,
   ) -> Option<UTF16Selection> {
-    let len = self.marked_text.as_ref().map(String::len).unwrap_or(0);
     Some(UTF16Selection {
-      range: len..len,
+      range: self.marked_selection.clone(),
       reversed: false,
     })
   }
 
-  fn marked_text_range(&self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<std::ops::Range<usize>> {
-    self.marked_text.as_ref().map(|text| 0..text.len())
+  fn marked_text_range(&self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<Range<usize>> {
+    self.marked_text.as_ref().map(|text| 0..utf16_len(text))
   }
 
   fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
     self.marked_text = None;
+    self.marked_selection = 0..0;
     cx.notify();
   }
 
@@ -450,12 +490,13 @@ impl EntityInputHandler for PaneView {
 
   fn replace_text_in_range(
     &mut self,
-    _range: Option<std::ops::Range<usize>>,
+    _range: Option<Range<usize>>,
     text: &str,
     _window: &mut Window,
     cx: &mut Context<Self>,
   ) {
     self.marked_text = None;
+    self.marked_selection = 0..0;
     if !text.is_empty() {
       self.send(PaneCommand::Text(text.to_string()));
     }
@@ -464,23 +505,28 @@ impl EntityInputHandler for PaneView {
 
   fn replace_and_mark_text_in_range(
     &mut self,
-    _range: Option<std::ops::Range<usize>>,
+    _range: Option<Range<usize>>,
     new_text: &str,
-    _new_selected_range: Option<std::ops::Range<usize>>,
+    new_selected_range: Option<Range<usize>>,
     _window: &mut Window,
     cx: &mut Context<Self>,
   ) {
-    self.marked_text = if new_text.is_empty() {
-      None
+    if new_text.is_empty() {
+      self.marked_text = None;
+      self.marked_selection = 0..0;
     } else {
-      Some(new_text.to_string())
-    };
+      let len = utf16_len(new_text);
+      self.marked_text = Some(new_text.to_string());
+      self.marked_selection = new_selected_range
+        .map(|range| clamp_utf16_range(new_text, range))
+        .unwrap_or(len..len);
+    }
     cx.notify();
   }
 
   fn bounds_for_range(
     &mut self,
-    _range_utf16: std::ops::Range<usize>,
+    _range_utf16: Range<usize>,
     element_bounds: Bounds<Pixels>,
     _window: &mut Window,
     _cx: &mut Context<Self>,
@@ -503,6 +549,10 @@ impl EntityInputHandler for PaneView {
     _cx: &mut Context<Self>,
   ) -> Option<usize> {
     Some(0)
+  }
+
+  fn text_length_utf16(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<usize> {
+    Some(self.marked_text.as_deref().map(utf16_len).unwrap_or(0))
   }
 }
 
@@ -538,6 +588,7 @@ impl Render for PaneView {
 mod tests {
   use super::*;
   use core::prelude::v1::test;
+  use deathpush_core::terminal::pane::PtyWriter;
   use deathpush_core::terminal::snapshot::{PaneSnapshot, Rgb, SnapshotCell};
   use gpui_kit::TestAppContext;
 
@@ -691,5 +742,140 @@ mod tests {
         });
       })
       .unwrap();
+  }
+
+  fn wait_bytes(buf: &std::sync::Mutex<Vec<u8>>, pred: impl Fn(&[u8]) -> bool) -> Vec<u8> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+      let guard = buf.lock().unwrap();
+      if pred(&guard) {
+        return guard.clone();
+      }
+      drop(guard);
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("timed out waiting for pty bytes");
+  }
+
+  #[test]
+  fn utf16_ranges_cover_accented_and_surrogate_pairs() {
+    assert_eq!(utf16_len("é"), 1);
+    assert_eq!(utf16_len("😀"), 2);
+    assert_eq!(utf16_len("é😀"), 3);
+    assert_eq!(utf16_range_to_bytes("é", 0..1), 0..2);
+    assert_eq!(utf16_range_to_bytes("😀", 0..2), 0..4);
+    assert_eq!(utf16_range_to_bytes("😀", 0..1), 0..4);
+    assert_eq!(utf16_range_to_bytes("a😀b", 1..3), 1..5);
+    assert_eq!("é".get(utf16_range_to_bytes("é", 0..1)).unwrap(), "é");
+    assert_eq!("😀".get(utf16_range_to_bytes("😀", 0..2)).unwrap(), "😀");
+    assert_eq!("😀".get(utf16_range_to_bytes("😀", 1..2)).unwrap(), "😀");
+  }
+
+  #[gpui_kit::test]
+  fn sent_press_repeat_keeps_one_and_release_uses_original_mods(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let view = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+    view.update(cx, |view, _| {
+      let shift = KeyMods {
+        shift: true,
+        ..KeyMods::default()
+      };
+      view.note_sent_key("up".into(), shift.clone());
+      view.note_sent_key("up".into(), KeyMods::default());
+      assert_eq!(view.sent_press_count(), 1);
+      assert_eq!(view.take_sent_key("up"), Some(shift.clone()));
+      assert_eq!(view.take_sent_key("up"), None);
+
+      view.note_sent_key("up".into(), shift.clone());
+      view.note_sent_key(
+        "up".into(),
+        KeyMods {
+          ctrl: true,
+          ..KeyMods::default()
+        },
+      );
+      assert_eq!(view.sent_press_count(), 1);
+      view.on_focus_lost();
+      assert_eq!(view.sent_press_count(), 0);
+    });
+  }
+
+  #[gpui_kit::test]
+  fn input_handler_uses_utf16_units(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let window = cx.add_window(|_, cx| PaneView::new_unthreaded(1, cx));
+    window
+      .update(cx, |view, window, cx| {
+        view.replace_and_mark_text_in_range(None, "é😀", Some(1..3), window, cx);
+        assert_eq!(view.marked_text_range(window, cx), Some(0..3));
+        assert_eq!(view.text_length_utf16(window, cx), Some(3));
+        let sel = view.selected_text_range(false, window, cx).unwrap();
+        assert_eq!(sel.range, 1..3);
+        let mut adjusted = None;
+        assert_eq!(
+          view.text_for_range(0..1, &mut adjusted, window, cx).as_deref(),
+          Some("é")
+        );
+        assert_eq!(adjusted, Some(0..1));
+        let mut adjusted = None;
+        assert_eq!(
+          view.text_for_range(1..3, &mut adjusted, window, cx).as_deref(),
+          Some("😀")
+        );
+        assert_eq!(adjusted, Some(1..3));
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn printable_key_reaches_text_command_once(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let collected = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let writer_buf = Arc::clone(&collected);
+    let writer: PtyWriter = Box::new(move |bytes| writer_buf.lock().unwrap().extend(bytes));
+    let handle = Arc::new(PaneHandle::spawn(20, 4, None, writer, Box::new(|| {})).unwrap());
+    let (_, rx) = unbounded();
+    let window = cx.add_window({
+      let handle = Arc::clone(&handle);
+      move |_, cx| PaneHost {
+        pane: cx.new(|cx| PaneView::new(1, handle, rx, cx)),
+      }
+    });
+    window
+      .update(cx, |host, window, cx| {
+        host.pane.update(cx, |view, cx| {
+          view.set_active(true, cx);
+          view.focus(window, cx);
+        });
+        window.refresh();
+      })
+      .unwrap();
+    AnyWindowHandle::from(window)
+      .update(cx, |_, window, cx| {
+        let _ = window.draw(cx);
+      })
+      .unwrap();
+    cx.dispatch_keystroke(window.into(), Keystroke::parse("a").unwrap());
+    cx.run_until_parked();
+    let got = wait_bytes(&collected, |bytes| bytes == b"a");
+    assert_eq!(got, b"a");
+    window
+      .update(cx, |host, _, cx| {
+        host.pane.update(cx, |view, _| {
+          assert_eq!(view.sent_press_count(), 0);
+        });
+      })
+      .unwrap();
+    drop(handle);
   }
 }

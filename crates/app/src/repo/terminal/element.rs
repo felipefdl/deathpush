@@ -920,7 +920,6 @@ fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mut App) {
     }
     KeyRoute::Send => {
       if key_uses_ime(&event.keystroke) {
-        cx.stop_propagation();
         return;
       }
       view.update(cx, |this, _| {
@@ -934,24 +933,23 @@ fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mut App) {
 
 fn on_key_up(view: &Entity<PaneView>, event: &KeyUpEvent, cx: &mut App) {
   let key = event.keystroke.key.as_str();
-  let action = view.update(cx, |this, _| {
+  let mods = view.update(cx, |this, _| {
     if this.take_copy_consumed(key) {
-      KeyUpAction::Drop
-    } else if this.take_sent_key(key) {
-      KeyUpAction::Release
+      None
     } else {
-      KeyUpAction::Drop
+      this.take_sent_key(key)
     }
   });
-  if action == KeyUpAction::Release {
-    send_key(view, &event.keystroke, false, cx);
+  if let Some(mods) = mods {
+    view.update(cx, |this, _| {
+      this.send(PaneCommand::Key(KeyInput {
+        key: event.keystroke.key.clone(),
+        text: None,
+        mods,
+        press: false,
+      }));
+    });
   }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum KeyUpAction {
-  Drop,
-  Release,
 }
 
 fn send_key(view: &Entity<PaneView>, keystroke: &Keystroke, press: bool, cx: &mut App) {
