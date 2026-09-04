@@ -121,7 +121,7 @@ impl PaneView {
   }
 
   #[cfg(test)]
-  fn new_unthreaded(id: u64, cx: &mut Context<Self>) -> Self {
+  pub(crate) fn new_unthreaded(id: u64, cx: &mut Context<Self>) -> Self {
     Self::build(id, None, cx)
   }
 

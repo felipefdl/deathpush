@@ -23,6 +23,7 @@ pub const CONTEXT_BRANCH_PICKER_INPUT: &str = "BranchPicker > Input";
 pub const CONTEXT_EXPLORER: &str = "Explorer";
 pub const CONTEXT_EXPLORER_INPUT: &str = "Explorer > Input";
 pub const CONTEXT_EXPLORER_KEYS: &str = "Explorer && !Input";
+pub const CONTEXT_TERMINAL: &str = "Terminal";
 
 /// (keystrokes, action name, context). Pure so it can be tested per platform.
 pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static str>)> {
@@ -40,6 +41,19 @@ pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static st
     (format!("{m}-shift-p"), "ToggleDiffLayout", Some(CONTEXT_REPOSITORY)),
     (format!("{m}-j"), "ToggleTerminal", Some(CONTEXT_REPOSITORY)),
     (format!("{m}-shift-j"), "NewTerminal", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-t"), "NewTerminal", Some(CONTEXT_TERMINAL)),
+    (format!("{m}-d"), "SplitTerminalHorizontal", Some(CONTEXT_TERMINAL)),
+    (format!("{m}-shift-d"), "SplitTerminalVertical", Some(CONTEXT_TERMINAL)),
+    (format!("{m}-w"), "KillTerminalPane", Some(CONTEXT_TERMINAL)),
+    (format!("alt-{m}-1"), "ActivateTerminalGroup1", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-2"), "ActivateTerminalGroup2", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-3"), "ActivateTerminalGroup3", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-4"), "ActivateTerminalGroup4", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-5"), "ActivateTerminalGroup5", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-6"), "ActivateTerminalGroup6", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-7"), "ActivateTerminalGroup7", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-8"), "ActivateTerminalGroup8", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-9"), "ActivateTerminalGroup9", Some(CONTEXT_REPOSITORY)),
     (format!("{m}-shift-g"), "ReloadSession", Some(CONTEXT_REPOSITORY)),
     (format!("{m}-s"), "SwallowSave", Some(CONTEXT_REPOSITORY)),
     ("escape".to_string(), "ClearSelection", Some(CONTEXT_REPOSITORY)),
@@ -108,6 +122,18 @@ fn binding_for(keys: &str, name: &str, context: Option<&str>) -> KeyBinding {
     "ToggleDiffLayout" => KeyBinding::new(keys, ToggleDiffLayout, context),
     "ToggleTerminal" => KeyBinding::new(keys, ToggleTerminal, context),
     "NewTerminal" => KeyBinding::new(keys, NewTerminal, context),
+    "SplitTerminalHorizontal" => KeyBinding::new(keys, SplitTerminalHorizontal, context),
+    "SplitTerminalVertical" => KeyBinding::new(keys, SplitTerminalVertical, context),
+    "KillTerminalPane" => KeyBinding::new(keys, KillTerminalPane, context),
+    "ActivateTerminalGroup1" => KeyBinding::new(keys, ActivateTerminalGroup1, context),
+    "ActivateTerminalGroup2" => KeyBinding::new(keys, ActivateTerminalGroup2, context),
+    "ActivateTerminalGroup3" => KeyBinding::new(keys, ActivateTerminalGroup3, context),
+    "ActivateTerminalGroup4" => KeyBinding::new(keys, ActivateTerminalGroup4, context),
+    "ActivateTerminalGroup5" => KeyBinding::new(keys, ActivateTerminalGroup5, context),
+    "ActivateTerminalGroup6" => KeyBinding::new(keys, ActivateTerminalGroup6, context),
+    "ActivateTerminalGroup7" => KeyBinding::new(keys, ActivateTerminalGroup7, context),
+    "ActivateTerminalGroup8" => KeyBinding::new(keys, ActivateTerminalGroup8, context),
+    "ActivateTerminalGroup9" => KeyBinding::new(keys, ActivateTerminalGroup9, context),
     "ReloadSession" => KeyBinding::new(keys, ReloadSession, context),
     "SwallowSave" => KeyBinding::new(keys, SwallowSave, context),
     "ClearSelection" => KeyBinding::new(keys, ClearSelection, context),
@@ -329,6 +355,38 @@ mod tests {
           .any(|(keys, action, ctx)| keys == key && *action == name && *ctx == context),
         "{key} -> {name} in WelcomeList > Input"
       );
+    }
+  }
+
+  #[test]
+  fn terminal_context_and_group_chords() {
+    for (mac, primary) in [(true, "cmd"), (false, "ctrl")] {
+      let rows = binding_table(mac);
+      let term = Some(CONTEXT_TERMINAL);
+      let expected = [
+        (format!("{primary}-t"), "NewTerminal"),
+        (format!("{primary}-d"), "SplitTerminalHorizontal"),
+        (format!("{primary}-shift-d"), "SplitTerminalVertical"),
+        (format!("{primary}-w"), "KillTerminalPane"),
+      ];
+      for (key, name) in expected {
+        assert!(
+          rows
+            .iter()
+            .any(|(keys, action, ctx)| keys == &key && *action == name && *ctx == term),
+          "{key} -> {name} in Terminal"
+        );
+      }
+      for n in 1..=9 {
+        let key = format!("alt-{primary}-{n}");
+        let name = format!("ActivateTerminalGroup{n}");
+        assert!(
+          rows
+            .iter()
+            .any(|(keys, action, ctx)| keys == &key && *action == name && *ctx == Some(CONTEXT_REPOSITORY)),
+          "{key} -> {name} in Repository"
+        );
+      }
     }
   }
 }

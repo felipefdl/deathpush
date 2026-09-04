@@ -127,6 +127,17 @@ impl Shell {
             }
           }
           (CoreEvent::WatcherError(message), _) => this.show_toast(message.clone(), cx),
+          (CoreEvent::TerminalData { id, data }, Screen::Repository(view)) => {
+            let terminal = view.read(cx).terminal().clone();
+            let id = *id;
+            let data = data.clone();
+            terminal.update(cx, |model, _| model.on_data(id, &data));
+          }
+          (CoreEvent::TerminalExited { id }, Screen::Repository(view)) => {
+            let terminal = view.read(cx).terminal().clone();
+            let id = *id;
+            terminal.update(cx, |model, cx| model.on_exited(id, cx));
+          }
           _ => {}
         });
         if alive.is_err() {

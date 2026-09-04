@@ -1,0 +1,489 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
+use deathpush_core::terminal::pane::PaneHandle;
+use deathpush_core::{Core, SessionId};
+use gpui_kit::*;
+
+use super::names::default_name;
+use super::pane_view::{self, PaneView};
+use crate::config::AppConfig;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SplitTree {
+  Leaf(u64),
+  Split {
+    axis: Axis,
+    first: Box<SplitTree>,
+    second: Box<SplitTree>,
+  },
+}
+
+impl SplitTree {
+  pub fn split(&mut self, pane: u64, axis: Axis, new_pane: u64) -> bool {
+    match self {
+      SplitTree::Leaf(id) if *id == pane => {
+        *self = SplitTree::Split {
+          axis,
+          first: Box::new(SplitTree::Leaf(pane)),
+          second: Box::new(SplitTree::Leaf(new_pane)),
+        };
+        true
+      }
+      SplitTree::Leaf(_) => false,
+      SplitTree::Split { first, second, .. } => first.split(pane, axis, new_pane) || second.split(pane, axis, new_pane),
+    }
+  }
+
+  pub fn remove(&mut self, pane: u64) -> bool {
+    match self {
+      SplitTree::Leaf(id) => *id == pane,
+      SplitTree::Split { .. } => {
+        let taken = std::mem::replace(self, SplitTree::Leaf(0));
+        let SplitTree::Split {
+          axis,
+          mut first,
+          mut second,
+        } = taken
+        else {
+          unreachable!()
+        };
+        if matches!(first.as_ref(), SplitTree::Leaf(id) if *id == pane) {
+          *self = *second;
+          return true;
+        }
+        if matches!(second.as_ref(), SplitTree::Leaf(id) if *id == pane) {
+          *self = *first;
+          return true;
+        }
+        let removed = first.remove(pane) || second.remove(pane);
+        *self = SplitTree::Split { axis, first, second };
+        removed
+      }
+    }
+  }
+
+  pub fn panes(&self) -> Vec<u64> {
+    match self {
+      SplitTree::Leaf(id) => vec![*id],
+      SplitTree::Split { first, second, .. } => {
+        let mut panes = first.panes();
+        panes.extend(second.panes());
+        panes
+      }
+    }
+  }
+}
+
+pub struct Group {
+  pub id: u64,
+  pub tree: SplitTree,
+  pub active: u64,
+  #[allow(dead_code)]
+  pub next_index: usize,
+}
+
+pub struct PaneInfo {
+  pub id: u64,
+  pub default_name: String,
+  pub shell: Option<String>,
+  pub foreground: Option<String>,
+  pub view: Entity<PaneView>,
+  handle: Option<Arc<PaneHandle>>,
+}
+
+impl PaneInfo {
+  pub fn name(&self) -> String {
+    super::names::display_name(&self.default_name, self.shell.as_deref(), self.foreground.as_deref())
+  }
+}
+
+pub struct TerminalModel {
+  core: Arc<Core>,
+  session: SessionId,
+  #[allow(dead_code)]
+  root: String,
+  pub groups: Vec<Group>,
+  pub active_group: Option<u64>,
+  pub panes: HashMap<u64, PaneInfo>,
+  next_group: u64,
+  counter: usize,
+  polling: bool,
+}
+
+impl TerminalModel {
+  pub fn new(core: Arc<Core>, session: SessionId, root: String, _cx: &mut Context<Self>) -> Self {
+    Self {
+      core,
+      session,
+      root,
+      groups: Vec::new(),
+      active_group: None,
+      panes: HashMap::new(),
+      next_group: 1,
+      counter: 0,
+      polling: false,
+    }
+  }
+
+  pub fn new_group(&mut self, window: &mut Window, cx: &mut Context<Self>) -> u64 {
+    let Some(pane) = self.spawn_pane(cx) else {
+      return 0;
+    };
+    let id = self.next_group;
+    self.next_group += 1;
+    self.groups.push(Group {
+      id,
+      tree: SplitTree::Leaf(pane),
+      active: pane,
+      next_index: 0,
+    });
+    self.active_group = Some(id);
+    self.activate_pane(pane, window, cx);
+    self.ensure_name_poll(cx);
+    cx.notify();
+    id
+  }
+
+  pub fn split(&mut self, pane: u64, axis: Axis, window: &mut Window, cx: &mut Context<Self>) {
+    let Some(group_id) = self.group_id_for_pane(pane) else {
+      return;
+    };
+    let Some(new_pane) = self.spawn_pane(cx) else {
+      return;
+    };
+    if let Some(group) = self.groups.iter_mut().find(|group| group.id == group_id)
+      && group.tree.split(pane, axis, new_pane)
+    {
+      group.active = new_pane;
+    }
+    self.active_group = Some(group_id);
+    self.activate_pane(new_pane, window, cx);
+    self.ensure_name_poll(cx);
+    cx.notify();
+  }
+
+  pub fn kill_pane(&mut self, pane: u64, cx: &mut Context<Self>) {
+    let _ = self.core.terminal_kill(pane);
+    self.remove_pane(pane, cx);
+  }
+
+  pub fn kill_group(&mut self, group: u64, cx: &mut Context<Self>) {
+    let Some(index) = self.groups.iter().position(|item| item.id == group) else {
+      return;
+    };
+    let removed = self.groups.remove(index);
+    for pane in removed.tree.panes() {
+      let _ = self.core.terminal_kill(pane);
+      self.panes.remove(&pane);
+    }
+    if self.active_group == Some(removed.id) {
+      self.active_group = self.groups.get(index).or(self.groups.last()).map(|item| item.id);
+      if let Some(pane) = self.active_pane() {
+        self.set_active_flags(pane, cx);
+      }
+    }
+    cx.notify();
+  }
+
+  pub fn activate_group(&mut self, index: usize, cx: &mut Context<Self>) {
+    if index == 0 || index > self.groups.len() {
+      return;
+    }
+    let group = &self.groups[index - 1];
+    self.active_group = Some(group.id);
+    let pane = group.active;
+    self.set_active_flags(pane, cx);
+    cx.notify();
+  }
+
+  pub fn activate_pane(&mut self, pane: u64, window: &mut Window, cx: &mut Context<Self>) {
+    if let Some(group_id) = self.group_id_for_pane(pane) {
+      self.active_group = Some(group_id);
+      if let Some(group) = self.groups.iter_mut().find(|group| group.id == group_id) {
+        group.active = pane;
+      }
+    }
+    self.set_active_flags(pane, cx);
+    if let Some(info) = self.panes.get(&pane) {
+      info.view.update(cx, |view, cx| view.focus(window, cx));
+    }
+    cx.notify();
+  }
+
+  pub fn on_data(&mut self, id: u64, data: &str) {
+    if let Some(pane) = self.panes.get(&id)
+      && let Some(handle) = &pane.handle
+    {
+      handle.push_bytes(data.as_bytes());
+    }
+  }
+
+  pub fn on_exited(&mut self, id: u64, cx: &mut Context<Self>) {
+    self.remove_pane(id, cx);
+  }
+
+  pub fn poll_names(&mut self, cx: &mut Context<Self>) {
+    let ids: Vec<u64> = self.panes.keys().copied().collect();
+    let mut changed = false;
+    for id in ids {
+      let Ok(name) = self.core.terminal_foreground_process(id) else {
+        continue;
+      };
+      if let Some(pane) = self.panes.get_mut(&id) {
+        let next = if name.is_empty() { None } else { Some(name) };
+        if pane.foreground != next {
+          pane.foreground = next;
+          changed = true;
+        }
+      }
+    }
+    if changed {
+      cx.notify();
+    }
+  }
+
+  pub fn active_pane(&self) -> Option<u64> {
+    let group_id = self.active_group?;
+    self
+      .groups
+      .iter()
+      .find(|group| group.id == group_id)
+      .map(|group| group.active)
+  }
+
+  #[allow(dead_code)]
+  pub fn has_active_process(&self) -> bool {
+    self.core.terminals_have_active_process().unwrap_or(false)
+  }
+
+  pub fn active_group(&self) -> Option<&Group> {
+    let id = self.active_group?;
+    self.groups.iter().find(|group| group.id == id)
+  }
+
+  pub fn set_panes_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
+    for pane in self.panes.values() {
+      pane.view.update(cx, |view, cx| view.set_visible(visible, cx));
+    }
+  }
+
+  pub fn ensure_group(&mut self, window: &mut Window, cx: &mut Context<Self>) -> u64 {
+    if let Some(id) = self.active_group {
+      return id;
+    }
+    self.new_group(window, cx)
+  }
+
+  fn spawn_pane(&mut self, cx: &mut Context<Self>) -> Option<u64> {
+    if self.core.repo_root(self.session).is_err() {
+      return None;
+    }
+    let settings = AppConfig::get(cx).settings.terminal.clone();
+    let shell_path = if settings.shell_path.is_empty() {
+      None
+    } else {
+      Some(settings.shell_path)
+    };
+    let spawned = match self.core.terminal_spawn(self.session, 80, 24, shell_path, None) {
+      Ok(spawned) => spawned,
+      Err(err) => {
+        tracing::warn!(%err, "terminal spawn failed");
+        return None;
+      }
+    };
+    let id = spawned.id;
+    let (wake, wake_rx) = pane_view::wake_pair();
+    let core = self.core.clone();
+    let handle = match PaneHandle::spawn(
+      80,
+      24,
+      Some(settings.scrollback as usize * 1024),
+      Box::new(move |bytes| {
+        let _ = core.terminal_write(id, &String::from_utf8_lossy(&bytes));
+      }),
+      wake,
+    ) {
+      Ok(handle) => Arc::new(handle),
+      Err(err) => {
+        tracing::warn!(%err, "pane thread spawn failed");
+        let _ = self.core.terminal_kill(id);
+        return None;
+      }
+    };
+    let view_handle = handle.clone();
+    let view = cx.new(|cx| PaneView::new(id, view_handle, wake_rx, cx));
+    self.counter += 1;
+    let shell = if spawned.shell.is_empty() {
+      None
+    } else {
+      Some(spawned.shell)
+    };
+    self.panes.insert(
+      id,
+      PaneInfo {
+        id,
+        default_name: default_name(self.counter),
+        shell,
+        foreground: None,
+        view,
+        handle: Some(handle),
+      },
+    );
+    Some(id)
+  }
+
+  fn remove_pane(&mut self, pane: u64, cx: &mut Context<Self>) {
+    let Some(group_id) = self.group_id_for_pane(pane) else {
+      self.panes.remove(&pane);
+      cx.notify();
+      return;
+    };
+    let Some(index) = self.groups.iter().position(|group| group.id == group_id) else {
+      return;
+    };
+    if self.groups[index].tree.panes().len() <= 1 {
+      self.kill_group(group_id, cx);
+      return;
+    }
+    let group = &mut self.groups[index];
+    let ids = group.tree.panes();
+    let slot = ids.iter().position(|&id| id == pane).unwrap_or(0);
+    group.tree.remove(pane);
+    self.panes.remove(&pane);
+    let remaining = group.tree.panes();
+    if let Some(&next) = remaining.get(slot.min(remaining.len().saturating_sub(1))) {
+      group.active = next;
+      self.active_group = Some(group_id);
+      self.set_active_flags(next, cx);
+    }
+    cx.notify();
+  }
+
+  fn group_id_for_pane(&self, pane: u64) -> Option<u64> {
+    self
+      .groups
+      .iter()
+      .find(|group| group.tree.panes().contains(&pane))
+      .map(|group| group.id)
+  }
+
+  fn set_active_flags(&self, pane: u64, cx: &mut Context<Self>) {
+    for info in self.panes.values() {
+      let active = info.id == pane;
+      info.view.update(cx, |view, cx| view.set_active(active, cx));
+    }
+  }
+
+  fn ensure_name_poll(&mut self, cx: &mut Context<Self>) {
+    if self.polling || self.panes.is_empty() {
+      return;
+    }
+    self.polling = true;
+    cx.spawn(async move |this, cx| {
+      loop {
+        cx.background_executor().timer(Duration::from_secs(1)).await;
+        let keep = this
+          .update(cx, |this, cx| {
+            this.poll_names(cx);
+            !this.panes.is_empty()
+          })
+          .unwrap_or(false);
+        if !keep {
+          break;
+        }
+      }
+      let _ = this.update(cx, |this, _| this.polling = false);
+    })
+    .detach();
+  }
+
+  #[cfg(test)]
+  pub(crate) fn insert_test_pane(&mut self, view: Entity<PaneView>, cx: &mut Context<Self>) -> u64 {
+    let id = view.read(cx).id;
+    self.counter += 1;
+    self.panes.insert(
+      id,
+      PaneInfo {
+        id,
+        default_name: default_name(self.counter),
+        shell: None,
+        foreground: None,
+        view,
+        handle: None,
+      },
+    );
+    let group_id = self.next_group;
+    self.next_group += 1;
+    self.groups.push(Group {
+      id: group_id,
+      tree: SplitTree::Leaf(id),
+      active: id,
+      next_index: 0,
+    });
+    self.active_group = Some(group_id);
+    cx.notify();
+    group_id
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use core::prelude::v1::test;
+
+  use gpui_kit::TestAppContext;
+
+  #[test]
+  fn split_tree_split_remove_and_collapse() {
+    let mut tree = SplitTree::Leaf(1);
+    assert_eq!(tree.panes(), vec![1]);
+    assert!(tree.split(1, Axis::Horizontal, 2));
+    assert_eq!(tree.panes(), vec![1, 2]);
+    assert!(matches!(
+      tree,
+      SplitTree::Split {
+        axis: Axis::Horizontal,
+        ..
+      }
+    ));
+    assert!(tree.split(2, Axis::Vertical, 3));
+    assert_eq!(tree.panes(), vec![1, 2, 3]);
+    assert!(!tree.split(99, Axis::Horizontal, 4));
+    assert!(tree.remove(2));
+    assert_eq!(tree.panes(), vec![1, 3]);
+    assert!(tree.remove(3));
+    assert_eq!(tree, SplitTree::Leaf(1));
+    assert!(tree.remove(1));
+    assert_eq!(tree, SplitTree::Leaf(1));
+  }
+
+  #[gpui_kit::test]
+  fn activate_group_by_index_ignores_out_of_range(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let model = cx.new(|cx| {
+      let mut model = TerminalModel::new(core, session, "/tmp".into(), cx);
+      let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+      let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
+      model.insert_test_pane(first, cx);
+      model.insert_test_pane(second, cx);
+      model
+    });
+    model.update(cx, |model, cx| {
+      assert_eq!(model.groups.len(), 2);
+      let first = model.groups[0].id;
+      let second = model.groups[1].id;
+      assert_eq!(model.active_group, Some(second));
+      model.activate_group(1, cx);
+      assert_eq!(model.active_group, Some(first));
+      model.activate_group(9, cx);
+      assert_eq!(model.active_group, Some(first));
+      model.activate_group(0, cx);
+      assert_eq!(model.active_group, Some(first));
+    });
+  }
+}

@@ -91,6 +91,13 @@ impl LayoutModel {
     }
   }
 
+  pub fn set_terminal_sidebar_width(&mut self, width: f32, cx: &mut Context<Self>) {
+    if (self.layout.terminal_sidebar_width - width).abs() > 0.5 {
+      self.layout.terminal_sidebar_width = width;
+      self.changed(cx);
+    }
+  }
+
   pub fn set_terminal_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
     if self.layout.terminal_visible == visible {
       return;

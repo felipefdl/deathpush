@@ -11,7 +11,6 @@ pub mod sidebar;
 pub mod state;
 pub mod status_bar;
 pub mod terminal;
-pub mod terminal_panel;
 pub mod view;
 
 #[allow(unused_imports)]

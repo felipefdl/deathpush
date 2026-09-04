@@ -45,6 +45,7 @@ pub struct ProjectLayout {
   pub collapsed_panes: Vec<String>,
   pub terminal_maximized: bool,
   pub history_list_width: f32,
+  pub terminal_sidebar_width: f32,
 }
 
 impl Default for ProjectLayout {
@@ -59,6 +60,7 @@ impl Default for ProjectLayout {
       collapsed_panes: Vec::new(),
       terminal_maximized: false,
       history_list_width: 300.0,
+      terminal_sidebar_width: 160.0,
     }
   }
 }
@@ -133,6 +135,7 @@ mod tests {
     assert_eq!(layout.terminal_height, 250.0);
     assert!(layout.terminal_visible);
     assert_eq!(layout.history_list_width, 300.0);
+    assert_eq!(layout.terminal_sidebar_width, 160.0);
   }
 
   #[test]

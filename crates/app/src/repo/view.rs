@@ -19,7 +19,8 @@ use super::output_log::OutputLog;
 use super::sidebar::render_sidebar;
 use super::state::NetworkOp;
 use super::status_bar::render_status_bar;
-use super::terminal_panel::render_terminal_panel;
+use super::terminal::model::TerminalModel;
+use super::terminal::panel::TerminalPanel;
 use crate::actions::*;
 use crate::config::AppConfig;
 use crate::theme::{ActivePalette, hsla};
@@ -35,6 +36,8 @@ pub struct RepoView {
   history: Entity<HistoryView>,
   explorer_model: Entity<ExplorerModel>,
   explorer: Entity<ExplorerView>,
+  terminal: Entity<TerminalModel>,
+  terminal_panel: Entity<TerminalPanel>,
   body_state: Entity<ResizableState>,
   main_state: Entity<ResizableState>,
   pub(crate) focus_handle: FocusHandle,
@@ -59,10 +62,14 @@ impl RepoView {
         model.state().root().unwrap_or("").to_string(),
       )
     };
-    let explorer_model = cx.new(|cx| {
-      let mut explorer = ExplorerModel::new(core, session, root);
-      explorer.load(cx);
-      explorer
+    let explorer_model = cx.new({
+      let core = core.clone();
+      let root = root.clone();
+      move |cx| {
+        let mut explorer = ExplorerModel::new(core, session, root);
+        explorer.load(cx);
+        explorer
+      }
     });
     cx.observe(&explorer_model, |_, _, cx| cx.notify()).detach();
     let explorer = cx.new(|cx| ExplorerView::new(explorer_model.clone(), model.clone(), layout.clone(), window, cx));
@@ -71,6 +78,18 @@ impl RepoView {
     let file = cx.new(|cx| FileViewer::new(model.clone(), layout.clone(), window, cx));
     let history_diff = cx.new(|cx| DiffPanel::new(model.clone(), layout.clone(), cx));
     let history = cx.new(|cx| HistoryView::new(model.clone(), layout.clone(), history_diff, cx));
+    let terminal = cx.new({
+      let core = core.clone();
+      let root = root.clone();
+      move |cx| TerminalModel::new(core, session, root, cx)
+    });
+    cx.observe(&terminal, |_, _, cx| cx.notify()).detach();
+    if layout.read(cx).layout().terminal_visible {
+      terminal.update(cx, |model, cx| {
+        model.ensure_group(window, cx);
+      });
+    }
+    let terminal_panel = cx.new(|cx| TerminalPanel::new(terminal.clone(), layout.clone(), output.clone(), cx));
     Self {
       model,
       layout,
@@ -81,6 +100,8 @@ impl RepoView {
       history,
       explorer_model,
       explorer,
+      terminal,
+      terminal_panel,
       body_state: cx.new(|_| ResizableState::default()),
       main_state: cx.new(|_| ResizableState::default()),
       focus_handle: cx.focus_handle(),
@@ -118,6 +139,21 @@ impl RepoView {
     &self.explorer
   }
 
+  pub fn terminal(&self) -> &Entity<TerminalModel> {
+    &self.terminal
+  }
+
+  fn activate_terminal_group(&self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    self.show_terminal_tab(cx);
+    self.terminal.update(cx, |model, cx| {
+      model.set_panes_visible(true, cx);
+      model.activate_group(index, cx);
+      if let Some(id) = model.active_pane() {
+        model.activate_pane(id, window, cx);
+      }
+    });
+  }
+
   pub fn focus(&self, window: &mut Window, cx: &mut App) {
     self.focus_handle.focus(window, cx);
   }
@@ -147,8 +183,7 @@ impl RepoView {
     };
     let sidebar = render_sidebar(layout.sidebar_view, select, sidebar_body, cx).into_any_element();
     let main_panel = render_main_panel(layout.main_view, &self.diff, &self.file, &self.history, cx).into_any_element();
-    let terminal =
-      render_terminal_panel(layout.panel_tab, layout.terminal_maximized, &self.output, cx).into_any_element();
+    let terminal = self.terminal_panel.clone().into_any_element();
     let main_area: AnyElement = match (layout.terminal_visible, layout.terminal_maximized) {
       (false, _) => main_panel,
       (true, true) => terminal,
@@ -256,20 +291,52 @@ impl Render for RepoView {
           }
         }
       }))
-      .on_action(cx.listener(|this, _: &ToggleTerminal, _, cx| {
-        this.layout.update(cx, |layout, cx| {
+      .on_action(cx.listener(|this, _: &ToggleTerminal, window, cx| {
+        let (visible, tab) = this.layout.update(cx, |layout, cx| {
           let visible = !layout.layout().terminal_visible;
           layout.set_terminal_visible(visible, cx);
+          (visible, layout.layout().panel_tab)
+        });
+        this.terminal.update(cx, |model, cx| {
+          model.set_panes_visible(visible && tab == PanelTab::Terminal, cx);
+          if visible {
+            model.ensure_group(window, cx);
+          }
         });
       }))
-      .on_action(cx.listener(|this, _: &FocusTerminal, _, cx| this.show_terminal_tab(cx)))
-      .on_action(cx.listener(|this, _: &NewTerminal, _, cx| this.show_terminal_tab(cx)))
+      .on_action(cx.listener(|this, _: &FocusTerminal, window, cx| {
+        this.show_terminal_tab(cx);
+        this.terminal.update(cx, |model, cx| {
+          model.set_panes_visible(true, cx);
+          model.ensure_group(window, cx);
+          if let Some(id) = model.active_pane() {
+            model.activate_pane(id, window, cx);
+          }
+        });
+      }))
+      .on_action(cx.listener(|this, _: &NewTerminal, window, cx| {
+        this.show_terminal_tab(cx);
+        this.terminal.update(cx, |model, cx| {
+          model.set_panes_visible(true, cx);
+          model.new_group(window, cx);
+        });
+      }))
       .on_action(cx.listener(|this, _: &ShowOutputTab, _, cx| {
         this
           .layout
           .update(cx, |layout, cx| layout.set_panel_tab(PanelTab::GitOutput, cx));
+        this.terminal.update(cx, |model, cx| model.set_panes_visible(false, cx));
       }))
-      .on_action(cx.listener(|this, _: &ShowTerminalTab, _, cx| this.show_terminal_tab(cx)))
+      .on_action(cx.listener(|this, _: &ShowTerminalTab, window, cx| {
+        this.show_terminal_tab(cx);
+        this.terminal.update(cx, |model, cx| {
+          model.set_panes_visible(true, cx);
+          model.ensure_group(window, cx);
+          if let Some(id) = model.active_pane() {
+            model.activate_pane(id, window, cx);
+          }
+        });
+      }))
       .on_action(cx.listener(|this, _: &ToggleTerminalMaximize, _, cx| {
         this
           .layout
@@ -279,6 +346,62 @@ impl Render for RepoView {
         this
           .layout
           .update(cx, |layout, cx| layout.set_terminal_visible(false, cx));
+        this.terminal.update(cx, |model, cx| model.set_panes_visible(false, cx));
+      }))
+      .on_action(cx.listener(|this, _: &KillTerminal, _, cx| {
+        this.terminal.update(cx, |model, cx| {
+          if let Some(id) = model.active_group {
+            model.kill_group(id, cx);
+          }
+        });
+      }))
+      .on_action(cx.listener(|this, _: &KillTerminalPane, _, cx| {
+        this.terminal.update(cx, |model, cx| {
+          if let Some(id) = model.active_pane() {
+            model.kill_pane(id, cx);
+          }
+        });
+      }))
+      .on_action(cx.listener(|this, _: &SplitTerminalHorizontal, window, cx| {
+        this.terminal.update(cx, |model, cx| {
+          if let Some(id) = model.active_pane() {
+            model.split(id, Axis::Vertical, window, cx);
+          }
+        });
+      }))
+      .on_action(cx.listener(|this, _: &SplitTerminalVertical, window, cx| {
+        this.terminal.update(cx, |model, cx| {
+          if let Some(id) = model.active_pane() {
+            model.split(id, Axis::Horizontal, window, cx);
+          }
+        });
+      }))
+      .on_action(cx.listener(|this, _: &ActivateTerminalGroup1, window, cx| {
+        this.activate_terminal_group(1, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &ActivateTerminalGroup2, window, cx| {
+        this.activate_terminal_group(2, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &ActivateTerminalGroup3, window, cx| {
+        this.activate_terminal_group(3, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &ActivateTerminalGroup4, window, cx| {
+        this.activate_terminal_group(4, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &ActivateTerminalGroup5, window, cx| {
+        this.activate_terminal_group(5, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &ActivateTerminalGroup6, window, cx| {
+        this.activate_terminal_group(6, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &ActivateTerminalGroup7, window, cx| {
+        this.activate_terminal_group(7, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &ActivateTerminalGroup8, window, cx| {
+        this.activate_terminal_group(8, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &ActivateTerminalGroup9, window, cx| {
+        this.activate_terminal_group(9, window, cx);
       }))
       .on_action(cx.listener(|this, _: &GitPull, window, cx| {
         this.model.update(cx, |model, cx| {
