@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use deathpush_core::config::layout::SidebarView;
 use gpui_kit::*;
 

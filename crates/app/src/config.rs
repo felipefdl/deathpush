@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use deathpush_core::config::recents::Recents;
@@ -38,6 +38,10 @@ impl AppConfig {
 
   pub fn get(cx: &App) -> &Self {
     cx.global::<Self>()
+  }
+
+  pub fn dir(&self) -> &Path {
+    &self.dir
   }
 
   /// Mutate in place, then save once the changes go quiet for half a second.

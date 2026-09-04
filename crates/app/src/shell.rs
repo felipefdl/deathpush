@@ -238,8 +238,14 @@ impl Shell {
     cx.notify();
   }
 
-  pub fn set_overlay(&mut self, overlay: Option<Overlay>, cx: &mut Context<Self>) {
+  pub fn set_overlay(&mut self, overlay: Option<Overlay>, window: &mut Window, cx: &mut Context<Self>) {
     self.overlay = overlay;
+    if self.overlay.is_none() {
+      match &self.screen {
+        Screen::Repository(view) => view.update(cx, |view, cx| view.focus(window, cx)),
+        _ => self.focus_handle.focus(window, cx),
+      }
+    }
     cx.notify();
   }
 
@@ -300,14 +306,14 @@ impl Shell {
       &dialog,
       window,
       |this, dialog, event: &crate::overlays::clone_dialog::CloneEvent, window, cx| match event {
-        crate::overlays::clone_dialog::CloneEvent::Close => this.set_overlay(None, cx),
+        crate::overlays::clone_dialog::CloneEvent::Close => this.set_overlay(None, window, cx),
         crate::overlays::clone_dialog::CloneEvent::Clone { url, directory } => {
           this.clone_repository(dialog.clone(), url.clone(), directory.clone(), window, cx)
         }
       },
     )
     .detach();
-    self.set_overlay(Some(Overlay::Clone(dialog)), cx);
+    self.set_overlay(Some(Overlay::Clone(dialog)), window, cx);
   }
 
   fn clone_repository(
@@ -331,7 +337,7 @@ impl Shell {
       let result = task.await;
       let _ = this.update_in(cx, |this, window, cx| match result {
         Ok(Ok(IntentOutcome::Snapshot { snapshot })) => {
-          this.set_overlay(None, cx);
+          this.set_overlay(None, window, cx);
           this.mount_repository(*snapshot, window, cx);
         }
         Ok(Ok(_)) => {
@@ -358,18 +364,18 @@ impl Shell {
     cx.subscribe_in(
       &dialog,
       window,
-      |this, _, event: &crate::overlays::workspace_settings::WorkspaceEvent, _, cx| match event {
-        crate::overlays::workspace_settings::WorkspaceEvent::Close => this.set_overlay(None, cx),
+      |this, _, event: &crate::overlays::workspace_settings::WorkspaceEvent, window, cx| match event {
+        crate::overlays::workspace_settings::WorkspaceEvent::Close => this.set_overlay(None, window, cx),
         crate::overlays::workspace_settings::WorkspaceEvent::Save(entries) => {
           let entries = entries.clone();
           AppConfig::update(cx, move |config| config.settings.projects.workspaces = entries);
-          this.set_overlay(None, cx);
+          this.set_overlay(None, window, cx);
           this.rescan_welcome(cx);
         }
       },
     )
     .detach();
-    self.set_overlay(Some(Overlay::WorkspaceSettings(dialog)), cx);
+    self.set_overlay(Some(Overlay::WorkspaceSettings(dialog)), window, cx);
   }
 
   pub fn open_licenses(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -378,10 +384,10 @@ impl Shell {
     cx.subscribe_in(
       &dialog,
       window,
-      |this, _, _: &crate::overlays::licenses::LicensesEvent, _, cx| this.set_overlay(None, cx),
+      |this, _, _: &crate::overlays::licenses::LicensesEvent, window, cx| this.set_overlay(None, window, cx),
     )
     .detach();
-    self.set_overlay(Some(Overlay::Licenses(dialog)), cx);
+    self.set_overlay(Some(Overlay::Licenses(dialog)), window, cx);
   }
 
   fn render_boot(&self, window: &Window, cx: &App) -> impl IntoElement {
@@ -518,7 +524,61 @@ impl Render for Shell {
 mod tests {
   use super::*;
   use core::prelude::v1::test;
+
+  use deathpush_core::session::types::{
+    OperationActions, SessionActions, SessionRepo, SessionScm, SessionSelection, SessionSnapshot, SyncAction, SyncKind,
+  };
+  use deathpush_core::types::{RepoOperationState, StatusPhase};
   use gpui_kit::TestAppContext;
+
+  fn snapshot(root: &str) -> SessionSnapshot {
+    SessionSnapshot {
+      session_generation: 1,
+      session_revision: 1,
+      status_generation: 1,
+      status_revision: 1,
+      repo: SessionRepo {
+        root: root.into(),
+        head_branch: Some("main".into()),
+        head_commit: Some("abc".into()),
+        ahead: 0,
+        behind: 0,
+        operation_state: RepoOperationState::None,
+        phase: StatusPhase::Settled,
+      },
+      groups: vec![],
+      selection: SessionSelection::default(),
+      scm: SessionScm::default(),
+      actions: SessionActions {
+        can_commit: false,
+        commit_label: "Commit".into(),
+        commit_destructive: false,
+        can_stage_all: false,
+        can_unstage_all: false,
+        can_discard_all: false,
+        discard_all_destructive: false,
+        sync: SyncAction {
+          enabled: false,
+          kind: SyncKind::Fetch,
+          destructive: false,
+        },
+        operation: OperationActions {
+          continue_op: false,
+          abort: false,
+          skip: false,
+          abort_destructive: false,
+        },
+      },
+      last_commit: None,
+      branches: vec![],
+      stashes: vec![],
+      tags: vec![],
+      commit_log: vec![],
+      commit_detail: None,
+      file_history_path: None,
+      error: None,
+    }
+  }
 
   #[gpui_kit::test]
   fn shell_root_is_focused_after_construction(cx: &mut TestAppContext) {
@@ -534,6 +594,33 @@ mod tests {
     window
       .update(cx, |shell, window, cx| {
         assert_eq!(window.focused(cx).as_ref(), Some(&shell.focus_handle));
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn closing_an_overlay_restores_repository_focus(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    window
+      .update(cx, |shell, window, cx| {
+        shell.mount_repository(snapshot(config_dir.path().to_str().unwrap()), window, cx);
+        let repo_handle = match &shell.screen {
+          Screen::Repository(view) => view.read(cx).focus_handle.clone(),
+          _ => panic!("expected a repository screen"),
+        };
+        assert_eq!(window.focused(cx).as_ref(), Some(&repo_handle));
+        shell.open_licenses(window, cx);
+        assert_ne!(window.focused(cx).as_ref(), Some(&repo_handle));
+        shell.set_overlay(None, window, cx);
+        assert_eq!(window.focused(cx).as_ref(), Some(&repo_handle));
       })
       .unwrap();
   }

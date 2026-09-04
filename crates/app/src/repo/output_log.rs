@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use deathpush_core::git::cli::GitCommandEvent;
 use gpui_kit::*;
 

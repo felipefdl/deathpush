@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use chrono::Utc;
 use deathpush_core::relative_time::relative_time;
 use gpui_kit::component::tooltip::Tooltip;
@@ -26,7 +24,7 @@ pub fn truncate_message(message: &str, max: usize) -> String {
   }
 }
 
-pub fn render_status_bar(state: &RepoState, window: &mut Window, cx: &mut App) -> impl IntoElement {
+pub fn render_status_bar(state: &RepoState, window: &mut Window, cx: &App) -> impl IntoElement {
   let palette = cx.global::<ActivePalette>().0;
   let branch = state
     .head_branch()

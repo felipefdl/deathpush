@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use deathpush_core::config::layout::PanelTab;
 use gpui_kit::component::button::*;
 use gpui_kit::component::{Icon, Sizable};

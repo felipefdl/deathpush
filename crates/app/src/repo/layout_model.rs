@@ -1,9 +1,6 @@
-#![allow(dead_code)]
-
 use std::path::PathBuf;
 use std::time::Duration;
 
-use deathpush_core::config::config_dir;
 use deathpush_core::config::layout::{MainView, PanelTab, ProjectLayout, SidebarView, load_layout, save_layout};
 use gpui_kit::*;
 
@@ -21,8 +18,12 @@ pub struct LayoutModel {
 
 impl LayoutModel {
   pub fn load(root: &str, cx: &App) -> Self {
-    let always_open = AppConfig::get(cx).settings.ui.always_open_terminal_on_start;
-    Self::load_from(config_dir(), root, always_open)
+    let config = AppConfig::get(cx);
+    Self::load_from(
+      config.dir().to_path_buf(),
+      root,
+      config.settings.ui.always_open_terminal_on_start,
+    )
   }
 
   pub fn load_from(dir: PathBuf, root: &str, always_open_terminal: bool) -> Self {
@@ -75,6 +76,7 @@ impl LayoutModel {
     }
   }
 
+  #[allow(dead_code)]
   pub fn set_history_list_width(&mut self, width: f32, cx: &mut Context<Self>) {
     let width = width.clamp(200.0, 600.0);
     if (self.layout.history_list_width - width).abs() > 0.5 {
@@ -84,6 +86,9 @@ impl LayoutModel {
   }
 
   pub fn set_terminal_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
+    if self.layout.terminal_visible == visible {
+      return;
+    }
     self.layout.terminal_visible = visible;
     self.changed(cx);
   }
@@ -99,6 +104,9 @@ impl LayoutModel {
   }
 
   pub fn set_panel_tab(&mut self, tab: PanelTab, cx: &mut Context<Self>) {
+    if self.layout.panel_tab == tab {
+      return;
+    }
     self.layout.panel_tab = tab;
     self.changed(cx);
   }
@@ -108,6 +116,7 @@ impl LayoutModel {
     self.changed(cx);
   }
 
+  #[allow(dead_code)]
   pub fn dock_terminal(&mut self, cx: &mut Context<Self>) {
     if self.layout.terminal_maximized {
       self.layout.terminal_maximized = false;
@@ -115,6 +124,7 @@ impl LayoutModel {
     }
   }
 
+  #[allow(dead_code)]
   pub fn toggle_pane_collapsed(&mut self, id: &str, cx: &mut Context<Self>) {
     self.layout.toggle_pane(id);
     self.changed(cx);
@@ -141,5 +151,18 @@ mod tests {
     let saved = load_layout(dir.path(), "/repos/a", false);
     assert_eq!(saved.sidebar_width, 420.0);
     assert_eq!(saved.main_view, MainView::History);
+  }
+
+  #[gpui_kit::test]
+  fn unchanged_terminal_visibility_and_panel_tab_do_not_save(cx: &mut TestAppContext) {
+    let dir = tempfile::TempDir::new().unwrap();
+    let model = cx.new(|_| LayoutModel::load_from(dir.path().to_path_buf(), "/repos/a", false));
+    model.update(cx, |model, cx| {
+      model.set_terminal_visible(true, cx);
+      model.set_panel_tab(PanelTab::Terminal, cx);
+    });
+    cx.executor().advance_clock(Duration::from_millis(600));
+    cx.run_until_parked();
+    assert!(!deathpush_core::config::layout::layout_path(dir.path(), "/repos/a").exists());
   }
 }

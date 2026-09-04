@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use deathpush_core::config::layout::MainView;
 use gpui_kit::*;
 

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use deathpush_core::config::layout::{MainView, PanelTab, SidebarView};
 use deathpush_core::config::settings::{DiffLayout, SidebarPosition};
 use deathpush_core::session::types::Intent;
@@ -26,7 +24,7 @@ pub struct RepoView {
   output: Entity<OutputLog>,
   body_state: Entity<ResizableState>,
   main_state: Entity<ResizableState>,
-  focus_handle: FocusHandle,
+  pub(crate) focus_handle: FocusHandle,
 }
 
 impl RepoView {
@@ -53,6 +51,7 @@ impl RepoView {
     &self.model
   }
 
+  #[allow(dead_code)]
   pub fn layout(&self) -> &Entity<LayoutModel> {
     &self.layout
   }
@@ -105,6 +104,7 @@ impl RepoView {
             resizable_panel()
               .size(px(layout.terminal_height))
               .size_range(px(100.0)..px(600.0))
+              .flex_none()
               .child(terminal),
           )
           .into_any_element()
@@ -115,6 +115,7 @@ impl RepoView {
     let sidebar_panel = resizable_panel()
       .size(px(layout.sidebar_width))
       .size_range(px(200.0)..px(600.0))
+      .flex_none()
       .child(sidebar);
     let mut group = h_resizable("shell-body")
       .with_state(&self.body_state)
@@ -136,8 +137,10 @@ impl RepoView {
 impl Render for RepoView {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let palette = cx.global::<ActivePalette>().0;
-    let state = self.model.read(cx).state().clone();
-    let status_bar = render_status_bar(&state, window, cx).into_any_element();
+    let status_bar = {
+      let model = self.model.read(cx);
+      render_status_bar(model.state(), window, cx).into_any_element()
+    };
     let body = self.render_body(window, cx).into_any_element();
     div()
       .track_focus(&self.focus_handle)

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::sync::Arc;
 
 use deathpush_core::session::types::{Intent, IntentOutcome, SessionSnapshot, SessionStatusEvent};
@@ -35,6 +33,7 @@ impl RepoModel {
     &self.state
   }
 
+  #[allow(dead_code)]
   pub fn state_mut(&mut self) -> &mut RepoState {
     &mut self.state
   }
