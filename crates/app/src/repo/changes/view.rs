@@ -7,16 +7,19 @@ use gpui_kit::base::ResizableState;
 use gpui_kit::component::Sizable;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use super::banner::render_banner;
 use super::commit_box::{self, render_commit_box};
 use super::filter::{self, FILTER_DEBOUNCE_MS};
 use super::groups::{FileRow, GroupBody, GroupId, assemble_groups, render_groups};
+use super::overflow::{BranchListMode, OverflowItem, filter_branches, network_intent};
 use super::toolbar::render_toolbar;
 use crate::actions::*;
 use crate::repo::layout_model::LayoutModel;
 use crate::repo::model::{RepoEvent, RepoModel};
+use crate::repo::state::NetworkOp;
 use crate::theme::{ActivePalette, hsla};
 
 pub(crate) struct ChangesChrome {
@@ -41,6 +44,8 @@ pub struct ChangesView {
   pub(crate) selected: HashSet<(ResourceGroupKind, String)>,
   pub(crate) anchor: Option<(GroupId, usize)>,
   pub(crate) groups_state: Entity<ResizableState>,
+  branch_list: Option<BranchListMode>,
+  branch_query: Entity<InputState>,
   window_handle: AnyWindowHandle,
   focus_handle: FocusHandle,
 }
@@ -65,6 +70,7 @@ impl ChangesView {
     if !file_filter.is_empty() {
       filter.update(cx, |state, cx| state.set_value(file_filter.clone(), window, cx));
     }
+    let branch_query = cx.new(|cx| InputState::new(window, cx).placeholder("Select a branch..."));
 
     cx.subscribe(&commit, |this, _, event: &InputEvent, cx| {
       if matches!(event, InputEvent::Change) {
@@ -114,6 +120,12 @@ impl ChangesView {
       cx.notify();
     })
     .detach();
+    cx.subscribe(&branch_query, |_, _, event: &InputEvent, cx| {
+      if matches!(event, InputEvent::Change) {
+        cx.notify();
+      }
+    })
+    .detach();
     cx.observe(&layout, |_, _, cx| cx.notify()).detach();
 
     Self {
@@ -128,6 +140,8 @@ impl ChangesView {
       selected: HashSet::new(),
       anchor: None,
       groups_state: cx.new(|_| ResizableState::default()),
+      branch_list: None,
+      branch_query,
       window_handle: window.window_handle(),
       focus_handle: cx.focus_handle(),
     }
@@ -149,6 +163,126 @@ impl ChangesView {
 
   pub(crate) fn send(&self, intent: Intent, window: &mut Window, cx: &mut Context<Self>) {
     self.model.update(cx, |model, cx| model.dispatch(intent, window, cx));
+  }
+
+  fn dispatch_network(&self, op: NetworkOp, intent: Intent, window: &mut Window, cx: &mut Context<Self>) {
+    self
+      .model
+      .update(cx, |model, cx| model.dispatch_network(op, intent, window, cx));
+  }
+
+  pub(crate) fn activate_overflow(&mut self, item: OverflowItem, window: &mut Window, cx: &mut Context<Self>) {
+    if let Some((op, intent)) = network_intent(item) {
+      self.dispatch_network(op, intent, window, cx);
+      return;
+    }
+    match item {
+      OverflowItem::MergeBranch => self.open_branch_list(BranchListMode::Merge, window, cx),
+      OverflowItem::RebaseBranch => self.open_branch_list(BranchListMode::Rebase, window, cx),
+      OverflowItem::StageAll => self.send(Intent::StageAll, window, cx),
+      OverflowItem::UnstageAll => self.send(Intent::UnstageAll, window, cx),
+      OverflowItem::DiscardAll => self.discard_all(window, cx),
+      OverflowItem::Stash => self.send(
+        Intent::StashSave {
+          include_untracked: false,
+          staged_only: false,
+          message: None,
+        },
+        window,
+        cx,
+      ),
+      OverflowItem::StashIncludeUntracked => self.send(
+        Intent::StashSave {
+          include_untracked: true,
+          staged_only: false,
+          message: None,
+        },
+        window,
+        cx,
+      ),
+      OverflowItem::StashStagedOnly => self.send(
+        Intent::StashSave {
+          include_untracked: false,
+          staged_only: true,
+          message: None,
+        },
+        window,
+        cx,
+      ),
+      OverflowItem::StashPop => self.send(Intent::StashPop { index: 0 }, window, cx),
+      OverflowItem::UndoCommit => self.send(Intent::UndoCommit { confirmed: false }, window, cx),
+      OverflowItem::OpenRepository => window.dispatch_action(Box::new(OpenRepository), cx),
+      OverflowItem::CloneRepository => window.dispatch_action(Box::new(CloneRepository), cx),
+      _ => {}
+    }
+  }
+
+  pub(crate) fn open_branch_list(&mut self, mode: BranchListMode, window: &mut Window, cx: &mut Context<Self>) {
+    self.branch_list = Some(mode);
+    self.branch_query.update(cx, |state, cx| {
+      state.set_value("", window, cx);
+      state.focus(window, cx);
+    });
+    cx.notify();
+  }
+
+  fn close_branch_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    if self.branch_list.is_none() {
+      return;
+    }
+    self.branch_list = None;
+    self.focus_handle.focus(window, cx);
+    cx.notify();
+  }
+
+  fn confirm_branch_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    let Some(mode) = self.branch_list else {
+      return;
+    };
+    let query = self.branch_query.read(cx).value().to_string();
+    let name = {
+      let state = self.model.read(cx).state();
+      let current = state.head_branch();
+      filter_branches(&state.branches, current, &query)
+        .first()
+        .map(|branch| branch.name.clone())
+    };
+    let Some(name) = name else {
+      return;
+    };
+    self.pick_branch(mode, name, window, cx);
+  }
+
+  fn pick_branch(&mut self, mode: BranchListMode, name: String, window: &mut Window, cx: &mut Context<Self>) {
+    let intent = mode.intent(name);
+    self.close_branch_list(window, cx);
+    self.send(intent, window, cx);
+  }
+
+  fn discard_all(&self, window: &mut Window, cx: &mut Context<Self>) {
+    let paths = self
+      .model
+      .read(cx)
+      .state()
+      .status
+      .as_ref()
+      .map(|status| {
+        status
+          .groups
+          .iter()
+          .filter(|group| group.kind != ResourceGroupKind::Index)
+          .flat_map(|group| group.files.iter().map(|file| file.path.clone()))
+          .collect()
+      })
+      .unwrap_or_default();
+    self.send(
+      Intent::Discard {
+        paths,
+        confirmed: false,
+      },
+      window,
+      cx,
+    );
   }
 
   fn dispatch_intent(&self, intent: Intent, cx: &mut Context<Self>) {
@@ -354,6 +488,120 @@ impl ChangesView {
     }
   }
 
+  fn render_branch_list(&self, mode: BranchListMode, cx: &mut Context<Self>) -> impl IntoElement {
+    let palette = cx.global::<ActivePalette>().0;
+    let query = self.branch_query.read(cx).value().to_string();
+    let (branches, current) = {
+      let state = self.model.read(cx).state();
+      (state.branches.clone(), state.head_branch().map(str::to_string))
+    };
+    let matches = filter_branches(&branches, current.as_deref(), &query);
+    let rows: Vec<AnyElement> = matches
+      .iter()
+      .map(|branch| {
+        let name = branch.name.clone();
+        let icon = if branch.is_remote {
+          "icons/cloud.svg"
+        } else {
+          "icons/git-branch.svg"
+        };
+        let view = cx.weak_entity();
+        let pick_mode = mode;
+        div()
+          .id(SharedString::from(format!("scm-branch-{name}")))
+          .h(px(26.0))
+          .flex_shrink_0()
+          .flex()
+          .items_center()
+          .gap_1()
+          .px_2()
+          .cursor_pointer()
+          .hover(|el| el.bg(hsla(palette.list_hover)))
+          .on_click(move |_, window, cx| {
+            let _ = view.update(cx, |this, cx| this.pick_branch(pick_mode, name.clone(), window, cx));
+          })
+          .child(
+            svg()
+              .path(icon)
+              .size(px(14.0))
+              .text_color(hsla(palette.muted_foreground)),
+          )
+          .child(
+            div()
+              .min_w_0()
+              .flex_1()
+              .overflow_hidden()
+              .text_ellipsis()
+              .text_size(px(13.0))
+              .text_color(hsla(palette.foreground))
+              .child(branch.name.clone()),
+          )
+          .into_any_element()
+      })
+      .collect();
+    let empty = matches.is_empty();
+    div()
+      .id("scm-branch-list")
+      .key_context("BranchList")
+      .occlude()
+      .absolute()
+      .top(px(35.0))
+      .right_2()
+      .w(px(260.0))
+      .flex()
+      .flex_col()
+      .bg(hsla(palette.sidebar))
+      .border_1()
+      .border_color(hsla(palette.border))
+      .rounded_md()
+      .shadow_lg()
+      .on_action(cx.listener(|this, _: &Confirm, window, cx| this.confirm_branch_list(window, cx)))
+      .on_action(cx.listener(|this, _: &Cancel, window, cx| this.close_branch_list(window, cx)))
+      .on_mouse_down_out(cx.listener(|this, _, window, cx| this.close_branch_list(window, cx)))
+      .child(
+        div()
+          .h(px(22.0))
+          .flex_shrink_0()
+          .flex()
+          .items_center()
+          .px_2()
+          .text_size(px(11.0))
+          .font_weight(FontWeight::BOLD)
+          .text_color(hsla(palette.muted_foreground))
+          .child(mode.header().to_uppercase()),
+      )
+      .child(
+        div().px_2().pb_2().child(
+          Input::new(&self.branch_query)
+            .small()
+            .h(px(26.0))
+            .w_full()
+            .rounded_md()
+            .bg(hsla(palette.input))
+            .cleanable(true),
+        ),
+      )
+      .child(
+        div()
+          .id("scm-branch-list-rows")
+          .max_h(px(260.0))
+          .overflow_y_scroll()
+          .flex()
+          .flex_col()
+          .when(empty, |el| {
+            el.child(
+              div()
+                .px_2()
+                .py_1()
+                .text_size(px(12.0))
+                .text_color(hsla(palette.muted_foreground))
+                .child("No matching branches"),
+            )
+          })
+          .when(!empty, |el| el.children(rows)),
+      )
+  }
+
   fn render_empty_repo(cx: &mut Context<Self>) -> impl IntoElement {
     let palette = cx.global::<ActivePalette>().0;
     div()
@@ -427,7 +675,9 @@ impl Render for ChangesView {
         groups,
       )
     };
+    let branch_list = self.branch_list;
     let mut root = div()
+      .relative()
       .size_full()
       .flex()
       .flex_col()
@@ -462,6 +712,30 @@ impl Render for ChangesView {
       }))
       .on_action(cx.listener(|this, _: &FocusCommitMessage, window, cx| {
         this.focus_commit(window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &GitSync, window, cx| {
+        this.activate_overflow(OverflowItem::Sync, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &GitPullRebase, window, cx| {
+        this.activate_overflow(OverflowItem::PullRebase, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &GitPushForce, window, cx| {
+        this.activate_overflow(OverflowItem::PushForce, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &GitDiscardAll, window, cx| {
+        this.activate_overflow(OverflowItem::DiscardAll, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &GitStashIncludeUntracked, window, cx| {
+        this.activate_overflow(OverflowItem::StashIncludeUntracked, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &GitStashStagedOnly, window, cx| {
+        this.activate_overflow(OverflowItem::StashStagedOnly, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &MergeBranchPicker, window, cx| {
+        this.open_branch_list(BranchListMode::Merge, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &RebaseBranchPicker, window, cx| {
+        this.open_branch_list(BranchListMode::Rebase, window, cx);
       }));
 
     if !repo_open {
@@ -500,6 +774,9 @@ impl Render for ChangesView {
       }
     } else {
       root = root.child(render_groups(self, &groups, window, cx));
+    }
+    if let Some(mode) = branch_list {
+      root = root.child(self.render_branch_list(mode, cx));
     }
     root
   }

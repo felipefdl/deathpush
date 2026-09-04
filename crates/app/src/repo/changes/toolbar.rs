@@ -1,11 +1,13 @@
 use deathpush_core::session::types::{Intent, SyncKind};
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
+use gpui_kit::component::menu::DropdownMenu;
 use gpui_kit::component::{Disableable, Icon, Sizable};
 use gpui_kit::*;
 
+use super::overflow::{OverflowState, build_menu};
 use super::view::{ChangesChrome, ChangesView};
 use crate::repo::state::NetworkOp;
+use crate::theme::ActivePalette;
 
 pub fn render_toolbar(chrome: &ChangesChrome, cx: &mut Context<ChangesView>) -> impl IntoElement {
   let actions = chrome.actions.as_ref();
@@ -95,8 +97,15 @@ pub fn render_toolbar(chrome: &ChangesChrome, cx: &mut Context<ChangesView>) -> 
     );
   }
 
+  let view = cx.weak_entity();
   row.child(
-    tool("more", "icons/ellipsis.svg", "More Actions...")
-      .dropdown_menu(|menu, _, _| menu.item(PopupMenuItem::new("More Actions...").disabled(true))),
+    tool("more", "icons/ellipsis.svg", "More Actions...").dropdown_menu(move |menu, _, cx| {
+      let Some(entity) = view.upgrade() else {
+        return menu;
+      };
+      let palette = cx.global::<ActivePalette>().0;
+      let overflow = OverflowState::from_state(entity.read(cx).model.read(cx).state(), &palette);
+      build_menu(menu, view.clone(), &overflow, cx)
+    }),
   )
 }

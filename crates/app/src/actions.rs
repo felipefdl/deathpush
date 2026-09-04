@@ -41,21 +41,13 @@ actions!(
     OperationSkip,
     OperationAbort,
     FocusCommitMessage,
-    #[allow(dead_code)]
     GitSync,
-    #[allow(dead_code)]
     GitPullRebase,
-    #[allow(dead_code)]
     GitPushForce,
-    #[allow(dead_code)]
     GitDiscardAll,
-    #[allow(dead_code)]
     GitStashIncludeUntracked,
-    #[allow(dead_code)]
     GitStashStagedOnly,
-    #[allow(dead_code)]
     MergeBranchPicker,
-    #[allow(dead_code)]
     RebaseBranchPicker,
     NewTerminal,
     KillTerminal,

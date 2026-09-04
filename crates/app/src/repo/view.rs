@@ -12,6 +12,7 @@ use super::main_panel::render_main_panel;
 use super::model::RepoModel;
 use super::output_log::OutputLog;
 use super::sidebar::render_sidebar;
+use super::state::NetworkOp;
 use super::status_bar::render_status_bar;
 use super::terminal_panel::render_terminal_panel;
 use crate::actions::*;
@@ -228,18 +229,29 @@ impl Render for RepoView {
           .layout
           .update(cx, |layout, cx| layout.set_terminal_visible(false, cx));
       }))
-      .on_action(cx.listener(|this, _: &GitPull, window, cx| this.send(Intent::Pull { rebase: false }, window, cx)))
-      .on_action(cx.listener(|this, _: &GitPush, window, cx| {
-        this.send(
-          Intent::Push {
-            force: false,
-            confirmed: false,
-          },
-          window,
-          cx,
-        )
+      .on_action(cx.listener(|this, _: &GitPull, window, cx| {
+        this.model.update(cx, |model, cx| {
+          model.dispatch_network(NetworkOp::Pull, Intent::Pull { rebase: false }, window, cx);
+        });
       }))
-      .on_action(cx.listener(|this, _: &GitFetch, window, cx| this.send(Intent::Fetch { prune: true }, window, cx)))
+      .on_action(cx.listener(|this, _: &GitPush, window, cx| {
+        this.model.update(cx, |model, cx| {
+          model.dispatch_network(
+            NetworkOp::Push,
+            Intent::Push {
+              force: false,
+              confirmed: false,
+            },
+            window,
+            cx,
+          );
+        });
+      }))
+      .on_action(cx.listener(|this, _: &GitFetch, window, cx| {
+        this.model.update(cx, |model, cx| {
+          model.dispatch_network(NetworkOp::Fetch, Intent::Fetch { prune: true }, window, cx);
+        });
+      }))
       .on_action(cx.listener(|this, _: &GitStageAll, window, cx| this.send(Intent::StageAll, window, cx)))
       .on_action(cx.listener(|this, _: &GitUnstageAll, window, cx| this.send(Intent::UnstageAll, window, cx)))
       .on_action(cx.listener(|this, _: &GitStash, window, cx| {

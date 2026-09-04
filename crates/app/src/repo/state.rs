@@ -98,7 +98,6 @@ impl RepoState {
     self.group_file_count(|_| true) > 0
   }
 
-  #[allow(dead_code)]
   pub fn staged_count(&self) -> usize {
     self.group_file_count(|kind| kind == ResourceGroupKind::Index)
   }
@@ -128,7 +127,6 @@ impl RepoState {
       .unwrap_or(0)
   }
 
-  #[allow(dead_code)]
   pub fn head_branch(&self) -> Option<&str> {
     self.status.as_ref().and_then(|status| status.head_branch.as_deref())
   }
