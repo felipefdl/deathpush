@@ -71,8 +71,33 @@ impl RepoModel {
     self.core.clone()
   }
 
-  pub(crate) fn session(&self) -> SessionId {
+  pub fn session(&self) -> SessionId {
     self.session
+  }
+
+  pub fn fuzzy_find_files(
+    &self,
+    query: String,
+    max_results: usize,
+  ) -> tokio::task::JoinHandle<deathpush_core::Result<Vec<deathpush_core::types::FuzzyFileResult>>> {
+    let core = self.core.clone();
+    let session = self.session;
+    self
+      .core
+      .runtime_handle()
+      .spawn_blocking(move || core.fuzzy_find_files(session, &query, max_results))
+  }
+
+  pub fn search_file_contents(
+    &self,
+    query: String,
+    max_results: usize,
+  ) -> tokio::task::JoinHandle<deathpush_core::Result<Vec<deathpush_core::types::ContentSearchResult>>> {
+    let core = self.core.clone();
+    let session = self.session;
+    self
+      .core
+      .spawn(async move { core.search_file_contents(session, &query, max_results).await })
   }
 
   /// Send an intent to core; the outcome applies on the foreground executor.

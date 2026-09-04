@@ -28,6 +28,7 @@ pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static st
     (format!("{m}-n"), "NewWindow", Some(CONTEXT_APP)),
     (format!("{m}-o"), "OpenRepository", Some(CONTEXT_APP)),
     (format!("{m}-,"), "ShowSettings", Some(CONTEXT_APP)),
+    (format!("{m}-p"), "QuickOpen", Some(CONTEXT_APP)),
     (format!("{m}-p"), "QuickOpen", Some(CONTEXT_REPOSITORY)),
     (format!("{m}-1"), "ShowChanges", Some(CONTEXT_REPOSITORY)),
     (format!("{m}-2"), "ShowExplorer", Some(CONTEXT_REPOSITORY)),
@@ -245,6 +246,26 @@ mod tests {
           keys == "escape" && *action == "Cancel" && *ctx == Some(CONTEXT_EXPLORER_INPUT)
         }),
         "escape -> Cancel in Explorer > Input"
+      );
+    }
+  }
+
+  #[test]
+  fn quick_open_binds_in_app_and_repository() {
+    for (mac, primary) in [(true, "cmd"), (false, "ctrl")] {
+      let rows = binding_table(mac);
+      let key = format!("{primary}-p");
+      assert!(
+        rows
+          .iter()
+          .any(|(keys, name, ctx)| keys == &key && *name == "QuickOpen" && *ctx == Some(CONTEXT_APP)),
+        "{key} -> QuickOpen in DeathPush"
+      );
+      assert!(
+        rows
+          .iter()
+          .any(|(keys, name, ctx)| { keys == &key && *name == "QuickOpen" && *ctx == Some(CONTEXT_REPOSITORY) }),
+        "{key} -> QuickOpen in Repository"
       );
     }
   }

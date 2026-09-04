@@ -29,6 +29,7 @@ pub enum Overlay {
   Clone(Entity<crate::overlays::clone_dialog::CloneDialog>),
   WorkspaceSettings(Entity<crate::overlays::workspace_settings::WorkspaceSettingsDialog>),
   Licenses(Entity<crate::overlays::licenses::LicensesDialog>),
+  QuickOpen(Entity<crate::overlays::quick_open::QuickOpen>),
 }
 
 pub struct Shell {
@@ -405,6 +406,27 @@ impl Shell {
     self.set_overlay(Some(Overlay::WorkspaceSettings(dialog)), window, cx);
   }
 
+  pub fn open_quick_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    if let Some(Overlay::QuickOpen(view)) = &self.overlay {
+      view.update(cx, |view, cx| view.focus(window, cx));
+      return;
+    }
+    let Screen::Repository(repo) = &self.screen else {
+      return;
+    };
+    let repo = repo.clone();
+    let overlay = cx.new(|cx| crate::overlays::quick_open::QuickOpen::new(repo, window, cx));
+    cx.subscribe_in(
+      &overlay,
+      window,
+      |this, _, _: &crate::overlays::quick_open::QuickOpenEvent, window, cx| {
+        this.set_overlay(None, window, cx);
+      },
+    )
+    .detach();
+    self.set_overlay(Some(Overlay::QuickOpen(overlay)), window, cx);
+  }
+
   pub fn open_licenses(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     let dialog = cx.new(crate::overlays::licenses::LicensesDialog::new);
     dialog.update(cx, |dialog, cx| dialog.focus(window, cx));
@@ -496,6 +518,7 @@ impl Render for Shell {
       Some(Overlay::Clone(view)) => Some(view.clone().into_any_element()),
       Some(Overlay::WorkspaceSettings(view)) => Some(view.clone().into_any_element()),
       Some(Overlay::Licenses(view)) => Some(view.clone().into_any_element()),
+      Some(Overlay::QuickOpen(view)) => Some(view.clone().into_any_element()),
     };
     div()
       .key_context(key_context.as_str())
@@ -528,6 +551,7 @@ impl Render for Shell {
       .on_action(cx.listener(|_, _: &ZoomIn, _, cx| zoom::set_zoom_level(zoom::current_level(cx) + 1, cx)))
       .on_action(cx.listener(|_, _: &ZoomOut, _, cx| zoom::set_zoom_level(zoom::current_level(cx) - 1, cx)))
       .on_action(cx.listener(|_, _: &ZoomReset, _, cx| zoom::set_zoom_level(0, cx)))
+      .on_action(cx.listener(|this, _: &QuickOpen, window, cx| this.open_quick_open(window, cx)))
       .on_action(cx.listener(|this, _: &OpenLicenses, window, cx| this.open_licenses(window, cx)))
       .on_action(cx.listener(|this, _: &ConfigureWorkspace, window, cx| this.open_workspace_settings(window, cx)))
       .on_action(cx.listener(|this, _: &FocusRecentFilter, window, cx| {
@@ -660,6 +684,28 @@ mod tests {
         assert_ne!(window.focused(cx).as_ref(), Some(&repo_handle));
         shell.set_overlay(None, window, cx);
         assert_eq!(window.focused(cx).as_ref(), Some(&repo_handle));
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn quick_open_opens_only_for_a_repository(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    window
+      .update(cx, |shell, window, cx| {
+        shell.open_quick_open(window, cx);
+        assert!(shell.overlay.is_none());
+        shell.mount_repository(snapshot(config_dir.path().to_str().unwrap()), window, cx);
+        shell.open_quick_open(window, cx);
+        assert!(matches!(shell.overlay, Some(Overlay::QuickOpen(_))));
       })
       .unwrap();
   }
