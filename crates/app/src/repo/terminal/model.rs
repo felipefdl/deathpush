@@ -368,9 +368,7 @@ impl TerminalModel {
         return None;
       }
     };
-    if let Some(palette) = cx.try_global::<ActivePalette>() {
-      handle.send(pane_view::vt_set_colors(&palette.0));
-    }
+    Self::queue_theme_colors(&handle, cx);
     let view_handle = handle.clone();
     let view = cx.new(|cx| PaneView::new(id, view_handle, wake_rx, cx));
     self.subscribe_pane(&view, cx);
@@ -392,6 +390,12 @@ impl TerminalModel {
       },
     );
     Some(id)
+  }
+
+  pub(crate) fn queue_theme_colors(handle: &PaneHandle, cx: &App) {
+    if let Some(palette) = cx.try_global::<ActivePalette>() {
+      handle.send(pane_view::vt_set_colors(&palette.0));
+    }
   }
 
   fn remove_pane(&mut self, pane: u64, window: Option<&mut Window>, cx: &mut Context<Self>) {

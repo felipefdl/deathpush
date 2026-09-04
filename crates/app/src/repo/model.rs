@@ -592,16 +592,7 @@ impl RepoModel {
     self.latest_write = None;
     cx.emit(RepoEvent::Changed);
     cx.notify();
-    let core = self.core.clone();
-    let session = self.session;
-    let handle = core.runtime_handle().clone();
-    let path = path.to_string();
-    let task = handle.spawn_blocking(move || core.read_file_content(session, &path));
-    cx.spawn(async move |this, cx| {
-      let result = task.await;
-      let _ = this.update(cx, |this, cx| this.apply_loaded_content(load_id, result, cx));
-    })
-    .detach();
+    self.spawn_file_read(path.to_string(), load_id, cx);
   }
 
   pub fn retarget_open_file(&mut self, old_path: &str, new_path: &str, cx: &mut Context<Self>) {
@@ -643,12 +634,16 @@ impl RepoModel {
     };
     let load_id = open.load_id;
     let path = open.path.clone();
+    self.spawn_file_read(path, load_id, cx);
+  }
+
+  fn spawn_file_read(&self, path: String, load_id: u64, cx: &mut Context<Self>) {
     let core = self.core.clone();
     let session = self.session;
-    let handle = core.runtime_handle().clone();
-    let task = handle.spawn_blocking(move || core.read_file_content(session, &path));
     cx.spawn(async move |this, cx| {
-      let result = task.await;
+      let result = cx
+        .background_spawn(async move { core.read_file_content(session, &path) })
+        .await;
       let _ = this.update(cx, |this, cx| this.apply_loaded_content(load_id, result, cx));
     })
     .detach();
@@ -827,14 +822,14 @@ impl RepoModel {
   fn apply_loaded_content(
     &mut self,
     load_id: u64,
-    result: Result<deathpush_core::Result<deathpush_core::types::FileContent>, tokio::task::JoinError>,
+    result: deathpush_core::Result<deathpush_core::types::FileContent>,
     cx: &mut Context<Self>,
   ) {
     if self.state.open_file.as_ref().is_none_or(|open| open.load_id != load_id) {
       return;
     }
     match result {
-      Ok(Ok(content)) => {
+      Ok(content) => {
         if self.state.open_file.as_ref().is_some_and(|open| open.dirty) {
           return;
         }
@@ -844,7 +839,7 @@ impl RepoModel {
         cx.emit(RepoEvent::Changed);
         cx.notify();
       }
-      Ok(Err(_)) | Err(_) => self.close_file(cx),
+      Err(_) => self.close_file(cx),
     }
   }
 

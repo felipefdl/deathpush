@@ -4,7 +4,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 
 use libghostty_vt::key::{self, Encoder as KeyEncoder, Event as KeyEvent};
@@ -257,30 +257,32 @@ impl PaneHandle {
   }
 }
 
-/// Sets the shutdown flag and sends [`PaneCommand::Shutdown`]. The pane thread is joined in the
-/// background so Drop does not block the UI. Snapshot state stays alive until that join completes.
+/// Sets the shutdown flag and sends [`PaneCommand::Shutdown`]. The pane thread is joined by a
+/// process-wide reaper so Drop does not block the UI. The pane thread owns the snapshot Arcs
+/// until it exits.
 impl Drop for PaneHandle {
   fn drop(&mut self) {
     self.shutdown.store(true, Ordering::Release);
     let _ = self.tx.send(PaneMsg::Command(PaneCommand::Shutdown));
-    let Some(join) = self.join.take() else {
-      return;
-    };
-    let slot = Arc::clone(&self.slot);
-    let mouse_tracking = Arc::clone(&self.mouse_tracking);
-    let shutdown = Arc::clone(&self.shutdown);
-    if thread::Builder::new()
-      .name("dp-vt-pane-join".into())
-      .spawn(move || {
-        let _ = join.join();
-        drop((slot, mouse_tracking, shutdown));
-      })
-      .is_err()
-    {
-      std::mem::forget(Arc::clone(&self.slot));
-      std::mem::forget(Arc::clone(&self.mouse_tracking));
-      std::mem::forget(Arc::clone(&self.shutdown));
+    if let Some(join) = self.join.take() {
+      enqueue_pane_join(join);
     }
+  }
+}
+
+fn enqueue_pane_join(join: JoinHandle<()>) {
+  static TX: OnceLock<Sender<JoinHandle<()>>> = OnceLock::new();
+  let tx = TX.get_or_init(|| {
+    let (tx, rx) = mpsc::channel::<JoinHandle<()>>();
+    let _ = thread::Builder::new().name("dp-vt-pane-join".into()).spawn(move || {
+      while let Ok(handle) = rx.recv() {
+        let _ = handle.join();
+      }
+    });
+    tx
+  });
+  if let Err(err) = tx.send(join) {
+    drop(err.0);
   }
 }
 
@@ -1219,6 +1221,24 @@ mod tests {
     assert_eq!(snap.foreground, Rgb(1, 2, 3));
     assert_eq!(snap.background, Rgb(4, 5, 6));
     assert_eq!(snap.cursor_color, Some(Rgb(7, 8, 9)));
+  }
+
+  #[test]
+  fn set_colors_applies_ansi_index_one_to_sgr_red_cells() {
+    let handle = PaneHandle::spawn(20, 2, None, noop_writer(), Box::new(|| {})).unwrap();
+    let mut ansi = [Rgb(0, 0, 0); 16];
+    ansi[1] = Rgb(11, 22, 33);
+    handle.send(PaneCommand::SetColors {
+      foreground: Rgb(1, 2, 3),
+      background: Rgb(4, 5, 6),
+      cursor: Rgb(7, 8, 9),
+      ansi,
+    });
+    wait_snapshot(&handle, |snap| snap.background == Rgb(4, 5, 6));
+    handle.push_bytes(b"\x1b[31mX");
+    let snap = wait_snapshot(&handle, |snap| snap.row_text(0).starts_with('X'));
+    let cell = snap.cell(0, 0).expect("cell");
+    assert_eq!(cell.fg, Some(Rgb(11, 22, 33)));
   }
 
   #[test]

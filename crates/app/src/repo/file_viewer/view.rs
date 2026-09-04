@@ -596,7 +596,7 @@ mod tests {
     });
     window
       .update(cx, |viewer, window, cx| {
-        viewer.model().update(cx, |model, _| {
+        viewer.model().update(cx, |model, cx| {
           model.state_mut().open_file = Some(OpenFile {
             path: "src/main.rs".into(),
             content: Some(FileContent {
@@ -610,11 +610,16 @@ mod tests {
             load_id: 1,
             dirty: false,
           });
+          cx.notify();
         });
         window.refresh();
       })
       .unwrap();
-    cx.run_until_parked();
+    AnyWindowHandle::from(window)
+      .update(cx, |_, window, cx| {
+        let _ = window.draw(cx);
+      })
+      .unwrap();
     window
       .update(cx, |viewer, _, cx| {
         assert_eq!(

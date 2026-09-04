@@ -274,7 +274,7 @@ impl PaneView {
     }
   }
 
-  fn sync_vt_colors(&mut self, cx: &App) {
+  pub(crate) fn sync_vt_colors(&mut self, cx: &App) {
     if self.handle.is_none() {
       return;
     }
@@ -1185,6 +1185,55 @@ mod tests {
       !clear_fired.get(),
       "ClearSelection must not fire while Terminal is focused"
     );
+    drop(handle);
+  }
+
+  fn wait_snapshot(handle: &PaneHandle, pred: impl Fn(&PaneSnapshot) -> bool) -> Arc<PaneSnapshot> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+      if let Some(snap) = handle.snapshot()
+        && pred(&snap)
+      {
+        return snap;
+      }
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("timed out waiting for snapshot");
+  }
+
+  fn palette_rgb(color: deathpush_core::theme::Rgba) -> Rgb {
+    Rgb(color.r, color.g, color.b)
+  }
+
+  #[gpui_kit::test]
+  fn spawn_pane_queues_active_palette_and_theme_change_resends(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let handle = Arc::new(PaneHandle::spawn(20, 4, None, Box::new(|_| {}), Box::new(|| {})).unwrap());
+    let first_bg = cx.update(|cx| {
+      super::super::model::TerminalModel::queue_theme_colors(&handle, cx);
+      palette_rgb(cx.global::<ActivePalette>().0.terminal_background)
+    });
+    wait_snapshot(&handle, |snap| snap.background == first_bg);
+    cx.update(|cx| {
+      crate::theme::apply_theme("ayu-light", deathpush_core::theme::ThemeKind::Light, None, cx);
+    });
+    let second_bg = cx.update(|cx| palette_rgb(cx.global::<ActivePalette>().0.terminal_background));
+    assert_ne!(
+      first_bg, second_bg,
+      "theme change must pick a different terminal background"
+    );
+    let (_, rx) = unbounded();
+    let view = cx.new({
+      let handle = Arc::clone(&handle);
+      move |cx| PaneView::new(1, handle, rx, cx)
+    });
+    view.update(cx, |view, cx| view.sync_vt_colors(cx));
+    wait_snapshot(&handle, |snap| snap.background == second_bg);
     drop(handle);
   }
 }
