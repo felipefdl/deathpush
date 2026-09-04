@@ -291,7 +291,9 @@ impl ExplorerView {
       }
       return;
     }
-    self.model.update(cx, |model, cx| model.commit_edit(name, window, cx));
+    self
+      .model
+      .update(cx, |model, cx| model.commit_edit(name, &self.repo, window, cx));
     if self.model.read(cx).edit.is_none() {
       self.edit_sub = None;
     }
@@ -457,8 +459,8 @@ impl ExplorerView {
       let _ = tx.send(result);
     };
     self.model.update(cx, |model, cx| match &pending {
-      PendingTransfer::Paste { into } => model.paste(into, on_conflict, window, cx, done),
-      PendingTransfer::Move { source, into } => model.move_into(source, into, on_conflict, window, cx, done),
+      PendingTransfer::Paste { into } => model.paste(into, on_conflict, &self.repo, window, cx, done),
+      PendingTransfer::Move { source, into } => model.move_into(source, into, on_conflict, &self.repo, cx, done),
       PendingTransfer::Import { sources } => model.import(sources.clone(), on_conflict, window, cx, done),
     });
     cx.spawn_in(window, async move |this, cx| {

@@ -11,7 +11,7 @@ use deathpush_core::types::{
 use deathpush_core::{Core, SessionId};
 use gpui_kit::*;
 
-use super::super::model::RepoModel;
+use super::super::model::{RepoModel, await_pending_write};
 
 const REFRESH_COALESCE: Duration = Duration::from_secs(1);
 
@@ -276,7 +276,7 @@ impl ExplorerModel {
     self.emit_changed(cx);
   }
 
-  pub fn commit_edit(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+  pub fn commit_edit(&mut self, name: String, repo: &Entity<RepoModel>, window: &mut Window, cx: &mut Context<Self>) {
     let _ = window;
     if self.create_in_flight {
       return;
@@ -314,8 +314,10 @@ impl ExplorerModel {
         let handle = core.runtime_handle().clone();
         let old_path = path.clone();
         let new_name = name.clone();
-        let task = handle.spawn_blocking(move || core.rename_entry(session, &old_path, &new_name));
+        let waiter = repo.read(cx).pending_write_waiter(&path);
         cx.spawn(async move |this, cx| {
+          await_pending_write(waiter).await;
+          let task = handle.spawn_blocking(move || core.rename_entry(session, &old_path, &new_name));
           let result = join_unit(task.await);
           let _ = this.update(cx, |this, cx| match result {
             Ok(()) => {
@@ -375,6 +377,7 @@ impl ExplorerModel {
     &mut self,
     into: &str,
     on_conflict: Option<&'static str>,
+    repo: &Entity<RepoModel>,
     window: &mut Window,
     cx: &mut Context<Self>,
     done: impl FnOnce(Result<(), String>) + 'static,
@@ -390,14 +393,20 @@ impl ExplorerModel {
     let sources = vec![mark.path.clone()];
     let cut = mark.op == ClipboardOp::Cut;
     let handle = core.runtime_handle().clone();
-    let task = handle.spawn_blocking(move || {
-      if cut {
-        core.move_entries(session, &sources, &dest, on_conflict)
-      } else {
-        core.copy_entries(session, &sources, &dest, on_conflict)
-      }
-    });
+    let waiter = if cut {
+      repo.read(cx).pending_write_waiter(&mark.path)
+    } else {
+      None
+    };
     cx.spawn(async move |this, cx| {
+      await_pending_write(waiter).await;
+      let task = handle.spawn_blocking(move || {
+        if cut {
+          core.move_entries(session, &sources, &dest, on_conflict)
+        } else {
+          core.copy_entries(session, &sources, &dest, on_conflict)
+        }
+      });
       let result = join_unit(task.await);
       let success = result.is_ok();
       let _ = this.update(cx, |this, cx| {
@@ -418,18 +427,19 @@ impl ExplorerModel {
     source: &str,
     into: &str,
     on_conflict: Option<&'static str>,
-    window: &mut Window,
+    repo: &Entity<RepoModel>,
     cx: &mut Context<Self>,
     done: impl FnOnce(Result<(), String>) + 'static,
   ) {
-    let _ = window;
     let core = self.core.clone();
     let session = self.session;
     let dest = into.to_string();
     let sources = vec![source.to_string()];
     let handle = core.runtime_handle().clone();
-    let task = handle.spawn_blocking(move || core.move_entries(session, &sources, &dest, on_conflict));
+    let waiter = repo.read(cx).pending_write_waiter(source);
     cx.spawn(async move |this, cx| {
+      await_pending_write(waiter).await;
+      let task = handle.spawn_blocking(move || core.move_entries(session, &sources, &dest, on_conflict));
       let result = join_unit(task.await);
       if result.is_ok() {
         let _ = this.update(cx, |this, cx| this.reload_tree(cx));
@@ -480,9 +490,17 @@ impl ExplorerModel {
 
   pub fn delete(&mut self, path: &str, repo: &Entity<RepoModel>, window: &mut Window, cx: &mut Context<Self>) {
     let path = path.to_string();
-    repo.update(cx, |model, cx| {
-      model.dispatch(Intent::DeleteFile { path, confirmed: false }, window, cx);
-    });
+    let waiter = repo.read(cx).pending_write_waiter(&path);
+    let repo = repo.clone();
+    cx.spawn_in(window, async move |this, cx| {
+      await_pending_write(waiter).await;
+      let _ = this.update_in(cx, |_, window, cx| {
+        repo.update(cx, |model, cx| {
+          model.dispatch(Intent::DeleteFile { path, confirmed: false }, window, cx);
+        });
+      });
+    })
+    .detach();
   }
 
   pub fn open_in_editor(&self, path: &str, cx: &mut Context<Self>) {

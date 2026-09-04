@@ -30,6 +30,8 @@ pub struct RepoModel {
   state: RepoState,
   blame_requested: Option<String>,
   latest_write: Option<(String, u64)>,
+  pending_write: Option<PendingWrite>,
+  write_gen: u64,
 }
 
 impl EventEmitter<RepoEvent> for RepoModel {}
@@ -88,6 +90,34 @@ pub fn open_file_reuses_buffer(current: Option<&str>, path: &str) -> bool {
   current == Some(path)
 }
 
+/// A path mutation must wait for an in-flight write when it is the open file or an ancestor of it.
+pub fn mutation_awaits_pending_write(open_path: Option<&str>, mutated_path: &str) -> bool {
+  let Some(open) = open_path else {
+    return false;
+  };
+  open == mutated_path
+    || (!mutated_path.is_empty()
+      && open
+        .strip_prefix(mutated_path)
+        .is_some_and(|rest| rest.starts_with('/')))
+}
+
+pub async fn await_pending_write(waiter: Option<tokio::sync::watch::Receiver<bool>>) {
+  let Some(mut rx) = waiter else {
+    return;
+  };
+  if *rx.borrow() {
+    return;
+  }
+  let _ = rx.changed().await;
+}
+
+struct PendingWrite {
+  id: u64,
+  path: String,
+  done: tokio::sync::watch::Receiver<bool>,
+}
+
 impl RepoModel {
   pub fn new(core: Arc<Core>, session: SessionId, snapshot: SessionSnapshot) -> Self {
     let mut state = RepoState::default();
@@ -98,6 +128,22 @@ impl RepoModel {
       state,
       blame_requested: None,
       latest_write: None,
+      pending_write: None,
+      write_gen: 0,
+    }
+  }
+
+  pub fn pending_write_waiter(&self, mutated_path: &str) -> Option<tokio::sync::watch::Receiver<bool>> {
+    let Some(pending) = &self.pending_write else {
+      return None;
+    };
+    let open = self.state.open_file.as_ref().map(|open| open.path.as_str());
+    if mutation_awaits_pending_write(open, mutated_path)
+      || mutation_awaits_pending_write(Some(pending.path.as_str()), mutated_path)
+    {
+      Some(pending.done.clone())
+    } else {
+      None
     }
   }
 
@@ -425,7 +471,17 @@ impl RepoModel {
     let session = self.session;
     let handle = core.runtime_handle().clone();
     let written = content.clone();
+    let prev = self.pending_write.as_ref().map(|pending| pending.done.clone());
+    self.write_gen = self.write_gen.wrapping_add(1);
+    let id = self.write_gen;
+    let (tx, rx) = tokio::sync::watch::channel(false);
+    self.pending_write = Some(PendingWrite {
+      id,
+      path: path.clone(),
+      done: rx,
+    });
     cx.spawn(async move |this, cx| {
+      await_pending_write(prev).await;
       let dest = match this.update(cx, |this, _cx| {
         write_path_still_current(
           this.state.open_file.as_ref().map(|open| open.path.as_str()),
@@ -439,46 +495,60 @@ impl RepoModel {
         .map(str::to_string)
       }) {
         Ok(Some(dest)) => dest,
-        _ => return,
+        _ => {
+          let _ = this.update(cx, |this, _cx| this.clear_pending_write(id));
+          let _ = tx.send(true);
+          return;
+        }
       };
       let write_dest = dest.clone();
       let task = handle.spawn_blocking(move || core.write_file(session, &write_dest, &content));
       let result = task.await;
-      let _ = this.update(cx, |this, cx| match result {
-        Ok(Ok(result)) => {
-          let hash = result.content_hash;
-          let (path_match, current_hash) = match this.state.open_file.as_ref() {
-            Some(open) if open.path == dest => (true, open.content.as_ref().map(|file| file.content_hash.clone())),
-            _ => (false, None),
-          };
-          if path_match && current_hash.as_deref() == Some(expected_hash.as_str()) {
-            if let Some(file) = this.state.open_file.as_mut().and_then(|open| open.content.as_mut()) {
-              file.content_hash = hash.clone();
-              file.content = written;
-            }
-            cx.emit(RepoEvent::Saved {
-              path: dest,
-              hash,
-              generation,
-            });
-            cx.notify();
-          } else if let Some(current) = current_hash {
-            let latest = this
-              .latest_write
-              .as_ref()
-              .filter(|(tracked, _)| tracked == &dest)
-              .map(|(_, latest)| *latest)
-              .unwrap_or(0);
-            if should_retry_skipped_write(path_match, retry, generation, latest) {
-              this.spawn_write(dest, written, current, generation, true, cx);
+      let _ = this.update(cx, |this, cx| {
+        this.clear_pending_write(id);
+        match result {
+          Ok(Ok(result)) => {
+            let hash = result.content_hash;
+            let (path_match, current_hash) = match this.state.open_file.as_ref() {
+              Some(open) if open.path == dest => (true, open.content.as_ref().map(|file| file.content_hash.clone())),
+              _ => (false, None),
+            };
+            if path_match && current_hash.as_deref() == Some(expected_hash.as_str()) {
+              if let Some(file) = this.state.open_file.as_mut().and_then(|open| open.content.as_mut()) {
+                file.content_hash = hash.clone();
+                file.content = written;
+              }
+              cx.emit(RepoEvent::Saved {
+                path: dest,
+                hash,
+                generation,
+              });
+              cx.notify();
+            } else if let Some(current) = current_hash {
+              let latest = this
+                .latest_write
+                .as_ref()
+                .filter(|(tracked, _)| tracked == &dest)
+                .map(|(_, latest)| *latest)
+                .unwrap_or(0);
+              if should_retry_skipped_write(path_match, retry, generation, latest) {
+                this.spawn_write(dest, written, current, generation, true, cx);
+              }
             }
           }
+          Ok(Err(err)) => this.fail(err.to_string(), cx),
+          Err(err) => this.fail(err.to_string(), cx),
         }
-        Ok(Err(err)) => this.fail(err.to_string(), cx),
-        Err(err) => this.fail(err.to_string(), cx),
       });
+      let _ = tx.send(true);
     })
     .detach();
+  }
+
+  fn clear_pending_write(&mut self, id: u64) {
+    if self.pending_write.as_ref().is_some_and(|pending| pending.id == id) {
+      self.pending_write = None;
+    }
   }
 
   fn apply_loaded_content(
@@ -702,5 +772,15 @@ mod tests {
     assert!(open_file_reuses_buffer(Some("a.rs"), "a.rs"));
     assert!(!open_file_reuses_buffer(Some("a.rs"), "b.rs"));
     assert!(!open_file_reuses_buffer(None, "a.rs"));
+  }
+
+  #[test]
+  fn path_mutation_awaits_a_write_to_the_open_file_or_its_ancestor() {
+    assert!(mutation_awaits_pending_write(Some("src/a.rs"), "src/a.rs"));
+    assert!(mutation_awaits_pending_write(Some("src/a.rs"), "src"));
+    assert!(!mutation_awaits_pending_write(Some("src/a.rs"), "lib"));
+    assert!(!mutation_awaits_pending_write(Some("src/a.rs"), "src2"));
+    assert!(!mutation_awaits_pending_write(Some("src/a.rs"), "src/a"));
+    assert!(!mutation_awaits_pending_write(None, "src/a.rs"));
   }
 }
