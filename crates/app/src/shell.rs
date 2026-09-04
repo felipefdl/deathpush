@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use deathpush_core::config::windows::SavedWindow;
 use deathpush_core::session::types::{Intent, IntentOutcome};
+use deathpush_core::types::PathChangeKind;
 use deathpush_core::{Core, CoreEvent, SessionId};
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::*;
@@ -105,6 +106,15 @@ impl Shell {
           (CoreEvent::PathsChanged(event), Screen::Repository(view)) => {
             let explorer = view.read(cx).explorer_model().clone();
             explorer.update(cx, |model, cx| model.on_paths_changed(event, cx));
+            if matches!(event.kind, PathChangeKind::Content | PathChangeKind::Structural) {
+              let model = view.read(cx).model().clone();
+              let open_path = model.read(cx).state().open_file.as_ref().map(|open| open.path.clone());
+              if let Some(path) = open_path
+                && event.paths.iter().any(|changed| changed == &path)
+              {
+                model.update(cx, |model, cx| model.reload_open_file(cx));
+              }
+            }
           }
           (CoreEvent::WatcherError(message), _) => this.show_toast(message.clone(), cx),
           _ => {}

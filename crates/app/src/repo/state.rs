@@ -46,7 +46,6 @@ pub struct RepoState {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct OpenFile {
   pub path: String,
   pub content: Option<FileContent>,

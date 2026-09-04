@@ -10,6 +10,7 @@ use super::changes::ChangesView;
 use super::changes::overflow::{OverflowItem, dispatch_item};
 use super::diff::DiffPanel;
 use super::explorer::{ExplorerModel, ExplorerView};
+use super::file_viewer::FileViewer;
 use super::layout_model::LayoutModel;
 use super::main_panel::render_main_panel;
 use super::model::RepoModel;
@@ -29,6 +30,7 @@ pub struct RepoView {
   output: Entity<OutputLog>,
   changes: Entity<ChangesView>,
   diff: Entity<DiffPanel>,
+  file: Entity<FileViewer>,
   explorer_model: Entity<ExplorerModel>,
   explorer: Entity<ExplorerView>,
   body_state: Entity<ResizableState>,
@@ -64,12 +66,14 @@ impl RepoView {
     let explorer = cx.new(|cx| ExplorerView::new(explorer_model.clone(), model.clone(), layout.clone(), window, cx));
     let changes = cx.new(|cx| ChangesView::new(model.clone(), layout.clone(), window, cx));
     let diff = cx.new(|cx| DiffPanel::new(model.clone(), layout.clone(), cx));
+    let file = cx.new(|cx| FileViewer::new(model.clone(), layout.clone(), window, cx));
     Self {
       model,
       layout,
       output,
       changes,
       diff,
+      file,
       explorer_model,
       explorer,
       body_state: cx.new(|_| ResizableState::default()),
@@ -137,7 +141,7 @@ impl RepoView {
       self.explorer().clone().into_any_element()
     };
     let sidebar = render_sidebar(layout.sidebar_view, select, sidebar_body, cx).into_any_element();
-    let main_panel = render_main_panel(layout.main_view, &self.diff, cx).into_any_element();
+    let main_panel = render_main_panel(layout.main_view, &self.diff, &self.file, cx).into_any_element();
     let terminal =
       render_terminal_panel(layout.panel_tab, layout.terminal_maximized, &self.output, cx).into_any_element();
     let main_area: AnyElement = match (layout.terminal_visible, layout.terminal_maximized) {
@@ -242,6 +246,9 @@ impl Render for RepoView {
       .on_action(cx.listener(|this, _: &ClearSelection, window, cx| {
         if !window.has_focused_input(cx) && !this.explorer().read(cx).owns_focus(window, cx) {
           this.send(Intent::ClearFile, window, cx);
+          if this.layout.read(cx).layout().main_view == MainView::File {
+            this.model.update(cx, |model, cx| model.close_file(cx));
+          }
         }
       }))
       .on_action(cx.listener(|this, _: &ToggleTerminal, _, cx| {

@@ -21,6 +21,7 @@ pub struct RepoModel {
   core: Arc<Core>,
   session: SessionId,
   state: RepoState,
+  blame_requested: Option<String>,
 }
 
 impl EventEmitter<RepoEvent> for RepoModel {}
@@ -29,7 +30,12 @@ impl RepoModel {
   pub fn new(core: Arc<Core>, session: SessionId, snapshot: SessionSnapshot) -> Self {
     let mut state = RepoState::default();
     state.apply_snapshot(snapshot);
-    Self { core, session, state }
+    Self {
+      core,
+      session,
+      state,
+      blame_requested: None,
+    }
   }
 
   pub fn state(&self) -> &RepoState {
@@ -175,8 +181,126 @@ impl RepoModel {
       pending_line: line,
       load_id,
     });
+    self.state.cursor_line = line;
+    self.state.blame = None;
+    self.blame_requested = None;
     cx.emit(RepoEvent::Changed);
     cx.notify();
+    let core = self.core.clone();
+    let session = self.session;
+    let handle = core.runtime_handle().clone();
+    let path = path.to_string();
+    let task = handle.spawn_blocking(move || core.read_file_content(session, &path));
+    cx.spawn(async move |this, cx| {
+      let result = task.await;
+      let _ = this.update(cx, |this, cx| this.apply_loaded_content(load_id, result, cx));
+    })
+    .detach();
+  }
+
+  pub fn close_file(&mut self, cx: &mut Context<Self>) {
+    if self.state.open_file.is_none() && self.state.cursor_line.is_none() {
+      return;
+    }
+    self.state.open_file = None;
+    self.state.cursor_line = None;
+    self.state.blame = None;
+    self.blame_requested = None;
+    cx.emit(RepoEvent::Changed);
+    cx.notify();
+  }
+
+  pub fn reload_open_file(&mut self, cx: &mut Context<Self>) {
+    let Some(open) = self.state.open_file.as_ref() else {
+      return;
+    };
+    let load_id = open.load_id;
+    let path = open.path.clone();
+    let core = self.core.clone();
+    let session = self.session;
+    let handle = core.runtime_handle().clone();
+    let task = handle.spawn_blocking(move || core.read_file_content(session, &path));
+    cx.spawn(async move |this, cx| {
+      let result = task.await;
+      let _ = this.update(cx, |this, cx| this.apply_loaded_content(load_id, result, cx));
+    })
+    .detach();
+  }
+
+  pub fn set_cursor_line(&mut self, line: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
+    self.state.cursor_line = line;
+    cx.notify();
+    if line.is_none() {
+      return;
+    }
+    if !AppConfig::get(cx).settings.git.blame {
+      return;
+    }
+    let Some(path) = self.state.open_file.as_ref().and_then(|open| {
+      open.content.as_ref()?;
+      Some(open.path.clone())
+    }) else {
+      return;
+    };
+    if self.blame_requested.as_deref() == Some(path.as_str()) {
+      return;
+    }
+    self.blame_requested = Some(path.clone());
+    self.dispatch(Intent::OpenBlame { path }, window, cx);
+  }
+
+  pub fn write_open_file(&mut self, content: String, expected_hash: String, cx: &mut Context<Self>) {
+    let Some(open) = self.state.open_file.as_ref() else {
+      return;
+    };
+    let path = open.path.clone();
+    let core = self.core.clone();
+    let session = self.session;
+    let handle = core.runtime_handle().clone();
+    let written = content.clone();
+    let write_path = path.clone();
+    let task = handle.spawn_blocking(move || core.write_file(session, &write_path, &content));
+    cx.spawn(async move |this, cx| {
+      let result = task.await;
+      let _ = this.update(cx, |this, cx| match result {
+        Ok(Ok(result)) => {
+          if let Some(open) = this.state.open_file.as_mut()
+            && open.path == path
+            && let Some(file) = open.content.as_mut()
+            && file.content_hash == expected_hash
+          {
+            file.content_hash = result.content_hash;
+            file.content = written;
+          }
+          cx.emit(RepoEvent::Changed);
+          cx.notify();
+        }
+        Ok(Err(err)) => this.fail(err.to_string(), cx),
+        Err(err) => this.fail(err.to_string(), cx),
+      });
+    })
+    .detach();
+  }
+
+  fn apply_loaded_content(
+    &mut self,
+    load_id: u64,
+    result: Result<deathpush_core::Result<deathpush_core::types::FileContent>, tokio::task::JoinError>,
+    cx: &mut Context<Self>,
+  ) {
+    if self.state.open_file.as_ref().is_none_or(|open| open.load_id != load_id) {
+      return;
+    }
+    match result {
+      Ok(Ok(content)) => {
+        if let Some(open) = self.state.open_file.as_mut() {
+          open.content = Some(content);
+        }
+        cx.emit(RepoEvent::Changed);
+        cx.notify();
+      }
+      Ok(Err(_)) | Err(_) => self.close_file(cx),
+    }
   }
 
   pub fn record_recent_file(&self, path: &str, cx: &App) {

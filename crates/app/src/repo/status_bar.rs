@@ -1,9 +1,11 @@
 use chrono::Utc;
+use deathpush_core::ops::blame_status_line;
 use deathpush_core::relative_time::relative_time;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::*;
 
 use crate::actions::{ShowBranchPicker, ShowHistory, ZoomReset};
+use crate::config::AppConfig;
 use crate::repo::state::RepoState;
 use crate::theme::{ActivePalette, hsla};
 use crate::zoom;
@@ -34,6 +36,12 @@ pub fn render_status_bar(state: &RepoState, window: &mut Window, cx: &App) -> im
     .status
     .as_ref()
     .and_then(|status| sync_badge(status.ahead, status.behind));
+  let blame = (AppConfig::get(cx).settings.git.blame)
+    .then(|| {
+      let line = state.cursor_line?;
+      blame_status_line(state.blame.as_ref()?, line, Utc::now())
+    })
+    .flatten();
   let zoom_level = zoom::current_level(cx);
   let last_commit = state.last_commit.as_ref().map(|commit| {
     (
@@ -76,6 +84,13 @@ pub fn render_status_bar(state: &RepoState, window: &mut Window, cx: &App) -> im
         .on_click(|_, window, cx| window.dispatch_action(Box::new(ShowBranchPicker), cx)),
     )
     .children(badge.map(|text| div().px_2().child(text)))
+    .children(blame.map(|text| {
+      div()
+        .px_2()
+        .text_size(px(12.0))
+        .text_color(hsla(palette.muted_foreground))
+        .child(text)
+    }))
     .child(div().flex_1())
     .children((zoom_level != 0).then(|| {
       item("status-zoom")

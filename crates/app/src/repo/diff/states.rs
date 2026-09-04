@@ -139,7 +139,7 @@ fn decode_to_image(uri: &str) -> Option<Arc<Image>> {
   Some(Arc::new(Image::from_bytes(format, bytes)))
 }
 
-fn decode_data_uri(uri: &str) -> Option<(ImageFormat, Vec<u8>)> {
+pub(crate) fn decode_data_uri(uri: &str) -> Option<(ImageFormat, Vec<u8>)> {
   let rest = uri.strip_prefix("data:")?;
   let (meta, data) = rest.split_once(',')?;
   let mime = meta.split(';').next()?.trim();
