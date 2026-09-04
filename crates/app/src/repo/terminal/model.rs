@@ -79,7 +79,8 @@ impl SplitTree {
     }
   }
 
-  pub fn panes(&self) -> Vec<u64> {
+  /// Pane ids in layout order (left-to-right, top-to-bottom).
+  pub(crate) fn panes(&self) -> Vec<u64> {
     match self {
       SplitTree::Leaf(id) => vec![*id],
       SplitTree::Split { first, second, .. } => {
@@ -90,7 +91,8 @@ impl SplitTree {
     }
   }
 
-  pub fn split_ids(&self) -> Vec<u64> {
+  /// Split node ids in this tree, used to prune `ResizableState` keys.
+  pub(crate) fn split_ids(&self) -> Vec<u64> {
     match self {
       SplitTree::Leaf(_) => Vec::new(),
       SplitTree::Split { id, first, second, .. } => {
@@ -157,7 +159,8 @@ impl TerminalModel {
     }
   }
 
-  pub fn new_group(&mut self, window: &mut Window, cx: &mut Context<Self>) -> u64 {
+  /// Spawn a pane and push a new group. Returns 0 when spawn is skipped.
+  pub(crate) fn new_group(&mut self, window: &mut Window, cx: &mut Context<Self>) -> u64 {
     let Some(pane) = self.spawn_pane(cx) else {
       return 0;
     };
@@ -175,7 +178,8 @@ impl TerminalModel {
     id
   }
 
-  pub fn split(&mut self, pane: u64, axis: Axis, window: &mut Window, cx: &mut Context<Self>) {
+  /// Split `pane` along `axis` and focus the new pane.
+  pub(crate) fn split(&mut self, pane: u64, axis: Axis, window: &mut Window, cx: &mut Context<Self>) {
     let Some(group_id) = self.group_id_for_pane(pane) else {
       return;
     };
@@ -195,17 +199,20 @@ impl TerminalModel {
   }
 
   /// Kill one pane's PTY. Inactive removals keep the group's active pane.
-  pub fn kill_pane(&mut self, pane: u64, window: Option<&mut Window>, cx: &mut Context<Self>) {
+  pub(crate) fn kill_pane(&mut self, pane: u64, window: Option<&mut Window>, cx: &mut Context<Self>) {
     self.record_kill(pane);
     let _ = self.core.terminal_kill(pane);
     self.remove_pane(pane, window, cx);
   }
 
   /// Kill every pane in `group`. If that group was active, focus a remaining group.
-  pub fn kill_group(&mut self, group: u64, window: Option<&mut Window>, cx: &mut Context<Self>) {
+  pub(crate) fn kill_group(&mut self, group: u64, window: Option<&mut Window>, cx: &mut Context<Self>) {
     let Some(index) = self.groups.iter().position(|item| item.id == group) else {
       return;
     };
+    let steal = window
+      .as_deref()
+      .is_some_and(|window| self.group_owns_focus(&self.groups[index], window, cx));
     let removed = self.groups.remove(index);
     for pane in removed.tree.panes() {
       self.record_kill(pane);
@@ -215,14 +222,14 @@ impl TerminalModel {
     if self.active_group == Some(removed.id) {
       self.active_group = self.groups.get(index).or(self.groups.last()).map(|item| item.id);
       if let Some(pane) = self.active_pane() {
-        self.focus_pane(pane, window, cx);
+        self.focus_pane(pane, window, steal, cx);
       }
     }
     cx.notify();
   }
 
   /// Kill every owned pane and drop groups. Call before replacing the repository view.
-  pub fn shutdown(&mut self, cx: &mut Context<Self>) {
+  pub(crate) fn shutdown(&mut self, cx: &mut Context<Self>) {
     let groups: Vec<u64> = self.groups.iter().map(|group| group.id).collect();
     for id in groups {
       self.kill_group(id, None, cx);
@@ -238,7 +245,7 @@ impl TerminalModel {
   }
 
   /// 1-based group index. Returns false when the index is 0 or out of range.
-  pub fn activate_group(&mut self, index: usize, cx: &mut Context<Self>) -> bool {
+  pub(crate) fn activate_group(&mut self, index: usize, cx: &mut Context<Self>) -> bool {
     if index == 0 || index > self.groups.len() {
       return false;
     }
@@ -250,14 +257,16 @@ impl TerminalModel {
     true
   }
 
-  pub fn activate_pane(&mut self, pane: u64, window: &mut Window, cx: &mut Context<Self>) {
+  /// Make `pane` the active pane in its group and move window focus to it.
+  pub(crate) fn activate_pane(&mut self, pane: u64, window: &mut Window, cx: &mut Context<Self>) {
     self.mark_active(pane, cx);
     if let Some(info) = self.panes.get(&pane) {
       info.view.update(cx, |view, cx| view.focus(window, cx));
     }
   }
 
-  pub fn on_data(&mut self, id: u64, data: &str) {
+  /// Forward PTY bytes to the pane thread. Unknown ids are ignored.
+  pub(crate) fn on_data(&mut self, id: u64, data: &str) {
     if let Some(pane) = self.panes.get(&id)
       && let Some(handle) = &pane.handle
     {
@@ -266,7 +275,7 @@ impl TerminalModel {
   }
 
   /// Drop a pane after its PTY exits. Focus moves only when the active pane left.
-  pub fn on_exited(&mut self, id: u64, window: Option<&mut Window>, cx: &mut Context<Self>) {
+  pub(crate) fn on_exited(&mut self, id: u64, window: Option<&mut Window>, cx: &mut Context<Self>) {
     self.remove_pane(id, window, cx);
   }
 
@@ -286,7 +295,8 @@ impl TerminalModel {
     }
   }
 
-  pub fn active_pane(&self) -> Option<u64> {
+  /// Active pane of the visible group, if any.
+  pub(crate) fn active_pane(&self) -> Option<u64> {
     let group_id = self.active_group?;
     self
       .groups
@@ -301,18 +311,21 @@ impl TerminalModel {
     self.core.terminals_have_active_process(self.session).unwrap_or(false)
   }
 
-  pub fn active_group(&self) -> Option<&Group> {
+  /// Visible group, if any.
+  pub(crate) fn active_group(&self) -> Option<&Group> {
     let id = self.active_group?;
     self.groups.iter().find(|group| group.id == id)
   }
 
-  pub fn set_panes_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
+  /// Show or hide every pane view (Output tab vs Terminal tab).
+  pub(crate) fn set_panes_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
     for pane in self.panes.values() {
       pane.view.update(cx, |view, cx| view.set_visible(visible, cx));
     }
   }
 
-  pub fn ensure_group(&mut self, window: &mut Window, cx: &mut Context<Self>) -> u64 {
+  /// Keep the current group, or spawn the first one.
+  pub(crate) fn ensure_group(&mut self, window: &mut Window, cx: &mut Context<Self>) -> u64 {
     if let Some(id) = self.active_group {
       return id;
     }
@@ -391,6 +404,9 @@ impl TerminalModel {
       self.kill_group(group_id, window, cx);
       return;
     }
+    let steal = window
+      .as_deref()
+      .is_some_and(|window| self.pane_owns_focus(pane, window, cx));
     let was_active_group = self.active_group == Some(group_id);
     let removing_active = self.groups[index].active == pane;
     let group = &mut self.groups[index];
@@ -403,9 +419,12 @@ impl TerminalModel {
       if let Some(&next) = remaining.get(slot.min(remaining.len().saturating_sub(1))) {
         group.active = next;
         if was_active_group {
-          self.focus_pane(next, window, cx);
+          self.focus_pane(next, window, steal, cx);
         }
       }
+    } else if was_active_group {
+      let active = group.active;
+      self.set_active_flags(active, cx);
     }
     cx.notify();
   }
@@ -460,9 +479,25 @@ impl TerminalModel {
     }
   }
 
-  fn focus_pane(&self, pane: u64, window: Option<&mut Window>, cx: &mut Context<Self>) {
+  fn pane_owns_focus(&self, pane: u64, window: &Window, cx: &App) -> bool {
+    let Some(info) = self.panes.get(&pane) else {
+      return false;
+    };
+    window.focused(cx).as_ref() == Some(info.view.read(cx).focus_handle())
+  }
+
+  fn group_owns_focus(&self, group: &Group, window: &Window, cx: &App) -> bool {
+    group
+      .tree
+      .panes()
+      .iter()
+      .any(|&pane| self.pane_owns_focus(pane, window, cx))
+  }
+
+  fn focus_pane(&self, pane: u64, window: Option<&mut Window>, steal: bool, cx: &mut Context<Self>) {
     self.set_active_flags(pane, cx);
-    if let Some(window) = window
+    if steal
+      && let Some(window) = window
       && let Some(info) = self.panes.get(&pane)
     {
       info.view.update(cx, |view, cx| view.focus(window, cx));
@@ -589,11 +624,12 @@ mod tests {
 
   struct ModelHost {
     model: Entity<TerminalModel>,
+    input: FocusHandle,
   }
 
   impl Render for ModelHost {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-      div()
+      div().track_focus(&self.input)
     }
   }
 
@@ -829,7 +865,10 @@ mod tests {
           model.attach_test_pane(1, Axis::Horizontal, second, cx);
           model
         });
-        ModelHost { model }
+        ModelHost {
+          model,
+          input: cx.focus_handle(),
+        }
       }
     });
     window
@@ -862,7 +901,10 @@ mod tests {
           model.attach_test_pane(1, Axis::Horizontal, second, cx);
           model
         });
-        ModelHost { model }
+        ModelHost {
+          model,
+          input: cx.focus_handle(),
+        }
       }
     });
     window
@@ -895,7 +937,10 @@ mod tests {
           model.insert_test_pane(second, cx);
           model
         });
-        ModelHost { model }
+        ModelHost {
+          model,
+          input: cx.focus_handle(),
+        }
       }
     });
     window
@@ -930,7 +975,10 @@ mod tests {
           model.attach_test_pane(1, Axis::Horizontal, second, cx);
           model
         });
-        ModelHost { model }
+        ModelHost {
+          model,
+          input: cx.focus_handle(),
+        }
       }
     });
     window
@@ -942,6 +990,93 @@ mod tests {
           let handle = model.panes[&1].view.read(cx).focus_handle().clone();
           assert_eq!(window.focused(cx).as_ref(), Some(&handle));
         });
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn hidden_panel_exit_does_not_steal_focus(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let window = cx.add_window({
+      let core = core.clone();
+      move |_, cx| {
+        let model = cx.new(|cx| {
+          let mut model = TerminalModel::new(core, session, cx);
+          let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+          let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
+          model.insert_test_pane(first, cx);
+          model.attach_test_pane(1, Axis::Horizontal, second, cx);
+          model
+        });
+        ModelHost {
+          model,
+          input: cx.focus_handle(),
+        }
+      }
+    });
+    window
+      .update(cx, |host, window, cx| {
+        host.model.update(cx, |model, cx| {
+          model.activate_pane(1, window, cx);
+          model.set_panes_visible(false, cx);
+        });
+        host.input.focus(window, cx);
+        host.model.update(cx, |model, cx| {
+          model.on_exited(1, Some(window), cx);
+          assert_eq!(model.active_pane(), Some(2));
+          assert!(model.panes[&2].view.read(cx).active());
+        });
+        assert_eq!(
+          window.focused(cx).as_ref(),
+          Some(&host.input),
+          "hidden panel exit must not steal window focus"
+        );
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn foreign_input_keeps_focus_when_active_pane_exits(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let window = cx.add_window({
+      let core = core.clone();
+      move |_, cx| {
+        let model = cx.new(|cx| {
+          let mut model = TerminalModel::new(core, session, cx);
+          let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+          let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
+          model.insert_test_pane(first, cx);
+          model.attach_test_pane(1, Axis::Horizontal, second, cx);
+          model
+        });
+        ModelHost {
+          model,
+          input: cx.focus_handle(),
+        }
+      }
+    });
+    window
+      .update(cx, |host, window, cx| {
+        host.model.update(cx, |model, cx| {
+          model.activate_pane(1, window, cx);
+        });
+        host.input.focus(window, cx);
+        host.model.update(cx, |model, cx| {
+          model.kill_pane(1, Some(window), cx);
+          assert_eq!(model.active_pane(), Some(2));
+          assert!(model.panes[&2].view.read(cx).active());
+        });
+        assert_eq!(
+          window.focused(cx).as_ref(),
+          Some(&host.input),
+          "commit box / editor focus must survive TerminalExited"
+        );
       })
       .unwrap();
   }

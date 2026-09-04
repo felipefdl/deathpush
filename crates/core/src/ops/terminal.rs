@@ -51,9 +51,15 @@ impl Core {
   }
 
   pub fn terminal_kill(&self, terminal: u64) -> Result<()> {
-    let mut sessions = self.terminals.lock().map_err(|e| Error::Other(e.to_string()))?;
-    if let Some(mut session) = sessions.remove(&terminal) {
-      session.shutdown();
+    let session = {
+      let mut sessions = self.terminals.lock().map_err(|e| Error::Other(e.to_string()))?;
+      sessions.remove(&terminal)
+    };
+    if let Some(session) = session {
+      self.runtime_handle().spawn_blocking(move || {
+        let mut session = session;
+        session.shutdown();
+      });
     }
     Ok(())
   }
@@ -238,6 +244,41 @@ mod tests {
     assert_eq!(name, "sleep");
     assert!(core.terminal_foreground_process(session_b, spawned.id).is_err());
     core.terminal_kill(spawned.id).unwrap();
+  }
+
+  #[cfg(unix)]
+  fn trap_term_script() -> (tempfile::TempDir, String) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("trap-term.sh");
+    std::fs::write(&path, "#!/bin/sh\ntrap \"\" TERM\nsleep 30\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = path.to_string_lossy().into_owned();
+    (dir, path)
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn terminal_kill_tears_down_a_term_resistant_child() {
+    let core = core();
+    let (session, _events) = core.open_session();
+    let (_dir, script) = trap_term_script();
+    let spawned = core
+      .terminal_spawn(session, 80, 24, Some(script), Some(String::new()))
+      .unwrap();
+    let pid = core.terminal_pid(spawned.id).expect("spawned pid");
+    assert!(pid_alive(pid), "trap-term shell should be running before kill");
+    let started = std::time::Instant::now();
+    core.terminal_kill(spawned.id).unwrap();
+    assert!(core.terminal_pid(spawned.id).is_none());
+    assert!(
+      wait_until(Duration::from_secs(2), || !pid_alive(pid)),
+      "TERM-resistant pid {pid} should be gone after SIGKILL"
+    );
+    assert!(
+      started.elapsed() < Duration::from_secs(2),
+      "teardown must finish within the join deadline"
+    );
   }
 
   #[cfg(windows)]

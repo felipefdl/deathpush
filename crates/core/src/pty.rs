@@ -1,3 +1,5 @@
+#[cfg(not(unix))]
+use portable_pty::ChildKiller;
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -5,6 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
 use crate::events::{CoreEvent, EventHub};
@@ -179,23 +182,64 @@ impl PtySession {
   }
 
   /// Kill the child, close the PTY master so the reader exits, and join the reader.
+  ///
+  /// Unix: SIGTERM, then SIGKILL on the process group if the child ignores TERM.
+  /// The reader join waits at most 2s, then detaches.
   pub fn shutdown(&mut self) {
-    if let Ok(mut child) = self.child.lock() {
-      let _ = child.kill();
-    }
+    self.signal_exit();
     self.master.take();
     if let Some(reader) = self.reader.take() {
-      let _ = reader.join();
+      let (done, rx) = std::sync::mpsc::channel();
+      thread::spawn(move || {
+        let _ = reader.join();
+        let _ = done.send(());
+      });
+      if rx.recv_timeout(Duration::from_secs(2)).is_err() {
+        tracing::warn!(id = self.id, "terminal reader did not exit within 2s; detaching");
+      }
     }
     if let Ok(mut child) = self.child.lock() {
       let _ = child.wait();
     }
   }
 
-  #[cfg(test)]
-  pub fn try_wait(&self) -> Result<Option<portable_pty::ExitStatus>> {
-    let mut child = self.child.lock().map_err(|e| Error::Other(e.to_string()))?;
-    child.try_wait().map_err(|e| Error::Other(e.to_string()))
+  fn signal_exit(&self) {
+    #[cfg(unix)]
+    {
+      if self.child_pid == 0 {
+        return;
+      }
+      let pid = self.child_pid as i32;
+      // SAFETY: pid is the PTY session leader from spawn (`setsid`).
+      unsafe {
+        libc::kill(pid, libc::SIGTERM);
+      }
+      let start = Instant::now();
+      while start.elapsed() < Duration::from_millis(100) {
+        if self.child_has_exited() {
+          return;
+        }
+        thread::sleep(Duration::from_millis(10));
+      }
+      // SAFETY: negative pid signals the process group so trapped TERM descendants die.
+      unsafe {
+        libc::kill(-pid, libc::SIGKILL);
+        libc::kill(pid, libc::SIGKILL);
+      }
+    }
+    #[cfg(not(unix))]
+    {
+      if let Ok(mut child) = self.child.lock() {
+        let _ = child.kill();
+      }
+    }
+  }
+
+  fn child_has_exited(&self) -> bool {
+    match self.child.lock() {
+      Ok(mut child) => child.try_wait().ok().flatten().is_some(),
+      Err(_) => true,
+    }
   }
 
   pub fn write_data(&self, data: &str) -> Result<()> {

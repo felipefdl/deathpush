@@ -63,9 +63,25 @@ impl Core {
     let guard = intent_lock.lock().await;
     self.lock_repos().remove(&id);
     self.runtimes.remove_session(id);
-    let mut terminals = self.terminals.lock().unwrap_or_else(|err| err.into_inner());
-    terminals.retain(|_, session| session.session != id);
-    drop(terminals);
+    let doomed = {
+      let mut terminals = self.terminals.lock().unwrap_or_else(|err| err.into_inner());
+      let ids: Vec<u64> = terminals
+        .iter()
+        .filter(|(_, session)| session.session == id)
+        .map(|(terminal, _)| *terminal)
+        .collect();
+      ids
+        .into_iter()
+        .filter_map(|terminal| terminals.remove(&terminal))
+        .collect::<Vec<_>>()
+    };
+    let handle = self.runtime_handle();
+    for session in doomed {
+      handle.spawn_blocking(move || {
+        let mut session = session;
+        session.shutdown();
+      });
+    }
     self.hub.unsubscribe(id);
     self.sessions.remove(id);
     drop(guard);
