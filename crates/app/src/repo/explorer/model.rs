@@ -56,6 +56,7 @@ pub enum ExplorerEvent {
   Changed,
   Error(String),
   OpenFile { path: String, line: Option<usize> },
+  Renamed { old_path: String, new_path: String },
   Toast(String),
 }
 
@@ -113,6 +114,7 @@ impl ExplorerModel {
   }
 
   pub fn load(&mut self, cx: &mut Context<Self>) {
+    let generation = self.refresh_generation;
     let core = self.core.clone();
     let session = self.session;
     let task = core
@@ -120,10 +122,15 @@ impl ExplorerModel {
       .spawn(async move { core.list_repository_tree(session).await });
     cx.spawn(async move |this, cx| {
       let result = task.await;
-      let _ = this.update(cx, |this, cx| match result {
-        Ok(Ok(entries)) => this.apply_tree(entries, cx),
-        Ok(Err(err)) => this.fail(err.to_string(), cx),
-        Err(err) => this.fail(err.to_string(), cx),
+      let _ = this.update(cx, |this, cx| {
+        if this.refresh_generation != generation {
+          return;
+        }
+        match result {
+          Ok(Ok(entries)) => this.apply_tree(entries, cx),
+          Ok(Err(err)) => this.fail(err.to_string(), cx),
+          Err(err) => this.fail(err.to_string(), cx),
+        }
       });
     })
     .detach();
@@ -239,23 +246,16 @@ impl ExplorerModel {
     match edit {
       EditState::Creating {
         parent, is_directory, ..
-      } => {
-        let path = join_repo_path(&parent, &name);
-        self.select_after_load = Some((path.clone(), is_directory));
-        let core = self.core.clone();
-        let session = self.session;
-        let handle = core.runtime_handle().clone();
-        let task = handle.spawn_blocking(move || {
-          if is_directory {
-            core.create_directory(session, &path)
-          } else {
-            core.write_file(session, &path, "").map(|_| ())
-          }
-        });
-        self.await_unit(task, Some(name), cx);
-      }
-      EditState::Renaming { path, .. } => {
-        let is_file = find_node(&self.roots, &path).is_some_and(|node| !node.is_directory);
+      } => match loaded_child_names(&self.roots, &parent) {
+        Some(names) if name_taken(&names, &name) => Self::toast_exists(cx, &name),
+        Some(_) => self.start_create(parent, name, is_directory, cx),
+        None => self.create_after_listing(parent, name, is_directory, cx),
+      },
+      EditState::Renaming { path, name: current } => {
+        if name == current {
+          self.cancel_edit(cx);
+          return;
+        }
         let new_path = join_repo_path(&parent_path(&path), &name);
         let core = self.core.clone();
         let session = self.session;
@@ -268,12 +268,11 @@ impl ExplorerModel {
           let _ = this.update(cx, |this, cx| match result {
             Ok(()) => {
               this.edit = None;
-              if is_file {
-                cx.emit(ExplorerEvent::OpenFile {
-                  path: new_path,
-                  line: None,
-                });
-              }
+              this.remap_after_rename(&path, &new_path);
+              cx.emit(ExplorerEvent::Renamed {
+                old_path: path,
+                new_path,
+              });
               this.reload_tree(cx);
             }
             Err(message) => this.emit_core_error(message, &name, cx),
@@ -312,7 +311,7 @@ impl ExplorerModel {
     let session = self.session;
     let handle = core.runtime_handle().clone();
     let task = handle.spawn_blocking(move || core.duplicate_entry(session, &path).map(|_| ()));
-    self.await_unit(task, None, cx);
+    self.await_unit(task, None, None, cx);
   }
 
   pub fn paste(
@@ -449,7 +448,7 @@ impl ExplorerModel {
 
   fn apply_tree(&mut self, entries: Vec<ExplorerEntry>, cx: &mut Context<Self>) {
     self.roots = build_tree(&entries);
-    self.expanded.retain(|path| find_node(&self.roots, path).is_some());
+    self.expanded = retain_expanded(&self.expanded, &self.roots);
     if let Some((path, is_directory)) = self.select_after_load.take() {
       if find_node(&self.roots, &path).is_none() {
         ensure_entry(&mut self.roots, &path, is_directory);
@@ -473,6 +472,7 @@ impl ExplorerModel {
 
   fn load_children(&mut self, path: &str, cx: &mut Context<Self>) {
     let path = path.to_string();
+    let generation = self.refresh_generation;
     let core = self.core.clone();
     let session = self.session;
     let handle = core.runtime_handle().clone();
@@ -480,24 +480,117 @@ impl ExplorerModel {
     let task = handle.spawn_blocking(move || core.list_repository_children(session, &listed));
     cx.spawn(async move |this, cx| {
       let result = task.await;
-      let _ = this.update(cx, |this, cx| match result {
-        Ok(Ok(entries)) => {
-          let children = children_from_listing(&path, &entries);
-          if let Some(node) = find_node_mut(&mut this.roots, &path) {
-            node.children = Some(children);
-          }
-          this.emit_changed(cx);
+      let _ = this.update(cx, |this, cx| {
+        if this.refresh_generation != generation {
+          return;
         }
-        Ok(Err(err)) => this.fail(err.to_string(), cx),
-        Err(err) => this.fail(err.to_string(), cx),
+        match result {
+          Ok(Ok(entries)) => {
+            let children = children_from_listing(&path, &entries);
+            if let Some(node) = find_node_mut(&mut this.roots, &path) {
+              node.children = Some(children);
+            }
+            this.load_expanded_descendants(&path, cx);
+            this.emit_changed(cx);
+          }
+          Ok(Err(err)) => this.fail(err.to_string(), cx),
+          Err(err) => this.fail(err.to_string(), cx),
+        }
       });
     })
     .detach();
   }
 
+  fn load_expanded_descendants(&mut self, parent: &str, cx: &mut Context<Self>) {
+    let prefix = if parent.is_empty() {
+      String::new()
+    } else {
+      format!("{parent}/")
+    };
+    let pending: Vec<String> = self
+      .expanded
+      .iter()
+      .filter(|path| path.as_str() != parent && (prefix.is_empty() || path.starts_with(&prefix)))
+      .filter(|path| find_node(&self.roots, path).is_some_and(|node| node.is_directory && node.children.is_none()))
+      .cloned()
+      .collect();
+    for path in pending {
+      self.load_children(&path, cx);
+    }
+  }
+
+  fn start_create(&mut self, parent: String, name: String, is_directory: bool, cx: &mut Context<Self>) {
+    let path = join_repo_path(&parent, &name);
+    let core = self.core.clone();
+    let session = self.session;
+    let handle = core.runtime_handle().clone();
+    let listed = path.clone();
+    let task = handle.spawn_blocking(move || {
+      if is_directory {
+        core.create_directory(session, &listed)
+      } else {
+        core.write_file(session, &listed, "").map(|_| ())
+      }
+    });
+    self.await_unit(task, Some((path, is_directory)), Some(name), cx);
+  }
+
+  fn create_after_listing(&mut self, parent: String, name: String, is_directory: bool, cx: &mut Context<Self>) {
+    let generation = self.refresh_generation;
+    let core = self.core.clone();
+    let session = self.session;
+    let handle = core.runtime_handle().clone();
+    let listed = parent.clone();
+    let task = handle.spawn_blocking(move || core.list_repository_children(session, &listed));
+    cx.spawn(async move |this, cx| {
+      let result = task.await;
+      let _ = this.update(cx, |this, cx| {
+        if this.refresh_generation != generation {
+          return;
+        }
+        match result {
+          Ok(Ok(entries)) => {
+            let children = children_from_listing(&parent, &entries);
+            let names: Vec<String> = children.iter().map(|node| node.name.clone()).collect();
+            if let Some(node) = find_node_mut(&mut this.roots, &parent) {
+              node.children = Some(children);
+            }
+            this.load_expanded_descendants(&parent, cx);
+            if name_taken(&names, &name) {
+              Self::toast_exists(cx, &name);
+              return;
+            }
+            this.start_create(parent, name, is_directory, cx);
+          }
+          Ok(Err(err)) => this.fail(err.to_string(), cx),
+          Err(err) => this.fail(err.to_string(), cx),
+        }
+      });
+    })
+    .detach();
+  }
+
+  fn remap_after_rename(&mut self, old_path: &str, new_path: &str) {
+    for path in &mut self.selected {
+      *path = remap_path(old_path, new_path, path);
+    }
+    if let Some(anchor) = &self.anchor {
+      self.anchor = Some(remap_path(old_path, new_path, anchor));
+    }
+    if let Some(mark) = &mut self.clipboard {
+      mark.path = remap_path(old_path, new_path, &mark.path);
+    }
+    self.expanded = self
+      .expanded
+      .iter()
+      .map(|path| remap_path(old_path, new_path, path))
+      .collect();
+  }
+
   fn await_unit(
     &mut self,
     task: tokio::task::JoinHandle<deathpush_core::Result<()>>,
+    select_after: Option<(String, bool)>,
     exists_name: Option<String>,
     cx: &mut Context<Self>,
   ) {
@@ -506,6 +599,7 @@ impl ExplorerModel {
       let _ = this.update(cx, |this, cx| match result {
         Ok(()) => {
           this.edit = None;
+          this.select_after_load = select_after;
           this.reload_tree(cx);
         }
         Err(message) => {
@@ -534,10 +628,15 @@ impl ExplorerModel {
 
   fn emit_core_error(&mut self, message: String, name: &str, cx: &mut Context<Self>) {
     if message.contains("already exists") {
-      cx.emit(ExplorerEvent::Toast(format!("\"{name}\" already exists")));
+      Self::toast_exists(cx, name);
     } else {
       cx.emit(ExplorerEvent::Error(message));
+      cx.notify();
     }
+  }
+
+  fn toast_exists(cx: &mut Context<Self>, name: &str) {
+    cx.emit(ExplorerEvent::Toast(format!("\"{name}\" already exists")));
     cx.notify();
   }
 
@@ -592,6 +691,55 @@ pub fn flatten(
 /// Pure: whether a PathsChanged event should reload the tree.
 pub fn should_reload(kind: PathChangeKind) -> bool {
   matches!(kind, PathChangeKind::Structural | PathChangeKind::Git)
+}
+
+fn name_taken(existing: &[String], name: &str) -> bool {
+  existing.iter().any(|item| item == name)
+}
+
+fn retain_expanded(expanded: &HashSet<String>, roots: &[Node]) -> HashSet<String> {
+  expanded
+    .iter()
+    .filter(|path| find_node(roots, path).is_some() || ancestor_is_stub(roots, path))
+    .cloned()
+    .collect()
+}
+
+fn ancestor_is_stub(roots: &[Node], path: &str) -> bool {
+  let mut ancestor = parent_path(path);
+  while !ancestor.is_empty() {
+    if let Some(node) = find_node(roots, &ancestor) {
+      return node.is_directory && node.children.is_none();
+    }
+    ancestor = parent_path(&ancestor);
+  }
+  false
+}
+
+fn remap_path(old_path: &str, new_path: &str, path: &str) -> String {
+  if path == old_path {
+    return new_path.to_string();
+  }
+  if old_path.is_empty() {
+    return path.to_string();
+  }
+  match path.strip_prefix(old_path).and_then(|rest| rest.strip_prefix('/')) {
+    Some(rest) if !new_path.is_empty() => format!("{new_path}/{rest}"),
+    Some(rest) => rest.to_string(),
+    None => path.to_string(),
+  }
+}
+
+fn loaded_child_names(nodes: &[Node], parent: &str) -> Option<Vec<String>> {
+  if parent.is_empty() {
+    return Some(nodes.iter().map(|node| node.name.clone()).collect());
+  }
+  find_node(nodes, parent).and_then(|node| {
+    node
+      .children
+      .as_ref()
+      .map(|children| children.iter().map(|child| child.name.clone()).collect())
+  })
 }
 
 struct FlattenCtx<'a> {
@@ -951,5 +1099,39 @@ mod tests {
     assert!(should_reload(PathChangeKind::Structural));
     assert!(should_reload(PathChangeKind::Git));
     assert!(!should_reload(PathChangeKind::Content));
+  }
+
+  #[test]
+  fn name_taken_matches_loaded_siblings() {
+    let existing = ["New File".into(), "src".into()];
+    assert!(name_taken(&existing, "New File"));
+    assert!(name_taken(&existing, "src"));
+    assert!(!name_taken(&existing, "New File 2"));
+    assert!(!name_taken(&existing, "new file"));
+  }
+
+  #[test]
+  fn retain_expanded_keeps_descendants_of_ignored_stubs() {
+    let roots = build_tree(&[entry("node_modules", true, true), entry("src/main.rs", false, false)]);
+    let expanded = HashSet::from([
+      "node_modules".into(),
+      "node_modules/foo".into(),
+      "node_modules/foo/bar".into(),
+      "src".into(),
+      "gone".into(),
+    ]);
+    let kept = retain_expanded(&expanded, &roots);
+    assert!(kept.contains("node_modules"));
+    assert!(kept.contains("node_modules/foo"));
+    assert!(kept.contains("node_modules/foo/bar"));
+    assert!(kept.contains("src"));
+    assert!(!kept.contains("gone"));
+  }
+
+  #[test]
+  fn remap_path_moves_the_entry_and_its_descendants() {
+    assert_eq!(remap_path("src", "lib", "src"), "lib");
+    assert_eq!(remap_path("src", "lib", "src/main.rs"), "lib/main.rs");
+    assert_eq!(remap_path("a.rs", "b.rs", "src/main.rs"), "src/main.rs");
   }
 }
