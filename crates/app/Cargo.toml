@@ -21,6 +21,7 @@ deathpush-core.workspace = true
 dirs.workspace = true
 futures.workspace = true
 gpui-kit.workspace = true
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "0.3.3" }
 ropey.workspace = true
 rust-embed.workspace = true
 serde.workspace = true

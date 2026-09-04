@@ -15,6 +15,7 @@ mod window;
 mod zoom;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use deathpush_core::Core;
 use gpui_kit::*;
@@ -53,6 +54,10 @@ fn main() {
 
   app.run(move |cx| {
     gpui_kit::init(cx);
+    cx.set_http_client(Arc::new(
+      reqwest_client::ReqwestClient::user_agent(&format!("deathpush/{}", env!("CARGO_PKG_VERSION")))
+        .expect("http client"),
+    ));
     cx.text_system()
       .add_fonts(assets::font_files())
       .expect("bundled fonts load");

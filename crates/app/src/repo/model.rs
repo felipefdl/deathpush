@@ -367,6 +367,22 @@ impl RepoModel {
     self.session
   }
 
+  pub fn select_commit(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+    self.dispatch(Intent::SelectCommit { id }, window, cx);
+  }
+
+  pub fn load_more_log(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    self.dispatch(Intent::LoadMoreLog, window, cx);
+  }
+
+  pub fn open_commit_diff(&mut self, commit: String, path: String, window: &mut Window, cx: &mut Context<Self>) {
+    self.dispatch(Intent::OpenCommitDiff { commit, path }, window, cx);
+  }
+
+  pub fn clear_file_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    self.dispatch(Intent::ClearFileHistory, window, cx);
+  }
+
   pub fn fuzzy_find_files(
     &self,
     query: String,

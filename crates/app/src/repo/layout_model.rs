@@ -83,7 +83,6 @@ impl LayoutModel {
     }
   }
 
-  #[allow(dead_code)]
   pub fn set_history_list_width(&mut self, width: f32, cx: &mut Context<Self>) {
     let width = width.clamp(200.0, 600.0);
     if (self.layout.history_list_width - width).abs() > 0.5 {

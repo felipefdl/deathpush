@@ -1,13 +1,14 @@
 use deathpush_core::config::settings::DiffLayout;
 use deathpush_core::session::types::FileSelection;
 use deathpush_core::theme::UiPalette;
-use deathpush_core::types::ResourceGroupKind;
+use deathpush_core::types::{FileStatus, ResourceGroupKind};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::*;
 
 use super::panel::DiffPanel;
 use crate::actions::ToggleDiffLayout;
+use crate::repo::changes::rows::{status_color, status_letter};
 use crate::theme::hsla;
 
 pub fn header_suffix(selection: &FileSelection) -> &'static str {
@@ -87,15 +88,66 @@ pub fn render_header(
               }
             }),
         )
+        .child(layout_toggle(layout_icon, layout_tooltip)),
+    )
+}
+
+pub fn render_commit_header(
+  path: &str,
+  status: FileStatus,
+  layout: DiffLayout,
+  _view: WeakEntity<DiffPanel>,
+  palette: UiPalette,
+) -> impl IntoElement {
+  let letter = status_letter(status.clone());
+  let color = status_color(status, &palette);
+  let (layout_icon, layout_tooltip) = match layout {
+    DiffLayout::Inline => ("icons/split-horizontal.svg", "Switch to side by side"),
+    DiffLayout::SideBySide => ("icons/list-flat.svg", "Switch to inline"),
+  };
+  div()
+    .h(px(28.0))
+    .flex_shrink_0()
+    .flex()
+    .items_center()
+    .justify_between()
+    .px_3()
+    .border_b_1()
+    .border_color(hsla(palette.border))
+    .child(
+      div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .min_w_0()
         .child(
-          Button::new("diff-layout")
-            .ghost()
-            .xsmall()
-            .icon(Icon::empty().path(layout_icon))
-            .tooltip(layout_tooltip)
-            .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleDiffLayout), cx)),
+          div()
+            .min_w_0()
+            .truncate()
+            .text_size(px(13.0))
+            .text_color(hsla(palette.foreground))
+            .child(path.to_string()),
+        )
+        .child(
+          div()
+            .flex_shrink_0()
+            .text_size(px(11.0))
+            .text_color(hsla(color))
+            .child(letter),
         ),
     )
+    .child(layout_toggle(layout_icon, layout_tooltip))
+}
+
+fn layout_toggle(layout_icon: &'static str, layout_tooltip: &'static str) -> impl IntoElement {
+  Button::new("diff-layout")
+    .ghost()
+    .xsmall()
+    .w(px(22.0))
+    .h(px(22.0))
+    .icon(Icon::empty().path(layout_icon))
+    .tooltip(layout_tooltip)
+    .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleDiffLayout), cx))
 }
 
 #[cfg(test)]

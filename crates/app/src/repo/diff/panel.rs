@@ -8,7 +8,7 @@ use deathpush_core::config::layout::MainView;
 use deathpush_core::config::settings::{DiffLayout, HunkSeparators, LineDiffType};
 use deathpush_core::diff_view::{DiffRows, RowOptions, build_rows};
 use deathpush_core::session::types::Intent;
-use deathpush_core::types::ResourceGroupKind;
+use deathpush_core::types::{FileStatus, ResourceGroupKind};
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::*;
 
@@ -37,9 +37,20 @@ struct RowsKey {
   separators: HunkSeparators,
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub enum DiffMode {
+  Scm,
+  Commit {
+    commit: String,
+    path: String,
+    status: FileStatus,
+  },
+}
+
 pub struct DiffPanel {
   model: Entity<RepoModel>,
   layout: Entity<LayoutModel>,
+  mode: DiffMode,
   rows: Option<Arc<DiffRows>>,
   metrics: RowsMetrics,
   rows_key: RowsKey,
@@ -74,6 +85,7 @@ impl DiffPanel {
     Self {
       model,
       layout,
+      mode: DiffMode::Scm,
       rows: None,
       metrics: RowsMetrics::default(),
       rows_key: RowsKey::default(),
@@ -102,6 +114,17 @@ impl DiffPanel {
   #[allow(dead_code)]
   pub fn rows(&self) -> Option<&Arc<DiffRows>> {
     self.rows.as_ref()
+  }
+
+  pub fn set_mode(&mut self, mode: DiffMode, cx: &mut Context<Self>) {
+    if self.mode != mode {
+      self.mode = mode;
+      cx.notify();
+    }
+  }
+
+  pub fn mode(&self) -> &DiffMode {
+    &self.mode
   }
 
   pub(crate) fn open_file_history(&self, path: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -444,7 +467,7 @@ impl Render for DiffPanel {
       font_family,
       font_size,
       line_height,
-      show_hunk_actions,
+      mut show_hunk_actions,
     ) = {
       let settings = &AppConfig::get(cx).settings;
       (
@@ -459,14 +482,22 @@ impl Render for DiffPanel {
         settings.diff.show_inline_hunk_actions,
       )
     };
-    let (selected, load_ready, kind) = {
+    let (selected, scm_load_ready, kind, diff_path) = {
       let state = self.model.read(cx).state();
       (
         state.selected_file.clone(),
         state.diff_load_id == Some(state.selected_load_id),
         classify(state.diff.as_ref()),
+        state.diff.as_ref().map(|payload| payload.path.clone()),
       )
     };
+    let commit_header = match &self.mode {
+      DiffMode::Commit { path, status, .. } => Some((path.clone(), status.clone())),
+      DiffMode::Scm => None,
+    };
+    if commit_header.is_some() {
+      show_hunk_actions = false;
+    }
     let weak = cx.weak_entity();
     let mut root = div()
       .size_full()
@@ -482,10 +513,25 @@ impl Render for DiffPanel {
           cx.notify();
         }
       }));
-    let Some(selection) = selected else {
-      return root.child(states::render_empty(palette));
+    let load_ready = if let Some((path, status)) = commit_header {
+      if path.is_empty() {
+        return root.child(div().flex_1().min_h_0());
+      }
+      root = root.child(header::render_commit_header(
+        &path,
+        status,
+        layout,
+        weak.clone(),
+        palette,
+      ));
+      diff_path.as_deref() == Some(path.as_str())
+    } else {
+      let Some(selection) = selected else {
+        return root.child(states::render_empty(palette));
+      };
+      root = root.child(header::render_header(&selection, layout, weak.clone(), palette, cx));
+      scm_load_ready
     };
-    root = root.child(header::render_header(&selection, layout, weak.clone(), palette, cx));
     if !load_ready {
       return root.child(div().flex_1().min_h_0());
     }

@@ -1417,6 +1417,7 @@ dependencies = [
  "dirs 6.0.0",
  "futures",
  "gpui-kit",
+ "gpui-pre-reqwest-client",
  "ropey 1.6.1",
  "rust-embed",
  "serde",

@@ -5,4 +5,4 @@ pub mod rows;
 pub mod selection;
 pub mod states;
 
-pub use panel::DiffPanel;
+pub use panel::{DiffMode, DiffPanel};

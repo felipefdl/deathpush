@@ -1,6 +1,6 @@
 mod conflicts;
 mod edit;
-mod icons;
+pub(crate) mod icons;
 mod menus;
 mod model;
 mod rows;
