@@ -43,11 +43,6 @@ actions!(
     ConfigureWorkspace,
     FocusRecentFilter,
     FocusWorkspaceFilter,
-    ListUp,
-    ListDown,
-    ListConfirm,
-    ListEscape,
-    RowToggle,
     Cancel,
     Confirm,
   ]

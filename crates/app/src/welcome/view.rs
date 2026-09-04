@@ -14,7 +14,6 @@ use gpui_kit::*;
 use super::rows::{Highlight, Pane, empty_recent_copy, empty_workspace_copy, recent_indices, step, workspace_rows};
 use crate::actions::*;
 use crate::config::AppConfig;
-use crate::keymap::CONTEXT_WELCOME_LIST;
 use crate::theme::{ActivePalette, hsla};
 
 pub enum WelcomeEvent {
@@ -175,6 +174,52 @@ impl WelcomeView {
     cx.notify();
   }
 
+  fn filter_focused(&self, window: &Window, cx: &App) -> bool {
+    self.recent_filter.focus_handle(cx).is_focused(window) || self.workspace_filter.focus_handle(cx).is_focused(window)
+  }
+
+  fn handle_list_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+    let modifiers = &event.keystroke.modifiers;
+    if modifiers.control || modifiers.platform || modifiers.alt {
+      return;
+    }
+    let filter_focused = self.filter_focused(window, cx);
+    let handled = match event.keystroke.key.as_str() {
+      "up" if filter_focused => {
+        self.move_highlight(-1, window, cx);
+        true
+      }
+      "down" if filter_focused => {
+        self.move_highlight(1, window, cx);
+        true
+      }
+      "enter" if filter_focused => {
+        self.confirm_highlight(cx);
+        true
+      }
+      "left" | "right" if filter_focused => {
+        if self.highlight.pane == Some(Pane::Workspace) {
+          self.confirm_highlight(cx);
+        }
+        true
+      }
+      "space" if filter_focused && self.highlight.pane == Some(Pane::Workspace) => {
+        self.confirm_highlight(cx);
+        true
+      }
+      "escape" => {
+        self.highlight = Highlight::default();
+        window.blur(cx);
+        cx.notify();
+        true
+      }
+      _ => false,
+    };
+    if handled {
+      cx.stop_propagation();
+    }
+  }
+
   fn render_recent_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
     let config = AppConfig::get(cx);
     let recents = config.recents.sorted();
@@ -208,17 +253,18 @@ impl WelcomeView {
           .flex()
           .items_center()
           .gap_2()
-          .h(px(28.0))
+          .h(px(44.0))
           .px_2()
+          .py(px(8.0))
           .rounded_sm()
           .cursor_pointer()
           .when(is_highlighted, |el| el.bg(hsla(palette.list_active)))
-          .hover(|el| el.bg(hsla(palette.list_hover)))
+          .when(!is_highlighted, |el| el.hover(|el| el.bg(hsla(palette.list_hover))))
           .on_click(cx.listener(move |_, _, _, cx| cx.emit(WelcomeEvent::Open(PathBuf::from(&path)))))
           .child(
             svg()
               .path("icons/repo.svg")
-              .size(px(14.0))
+              .size(px(16.0))
               .text_color(hsla(palette.muted_foreground)),
           )
           .child(
@@ -244,7 +290,10 @@ impl WelcomeView {
               .tooltip("Remove from recents")
               .invisible()
               .group_hover(group, |style| style.visible())
-              .on_click(cx.listener(move |this, _, _, cx| this.remove_recent(remove_path.clone(), cx))),
+              .on_click(cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                this.remove_recent(remove_path.clone(), cx);
+              })),
           )
           .into_any_element()
       })
@@ -287,11 +336,13 @@ impl WelcomeView {
           .flex()
           .items_center()
           .gap_2()
-          .h(px(26.0))
+          .h(px(44.0))
+          .px_2()
+          .py(px(8.0))
           .rounded_sm()
           .cursor_pointer()
           .when(is_highlighted, |el| el.bg(hsla(palette.list_active)))
-          .hover(|el| el.bg(hsla(palette.list_hover)));
+          .when(!is_highlighted, |el| el.hover(|el| el.bg(hsla(palette.list_hover))));
         match row {
           WorkspaceRow::Folder {
             key,
@@ -313,7 +364,7 @@ impl WelcomeView {
             .child(
               svg()
                 .path("icons/folder.svg")
-                .size(px(14.0))
+                .size(px(16.0))
                 .text_color(hsla(palette.muted_foreground)),
             )
             .child(div().text_size(px(13.0)).child(name))
@@ -326,7 +377,7 @@ impl WelcomeView {
               .child(
                 svg()
                   .path("icons/repo.svg")
-                  .size(px(14.0))
+                  .size(px(16.0))
                   .text_color(hsla(palette.muted_foreground)),
               )
               .child(
@@ -361,7 +412,40 @@ impl WelcomeView {
       .into_any_element()
   }
 
-  fn render_panel(
+  fn render_header(&self, title: &'static str, cx: &App) -> impl IntoElement {
+    div()
+      .text_size(px(11.0))
+      .font_weight(FontWeight::BOLD)
+      .text_color(cx.theme().muted_foreground)
+      .child(title.to_uppercase())
+  }
+
+  fn render_filter(&self, filter: &Entity<InputState>, cx: &App) -> impl IntoElement {
+    let palette = cx.global::<ActivePalette>().0;
+    Input::new(filter).small().h(px(26.0)).w_full().rounded_md().prefix(
+      svg()
+        .path("icons/search.svg")
+        .size(px(14.0))
+        .text_color(hsla(palette.muted_foreground)),
+    )
+  }
+
+  fn render_list_box(&self, body: AnyElement, cx: &App) -> impl IntoElement {
+    let palette = cx.global::<ActivePalette>().0;
+    div()
+      .w_full()
+      .h(px(320.0))
+      .flex_shrink_0()
+      .flex()
+      .flex_col()
+      .bg(hsla(palette.sidebar))
+      .border_1()
+      .border_color(hsla(palette.border))
+      .rounded_md()
+      .child(body)
+  }
+
+  fn render_column(
     &self,
     title: &'static str,
     filter: &Entity<InputState>,
@@ -369,81 +453,39 @@ impl WelcomeView {
     footer: Option<AnyElement>,
     cx: &App,
   ) -> impl IntoElement {
-    let palette = cx.global::<ActivePalette>().0;
     div()
       .flex_1()
       .min_w_0()
-      .min_h(px(200.0))
-      .max_h(px(360.0))
       .flex()
       .flex_col()
-      .bg(hsla(palette.sidebar))
-      .border_1()
-      .border_color(hsla(palette.border))
-      .rounded_md()
-      .child(
-        div()
-          .px_3()
-          .pt_2()
-          .pb_1()
-          .text_size(px(11.0))
-          .font_weight(FontWeight::BOLD)
-          .text_color(cx.theme().muted_foreground)
-          .child(title.to_uppercase()),
-      )
-      .child(
-        div().px_2().pb_1().child(
-          Input::new(filter)
-            .h(px(26.0))
-            .prefix(
-              svg()
-                .path("icons/search.svg")
-                .size(px(14.0))
-                .text_color(hsla(palette.muted_foreground)),
-            )
-            .small(),
-        ),
-      )
-      .child(body)
+      .gap_2()
+      .child(self.render_header(title, cx))
+      .child(self.render_filter(filter, cx))
+      .child(self.render_list_box(body, cx))
       .children(footer)
   }
 }
 
 impl Render for WelcomeView {
   fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    let palette = cx.global::<ActivePalette>().0;
     let version = format!("Version {} ({})", env!("CARGO_PKG_VERSION"), env!("DEATHPUSH_GIT_HASH"));
     let recent_body = self.render_recent_list(cx).into_any_element();
     let workspace_body = self.render_workspace_list(cx).into_any_element();
     let configure = div()
-      .px_3()
-      .py_2()
+      .flex()
       .child(
         Button::new("configure-workspace")
-          .link()
+          .outline()
           .small()
           .label("Configure Workspace...")
           .on_click(cx.listener(|_, _, _, cx| cx.emit(WelcomeEvent::ConfigureWorkspace))),
       )
       .into_any_element();
     div()
-      .key_context(CONTEXT_WELCOME_LIST)
       .size_full()
       .flex()
       .flex_col()
-      .on_action(cx.listener(|this, _: &ListUp, window, cx| this.move_highlight(-1, window, cx)))
-      .on_action(cx.listener(|this, _: &ListDown, window, cx| this.move_highlight(1, window, cx)))
-      .on_action(cx.listener(|this, _: &ListConfirm, _, cx| this.confirm_highlight(cx)))
-      .on_action(cx.listener(|this, _: &RowToggle, _, cx| {
-        if this.highlight.pane == Some(Pane::Workspace) {
-          this.confirm_highlight(cx);
-        }
-      }))
-      .on_action(cx.listener(|this, _: &ListEscape, window, cx| {
-        this.highlight = Highlight::default();
-        window.blur(cx);
-        cx.notify();
-      }))
+      .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| this.handle_list_key(event, window, cx)))
       .on_action(cx.listener(|this, _: &FocusRecentFilter, window, cx| this.focus_recent_filter(window, cx)))
       .on_action(cx.listener(|this, _: &FocusWorkspaceFilter, window, cx| this.focus_workspace_filter(window, cx)))
       .child(
@@ -458,7 +500,8 @@ impl Render for WelcomeView {
             svg()
               .path("brand/deathpush.svg")
               .size(px(80.0))
-              .text_color(hsla(palette.mark))
+              .text_color(cx.theme().foreground)
+              .opacity(0.6)
               .mb(px(16.0)),
           )
           .child(
@@ -475,14 +518,14 @@ impl Render for WelcomeView {
               .mb(px(24.0))
               .child(
                 Button::new("open-repository")
-                  .primary()
+                  .outline()
                   .icon(Icon::empty().path("icons/folder.svg"))
                   .label("Open Repository")
                   .on_click(cx.listener(|_, _, window, cx| window.dispatch_action(Box::new(OpenRepository), cx))),
               )
               .child(
                 Button::new("clone-repository")
-                  .primary()
+                  .outline()
                   .icon(Icon::empty().path("icons/cloud-download.svg"))
                   .label("Clone Repository")
                   .on_click(cx.listener(|_, _, _, cx| cx.emit(WelcomeEvent::Clone))),
@@ -495,8 +538,8 @@ impl Render for WelcomeView {
               .w(px(760.0))
               .max_w_full()
               .px_4()
-              .child(self.render_panel("Recent", &self.recent_filter, recent_body, None, cx))
-              .child(self.render_panel("Workspace", &self.workspace_filter, workspace_body, Some(configure), cx)),
+              .child(self.render_column("Recent", &self.recent_filter, recent_body, None, cx))
+              .child(self.render_column("Workspace", &self.workspace_filter, workspace_body, Some(configure), cx)),
           ),
       )
       .child(

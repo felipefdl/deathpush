@@ -330,7 +330,12 @@ impl Render for Shell {
       Some(screen) => format!("{CONTEXT_APP} {screen}"),
       None => CONTEXT_APP.to_string(),
     };
-    let title_bar = render_title_bar(self.title.clone(), self.menu_context(), window, cx);
+    let bar_title = if matches!(self.screen, Screen::Welcome(_)) {
+      SharedString::from("")
+    } else {
+      self.title.clone()
+    };
+    let title_bar = render_title_bar(bar_title, self.menu_context(), window, cx);
     let body: AnyElement = match &self.screen {
       Screen::Boot => self.render_boot(window, cx).into_any_element(),
       Screen::Welcome(view) => view.clone().into_any_element(),
@@ -366,6 +371,16 @@ impl Render for Shell {
       .on_action(cx.listener(|_, _: &ZoomReset, _, cx| zoom::set_zoom_level(0, cx)))
       .on_action(cx.listener(|this, _: &OpenLicenses, window, cx| this.open_licenses(window, cx)))
       .on_action(cx.listener(|this, _: &ConfigureWorkspace, window, cx| this.open_workspace_settings(window, cx)))
+      .on_action(cx.listener(|this, _: &FocusRecentFilter, window, cx| {
+        if let Screen::Welcome(view) = &this.screen {
+          view.update(cx, |view, cx| view.focus_recent_filter(window, cx));
+        }
+      }))
+      .on_action(cx.listener(|this, _: &FocusWorkspaceFilter, window, cx| {
+        if let Screen::Welcome(view) = &this.screen {
+          view.update(cx, |view, cx| view.focus_workspace_filter(window, cx));
+        }
+      }))
       .on_action(cx.listener(|this, _: &InstallCli, window, cx| crate::cli_install::run(this, window, cx)))
       .on_action(cx.listener(|this, _: &About, window, cx| {
         let detail = format!("Version {} ({})", env!("CARGO_PKG_VERSION"), env!("DEATHPUSH_GIT_HASH"));
