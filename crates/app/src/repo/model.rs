@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use deathpush_core::config::recent_files::{load_recent_files, save_recent_files};
 use deathpush_core::session::types::{Intent, IntentOutcome, SessionSnapshot, SessionStatusEvent};
@@ -33,7 +33,7 @@ pub struct RepoModel {
   latest_write: Option<(String, u64)>,
   pending_write: Option<PendingWrite>,
   write_gen: u64,
-  reserved: Vec<String>,
+  reservations: Arc<Mutex<ReservationTable>>,
   parked_writes: HashMap<String, ParkedWrite>,
 }
 
@@ -139,9 +139,74 @@ pub fn should_replace_parked(existing: Option<u64>, incoming: u64) -> bool {
   existing.is_none_or(|generation| incoming > generation)
 }
 
-#[derive(Clone)]
+#[derive(Default)]
+struct ReservationTable {
+  next_id: u64,
+  reserved: Vec<(u64, String)>,
+  pending_flush: Vec<String>,
+}
+
+impl ReservationTable {
+  fn insert(&mut self, path: String) -> u64 {
+    let id = self.next_id;
+    self.next_id = self.next_id.wrapping_add(1);
+    self.reserved.push((id, path));
+    id
+  }
+
+  fn remove(&mut self, id: u64) {
+    self.reserved.retain(|(reserved_id, _)| *reserved_id != id);
+  }
+
+  fn is_blocked(&self, write_path: &str) -> bool {
+    self
+      .reserved
+      .iter()
+      .any(|(_, path)| write_blocked_by_reservation(path, write_path))
+  }
+}
+
+fn lock_reservations(table: &Mutex<ReservationTable>) -> MutexGuard<'_, ReservationTable> {
+  table.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 pub struct Reservation {
+  id: u64,
   path: String,
+  table: Arc<Mutex<ReservationTable>>,
+  released: bool,
+}
+
+impl Reservation {
+  fn acquire(table: Arc<Mutex<ReservationTable>>, path: &str) -> Self {
+    let id = lock_reservations(&table).insert(path.to_string());
+    Self {
+      id,
+      path: path.to_string(),
+      table,
+      released: false,
+    }
+  }
+
+  fn release(&mut self) {
+    if self.released {
+      return;
+    }
+    lock_reservations(&self.table).remove(self.id);
+    self.released = true;
+  }
+}
+
+impl Drop for Reservation {
+  fn drop(&mut self) {
+    if self.released {
+      return;
+    }
+    let mut table = lock_reservations(&self.table);
+    table.remove(self.id);
+    table.pending_flush.push(self.path.clone());
+    self.released = true;
+  }
 }
 
 struct PendingWrite {
@@ -176,7 +241,7 @@ impl RepoModel {
       latest_write: None,
       pending_write: None,
       write_gen: 0,
-      reserved: Vec::new(),
+      reservations: Arc::new(Mutex::new(ReservationTable::default())),
       parked_writes: HashMap::new(),
     }
   }
@@ -195,21 +260,21 @@ impl RepoModel {
     }
   }
 
-  pub fn reserve_path(&mut self, path: &str) -> Reservation {
-    self.reserved.push(path.to_string());
-    Reservation { path: path.to_string() }
+  pub fn reserve_path(&self, path: &str) -> Reservation {
+    Reservation::acquire(self.reservations.clone(), path)
   }
 
   fn write_is_reserved(&self, write_path: &str) -> bool {
-    self
-      .reserved
-      .iter()
-      .any(|reserved| write_blocked_by_reservation(reserved, write_path))
+    lock_reservations(&self.reservations).is_blocked(write_path)
   }
 
-  fn release_reservation(&mut self, reservation: &Reservation) {
-    if let Some(index) = self.reserved.iter().position(|path| path == &reservation.path) {
-      self.reserved.remove(index);
+  fn flush_dropped_reservations(&mut self, cx: &mut Context<Self>) {
+    let paths = {
+      let mut table = lock_reservations(&self.reservations);
+      std::mem::take(&mut table.pending_flush)
+    };
+    for path in paths {
+      self.flush_parked_writes(&path, Some(&path), cx);
     }
   }
 
@@ -230,18 +295,22 @@ impl RepoModel {
 
   fn finish_path_mutation(
     &mut self,
-    reservation: &Reservation,
+    mut reservation: Reservation,
     new_path: Option<&str>,
     succeeded: bool,
     cx: &mut Context<Self>,
   ) {
-    let old = reservation.path.as_str();
+    let old = reservation.path.clone();
     if succeeded && let Some(new_path) = new_path {
-      self.retarget_open_file(old, new_path, cx);
+      self.retarget_open_file(&old, new_path, cx);
     }
-    let flush_to = if succeeded { new_path } else { Some(old) };
-    self.release_reservation(reservation);
-    self.flush_parked_writes(old, flush_to, cx);
+    let flush_to = if succeeded {
+      new_path.map(str::to_string)
+    } else {
+      Some(old.clone())
+    };
+    reservation.release();
+    self.flush_parked_writes(&old, flush_to.as_deref(), cx);
   }
 
   fn flush_parked_writes(&mut self, reserved_path: &str, new_path: Option<&str>, cx: &mut Context<Self>) {
@@ -274,7 +343,7 @@ impl RepoModel {
       await_pending_write(waiter).await;
       let result = join_core_unit(op().await);
       let _ = this.update(cx, |this, cx| {
-        this.finish_path_mutation(&reservation, new_path.as_deref(), result.is_ok(), cx);
+        this.finish_path_mutation(reservation, new_path.as_deref(), result.is_ok(), cx);
       });
       done(result);
     })
@@ -374,7 +443,7 @@ impl RepoModel {
       let result = task.await;
       let _ = this.update_in(cx, |this, window, cx| {
         let ok = matches!(&result, Ok(Ok(_)));
-        this.finish_path_mutation(&reservation, None, ok, cx);
+        this.finish_path_mutation(reservation, None, ok, cx);
         match result {
           Ok(Ok(outcome)) => this.apply_outcome(sent, outcome, root_at_send, false, window, cx),
           Ok(Err(err)) => this.fail(err.to_string(), cx),
@@ -625,6 +694,7 @@ impl RepoModel {
       }
       _ => self.latest_write = Some((path.clone(), generation)),
     }
+    self.flush_dropped_reservations(cx);
     if self.write_is_reserved(&path) {
       self.park_write(path, content, expected_hash, generation);
       return;
@@ -876,6 +946,7 @@ impl RepoModel {
 
   pub fn apply_status_event(&mut self, event: SessionStatusEvent, cx: &mut Context<Self>) {
     self.state.apply_status_event(event);
+    self.flush_dropped_reservations(cx);
     cx.emit(RepoEvent::Changed);
     cx.notify();
   }
@@ -998,5 +1069,14 @@ mod tests {
       parked_write_after_release("lib/a.rs", "src", None).as_deref(),
       Some("lib/a.rs")
     );
+  }
+
+  #[test]
+  fn dropping_the_guard_clears_the_reservation() {
+    let table = Arc::new(Mutex::new(ReservationTable::default()));
+    let guard = Reservation::acquire(table.clone(), "src/a.rs");
+    assert!(lock_reservations(&table).is_blocked("src/a.rs"));
+    drop(guard);
+    assert!(!lock_reservations(&table).is_blocked("src/a.rs"));
   }
 }
