@@ -18,6 +18,8 @@ pub const CONTEXT_CHANGES_INPUT: &str = "Changes > Input";
 pub const CONTEXT_DIFF: &str = "Diff";
 pub const CONTEXT_BRANCH_LIST: &str = "BranchList";
 pub const CONTEXT_BRANCH_LIST_INPUT: &str = "BranchList > Input";
+pub const CONTEXT_BRANCH_PICKER: &str = "BranchPicker";
+pub const CONTEXT_BRANCH_PICKER_INPUT: &str = "BranchPicker > Input";
 pub const CONTEXT_EXPLORER: &str = "Explorer";
 pub const CONTEXT_EXPLORER_INPUT: &str = "Explorer > Input";
 pub const CONTEXT_EXPLORER_KEYS: &str = "Explorer && !Input";
@@ -46,6 +48,9 @@ pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static st
     ("enter".to_string(), "Confirm", Some(CONTEXT_BRANCH_LIST_INPUT)),
     ("escape".to_string(), "Cancel", Some(CONTEXT_BRANCH_LIST)),
     ("escape".to_string(), "Cancel", Some(CONTEXT_BRANCH_LIST_INPUT)),
+    ("enter".to_string(), "Confirm", Some(CONTEXT_BRANCH_PICKER_INPUT)),
+    ("escape".to_string(), "Cancel", Some(CONTEXT_BRANCH_PICKER)),
+    ("escape".to_string(), "Cancel", Some(CONTEXT_BRANCH_PICKER_INPUT)),
     (format!("{m}-1"), "FocusRecentFilter", Some(CONTEXT_WELCOME)),
     (format!("{m}-2"), "FocusWorkspaceFilter", Some(CONTEXT_WELCOME)),
     (format!("{m}-="), "ZoomIn", Some(CONTEXT_APP)),
@@ -269,6 +274,29 @@ mod tests {
         "{key} -> QuickOpen in Repository"
       );
     }
+  }
+
+  #[test]
+  fn branch_picker_keys_bind_in_picker_context() {
+    let rows = binding_table(true);
+    assert!(
+      rows.iter().any(|(keys, name, ctx)| {
+        keys == "enter" && *name == "Confirm" && *ctx == Some(CONTEXT_BRANCH_PICKER_INPUT)
+      }),
+      "enter -> Confirm in BranchPicker > Input"
+    );
+    assert!(
+      rows
+        .iter()
+        .any(|(keys, name, ctx)| keys == "escape" && *name == "Cancel" && *ctx == Some(CONTEXT_BRANCH_PICKER)),
+      "escape -> Cancel in BranchPicker"
+    );
+    assert!(
+      rows.iter().any(|(keys, name, ctx)| {
+        keys == "escape" && *name == "Cancel" && *ctx == Some(CONTEXT_BRANCH_PICKER_INPUT)
+      }),
+      "escape -> Cancel in BranchPicker > Input"
+    );
   }
 
   #[test]

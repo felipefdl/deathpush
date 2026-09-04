@@ -1,3 +1,4 @@
+pub mod branch_picker;
 pub mod clone_dialog;
 pub mod frame;
 pub mod licenses;
