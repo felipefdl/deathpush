@@ -41,6 +41,16 @@ pub fn token_still_valid(token: &SaveToken, current_path: Option<&str>, save: &S
   current_path == Some(token.path.as_str()) && save.should_save(token.generation)
 }
 
+pub fn should_complete_save(
+  current_path: Option<&str>,
+  event_path: &str,
+  current_generation: u64,
+  event_generation: u64,
+  dirty: bool,
+) -> bool {
+  dirty && current_path == Some(event_path) && current_generation == event_generation
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -87,5 +97,19 @@ mod tests {
     assert_eq!(g2, 2, "generation stays monotonic across files");
     assert!(!token_still_valid(&token, Some("b.rs"), &save));
     assert!(!save.should_save(token.generation));
+  }
+
+  #[test]
+  fn completes_save_only_for_current_generation_and_path() {
+    assert!(should_complete_save(Some("a.rs"), "a.rs", 2, 2, true));
+    assert!(
+      !should_complete_save(Some("a.rs"), "a.rs", 2, 1, true),
+      "older generation is ignored"
+    );
+    assert!(
+      !should_complete_save(Some("a.rs"), "a.rs", 2, 2, false),
+      "already completed"
+    );
+    assert!(!should_complete_save(Some("b.rs"), "a.rs", 2, 2, true));
   }
 }

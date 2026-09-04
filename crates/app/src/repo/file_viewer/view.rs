@@ -5,7 +5,7 @@ use deathpush_core::config::settings::{MONO_FONT_STACK, WordWrap};
 use gpui_kit::component::input::{Editor, EditorState, InputEvent, Position, TabSize};
 use gpui_kit::*;
 
-use super::autosave::{AUTOSAVE_MS, SaveState, SaveToken, token_still_valid};
+use super::autosave::{AUTOSAVE_MS, SaveState, SaveToken, should_complete_save, token_still_valid};
 use super::header;
 use super::states::{self, ViewerKind, classify};
 use crate::config::AppConfig;
@@ -192,14 +192,16 @@ impl FileViewer {
   }
 
   fn on_saved(&mut self, path: &str, hash: &str, generation: u64, cx: &mut Context<Self>) {
-    if self.loaded_path.as_deref() != Some(path) {
+    if !should_complete_save(
+      self.loaded_path.as_deref(),
+      path,
+      self.save.generation,
+      generation,
+      self.save.dirty,
+    ) {
       return;
     }
     self.save.saved(hash.to_string(), generation);
-    if self.save.dirty {
-      cx.notify();
-      return;
-    }
     self.loaded_hash = Some(hash.to_string());
     let repo = self.repo.clone();
     let handle = self.window_handle;

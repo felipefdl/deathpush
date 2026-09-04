@@ -300,6 +300,18 @@ impl RepoModel {
     generation: u64,
     cx: &mut Context<Self>,
   ) {
+    self.spawn_write(path, content, expected_hash, generation, false, cx);
+  }
+
+  fn spawn_write(
+    &mut self,
+    path: String,
+    content: String,
+    expected_hash: String,
+    generation: u64,
+    retry: bool,
+    cx: &mut Context<Self>,
+  ) {
     let core = self.core.clone();
     let session = self.session;
     let handle = core.runtime_handle().clone();
@@ -311,16 +323,23 @@ impl RepoModel {
       let _ = this.update(cx, |this, cx| match result {
         Ok(Ok(result)) => {
           let hash = result.content_hash;
-          if let Some(open) = this.state.open_file.as_mut()
-            && open.path == path
-            && let Some(file) = open.content.as_mut()
-            && file.content_hash == expected_hash
+          let (path_match, current_hash) = match this.state.open_file.as_ref() {
+            Some(open) if open.path == path => (true, open.content.as_ref().map(|file| file.content_hash.clone())),
+            _ => (false, None),
+          };
+          if path_match && current_hash.as_deref() == Some(expected_hash.as_str()) {
+            if let Some(file) = this.state.open_file.as_mut().and_then(|open| open.content.as_mut()) {
+              file.content_hash = hash.clone();
+              file.content = written;
+            }
+            cx.emit(RepoEvent::Saved { path, hash, generation });
+            cx.notify();
+          } else if path_match
+            && !retry
+            && let Some(current) = current_hash
           {
-            file.content_hash = hash.clone();
-            file.content = written;
+            this.spawn_write(path, written, current, generation, true, cx);
           }
-          cx.emit(RepoEvent::Saved { path, hash, generation });
-          cx.notify();
         }
         Ok(Err(err)) => this.fail(err.to_string(), cx),
         Err(err) => this.fail(err.to_string(), cx),
