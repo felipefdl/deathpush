@@ -2,6 +2,7 @@ pub mod cli;
 pub mod config;
 pub mod explorer;
 pub mod file_ops;
+pub mod history;
 pub mod repository;
 pub mod session;
 pub mod terminal;

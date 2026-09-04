@@ -211,7 +211,7 @@ pub struct CommitEntry {
   pub avatar_url: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommitFileEntry {
   pub path: String,
