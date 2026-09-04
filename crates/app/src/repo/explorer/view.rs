@@ -250,8 +250,10 @@ impl ExplorerView {
       }
       return;
     }
-    self.edit_sub = None;
     self.model.update(cx, |model, cx| model.commit_edit(name, window, cx));
+    if self.model.read(cx).write_in_flight() || self.model.read(cx).edit.is_none() {
+      self.edit_sub = None;
+    }
   }
 
   fn stop_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {

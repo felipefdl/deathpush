@@ -339,6 +339,10 @@ impl ExplorerModel {
     }
   }
 
+  pub(crate) fn write_in_flight(&self) -> bool {
+    self.create_in_flight
+  }
+
   pub fn cancel_edit(&mut self, cx: &mut Context<Self>) {
     self.create_in_flight = false;
     self.edit = None;
@@ -1140,10 +1144,12 @@ mod tests {
   use core::prelude::v1::test;
   use std::collections::HashSet;
 
+  use deathpush_core::Core;
   use deathpush_core::types::{
     ExplorerEntry, FileEntry, FileStatus, PathChangeKind, RepoOperationState, RepositoryStatus, ResourceGroup,
     ResourceGroupKind,
   };
+  use gpui_kit::TestAppContext;
 
   fn entry(path: &str, dir: bool, ignored: bool) -> ExplorerEntry {
     ExplorerEntry {
@@ -1313,9 +1319,56 @@ mod tests {
     ));
   }
 
-  #[test]
-  fn begin_edit_is_ignored_while_a_write_is_in_flight() {
-    assert!(should_ignore_begin_edit(true));
-    assert!(!should_ignore_begin_edit(false));
+  #[gpui_kit::test]
+  fn begin_create_and_rename_are_ignored_while_in_flight(cx: &mut TestAppContext) {
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    cx.update(|cx| {
+      let model = cx.new(|_| {
+        let mut model = ExplorerModel::new(core, session, "/repo".into());
+        model.roots = vec![Node {
+          path: "a.rs".into(),
+          name: "a.rs".into(),
+          is_directory: false,
+          is_symlink: false,
+          ignored: false,
+          children: None,
+        }];
+        model.edit = Some(EditState::Creating {
+          parent: String::new(),
+          is_directory: false,
+          name: "held".into(),
+        });
+        model.create_in_flight = true;
+        model
+      });
+      model.update(cx, |model, cx| {
+        let held = model.edit.clone();
+        model.begin_create("", true, cx);
+        assert_eq!(model.edit, held);
+        model.begin_rename("a.rs", cx);
+        assert_eq!(model.edit, held);
+        model.create_in_flight = false;
+        model.begin_rename("a.rs", cx);
+        assert!(matches!(
+          &model.edit,
+          Some(EditState::Renaming { path, .. }) if path == "a.rs"
+        ));
+        model.create_in_flight = false;
+        model.begin_create("", false, cx);
+        assert!(matches!(
+          &model.edit,
+          Some(EditState::Creating {
+            is_directory: false,
+            name,
+            ..
+          }) if name == "New File"
+        ));
+      });
+    });
   }
 }
