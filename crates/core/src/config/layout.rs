@@ -78,6 +78,34 @@ impl ProjectLayout {
     }
     self
   }
+
+  /// Switching to History or Settings docks a maximized terminal. Changes and File keep it.
+  pub fn select_main_view(&mut self, view: MainView) {
+    self.main_view = view;
+    if !matches!(view, MainView::Changes | MainView::File) {
+      self.terminal_maximized = false;
+    }
+  }
+
+  /// The main panel follows the sidebar tab unless Settings is showing.
+  pub fn select_sidebar_view(&mut self, view: SidebarView) {
+    self.sidebar_view = view;
+    if self.main_view != MainView::Settings {
+      self.main_view = if view == SidebarView::Explorer {
+        MainView::File
+      } else {
+        MainView::Changes
+      };
+    }
+  }
+
+  pub fn toggle_pane(&mut self, id: &str) {
+    if let Some(position) = self.collapsed_panes.iter().position(|pane| pane == id) {
+      self.collapsed_panes.remove(position);
+    } else {
+      self.collapsed_panes.push(id.to_string());
+    }
+  }
 }
 
 /// `<config dir>/projects/<first 16 hex of sha256(root)>.json`.
@@ -159,5 +187,37 @@ mod tests {
       load_layout(dir.path(), "/repos/missing", false),
       ProjectLayout::default()
     );
+  }
+
+  #[test]
+  fn main_view_docks_the_terminal_for_history_and_settings() {
+    let mut layout = ProjectLayout {
+      terminal_maximized: true,
+      ..Default::default()
+    };
+    layout.select_main_view(MainView::File);
+    assert!(layout.terminal_maximized);
+    layout.select_main_view(MainView::History);
+    assert!(!layout.terminal_maximized);
+  }
+
+  #[test]
+  fn sidebar_view_drives_the_main_view_unless_settings() {
+    let mut layout = ProjectLayout::default();
+    layout.select_sidebar_view(SidebarView::Explorer);
+    assert_eq!(layout.main_view, MainView::File);
+    layout.select_main_view(MainView::Settings);
+    layout.select_sidebar_view(SidebarView::Scm);
+    assert_eq!(layout.main_view, MainView::Settings);
+    assert_eq!(layout.sidebar_view, SidebarView::Scm);
+  }
+
+  #[test]
+  fn toggle_pane_adds_then_removes() {
+    let mut layout = ProjectLayout::default();
+    layout.toggle_pane("staged");
+    assert_eq!(layout.collapsed_panes, vec!["staged".to_string()]);
+    layout.toggle_pane("staged");
+    assert!(layout.collapsed_panes.is_empty());
   }
 }

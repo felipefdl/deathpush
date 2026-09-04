@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::HashSet;
 
 use deathpush_core::session::types::{
@@ -38,6 +36,7 @@ pub struct RepoState {
   pub blame: Option<FileBlame>,
   pub cursor_line: Option<usize>,
   pub pending_clear_file: bool,
+  #[allow(dead_code)]
   pub operations: HashSet<String>,
 }
 
@@ -81,10 +80,12 @@ impl RepoState {
     self.status.as_ref().map(|status| status.root.as_str())
   }
 
+  #[allow(dead_code)]
   pub fn head_branch(&self) -> Option<&str> {
     self.status.as_ref().and_then(|status| status.head_branch.as_deref())
   }
 
+  #[allow(dead_code)]
   pub fn selected_file(&self) -> Option<&FileSelection> {
     self.selected_file.as_ref()
   }
@@ -339,6 +340,7 @@ impl RepoState {
     PayloadVerdict::Accept
   }
 
+  #[allow(dead_code)]
   pub fn reset(&mut self) {
     *self = RepoState::default();
   }
