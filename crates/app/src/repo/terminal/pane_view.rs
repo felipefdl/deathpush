@@ -445,6 +445,28 @@ fn utf16_range_to_bytes(text: &str, range: Range<usize>) -> Range<usize> {
   start.min(end)..end.max(start)
 }
 
+fn utf8_to_utf16(text: &str, byte_offset: usize) -> usize {
+  let byte_offset = byte_offset.min(text.len());
+  match text.get(..byte_offset) {
+    Some(prefix) => utf16_len(prefix),
+    None => {
+      let start = text
+        .char_indices()
+        .map(|(i, _)| i)
+        .take_while(|i| *i <= byte_offset)
+        .last()
+        .unwrap_or(0);
+      utf16_len(&text[..start])
+    }
+  }
+}
+
+#[cfg(test)]
+fn utf16_adjusted_range(text: &str, range: Range<usize>) -> Range<usize> {
+  let bytes = utf16_range_to_bytes(text, range);
+  utf8_to_utf16(text, bytes.start)..utf8_to_utf16(text, bytes.end)
+}
+
 impl EntityInputHandler for PaneView {
   fn text_for_range(
     &mut self,
@@ -454,9 +476,8 @@ impl EntityInputHandler for PaneView {
     _cx: &mut Context<Self>,
   ) -> Option<String> {
     let text = self.marked_text.as_deref().unwrap_or("");
-    let utf16 = clamp_utf16_range(text, range);
-    *adjusted_range = Some(utf16.clone());
-    let bytes = utf16_range_to_bytes(text, utf16);
+    let bytes = utf16_range_to_bytes(text, range);
+    *adjusted_range = Some(utf8_to_utf16(text, bytes.start)..utf8_to_utf16(text, bytes.end));
     Some(text.get(bytes).unwrap_or("").to_string())
   }
 
@@ -769,6 +790,7 @@ mod tests {
     assert_eq!("é".get(utf16_range_to_bytes("é", 0..1)).unwrap(), "é");
     assert_eq!("😀".get(utf16_range_to_bytes("😀", 0..2)).unwrap(), "😀");
     assert_eq!("😀".get(utf16_range_to_bytes("😀", 1..2)).unwrap(), "😀");
+    assert_eq!(utf16_adjusted_range("😀", 1..2), 0..2);
   }
 
   #[gpui_kit::test]
@@ -828,6 +850,13 @@ mod tests {
           Some("😀")
         );
         assert_eq!(adjusted, Some(1..3));
+        view.replace_and_mark_text_in_range(None, "😀", None, window, cx);
+        let mut adjusted = None;
+        assert_eq!(
+          view.text_for_range(1..2, &mut adjusted, window, cx).as_deref(),
+          Some("😀")
+        );
+        assert_eq!(adjusted, Some(0..2));
       })
       .unwrap();
   }
