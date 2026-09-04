@@ -1,9 +1,10 @@
 //! One OS thread per terminal pane. libghostty types stay here; the app sees snapshots.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use libghostty_vt::key::{self, Encoder as KeyEncoder, Event as KeyEvent};
 use libghostty_vt::mouse::{self, Encoder as MouseEncoder, Event as MouseEvent};
@@ -123,6 +124,7 @@ enum CommandEffect {
 const COMMAND_QUEUE_CAP: usize = 1024;
 const BATCH_COMMAND_LIMIT: usize = 256;
 const BATCH_BYTE_LIMIT: usize = 64 * 1024;
+const IDLE_WAIT: Duration = Duration::from_millis(16);
 
 /// Bytes the pane thread wants written to the PTY (encoded keys, mouse reports, pasted text).
 pub type PtyWriter = Box<dyn Fn(Vec<u8>) + Send + 'static>;
@@ -132,6 +134,8 @@ pub struct PaneHandle {
   tx: SyncSender<PaneCommand>,
   slot: Arc<Mutex<Option<Arc<PaneSnapshot>>>>,
   mouse_tracking: Arc<AtomicBool>,
+  shutdown: Arc<AtomicBool>,
+  pty_in: Arc<Mutex<Vec<u8>>>,
   join: Option<JoinHandle<()>>,
 }
 
@@ -141,7 +145,8 @@ impl PaneHandle {
   /// `writer` receives encoded PTY input on the pane thread.
   /// `wake` runs on the pane thread after every new snapshot so the app can schedule a redraw.
   /// It must not block, must hold only weak or lifetime-safe app state, and is finished by the
-  /// time [`Drop`] returns.
+  /// time [`Drop`] returns. Shutdown is out-of-band: [`Drop`] sets a flag and `try_send`s
+  /// [`PaneCommand::Shutdown`] so it never waits for queue capacity.
   pub fn spawn(
     cols: u16,
     rows: u16,
@@ -152,13 +157,27 @@ impl PaneHandle {
     let (tx, rx) = mpsc::sync_channel(COMMAND_QUEUE_CAP);
     let slot = Arc::new(Mutex::new(None));
     let mouse_tracking = Arc::new(AtomicBool::new(false));
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let pty_in = Arc::new(Mutex::new(Vec::new()));
     let (ready_tx, ready_rx) = mpsc::channel();
     let slot_thread = Arc::clone(&slot);
     let mouse_thread = Arc::clone(&mouse_tracking);
+    let shutdown_thread = Arc::clone(&shutdown);
+    let pty_thread = Arc::clone(&pty_in);
     let join = thread::Builder::new()
       .name("dp-vt-pane".into())
-      .spawn(
-        move || match PaneThread::new(cols, rows, scrollback_bytes, writer, wake, slot_thread, mouse_thread) {
+      .spawn(move || {
+        match PaneThread::new(
+          cols,
+          rows,
+          scrollback_bytes,
+          writer,
+          wake,
+          slot_thread,
+          mouse_thread,
+          shutdown_thread,
+          pty_thread,
+        ) {
           Ok(pane) => {
             let _ = ready_tx.send(Ok(()));
             pane.run(rx);
@@ -166,14 +185,16 @@ impl PaneHandle {
           Err(err) => {
             let _ = ready_tx.send(Err(err));
           }
-        },
-      )
+        }
+      })
       .map_err(|err| Error::Other(err.to_string()))?;
     match ready_rx.recv() {
       Ok(Ok(())) => Ok(PaneHandle {
         tx,
         slot,
         mouse_tracking,
+        shutdown,
+        pty_in,
         join: Some(join),
       }),
       Ok(Err(err)) => {
@@ -187,9 +208,34 @@ impl PaneHandle {
     }
   }
 
-  /// Queue a command for the pane thread. Blocks if the queue (1024) is full.
+  /// Queue a command for the pane thread. Never blocks.
+  ///
+  /// PTY output should use [`Self::push_bytes`]. Other commands use a bounded queue and are
+  /// dropped if it is full.
   pub fn send(&self, command: PaneCommand) {
-    let _ = self.tx.send(command);
+    match command {
+      PaneCommand::Shutdown => {
+        self.shutdown.store(true, Ordering::Release);
+        let _ = self.tx.try_send(PaneCommand::Shutdown);
+      }
+      PaneCommand::Bytes(bytes) => self.push_bytes(&bytes),
+      command => match self.tx.try_send(command) {
+        Ok(()) => {}
+        Err(TrySendError::Full(_)) => {
+          tracing::warn!("pane command queue full; dropping input");
+        }
+        Err(TrySendError::Disconnected(_)) => {}
+      },
+    }
+  }
+
+  /// Append PTY output for the pane thread. Never blocks.
+  pub fn push_bytes(&self, bytes: &[u8]) {
+    if bytes.is_empty() {
+      return;
+    }
+    let mut buf = self.pty_in.lock().unwrap_or_else(|err| err.into_inner());
+    buf.extend_from_slice(bytes);
   }
 
   /// Latest published snapshot, if any.
@@ -203,10 +249,11 @@ impl PaneHandle {
   }
 }
 
-/// Sends [`PaneCommand::Shutdown`] and joins the pane thread.
+/// Sets the shutdown flag, tries a non-blocking [`PaneCommand::Shutdown`], and joins the pane thread.
 impl Drop for PaneHandle {
   fn drop(&mut self) {
-    let _ = self.tx.send(PaneCommand::Shutdown);
+    self.shutdown.store(true, Ordering::Release);
+    let _ = self.tx.try_send(PaneCommand::Shutdown);
     if let Some(join) = self.join.take() {
       let _ = join.join();
     }
@@ -233,9 +280,12 @@ struct PaneThread {
   cell_h: u32,
   pty_buf: Vec<u8>,
   last_snapshot_error: Option<String>,
+  shutdown: Arc<AtomicBool>,
+  pty_in: Arc<Mutex<Vec<u8>>>,
 }
 
 impl PaneThread {
+  #[allow(clippy::too_many_arguments)]
   fn new(
     cols: u16,
     rows: u16,
@@ -244,6 +294,8 @@ impl PaneThread {
     wake: Box<dyn Fn() + Send + 'static>,
     slot: Arc<Mutex<Option<Arc<PaneSnapshot>>>>,
     mouse_tracking: Arc<AtomicBool>,
+    shutdown: Arc<AtomicBool>,
+    pty_in: Arc<Mutex<Vec<u8>>>,
   ) -> Result<Self> {
     let (cols, rows) = clamp_grid(cols, rows);
     let mut terminal = Terminal::new(cols, rows).map_err(vt_err)?;
@@ -275,43 +327,84 @@ impl PaneThread {
       cell_h,
       pty_buf: Vec::new(),
       last_snapshot_error: None,
+      shutdown,
+      pty_in,
     })
   }
 
+  fn shutting_down(&self) -> bool {
+    self.shutdown.load(Ordering::Acquire)
+  }
+
+  fn drain_staged_bytes(&mut self) -> bool {
+    let chunk = {
+      let mut buf = self.pty_in.lock().unwrap_or_else(|err| err.into_inner());
+      if buf.is_empty() {
+        return false;
+      }
+      let take = buf.len().min(BATCH_BYTE_LIMIT);
+      buf.drain(..take).collect::<Vec<u8>>()
+    };
+    if chunk.is_empty() {
+      return false;
+    }
+    self.terminal.vt_write(&chunk);
+    true
+  }
+
   fn run(mut self, rx: Receiver<PaneCommand>) {
-    while let Ok(first) = rx.recv() {
-      if matches!(first, PaneCommand::Shutdown) {
+    loop {
+      if self.shutting_down() {
         break;
       }
-      let mut bytes = command_bytes(&first);
-      let mut commands = 1usize;
-      let mut dirty = matches!(self.apply(first), CommandEffect::Dirty);
-      let mut shutdown = false;
-      while commands < BATCH_COMMAND_LIMIT && bytes < BATCH_BYTE_LIMIT {
-        match rx.try_recv() {
-          Ok(PaneCommand::Shutdown) => {
-            shutdown = true;
-            break;
+      let mut dirty = self.drain_staged_bytes();
+      let mut commands = 0usize;
+      if !dirty {
+        match rx.recv_timeout(IDLE_WAIT) {
+          Ok(PaneCommand::Shutdown) | Err(RecvTimeoutError::Disconnected) => break,
+          Err(RecvTimeoutError::Timeout) => {
+            if self.shutting_down() {
+              break;
+            }
+            continue;
           }
           Ok(command) => {
-            bytes = bytes.saturating_add(command_bytes(&command));
-            commands += 1;
-            if matches!(self.apply(command), CommandEffect::Dirty) {
-              dirty = true;
+            if self.shutting_down() {
+              break;
             }
-          }
-          Err(TryRecvError::Empty) => break,
-          Err(TryRecvError::Disconnected) => {
-            shutdown = true;
-            break;
+            dirty = self.drain_staged_bytes();
+            commands = 1;
+            match self.apply(command) {
+              CommandEffect::Shutdown => break,
+              CommandEffect::Dirty => dirty = true,
+              CommandEffect::Clean => {}
+            }
           }
         }
       }
-      if shutdown {
+      while commands < BATCH_COMMAND_LIMIT {
+        if self.shutting_down() {
+          return;
+        }
+        match rx.try_recv() {
+          Ok(PaneCommand::Shutdown) => return,
+          Ok(command) => {
+            commands += 1;
+            match self.apply(command) {
+              CommandEffect::Shutdown => return,
+              CommandEffect::Dirty => dirty = true,
+              CommandEffect::Clean => {}
+            }
+          }
+          Err(TryRecvError::Empty) => break,
+          Err(TryRecvError::Disconnected) => return,
+        }
+      }
+      if self.shutting_down() {
         break;
       }
-      self.update_mouse_tracking();
       if dirty {
+        self.update_mouse_tracking();
         self.publish();
       }
     }
@@ -575,13 +668,6 @@ fn clamp_grid(cols: u16, rows: u16) -> (u16, u16) {
   (cols.max(1), rows.max(1))
 }
 
-fn command_bytes(command: &PaneCommand) -> usize {
-  match command {
-    PaneCommand::Bytes(bytes) => bytes.len(),
-    _ => 0,
-  }
-}
-
 fn printable_utf8(text: Option<String>) -> Option<String> {
   let text = text?;
   let filtered: String = text.chars().filter(|ch| is_printable_char(*ch)).collect();
@@ -802,7 +888,7 @@ mod tests {
   #[test]
   fn snapshot_from_written_bytes_has_text_and_cursor() {
     let handle = PaneHandle::spawn(20, 4, None, noop_writer(), Box::new(|| {})).unwrap();
-    handle.send(PaneCommand::Bytes(b"hello\r\n".to_vec()));
+    handle.push_bytes(b"hello\r\n");
     let snap = wait_snapshot(&handle, |snap| snap.seq > 0);
     assert_eq!(snap.row_text(0), "hello");
     let cursor = snap.cursor.as_ref().expect("cursor");
@@ -812,7 +898,7 @@ mod tests {
   #[test]
   fn sgr_colors_and_bold_land_in_cells() {
     let handle = PaneHandle::spawn(20, 2, None, noop_writer(), Box::new(|| {})).unwrap();
-    handle.send(PaneCommand::Bytes(b"\x1b[1;31mred\x1b[0m".to_vec()));
+    handle.push_bytes(b"\x1b[1;31mred\x1b[0m");
     let snap = wait_snapshot(&handle, |snap| snap.row_text(0).starts_with("red"));
     let red = Palette::default().get(PaletteIndex::RED);
     for x in 0..3 {
@@ -898,7 +984,7 @@ mod tests {
   #[test]
   fn zero_sized_spawn_clamps_to_one() {
     let handle = PaneHandle::spawn(0, 0, None, noop_writer(), Box::new(|| {})).unwrap();
-    handle.send(PaneCommand::Bytes(b"x".to_vec()));
+    handle.push_bytes(b"x");
     let snap = wait_snapshot(&handle, |snap| snap.seq > 0);
     assert_eq!(snap.cols, 1);
     assert_eq!(snap.rows, 1);
@@ -933,5 +1019,39 @@ mod tests {
     }));
     let got = wait_bytes(&collected, |bytes| bytes.contains(&b'\r'));
     assert!(got.contains(&b'\r'), "expected CR from enter, got {got:?}");
+  }
+
+  #[test]
+  fn send_does_not_block_when_queue_is_full() {
+    let entered = Arc::new(Mutex::new(false));
+    let release = Arc::new(Mutex::new(false));
+    let entered_flag = Arc::clone(&entered);
+    let release_flag = Arc::clone(&release);
+    let wake = Box::new(move || {
+      *entered_flag.lock().unwrap() = true;
+      while !*release_flag.lock().unwrap() {
+        thread::sleep(Duration::from_millis(1));
+      }
+    });
+    let handle = PaneHandle::spawn(20, 4, None, noop_writer(), wake).unwrap();
+    handle.push_bytes(b"x");
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+      if *entered.lock().unwrap() {
+        break;
+      }
+      thread::sleep(Duration::from_millis(1));
+    }
+    assert!(*entered.lock().unwrap(), "wake did not run");
+    for _ in 0..super::COMMAND_QUEUE_CAP {
+      handle.send(PaneCommand::ScrollToBottom);
+    }
+    let start = Instant::now();
+    handle.send(PaneCommand::ScrollToBottom);
+    assert!(
+      start.elapsed() < Duration::from_millis(200),
+      "send blocked on a full queue"
+    );
+    *release.lock().unwrap() = true;
   }
 }
