@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use deathpush_core::session::types::DiffPayload;
 use deathpush_core::theme::UiPalette;
 use gpui_kit::component::button::Button;
@@ -61,15 +63,30 @@ pub fn render_large(view: WeakEntity<DiffPanel>, palette: UiPalette) -> impl Int
   message_with_open("File is too large to display (over 5 MB)", view, palette)
 }
 
-pub fn render_image(payload: &DiffPayload, palette: UiPalette) -> impl IntoElement {
+pub fn render_image(old: Option<Arc<Image>>, new: Option<Arc<Image>>, palette: UiPalette) -> impl IntoElement {
   div()
     .size_full()
     .flex()
     .flex_row()
     .gap_2()
     .p_3()
-    .child(image_pane(&payload.original, payload.presence.old_exists, palette))
-    .child(image_pane(&payload.modified, payload.presence.new_exists, palette))
+    .child(image_pane(old, palette))
+    .child(image_pane(new, palette))
+}
+
+pub(crate) fn decode_images(payload: &DiffPayload) -> (Option<Arc<Image>>, Option<Arc<Image>>) {
+  (
+    payload
+      .presence
+      .old_exists
+      .then(|| decode_to_image(&payload.original))
+      .flatten(),
+    payload
+      .presence
+      .new_exists
+      .then(|| decode_to_image(&payload.modified))
+      .flatten(),
+  )
 }
 
 fn message_with_open(message: &'static str, view: WeakEntity<DiffPanel>, palette: UiPalette) -> impl IntoElement {
@@ -96,24 +113,30 @@ fn message_with_open(message: &'static str, view: WeakEntity<DiffPanel>, palette
     )
 }
 
-fn image_pane(uri: &str, exists: bool, palette: UiPalette) -> Div {
+fn image_pane(image: Option<Arc<Image>>, palette: UiPalette) -> Div {
   let empty = div()
     .flex_1()
     .min_w_0()
     .min_h(px(120.0))
     .bg(hsla(palette.muted.with_alpha(30)));
-  if !exists || uri.is_empty() {
-    return empty;
-  }
-  match decode_data_uri(uri) {
-    Some((format, bytes)) => div().flex_1().min_w_0().flex().items_center().justify_center().child(
-      img(std::sync::Arc::new(Image::from_bytes(format, bytes)))
-        .object_fit(ObjectFit::Contain)
-        .max_h(px(480.0))
-        .w_full(),
-    ),
+  match image {
+    Some(image) => div()
+      .flex_1()
+      .min_w_0()
+      .flex()
+      .items_center()
+      .justify_center()
+      .child(img(image).object_fit(ObjectFit::Contain).max_h(px(480.0)).w_full()),
     None => empty,
   }
+}
+
+fn decode_to_image(uri: &str) -> Option<Arc<Image>> {
+  if uri.is_empty() {
+    return None;
+  }
+  let (format, bytes) = decode_data_uri(uri)?;
+  Some(Arc::new(Image::from_bytes(format, bytes)))
 }
 
 fn decode_data_uri(uri: &str) -> Option<(ImageFormat, Vec<u8>)> {

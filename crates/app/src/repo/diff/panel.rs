@@ -9,15 +9,21 @@ use gpui_kit::*;
 
 use super::header;
 use super::highlight::Highlighted;
-use super::rows::{self, RowPaint};
+use super::rows::{self, RowPaint, RowsMetrics};
 use super::states::{self, DiffKind, classify};
 use crate::config::AppConfig;
 use crate::repo::layout_model::LayoutModel;
-use crate::repo::model::{RepoEvent, RepoModel};
+use crate::repo::model::RepoModel;
 use crate::theme::ActivePalette;
 
 #[derive(Clone, Debug)]
 pub struct Selection;
+
+#[derive(Clone, Default)]
+struct CachedImages {
+  old: Option<Arc<Image>>,
+  new: Option<Arc<Image>>,
+}
 
 #[derive(Clone, PartialEq, Eq, Default)]
 struct RowsKey {
@@ -31,8 +37,11 @@ pub struct DiffPanel {
   model: Entity<RepoModel>,
   layout: Entity<LayoutModel>,
   rows: Option<Arc<DiffRows>>,
+  metrics: RowsMetrics,
   rows_key: RowsKey,
   highlighter: Option<Arc<Highlighted>>,
+  old_image: Option<Arc<Image>>,
+  new_image: Option<Arc<Image>>,
   scroll: UniformListScrollHandle,
   h_scroll: ScrollHandle,
   #[allow(dead_code)]
@@ -42,11 +51,6 @@ pub struct DiffPanel {
 
 impl DiffPanel {
   pub fn new(model: Entity<RepoModel>, layout: Entity<LayoutModel>, cx: &mut Context<Self>) -> Self {
-    cx.subscribe(&model, |this, _, _: &RepoEvent, cx| {
-      this.sync_rows(cx);
-      cx.notify();
-    })
-    .detach();
     cx.observe(&model, |this, _, cx| {
       this.sync_rows(cx);
       cx.notify();
@@ -61,8 +65,11 @@ impl DiffPanel {
       model,
       layout,
       rows: None,
+      metrics: RowsMetrics::default(),
       rows_key: RowsKey::default(),
       highlighter: None,
+      old_image: None,
+      new_image: None,
       scroll: UniformListScrollHandle::new(),
       h_scroll: ScrollHandle::new(),
       selection: None,
@@ -109,54 +116,116 @@ impl DiffPanel {
   }
 
   fn sync_rows(&mut self, cx: &App) {
-    let diff = AppConfig::get(cx).settings.diff.clone();
-    let payload = self.model.read(cx).state().diff.clone();
-    let Some(payload) = payload else {
-      self.rows = None;
-      self.highlighter = None;
-      self.rows_key = RowsKey::default();
-      return;
+    let (layout, line_diff, separators) = {
+      let diff = &AppConfig::get(cx).settings.diff;
+      (diff.layout, diff.line_diff_type, diff.hunk_separators)
     };
-    if classify(Some(&payload)) != DiffKind::Text {
-      self.rows = None;
-      self.highlighter = None;
-      self.rows_key = RowsKey {
-        content_hash: payload.content_hash,
-        layout: diff.layout,
-        line_diff: diff.line_diff_type,
-        separators: diff.hunk_separators,
-      };
-      return;
-    }
-    let key = RowsKey {
-      content_hash: payload.content_hash.clone(),
-      layout: diff.layout,
-      line_diff: diff.line_diff_type,
-      separators: diff.hunk_separators,
-    };
-    if self.rows.is_some() && self.rows_key == key {
-      return;
-    }
-    let hash_changed = self.rows_key.content_hash != key.content_hash;
-    self.rows = Some(Arc::new(build_rows(
-      &payload,
-      &RowOptions {
-        layout: key.layout,
-        line_diff: key.line_diff,
-        separators: key.separators,
+    enum Plan {
+      Skip,
+      Clear,
+      Apply {
+        key: RowsKey,
+        rows: Option<Arc<DiffRows>>,
+        metrics: RowsMetrics,
+        highlighter: Option<Option<Arc<Highlighted>>>,
+        images: Option<CachedImages>,
+        reset_scroll: bool,
       },
-    )));
-    if hash_changed
-      || self
-        .highlighter
-        .as_ref()
-        .is_none_or(|highlighted| highlighted.hash != key.content_hash)
-    {
-      self.highlighter = Some(Arc::new(Highlighted::build(&payload)));
-      self.scroll.scroll_to_item(0, ScrollStrategy::Top);
-      self.h_scroll.set_offset(point(px(0.0), px(0.0)));
     }
-    self.rows_key = key;
+    let plan = (|| {
+      let state = self.model.read(cx).state();
+      let Some(payload) = state.diff.as_ref() else {
+        return Plan::Clear;
+      };
+      let key = RowsKey {
+        content_hash: payload.content_hash.clone(),
+        layout,
+        line_diff,
+        separators,
+      };
+      if self.rows_key == key {
+        return Plan::Skip;
+      }
+      let hash_changed = self.rows_key.content_hash != key.content_hash;
+      match classify(Some(payload)) {
+        DiffKind::Text => {
+          let rows = Arc::new(build_rows(
+            payload,
+            &RowOptions {
+              layout: key.layout,
+              line_diff: key.line_diff,
+              separators: key.separators,
+            },
+          ));
+          let metrics = RowsMetrics::from_rows(rows.as_ref());
+          let rebuild_highlighter = self
+            .highlighter
+            .as_ref()
+            .is_none_or(|highlighted| highlighted.hash != key.content_hash);
+          Plan::Apply {
+            key,
+            rows: Some(rows),
+            metrics,
+            highlighter: rebuild_highlighter.then(|| Some(Arc::new(Highlighted::build(payload)))),
+            images: hash_changed.then_some(CachedImages::default()),
+            reset_scroll: hash_changed,
+          }
+        }
+        DiffKind::Image => Plan::Apply {
+          key,
+          rows: None,
+          metrics: RowsMetrics::default(),
+          highlighter: hash_changed.then_some(None),
+          images: hash_changed.then(|| {
+            let (old, new) = states::decode_images(payload);
+            CachedImages { old, new }
+          }),
+          reset_scroll: hash_changed,
+        },
+        _ => Plan::Apply {
+          key,
+          rows: None,
+          metrics: RowsMetrics::default(),
+          highlighter: hash_changed.then_some(None),
+          images: hash_changed.then_some(CachedImages::default()),
+          reset_scroll: hash_changed,
+        },
+      }
+    })();
+    match plan {
+      Plan::Skip => {}
+      Plan::Clear => {
+        self.rows = None;
+        self.metrics = RowsMetrics::default();
+        self.highlighter = None;
+        self.old_image = None;
+        self.new_image = None;
+        self.rows_key = RowsKey::default();
+      }
+      Plan::Apply {
+        key,
+        rows,
+        metrics,
+        highlighter,
+        images,
+        reset_scroll,
+      } => {
+        self.rows = rows;
+        self.metrics = metrics;
+        if let Some(highlighter) = highlighter {
+          self.highlighter = highlighter;
+        }
+        if let Some(images) = images {
+          self.old_image = images.old;
+          self.new_image = images.new;
+        }
+        if reset_scroll {
+          self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+          self.h_scroll.set_offset(point(px(0.0), px(0.0)));
+        }
+        self.rows_key = key;
+      }
+    }
   }
 }
 
@@ -164,14 +233,25 @@ impl Render for DiffPanel {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     self.sync_rows(cx);
     let palette = cx.global::<ActivePalette>().0;
-    let settings = AppConfig::get(cx).settings.clone();
-    let (selected, load_ready, kind, payload) = {
+    let (layout, show_line_numbers, show_background, indicators, line_diff, font_family, font_size, line_height) = {
+      let settings = &AppConfig::get(cx).settings;
+      (
+        settings.diff.layout,
+        settings.diff.show_line_numbers,
+        settings.diff.show_background,
+        settings.diff.diff_indicators,
+        settings.diff.line_diff_type,
+        settings.editor.font_family.clone(),
+        settings.editor.font_size,
+        settings.editor.line_height,
+      )
+    };
+    let (selected, load_ready, kind) = {
       let state = self.model.read(cx).state();
       (
         state.selected_file.clone(),
         state.diff_load_id == Some(state.selected_load_id),
         classify(state.diff.as_ref()),
-        state.diff.clone(),
       )
     };
     let weak = cx.weak_entity();
@@ -184,44 +264,39 @@ impl Render for DiffPanel {
     let Some(selection) = selected else {
       return root.child(states::render_empty(palette));
     };
-    root = root.child(header::render_header(
-      &selection,
-      settings.diff.layout,
-      weak.clone(),
-      palette,
-      cx,
-    ));
+    root = root.child(header::render_header(&selection, layout, weak.clone(), palette, cx));
     if !load_ready {
       return root.child(div().flex_1().min_h_0());
     }
     match kind {
       DiffKind::Empty => root.child(div().flex_1().min_h_0()),
-      DiffKind::Image => match payload.as_ref() {
-        Some(payload) => root.child(states::render_image(payload, palette)),
-        None => root.child(div().flex_1().min_h_0()),
-      },
+      DiffKind::Image => root.child(states::render_image(
+        self.old_image.clone(),
+        self.new_image.clone(),
+        palette,
+      )),
       DiffKind::Binary => root.child(states::render_binary(weak, palette)),
       DiffKind::Large => root.child(states::render_large(weak, palette)),
       DiffKind::Text => match self.rows.clone() {
         Some(rows) => {
-          let family = rows::editor_font_family(&settings.editor.font_family);
-          let font_size = settings.editor.font_size as f32;
+          let family = rows::editor_font_family(&font_family);
+          let font_size = font_size as f32;
           let advance = rows::measure_advance(window, family.as_ref(), font_size);
           let paint = RowPaint {
             palette,
-            show_line_numbers: settings.diff.show_line_numbers,
-            show_background: settings.diff.show_background,
-            indicators: settings.diff.diff_indicators,
-            line_diff: settings.diff.line_diff_type,
-            line_height: settings.editor.line_height as f32,
+            show_line_numbers,
+            show_background,
+            indicators,
+            line_diff,
+            line_height: line_height as f32,
             font_family: family,
             font_size,
-            number_width: rows::number_width(rows.as_ref(), advance),
-            indicator_width: rows::indicator_width(settings.diff.diff_indicators, advance),
+            number_width: rows::number_width(self.metrics.max_line_number, advance),
+            indicator_width: rows::indicator_width(indicators, advance),
             highlighter: self.highlighter.clone(),
             theme: cx.theme().highlight_theme.clone(),
           };
-          let width = rows::content_width(rows.as_ref(), &paint, settings.diff.layout, advance);
+          let width = rows::content_width(&self.metrics, &paint, layout, advance);
           let count = rows.len();
           let scroll = self.scroll.clone();
           let list = uniform_list("diff-rows", count, move |range, _, _| {

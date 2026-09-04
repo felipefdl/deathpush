@@ -52,8 +52,6 @@ pub enum Side {
 
 pub struct Highlighted {
   pub hash: String,
-  #[allow(dead_code)]
-  pub rows_len: usize,
   pub line_starts_old: Vec<usize>,
   pub line_starts_new: Vec<usize>,
   old: Option<SyntaxHighlighter>,
@@ -74,7 +72,6 @@ impl Highlighted {
     let line_starts_new = line_starts(&payload.modified);
     Highlighted {
       hash: payload.content_hash.clone(),
-      rows_len: line_starts_old.len().max(line_starts_new.len()),
       line_starts_old,
       line_starts_new,
       old: highlighter(&payload.original),

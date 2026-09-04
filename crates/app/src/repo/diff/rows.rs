@@ -10,6 +10,21 @@ use gpui_kit::*;
 use super::highlight::{Highlighted, Side};
 use crate::theme::hsla;
 
+#[derive(Clone, Copy, Default)]
+pub struct RowsMetrics {
+  pub max_columns: usize,
+  pub max_line_number: usize,
+}
+
+impl RowsMetrics {
+  pub fn from_rows(rows: &DiffRows) -> Self {
+    Self {
+      max_columns: rows.max_columns(),
+      max_line_number: max_line_number(rows),
+    }
+  }
+}
+
 pub struct RowPaint {
   pub palette: UiPalette,
   pub show_line_numbers: bool,
@@ -25,23 +40,22 @@ pub struct RowPaint {
   pub theme: Arc<HighlightTheme>,
 }
 
-pub fn content_width(rows: &DiffRows, paint: &RowPaint, layout: DiffLayout, advance: f32) -> f32 {
+pub fn content_width(metrics: &RowsMetrics, paint: &RowPaint, layout: DiffLayout, advance: f32) -> f32 {
   let numbers = if paint.show_line_numbers {
     paint.number_width
   } else {
     0.0
   };
   let indicator = paint.indicator_width;
-  let text = rows.max_columns() as f32 * advance;
+  let text = metrics.max_columns as f32 * advance;
   match layout {
     DiffLayout::Inline => numbers * 2.0 + indicator + text + 24.0,
     DiffLayout::SideBySide => (numbers + indicator + text) * 2.0 + 1.0 + 24.0,
   }
 }
 
-pub fn number_width(rows: &DiffRows, advance: f32) -> f32 {
-  let max_line = max_line_number(rows).max(1);
-  let digits = max_line.to_string().len().max(1);
+pub fn number_width(max_line_number: usize, advance: f32) -> f32 {
+  let digits = max_line_number.max(1).to_string().len().max(1);
   digits as f32 * advance + 12.0
 }
 
@@ -297,7 +311,7 @@ fn word_background(kind: RowKind, paint: &RowPaint) -> Option<Hsla> {
   Some(hsla(color))
 }
 
-fn merge_runs(
+pub(crate) fn merge_runs(
   text_len: usize,
   syntax: Vec<(Range<usize>, HighlightStyle)>,
   changed: &[Range<usize>],
@@ -348,4 +362,35 @@ fn merge_runs(
     out.push((range, style));
   }
   out
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use core::prelude::v1::test;
+
+  #[test]
+  fn merge_runs_covers_the_line_without_overlap() {
+    let first = HighlightStyle {
+      font_weight: Some(FontWeight::BOLD),
+      ..Default::default()
+    };
+    let second = HighlightStyle {
+      font_style: Some(FontStyle::Italic),
+      ..Default::default()
+    };
+    let syntax = vec![(0..6, first), (4..9, second)];
+    let changed = vec![2..4, 5..7];
+    let runs = merge_runs(10, syntax, &changed, Some(Hsla::default()));
+    assert!(!runs.is_empty());
+    assert_eq!(runs.first().map(|run| run.0.start), Some(0));
+    assert_eq!(runs.last().map(|run| run.0.end), Some(10));
+    for window in runs.windows(2) {
+      assert!(window[0].0.end <= window[1].0.start, "overlap: {runs:?}");
+      assert!(window[0].0.start < window[0].0.end);
+    }
+    assert!(runs.last().is_some_and(|run| run.0.start < run.0.end));
+    let covered: usize = runs.iter().map(|run| run.0.end - run.0.start).sum();
+    assert_eq!(covered, 10);
+  }
 }
