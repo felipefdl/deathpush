@@ -24,13 +24,11 @@ pub enum Screen {
   Repository(Entity<RepoPlaceholder>),
 }
 
-/// Overlays owned by the shell. Their views come in Task 9; the enum is the contract.
 pub enum Overlay {
   Opening,
-  // Task 9
-  // Clone(Entity<crate::overlays::clone_dialog::CloneDialog>),
-  // WorkspaceSettings(Entity<crate::overlays::workspace_settings::WorkspaceSettingsDialog>),
-  // Licenses(Entity<crate::overlays::licenses::LicensesDialog>),
+  Clone(Entity<crate::overlays::clone_dialog::CloneDialog>),
+  WorkspaceSettings(Entity<crate::overlays::workspace_settings::WorkspaceSettingsDialog>),
+  Licenses(Entity<crate::overlays::licenses::LicensesDialog>),
 }
 
 pub struct Shell {
@@ -134,7 +132,6 @@ impl Shell {
     cx.notify();
   }
 
-  #[allow(dead_code)]
   pub fn rescan_welcome(&self, cx: &mut Context<Self>) {
     if let Screen::Welcome(view) = &self.screen {
       view.update(cx, |view, cx| view.rescan(cx));
@@ -199,13 +196,11 @@ impl Shell {
     cx.notify();
   }
 
-  #[allow(dead_code)]
   pub fn set_overlay(&mut self, overlay: Option<Overlay>, cx: &mut Context<Self>) {
     self.overlay = overlay;
     cx.notify();
   }
 
-  #[allow(dead_code)]
   pub fn set_cli_installed(&mut self, installed: bool, window: &mut Window, cx: &mut Context<Self>) {
     self.cli_installed = installed;
     self.sync_menus(window, cx);
@@ -257,16 +252,105 @@ impl Shell {
     .detach();
   }
 
-  fn open_clone_dialog(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-    self.show_toast("Coming in Task 9", cx);
+  pub fn open_clone_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    let dialog = cx.new(|cx| crate::overlays::clone_dialog::CloneDialog::new(window, cx));
+    cx.subscribe_in(
+      &dialog,
+      window,
+      |this, dialog, event: &crate::overlays::clone_dialog::CloneEvent, window, cx| match event {
+        crate::overlays::clone_dialog::CloneEvent::Close => this.set_overlay(None, cx),
+        crate::overlays::clone_dialog::CloneEvent::Clone { url, directory } => {
+          this.clone_repository(dialog.clone(), url.clone(), directory.clone(), window, cx)
+        }
+      },
+    )
+    .detach();
+    self.set_overlay(Some(Overlay::Clone(dialog)), cx);
   }
 
-  fn open_licenses(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-    self.show_toast("Coming in Task 9", cx);
+  fn clone_repository(
+    &mut self,
+    dialog: Entity<crate::overlays::clone_dialog::CloneDialog>,
+    url: String,
+    directory: String,
+    window: &mut Window,
+    cx: &mut Context<Self>,
+  ) {
+    dialog.update(cx, |dialog, cx| dialog.set_cloning(true, cx));
+    let core = self.core.clone();
+    let runtime = core.clone();
+    let session = self.session;
+    let task = runtime.spawn(async move {
+      core
+        .session_intent(session, Intent::CloneRepository { url, directory })
+        .await
+    });
+    cx.spawn_in(window, async move |this, cx| {
+      let result = task.await;
+      let _ = this.update_in(cx, |this, window, cx| match result {
+        Ok(Ok(IntentOutcome::Snapshot { snapshot })) => {
+          this.set_overlay(None, cx);
+          let title = deathpush_core::ops::window_title(&snapshot.repo.root, snapshot.repo.head_branch.as_deref());
+          let now = chrono::Utc::now().to_rfc3339();
+          let root = snapshot.repo.root.clone();
+          let branch = snapshot.repo.head_branch.clone();
+          AppConfig::update(cx, move |config| config.recents.add(&root, branch, &now));
+          this.title = title.clone().into();
+          window.set_window_title(&title);
+          let view = cx.new(|_| RepoPlaceholder {
+            title: title.into(),
+            status_events: 0,
+          });
+          this.screen = Screen::Repository(view);
+          this.sync_menus(window, cx);
+          cx.notify();
+        }
+        Ok(Ok(other)) => {
+          dialog.update(cx, |dialog, cx| dialog.set_cloning(false, cx));
+          this.show_toast(format!("Unexpected outcome: {other:?}"), cx);
+        }
+        Ok(Err(err)) => {
+          dialog.update(cx, |dialog, cx| dialog.set_cloning(false, cx));
+          this.show_toast(err.to_string(), cx);
+        }
+        Err(err) => {
+          dialog.update(cx, |dialog, cx| dialog.set_cloning(false, cx));
+          this.show_toast(err.to_string(), cx);
+        }
+      });
+    })
+    .detach();
   }
 
-  fn open_workspace_settings(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-    self.show_toast("Coming in Task 9", cx);
+  pub fn open_workspace_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    let entries = AppConfig::get(cx).settings.projects.workspaces.clone();
+    let dialog = cx.new(|cx| crate::overlays::workspace_settings::WorkspaceSettingsDialog::new(&entries, window, cx));
+    cx.subscribe_in(
+      &dialog,
+      window,
+      |this, _, event: &crate::overlays::workspace_settings::WorkspaceEvent, _, cx| match event {
+        crate::overlays::workspace_settings::WorkspaceEvent::Close => this.set_overlay(None, cx),
+        crate::overlays::workspace_settings::WorkspaceEvent::Save(entries) => {
+          let entries = entries.clone();
+          AppConfig::update(cx, move |config| config.settings.projects.workspaces = entries);
+          this.set_overlay(None, cx);
+          this.rescan_welcome(cx);
+        }
+      },
+    )
+    .detach();
+    self.set_overlay(Some(Overlay::WorkspaceSettings(dialog)), cx);
+  }
+
+  pub fn open_licenses(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    let dialog = cx.new(|_| crate::overlays::licenses::LicensesDialog::new());
+    cx.subscribe_in(
+      &dialog,
+      window,
+      |this, _, _: &crate::overlays::licenses::LicensesEvent, _, cx| this.set_overlay(None, cx),
+    )
+    .detach();
+    self.set_overlay(Some(Overlay::Licenses(dialog)), cx);
   }
 
   fn render_boot(&self, window: &Window, cx: &App) -> impl IntoElement {
@@ -345,10 +429,9 @@ impl Render for Shell {
     let overlay: Option<AnyElement> = match &self.overlay {
       None => None,
       Some(Overlay::Opening) => Some(crate::overlays::opening::render_opening(cx).into_any_element()),
-      // Task 9
-      // Some(Overlay::Clone(view)) => Some(view.clone().into_any_element()),
-      // Some(Overlay::WorkspaceSettings(view)) => Some(view.clone().into_any_element()),
-      // Some(Overlay::Licenses(view)) => Some(view.clone().into_any_element()),
+      Some(Overlay::Clone(view)) => Some(view.clone().into_any_element()),
+      Some(Overlay::WorkspaceSettings(view)) => Some(view.clone().into_any_element()),
+      Some(Overlay::Licenses(view)) => Some(view.clone().into_any_element()),
     };
     div()
       .key_context(key_context.as_str())
