@@ -64,6 +64,10 @@ pub struct UiPalette {
   pub gutter_added: Rgba,
   pub gutter_modified: Rgba,
   pub gutter_deleted: Rgba,
+  pub terminal_background: Rgba,
+  pub terminal_foreground: Rgba,
+  pub terminal_cursor: Rgba,
+  pub terminal_ansi: [Rgba; 16],
 }
 
 fn first(spec: &ThemeSpec, keys: &[&str]) -> Option<Rgba> {
@@ -134,6 +138,11 @@ impl UiPalette {
     let gutter_added = first(spec, &["editorGutter.addedBackground"]).unwrap_or(git_added);
     let gutter_modified = first(spec, &["editorGutter.modifiedBackground"]).unwrap_or(git_modified);
     let gutter_deleted = first(spec, &["editorGutter.deletedBackground"]).unwrap_or(git_deleted);
+    let caret = first(spec, &["editorCursor.foreground"]).unwrap_or(foreground);
+    let terminal_background = first(spec, &["terminal.background"]).unwrap_or(background);
+    let terminal_foreground = first(spec, &["terminal.foreground"]).unwrap_or(foreground);
+    let terminal_cursor = first(spec, &["terminalCursor.foreground"]).unwrap_or(caret);
+    let terminal_ansi = ansi_palette(spec, dark);
     Self {
       kind: spec.kind,
       background,
@@ -158,7 +167,7 @@ impl UiPalette {
       input,
       input_border: first(spec, &["input.border"]).unwrap_or(border),
       ring: first(spec, &["focusBorder"]).unwrap_or(primary),
-      caret: first(spec, &["editorCursor.foreground"]).unwrap_or(foreground),
+      caret,
       list_active,
       list_active_foreground: first(spec, &["list.activeSelectionForeground"]).unwrap_or(foreground),
       list_hover,
@@ -205,8 +214,80 @@ impl UiPalette {
       gutter_added,
       gutter_modified,
       gutter_deleted,
+      terminal_background,
+      terminal_foreground,
+      terminal_cursor,
+      terminal_ansi,
     }
   }
+}
+
+const ANSI_KEYS: [&str; 16] = [
+  "terminal.ansiBlack",
+  "terminal.ansiRed",
+  "terminal.ansiGreen",
+  "terminal.ansiYellow",
+  "terminal.ansiBlue",
+  "terminal.ansiMagenta",
+  "terminal.ansiCyan",
+  "terminal.ansiWhite",
+  "terminal.ansiBrightBlack",
+  "terminal.ansiBrightRed",
+  "terminal.ansiBrightGreen",
+  "terminal.ansiBrightYellow",
+  "terminal.ansiBrightBlue",
+  "terminal.ansiBrightMagenta",
+  "terminal.ansiBrightCyan",
+  "terminal.ansiBrightWhite",
+];
+
+const ANSI_DARK: [Rgba; 16] = [
+  Rgba::rgb(0x00, 0x00, 0x00),
+  Rgba::rgb(0xcd, 0x31, 0x31),
+  Rgba::rgb(0x0d, 0xbc, 0x79),
+  Rgba::rgb(0xe5, 0xe5, 0x10),
+  Rgba::rgb(0x24, 0x72, 0xc8),
+  Rgba::rgb(0xbc, 0x3f, 0xbc),
+  Rgba::rgb(0x11, 0xa8, 0xcd),
+  Rgba::rgb(0xe5, 0xe5, 0xe5),
+  Rgba::rgb(0x66, 0x66, 0x66),
+  Rgba::rgb(0xf1, 0x4c, 0x4c),
+  Rgba::rgb(0x23, 0xd1, 0x8b),
+  Rgba::rgb(0xf5, 0xf5, 0x43),
+  Rgba::rgb(0x3b, 0x8e, 0xea),
+  Rgba::rgb(0xd6, 0x70, 0xd6),
+  Rgba::rgb(0x29, 0xb8, 0xdb),
+  Rgba::rgb(0xe5, 0xe5, 0xe5),
+];
+
+const ANSI_LIGHT: [Rgba; 16] = [
+  Rgba::rgb(0x00, 0x00, 0x00),
+  Rgba::rgb(0xcd, 0x31, 0x31),
+  Rgba::rgb(0x00, 0xbc, 0x00),
+  Rgba::rgb(0x94, 0x98, 0x00),
+  Rgba::rgb(0x04, 0x51, 0xa5),
+  Rgba::rgb(0xbc, 0x05, 0xbc),
+  Rgba::rgb(0x05, 0x98, 0xbc),
+  Rgba::rgb(0x55, 0x55, 0x55),
+  Rgba::rgb(0x66, 0x66, 0x66),
+  Rgba::rgb(0xcd, 0x31, 0x31),
+  Rgba::rgb(0x14, 0xce, 0x14),
+  Rgba::rgb(0xb5, 0xba, 0x00),
+  Rgba::rgb(0x04, 0x51, 0xa5),
+  Rgba::rgb(0xbc, 0x05, 0xbc),
+  Rgba::rgb(0x05, 0x98, 0xbc),
+  Rgba::rgb(0xa5, 0xa5, 0xa5),
+];
+
+fn ansi_palette(spec: &ThemeSpec, dark: bool) -> [Rgba; 16] {
+  let fallbacks = if dark { ANSI_DARK } else { ANSI_LIGHT };
+  let mut colors = fallbacks;
+  for (index, key) in ANSI_KEYS.iter().enumerate() {
+    if let Some(color) = spec.color(key) {
+      colors[index] = color;
+    }
+  }
+  colors
 }
 
 #[cfg(test)]
@@ -307,5 +388,94 @@ mod tests {
     assert_eq!(palette.diff_inserted_line, Rgba::rgb(0x11, 0xaa, 0x11).with_alpha(0x22));
     assert_eq!(palette.diff_removed_text, Rgba::rgb(0xaa, 0x11, 0x11).with_alpha(0x55));
     assert_eq!(palette.gutter_deleted, Rgba::rgb(0xbb, 0x22, 0x22));
+  }
+
+  #[test]
+  fn palette_terminal_colors_fall_back() {
+    let dark = parse_theme(r##"{"name":"t","type":"dark","colors":{"editor.background":"#101010","editor.foreground":"#eeeeee","editorCursor.foreground":"#00ff00"}}"##).unwrap();
+    let dark_palette = UiPalette::from_spec(&dark);
+    assert_eq!(dark_palette.terminal_background, dark_palette.background);
+    assert_eq!(dark_palette.terminal_foreground, dark_palette.foreground);
+    assert_eq!(dark_palette.terminal_cursor, dark_palette.caret);
+    assert_eq!(
+      dark_palette.terminal_ansi,
+      [
+        Rgba::rgb(0x00, 0x00, 0x00),
+        Rgba::rgb(0xcd, 0x31, 0x31),
+        Rgba::rgb(0x0d, 0xbc, 0x79),
+        Rgba::rgb(0xe5, 0xe5, 0x10),
+        Rgba::rgb(0x24, 0x72, 0xc8),
+        Rgba::rgb(0xbc, 0x3f, 0xbc),
+        Rgba::rgb(0x11, 0xa8, 0xcd),
+        Rgba::rgb(0xe5, 0xe5, 0xe5),
+        Rgba::rgb(0x66, 0x66, 0x66),
+        Rgba::rgb(0xf1, 0x4c, 0x4c),
+        Rgba::rgb(0x23, 0xd1, 0x8b),
+        Rgba::rgb(0xf5, 0xf5, 0x43),
+        Rgba::rgb(0x3b, 0x8e, 0xea),
+        Rgba::rgb(0xd6, 0x70, 0xd6),
+        Rgba::rgb(0x29, 0xb8, 0xdb),
+        Rgba::rgb(0xe5, 0xe5, 0xe5),
+      ]
+    );
+
+    let light = parse_theme(r##"{"name":"t","type":"light","colors":{}}"##).unwrap();
+    let light_palette = UiPalette::from_spec(&light);
+    assert_eq!(light_palette.terminal_background, light_palette.background);
+    assert_eq!(light_palette.terminal_foreground, light_palette.foreground);
+    assert_eq!(light_palette.terminal_cursor, light_palette.caret);
+    assert_eq!(
+      light_palette.terminal_ansi,
+      [
+        Rgba::rgb(0x00, 0x00, 0x00),
+        Rgba::rgb(0xcd, 0x31, 0x31),
+        Rgba::rgb(0x00, 0xbc, 0x00),
+        Rgba::rgb(0x94, 0x98, 0x00),
+        Rgba::rgb(0x04, 0x51, 0xa5),
+        Rgba::rgb(0xbc, 0x05, 0xbc),
+        Rgba::rgb(0x05, 0x98, 0xbc),
+        Rgba::rgb(0x55, 0x55, 0x55),
+        Rgba::rgb(0x66, 0x66, 0x66),
+        Rgba::rgb(0xcd, 0x31, 0x31),
+        Rgba::rgb(0x14, 0xce, 0x14),
+        Rgba::rgb(0xb5, 0xba, 0x00),
+        Rgba::rgb(0x04, 0x51, 0xa5),
+        Rgba::rgb(0xbc, 0x05, 0xbc),
+        Rgba::rgb(0x05, 0x98, 0xbc),
+        Rgba::rgb(0xa5, 0xa5, 0xa5),
+      ]
+    );
+
+    let keyed = parse_theme(
+      r##"{"name":"t","type":"dark","colors":{
+      "terminal.background":"#111111",
+      "terminal.foreground":"#eeeeee",
+      "terminalCursor.foreground":"#00ffaa",
+      "terminal.ansiBlack":"#010101",
+      "terminal.ansiRed":"#020202",
+      "terminal.ansiGreen":"#030303",
+      "terminal.ansiYellow":"#040404",
+      "terminal.ansiBlue":"#050505",
+      "terminal.ansiMagenta":"#060606",
+      "terminal.ansiCyan":"#070707",
+      "terminal.ansiWhite":"#080808",
+      "terminal.ansiBrightBlack":"#090909",
+      "terminal.ansiBrightRed":"#0a0a0a",
+      "terminal.ansiBrightGreen":"#0b0b0b",
+      "terminal.ansiBrightYellow":"#0c0c0c",
+      "terminal.ansiBrightBlue":"#0d0d0d",
+      "terminal.ansiBrightMagenta":"#0e0e0e",
+      "terminal.ansiBrightCyan":"#0f0f0f",
+      "terminal.ansiBrightWhite":"#101010"
+    }}"##,
+    )
+    .unwrap();
+    let keyed_palette = UiPalette::from_spec(&keyed);
+    assert_eq!(keyed_palette.terminal_background, Rgba::rgb(0x11, 0x11, 0x11));
+    assert_eq!(keyed_palette.terminal_foreground, Rgba::rgb(0xee, 0xee, 0xee));
+    assert_eq!(keyed_palette.terminal_cursor, Rgba::rgb(0x00, 0xff, 0xaa));
+    assert_eq!(keyed_palette.terminal_ansi[0], Rgba::rgb(0x01, 0x01, 0x01));
+    assert_eq!(keyed_palette.terminal_ansi[8], Rgba::rgb(0x09, 0x09, 0x09));
+    assert_eq!(keyed_palette.terminal_ansi[15], Rgba::rgb(0x10, 0x10, 0x10));
   }
 }
