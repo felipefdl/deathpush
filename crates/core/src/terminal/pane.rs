@@ -275,6 +275,7 @@ struct PaneThread {
   pty_buf: Vec<u8>,
   last_snapshot_error: Option<String>,
   shutdown: Arc<AtomicBool>,
+  bell: bool,
 }
 
 impl PaneThread {
@@ -317,6 +318,7 @@ impl PaneThread {
       pty_buf: Vec::new(),
       last_snapshot_error: None,
       shutdown: io.shutdown,
+      bell: false,
     })
   }
 
@@ -328,6 +330,9 @@ impl PaneThread {
     match msg {
       PaneMsg::Bytes(data) => {
         *byte_count = byte_count.saturating_add(data.len());
+        if data.contains(&0x07) {
+          self.bell = true;
+        }
         self.terminal.vt_write(&data);
         *dirty = true;
         false
@@ -389,6 +394,9 @@ impl PaneThread {
     match command {
       PaneCommand::Shutdown => CommandEffect::Shutdown,
       PaneCommand::Bytes(bytes) => {
+        if bytes.contains(&0x07) {
+          self.bell = true;
+        }
         self.terminal.vt_write(&bytes);
         CommandEffect::Dirty
       }
@@ -561,6 +569,7 @@ impl PaneThread {
     match self.build_snapshot() {
       Ok(snapshot) => {
         self.last_snapshot_error = None;
+        self.bell = false;
         let snapshot = Arc::new(snapshot);
         if let Ok(mut slot) = self.slot.lock() {
           *slot = Some(Arc::clone(&snapshot));
@@ -661,6 +670,7 @@ impl PaneThread {
       cursor_color: cursor_color.map(|color| Rgb(color.r, color.g, color.b)),
       viewport_offset,
       scrollback_rows,
+      bell: self.bell,
     })
   }
 }
@@ -907,6 +917,18 @@ mod tests {
     assert_eq!(snap.row_text(0), "hello");
     let cursor = snap.cursor.as_ref().expect("cursor");
     assert_eq!((cursor.x, cursor.y), (0, 1));
+  }
+
+  #[test]
+  fn bell_in_pty_bytes_flags_the_next_snapshot() {
+    let handle = PaneHandle::spawn(20, 4, None, noop_writer(), Box::new(|| {})).unwrap();
+    handle.push_bytes(b"hi\x07");
+    let snap = wait_snapshot(&handle, |snap| snap.seq > 0 && snap.bell);
+    assert!(snap.bell);
+    let seq = snap.seq;
+    handle.push_bytes(b"x");
+    let snap = wait_snapshot(&handle, |snap| snap.seq > seq);
+    assert!(!snap.bell);
   }
 
   #[test]

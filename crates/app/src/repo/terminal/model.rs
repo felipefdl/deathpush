@@ -306,7 +306,6 @@ impl TerminalModel {
   }
 
   /// Session-scoped: true when this window's terminals have a child other than the shell.
-  #[allow(dead_code)]
   pub fn has_active_process(&self) -> bool {
     self.core.terminals_have_active_process(self.session).unwrap_or(false)
   }
@@ -678,6 +677,72 @@ mod tests {
     tree.split(1, Axis::Horizontal, 2, 10);
     tree.split(2, Axis::Vertical, 3, 11);
     assert_eq!(tree.split_ids(), vec![10, 11]);
+  }
+
+  #[gpui_kit::test]
+  fn ensure_group_keeps_an_existing_group(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let window = cx.add_window({
+      let core = core.clone();
+      move |_, cx| {
+        let model = cx.new(|cx| {
+          let mut model = TerminalModel::new(core, session, cx);
+          let pane = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+          model.insert_test_pane(pane, cx);
+          model
+        });
+        ModelHost {
+          model,
+          input: cx.focus_handle(),
+        }
+      }
+    });
+    window
+      .update(cx, |host, window, cx| {
+        host.model.update(cx, |model, cx| {
+          let id = model.active_group.expect("group");
+          assert_eq!(model.ensure_group(window, cx), id);
+          assert_eq!(model.groups.len(), 1);
+        });
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn terminal_exited_closes_the_group_when_empty(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let window = cx.add_window({
+      let core = core.clone();
+      move |_, cx| {
+        let model = cx.new(|cx| {
+          let mut model = TerminalModel::new(core, session, cx);
+          let pane = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+          model.insert_test_pane(pane, cx);
+          model
+        });
+        ModelHost {
+          model,
+          input: cx.focus_handle(),
+        }
+      }
+    });
+    window
+      .update(cx, |host, window, cx| {
+        host.model.update(cx, |model, cx| {
+          assert_eq!(model.groups.len(), 1);
+          model.on_exited(1, Some(window), cx);
+          assert!(model.groups.is_empty());
+          assert!(model.active_group.is_none());
+          assert!(model.panes.is_empty());
+        });
+      })
+      .unwrap();
   }
 
   #[gpui_kit::test]

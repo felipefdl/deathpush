@@ -296,6 +296,10 @@ impl Element for TerminalElement {
         paint_marked(&marked, snap, &settings, prepaint.origin, prepaint.cell, window, cx);
       }
     }
+    if self.view.read(cx).flashing() {
+      let color = cx.global::<ActivePalette>().0.foreground.with_alpha(38);
+      window.paint_quad(fill(bounds, hsla(color)));
+    }
 
     let view = self.view.clone();
     let hitbox = prepaint.hitbox.clone();

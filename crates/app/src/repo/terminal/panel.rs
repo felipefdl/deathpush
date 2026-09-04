@@ -438,6 +438,7 @@ mod tests {
       cursor_color: None,
       viewport_offset: 0,
       scrollback_rows: 0,
+      bell: false,
     })
   }
 

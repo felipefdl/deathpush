@@ -88,6 +88,8 @@ pub struct PaneSnapshot {
   pub viewport_offset: usize,
   /// Scrollback rows (total minus viewport).
   pub scrollback_rows: usize,
+  /// True when a BEL (`0x07`) arrived since the previous published snapshot.
+  pub bell: bool,
 }
 
 impl PaneSnapshot {
@@ -214,6 +216,7 @@ mod tests {
       cursor_color: None,
       viewport_offset: 0,
       scrollback_rows: 0,
+      bell: false,
     }
   }
 

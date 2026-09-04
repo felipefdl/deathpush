@@ -140,6 +140,16 @@ mod tests {
   }
 
   #[test]
+  fn always_open_terminal_forces_visibility() {
+    let hidden = ProjectLayout {
+      terminal_visible: false,
+      ..Default::default()
+    };
+    assert!(hidden.clone().sanitized(true).terminal_visible);
+    assert!(!hidden.sanitized(false).terminal_visible);
+  }
+
+  #[test]
   fn sanitized_resets_transient_views_and_clamps() {
     let layout = ProjectLayout {
       main_view: MainView::Settings,

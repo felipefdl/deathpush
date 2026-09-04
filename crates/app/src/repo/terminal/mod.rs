@@ -1,3 +1,4 @@
+pub mod bell;
 pub mod element;
 pub mod model;
 pub mod names;

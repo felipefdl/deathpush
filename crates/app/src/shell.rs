@@ -18,6 +18,10 @@ use crate::title_bar::render_title_bar;
 use crate::window::open_shell_window;
 use crate::zoom;
 
+fn should_prompt_before_close(active_process: bool, prompt_pending: bool) -> bool {
+  active_process && !prompt_pending
+}
+
 pub enum Screen {
   Boot,
   Welcome(Entity<crate::welcome::WelcomeView>),
@@ -47,6 +51,8 @@ pub struct Shell {
   last_saved_bounds: Option<SavedWindow>,
   cli_installed: bool,
   opening_generation: u64,
+  close_prompt_pending: bool,
+  close_confirmed: bool,
 }
 
 impl Shell {
@@ -75,6 +81,8 @@ impl Shell {
       last_saved_bounds: None,
       cli_installed,
       opening_generation: 0,
+      close_prompt_pending: false,
+      close_confirmed: false,
     };
     shell.listen(events, window, cx);
     zoom::apply_zoom_to_window(zoom::current_level(cx), window);
@@ -89,12 +97,10 @@ impl Shell {
     })
     .detach();
     let this = cx.weak_entity();
-    window.on_window_should_close(cx, move |_, cx| {
-      let _ = this.update(cx, |this, cx| {
-        this.abandon_theme_picker(cx);
-        this.shutdown_terminals(cx);
-      });
-      true
+    window.on_window_should_close(cx, move |window, cx| {
+      this
+        .update(cx, |this, cx| this.request_close(window, cx))
+        .unwrap_or(true)
     });
     match initial {
       Some(path) => cx.defer_in(window, move |this, window, cx| this.open_repository(path, window, cx)),
@@ -156,6 +162,53 @@ impl Shell {
       let terminal = view.read(cx).terminal().clone();
       terminal.update(cx, |model, cx| model.shutdown(cx));
     }
+  }
+
+  fn repo_has_active_process(&self, cx: &App) -> bool {
+    match &self.screen {
+      Screen::Repository(view) => view.read(cx).terminal().read(cx).has_active_process(),
+      _ => false,
+    }
+  }
+
+  fn request_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    self.abandon_theme_picker(cx);
+    if self.close_confirmed {
+      self.shutdown_terminals(cx);
+      return true;
+    }
+    if self.close_prompt_pending {
+      return false;
+    }
+    if should_prompt_before_close(self.repo_has_active_process(cx), self.close_prompt_pending) {
+      self.close_prompt_pending = true;
+      let answer = window.prompt(
+        PromptLevel::Warning,
+        "Confirm",
+        Some("Close the window? A terminal still has a running process."),
+        &["Close", "Cancel"],
+        cx,
+      );
+      cx.spawn_in(window, async move |this, cx| match answer.await {
+        Ok(0) => {
+          let _ = this.update_in(cx, |this, window, cx| {
+            this.close_confirmed = true;
+            this.close_prompt_pending = false;
+            this.shutdown_terminals(cx);
+            window.remove_window();
+          });
+        }
+        _ => {
+          let _ = this.update(cx, |this, _cx| {
+            this.close_prompt_pending = false;
+          });
+        }
+      })
+      .detach();
+      return false;
+    }
+    self.shutdown_terminals(cx);
+    true
   }
 
   fn mount_repository(
@@ -647,8 +700,9 @@ impl Render for Shell {
       .on_action(cx.listener(|this, _: &OpenRepository, window, cx| this.prompt_open_repository(window, cx)))
       .on_action(cx.listener(|this, _: &CloneRepository, window, cx| this.open_clone_dialog(window, cx)))
       .on_action(cx.listener(|this, _: &CloseWindow, window, cx| {
-        this.abandon_theme_picker(cx);
-        window.remove_window();
+        if this.request_close(window, cx) {
+          window.remove_window();
+        }
       }))
       .on_action(cx.listener(|_, _: &Minimize, window, _| window.minimize_window()))
       .on_action(cx.listener(|_, _: &Maximize, window, _| window.zoom_window()))
@@ -947,5 +1001,13 @@ mod tests {
     cx.update(|_, cx| {
       assert_eq!(cx.global::<ActivePalette>().0.kind, original_kind);
     });
+  }
+
+  #[test]
+  fn should_prompt_before_close_skips_when_idle_or_pending() {
+    assert!(!should_prompt_before_close(false, false));
+    assert!(!should_prompt_before_close(false, true));
+    assert!(should_prompt_before_close(true, false));
+    assert!(!should_prompt_before_close(true, true));
   }
 }

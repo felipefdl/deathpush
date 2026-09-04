@@ -13,7 +13,9 @@ use futures::StreamExt;
 use futures::channel::mpsc::{TryRecvError, UnboundedReceiver, unbounded};
 use gpui_kit::*;
 
+use super::bell::bell_flashes;
 use super::element::{PaintCache, TerminalElement, clamp_selection, paint_from_app};
+use crate::config::AppConfig;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaneEvent {
@@ -52,6 +54,8 @@ pub struct PaneView {
   marked_text: Option<String>,
   marked_selection: Range<usize>,
   paint_cache: PaintCache,
+  flashing: bool,
+  flash_task: Option<Task<()>>,
 }
 
 /// Producer half of the pane-thread wake. Pass the callback to [`PaneHandle::spawn`].
@@ -80,6 +84,7 @@ fn subscribe_wake(rx: UnboundedReceiver<()>, cx: &mut Context<PaneView>) -> Task
       if this
         .update(cx, |this, cx| {
           this.pull_snapshot();
+          this.maybe_flash(cx);
           cx.notify();
         })
         .is_err()
@@ -126,6 +131,8 @@ impl PaneView {
       marked_text: None,
       marked_selection: 0..0,
       paint_cache: PaintCache::default(),
+      flashing: false,
+      flash_task: None,
     }
   }
 
@@ -194,6 +201,36 @@ impl PaneView {
     if let Some(handle) = self.handle.as_ref() {
       self.snapshot = handle.snapshot();
     }
+  }
+
+  fn maybe_flash(&mut self, cx: &mut Context<Self>) {
+    let Some(snap) = self.snapshot.as_ref() else {
+      return;
+    };
+    if !snap.bell {
+      return;
+    }
+    if !bell_flashes(AppConfig::get(cx).settings.terminal.bell_style) {
+      return;
+    }
+    self.start_flash(cx);
+  }
+
+  fn start_flash(&mut self, cx: &mut Context<Self>) {
+    self.flashing = true;
+    self.flash_task = Some(cx.spawn(async move |this, cx| {
+      cx.background_executor().timer(Duration::from_millis(120)).await;
+      let _ = this.update(cx, |this, cx| {
+        this.flashing = false;
+        this.flash_task.take();
+        cx.notify();
+      });
+    }));
+  }
+
+  /// Full-pane flash overlay is painted while this is true.
+  pub(crate) fn flashing(&self) -> bool {
+    self.flashing
   }
 
   pub(crate) fn snapshot(&self) -> Option<Arc<PaneSnapshot>> {
@@ -662,6 +699,7 @@ mod tests {
       cursor_color: None,
       viewport_offset: 0,
       scrollback_rows: 0,
+      bell: false,
     })
   }
 
