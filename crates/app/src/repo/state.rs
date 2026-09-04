@@ -6,8 +6,8 @@ use deathpush_core::session::types::{
   SessionStatusExtras,
 };
 use deathpush_core::types::{
-  BranchEntry, CommitDetail, CommitEntry, FileBlame, LastCommitInfo, RepositoryStatus, ResourceGroupKind, StashEntry,
-  TagEntry,
+  BranchEntry, CommitDetail, CommitEntry, FileBlame, FileContent, LastCommitInfo, RepositoryStatus, ResourceGroupKind,
+  StashEntry, TagEntry,
 };
 
 /// The repository window's view of core, ported from the deleted repository store and session client.
@@ -37,13 +37,21 @@ pub struct RepoState {
   pub status_generation: u64,
   pub status_revision: u64,
   pub blame: Option<FileBlame>,
-  #[allow(dead_code)]
-  pub open_file: Option<String>,
+  pub open_file: Option<OpenFile>,
   pub cursor_line: Option<usize>,
   pub pending_clear_file: bool,
   pub running: HashSet<NetworkOp>,
   pub nested_repositories: Vec<NestedRepository>,
   pub committing: bool,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct OpenFile {
+  pub path: String,
+  pub content: Option<FileContent>,
+  pub pending_line: Option<usize>,
+  pub load_id: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

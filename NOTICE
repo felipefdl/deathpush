@@ -15,4 +15,5 @@ Third-party assets bundled with the app:
 
 - MesloLGS DZ Nerd Font Mono (assets/fonts/nerd-font): Apache License 2.0, https://github.com/ryanoasis/nerd-fonts
 - Codicons (assets/icons): CC-BY-4.0, https://github.com/microsoft/vscode-codicons
+- vscode-icons (assets/file-icons): MIT, https://github.com/vscode-icons/vscode-icons
 - tm-themes (assets/themes): MIT, https://github.com/shikijs/textmate-grammars-themes

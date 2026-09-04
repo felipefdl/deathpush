@@ -9,7 +9,7 @@ use gpui_kit::*;
 use super::changes::ChangesView;
 use super::changes::overflow::{OverflowItem, dispatch_item};
 use super::diff::DiffPanel;
-use super::explorer::ExplorerModel;
+use super::explorer::{ExplorerModel, ExplorerView};
 use super::layout_model::LayoutModel;
 use super::main_panel::render_main_panel;
 use super::model::RepoModel;
@@ -29,7 +29,8 @@ pub struct RepoView {
   output: Entity<OutputLog>,
   changes: Entity<ChangesView>,
   diff: Entity<DiffPanel>,
-  explorer: Entity<ExplorerModel>,
+  explorer_model: Entity<ExplorerModel>,
+  explorer: Entity<ExplorerView>,
   body_state: Entity<ResizableState>,
   main_state: Entity<ResizableState>,
   pub(crate) focus_handle: FocusHandle,
@@ -54,12 +55,13 @@ impl RepoView {
         model.state().root().unwrap_or("").to_string(),
       )
     };
-    let explorer = cx.new(|cx| {
+    let explorer_model = cx.new(|cx| {
       let mut explorer = ExplorerModel::new(core, session, root);
       explorer.load(cx);
       explorer
     });
-    cx.observe(&explorer, |_, _, cx| cx.notify()).detach();
+    cx.observe(&explorer_model, |_, _, cx| cx.notify()).detach();
+    let explorer = cx.new(|cx| ExplorerView::new(explorer_model.clone(), model.clone(), layout.clone(), window, cx));
     let changes = cx.new(|cx| ChangesView::new(model.clone(), layout.clone(), window, cx));
     let diff = cx.new(|cx| DiffPanel::new(model.clone(), layout.clone(), cx));
     Self {
@@ -68,6 +70,7 @@ impl RepoView {
       output,
       changes,
       diff,
+      explorer_model,
       explorer,
       body_state: cx.new(|_| ResizableState::default()),
       main_state: cx.new(|_| ResizableState::default()),
@@ -99,6 +102,10 @@ impl RepoView {
   }
 
   pub fn explorer_model(&self) -> &Entity<ExplorerModel> {
+    &self.explorer_model
+  }
+
+  pub fn explorer(&self) -> &Entity<ExplorerView> {
     &self.explorer
   }
 
@@ -127,7 +134,7 @@ impl RepoView {
     let sidebar_body = if layout.sidebar_view == SidebarView::Scm {
       self.changes.clone().into_any_element()
     } else {
-      div().into_any_element()
+      self.explorer().clone().into_any_element()
     };
     let sidebar = render_sidebar(layout.sidebar_view, select, sidebar_body, cx).into_any_element();
     let main_panel = render_main_panel(layout.main_view, &self.diff, cx).into_any_element();
@@ -233,7 +240,7 @@ impl Render for RepoView {
       }))
       .on_action(cx.listener(|_, _: &SwallowSave, _, _| {}))
       .on_action(cx.listener(|this, _: &ClearSelection, window, cx| {
-        if !window.has_focused_input(cx) {
+        if !window.has_focused_input(cx) && !this.explorer().read(cx).owns_focus(window, cx) {
           this.send(Intent::ClearFile, window, cx);
         }
       }))

@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use deathpush_core::config::recent_files::{load_recent_files, save_recent_files};
 use deathpush_core::session::types::{Intent, IntentOutcome, SessionSnapshot, SessionStatusEvent};
 use deathpush_core::{Core, SessionId};
 use gpui_kit::*;
 
-use super::state::{NetworkOp, PayloadVerdict, RepoState};
+use super::state::{NetworkOp, OpenFile, PayloadVerdict, RepoState};
+use crate::config::AppConfig;
 
 pub enum RepoEvent {
   /// State changed; views re-read `state()`.
@@ -163,6 +165,33 @@ impl RepoModel {
 
   pub fn root_path(&self) -> Option<PathBuf> {
     self.state.root().map(PathBuf::from)
+  }
+
+  pub fn open_file(&mut self, path: &str, line: Option<usize>, cx: &mut Context<Self>) {
+    let load_id = self.state.open_file.as_ref().map(|open| open.load_id + 1).unwrap_or(1);
+    self.state.open_file = Some(OpenFile {
+      path: path.to_string(),
+      content: None,
+      pending_line: line,
+      load_id,
+    });
+    cx.emit(RepoEvent::Changed);
+    cx.notify();
+  }
+
+  pub fn record_recent_file(&self, path: &str, cx: &App) {
+    let Some(root) = self.state.root().map(str::to_string) else {
+      return;
+    };
+    let dir = AppConfig::get(cx).dir().to_path_buf();
+    let path = path.to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let handle = self.core.runtime_handle().clone();
+    drop(handle.spawn_blocking(move || {
+      let mut files = load_recent_files(&dir, &root);
+      files.add(&path, &now);
+      save_recent_files(&dir, &root, &files)
+    }));
   }
 
   fn fail(&mut self, message: String, cx: &mut Context<Self>) {

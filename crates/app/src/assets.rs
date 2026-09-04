@@ -6,6 +6,7 @@ use rust_embed::RustEmbed;
 #[derive(RustEmbed)]
 #[folder = "../../assets/"]
 #[include = "icons/*.svg"]
+#[include = "file-icons/*.svg"]
 #[include = "themes/*.json"]
 #[include = "fonts/nerd-font/*.ttf"]
 #[include = "brand/*"]
@@ -63,6 +64,7 @@ mod tests {
     assert!(Embedded::get("themes/vesper.json").is_some());
     assert!(Embedded::get("themes/ayu-light.json").is_some());
     assert!(Embedded::get("icons/folder.svg").is_some());
+    assert!(Embedded::get("file-icons/default_file.svg").is_some());
     assert!(Embedded::get("brand/deathpush.svg").is_some());
     assert_eq!(font_files().len(), 4);
   }
