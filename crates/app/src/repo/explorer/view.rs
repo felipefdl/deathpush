@@ -251,7 +251,7 @@ impl ExplorerView {
       return;
     }
     self.model.update(cx, |model, cx| model.commit_edit(name, window, cx));
-    if self.model.read(cx).write_in_flight() || self.model.read(cx).edit.is_none() {
+    if self.model.read(cx).edit.is_none() {
       self.edit_sub = None;
     }
   }

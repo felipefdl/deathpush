@@ -339,10 +339,6 @@ impl ExplorerModel {
     }
   }
 
-  pub(crate) fn write_in_flight(&self) -> bool {
-    self.create_in_flight
-  }
-
   pub fn cancel_edit(&mut self, cx: &mut Context<Self>) {
     self.create_in_flight = false;
     self.edit = None;
