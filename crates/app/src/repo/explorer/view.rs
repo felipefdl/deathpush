@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use deathpush_core::config::layout::MainView;
@@ -14,7 +14,7 @@ use super::conflicts::{CONFLICT_KEEP_BOTH, CONFLICT_REPLACE, CONFLICT_TITLE, Con
 use super::edit::{stem_range, valid_entry_name};
 use super::icons::IconKind;
 use super::menus::{ItemMenu, blank_menu_items};
-use super::model::{ClipboardOp, EditState, ExplorerEvent, ExplorerModel, Node, parent_path};
+use super::model::{ClipboardOp, EditState, ExplorerEvent, ExplorerModel, Node, Row, parent_path};
 use super::rows::{DragEntry, RowPaint, drop_ignored, fill_menu, render_row};
 use crate::actions::*;
 use crate::config::AppConfig;
@@ -46,6 +46,9 @@ pub struct ExplorerView {
   edit_field: Option<Entity<InputState>>,
   edit_for: Option<EditState>,
   edit_sub: Option<Subscription>,
+  rows: Rc<Vec<Row>>,
+  row_index: Rc<HashMap<String, usize>>,
+  rows_status_rev: Option<(u64, u64)>,
 }
 
 impl ExplorerView {
@@ -79,9 +82,15 @@ impl ExplorerView {
         ExplorerEvent::Changed => {
           this.sync_edit_field(window, cx);
           this.rebuild_tree(cx);
+          this.rebuild_rows(cx);
         }
         ExplorerEvent::OpenFile { path, line } => this.open_file(path, *line, window, cx),
-        ExplorerEvent::Error(_) | ExplorerEvent::Toast(_) | ExplorerEvent::Renamed { .. } => {}
+        ExplorerEvent::Renamed { old_path, new_path } => {
+          this
+            .repo
+            .update(cx, |model, cx| model.retarget_open_file(old_path, new_path, cx));
+        }
+        ExplorerEvent::Error(_) | ExplorerEvent::Toast(_) => {}
       },
     )
     .detach();
@@ -99,6 +108,9 @@ impl ExplorerView {
       edit_field: None,
       edit_for: None,
       edit_sub: None,
+      rows: Rc::new(Vec::new()),
+      row_index: Rc::new(HashMap::new()),
+      rows_status_rev: None,
     }
   }
 
@@ -169,6 +181,35 @@ impl ExplorerView {
     self
       .model
       .update(cx, |model, cx| model.begin_create("", is_directory, cx));
+  }
+
+  fn rebuild_rows(&mut self, cx: &App) {
+    let (rev, rows) = {
+      let repo = self.repo.read(cx);
+      let model = self.model.read(cx);
+      let state = repo.state();
+      (
+        (state.status_generation, state.status_revision),
+        model.visible_rows(state.status.as_ref()),
+      )
+    };
+    let mut index = HashMap::with_capacity(rows.len());
+    for (i, row) in rows.iter().enumerate() {
+      index.insert(row.path.clone(), i);
+    }
+    self.rows_status_rev = Some(rev);
+    self.rows = Rc::new(rows);
+    self.row_index = Rc::new(index);
+  }
+
+  fn ensure_rows(&mut self, cx: &App) {
+    let rev = {
+      let state = self.repo.read(cx).state();
+      (state.status_generation, state.status_revision)
+    };
+    if self.rows_status_rev != Some(rev) {
+      self.rebuild_rows(cx);
+    }
   }
 
   fn rebuild_tree(&mut self, cx: &mut Context<Self>) {
@@ -440,7 +481,14 @@ impl ExplorerView {
     cx: &mut Context<Self>,
   ) {
     match result {
-      Ok(()) => {}
+      Ok(()) => {
+        if let PendingTransfer::Move { source, into } = &pending {
+          let new_path = move_destination(source, into);
+          self
+            .repo
+            .update(cx, |model, cx| model.retarget_open_file(source, &new_path, cx));
+        }
+      }
       Err(message) if ui == ConflictUi::Dialog && is_conflict_error(&message) => {
         self.prompt_replace(pending, window, cx);
       }
@@ -508,6 +556,15 @@ impl ExplorerView {
       }
     })
     .detach();
+  }
+}
+
+fn move_destination(source: &str, into: &str) -> String {
+  let name = source.rsplit_once('/').map(|(_, name)| name).unwrap_or(source);
+  if into.is_empty() {
+    name.to_string()
+  } else {
+    format!("{into}/{name}")
   }
 }
 
@@ -615,8 +672,9 @@ impl Render for ExplorerView {
     }
 
     root = root.child(self.render_header(&palette, cx));
-    let status = self.repo.read(cx).state().status.clone();
-    let rows = Rc::new(self.model.read(cx).visible_rows(status.as_ref()));
+    self.ensure_rows(cx);
+    let rows = self.rows.clone();
+    let row_index = self.row_index.clone();
     let view = cx.weak_entity();
     let has_mark = self.model.read(cx).clipboard.is_some();
     let edit = self.model.read(cx).edit.clone();
@@ -661,7 +719,7 @@ impl Render for ExplorerView {
               if is_stub_id(path) {
                 return div().h(px(0.0)).into_any_element();
               }
-              let Some(row) = rows.iter().find(|row| row.path == path) else {
+              let Some(row) = row_index.get(path).and_then(|&ix| rows.get(ix)) else {
                 return div().into_any_element();
               };
               let editing = if edit.as_ref().is_some_and(|edit| edit.path() == row.path) {

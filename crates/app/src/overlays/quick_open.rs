@@ -496,7 +496,15 @@ fn content_row(path: &str, line: usize, snippet: &str, palette: UiPalette) -> An
     .child(file_icon(muted))
     .child(format!("{name}:{line}"))
     .when_some(directory.map(str::to_string), |el, directory| {
-      el.child(div().text_size(px(11.)).text_color(muted).child(directory))
+      el.child(
+        div()
+          .min_w_0()
+          .overflow_hidden()
+          .text_ellipsis()
+          .text_size(px(11.))
+          .text_color(muted)
+          .child(directory),
+      )
     })
     .child(
       div()

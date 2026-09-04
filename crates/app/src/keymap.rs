@@ -20,6 +20,7 @@ pub const CONTEXT_BRANCH_LIST: &str = "BranchList";
 pub const CONTEXT_BRANCH_LIST_INPUT: &str = "BranchList > Input";
 pub const CONTEXT_EXPLORER: &str = "Explorer";
 pub const CONTEXT_EXPLORER_INPUT: &str = "Explorer > Input";
+pub const CONTEXT_EXPLORER_KEYS: &str = "Explorer && !Input";
 
 /// (keystrokes, action name, context). Pure so it can be tested per platform.
 pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static str>)> {
@@ -67,12 +68,12 @@ pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static st
       "WelcomeListEscape",
       Some(CONTEXT_WELCOME_LIST_INPUT),
     ),
-    ("f2".to_string(), "ExplorerRename", Some(CONTEXT_EXPLORER)),
-    ("delete".to_string(), "ExplorerDelete", Some(CONTEXT_EXPLORER)),
-    (format!("{m}-backspace"), "ExplorerDelete", Some(CONTEXT_EXPLORER)),
-    (format!("{m}-c"), "ExplorerCopy", Some(CONTEXT_EXPLORER)),
-    (format!("{m}-x"), "ExplorerCut", Some(CONTEXT_EXPLORER)),
-    (format!("{m}-v"), "ExplorerPaste", Some(CONTEXT_EXPLORER)),
+    ("f2".to_string(), "ExplorerRename", Some(CONTEXT_EXPLORER_KEYS)),
+    ("delete".to_string(), "ExplorerDelete", Some(CONTEXT_EXPLORER_KEYS)),
+    (format!("{m}-backspace"), "ExplorerDelete", Some(CONTEXT_EXPLORER_KEYS)),
+    (format!("{m}-c"), "ExplorerCopy", Some(CONTEXT_EXPLORER_KEYS)),
+    (format!("{m}-x"), "ExplorerCut", Some(CONTEXT_EXPLORER_KEYS)),
+    (format!("{m}-v"), "ExplorerPaste", Some(CONTEXT_EXPLORER_KEYS)),
     ("escape".to_string(), "Cancel", Some(CONTEXT_EXPLORER_INPUT)),
   ];
   if mac {
@@ -224,7 +225,7 @@ mod tests {
   fn explorer_keys_bind_in_explorer_context() {
     for (mac, primary) in [(true, "cmd"), (false, "ctrl")] {
       let rows = binding_table(mac);
-      let context = Some(CONTEXT_EXPLORER);
+      let context = Some(CONTEXT_EXPLORER_KEYS);
       let expected = [
         ("f2".to_string(), "ExplorerRename"),
         ("delete".to_string(), "ExplorerDelete"),
@@ -238,7 +239,7 @@ mod tests {
           rows
             .iter()
             .any(|(keys, action, ctx)| keys == &key && *action == name && *ctx == context),
-          "{key} -> {name} in Explorer"
+          "{key} -> {name} in Explorer && !Input"
         );
       }
       assert!(

@@ -45,6 +45,16 @@ pub fn should_request_blame(
   blame_enabled && !dirty && has_content && requested_path != Some(path)
 }
 
+/// New path for the open file after a rename or move, when the open path is the source.
+pub fn retarget_open_path(current: Option<&str>, old_path: &str, new_path: &str) -> Option<String> {
+  (current == Some(old_path)).then(|| new_path.to_string())
+}
+
+/// Same-path open keeps the buffer and only updates `pending_line`.
+pub fn open_file_reuses_buffer(current: Option<&str>, path: &str) -> bool {
+  current == Some(path)
+}
+
 impl RepoModel {
   pub fn new(core: Arc<Core>, session: SessionId, snapshot: SessionSnapshot) -> Self {
     let mut state = RepoState::default();
@@ -219,6 +229,14 @@ impl RepoModel {
   }
 
   pub fn open_file(&mut self, path: &str, line: Option<usize>, cx: &mut Context<Self>) {
+    if open_file_reuses_buffer(self.state.open_file.as_ref().map(|open| open.path.as_str()), path) {
+      if let Some(open) = self.state.open_file.as_mut() {
+        open.pending_line = line;
+      }
+      cx.emit(RepoEvent::Changed);
+      cx.notify();
+      return;
+    }
     let load_id = self.state.open_file.as_ref().map(|open| open.load_id + 1).unwrap_or(1);
     self.state.open_file = Some(OpenFile {
       path: path.to_string(),
@@ -243,6 +261,26 @@ impl RepoModel {
       let _ = this.update(cx, |this, cx| this.apply_loaded_content(load_id, result, cx));
     })
     .detach();
+  }
+
+  pub fn retarget_open_file(&mut self, old_path: &str, new_path: &str, cx: &mut Context<Self>) {
+    let Some(next) = retarget_open_path(
+      self.state.open_file.as_ref().map(|open| open.path.as_str()),
+      old_path,
+      new_path,
+    ) else {
+      return;
+    };
+    if let Some(open) = self.state.open_file.as_mut() {
+      open.path = next.clone();
+    }
+    if let Some((path, _)) = &mut self.latest_write
+      && path == old_path
+    {
+      *path = next;
+    }
+    cx.emit(RepoEvent::Changed);
+    cx.notify();
   }
 
   pub fn close_file(&mut self, cx: &mut Context<Self>) {
@@ -562,5 +600,27 @@ mod tests {
     );
     assert!(!should_request_blame(false, false, None, "a.rs", true));
     assert!(!should_request_blame(true, false, None, "a.rs", false));
+  }
+
+  #[test]
+  fn retarget_keeps_the_open_buffer_on_the_new_path() {
+    assert_eq!(
+      retarget_open_path(Some("src/a.rs"), "src/a.rs", "src/b.rs").as_deref(),
+      Some("src/b.rs")
+    );
+    assert_eq!(retarget_open_path(Some("src/x.rs"), "src/a.rs", "src/b.rs"), None);
+    assert_eq!(retarget_open_path(None, "src/a.rs", "src/b.rs"), None);
+    assert_eq!(
+      retarget_open_path(Some("src/a.rs"), "src", "lib"),
+      None,
+      "only the open path itself retargets"
+    );
+  }
+
+  #[test]
+  fn opening_the_same_path_only_sets_pending_line() {
+    assert!(open_file_reuses_buffer(Some("a.rs"), "a.rs"));
+    assert!(!open_file_reuses_buffer(Some("a.rs"), "b.rs"));
+    assert!(!open_file_reuses_buffer(None, "a.rs"));
   }
 }

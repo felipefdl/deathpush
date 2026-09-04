@@ -20,6 +20,7 @@ pub struct FileViewer {
   layout: Entity<LayoutModel>,
   editor: Entity<EditorState>,
   save: SaveState,
+  save_token: Option<SaveToken>,
   loaded_path: Option<String>,
   loaded_hash: Option<String>,
   loaded_language: Option<String>,
@@ -40,7 +41,11 @@ impl FileViewer {
   ) -> Self {
     cx.subscribe(&repo, |this, _, event: &RepoEvent, cx| match event {
       RepoEvent::Saved { path, hash, generation } => this.on_saved(path, hash, *generation, cx),
-      RepoEvent::Changed | RepoEvent::Error(_) => cx.notify(),
+      RepoEvent::Changed => {
+        this.follow_open_path(cx);
+        cx.notify();
+      }
+      RepoEvent::Error(_) => cx.notify(),
     })
     .detach();
     cx.observe(&layout, |_, _, cx| cx.notify()).detach();
@@ -59,6 +64,7 @@ impl FileViewer {
         dirty: false,
         generation: 0,
       },
+      save_token: None,
       loaded_path: None,
       loaded_hash: None,
       loaded_language: None,
@@ -123,19 +129,17 @@ impl FileViewer {
       if matches!(event, InputEvent::Change) {
         let was_clean = !this.save.dirty;
         let generation = this.save.edited();
-        let path = this.loaded_path.clone();
+        this.save_token = this.loaded_path.as_ref().map(|path| SaveToken {
+          path: path.clone(),
+          generation,
+        });
         if was_clean {
           this.repo.update(cx, |model, cx| model.mark_open_file_dirty(cx));
         }
         cx.notify();
         cx.spawn(async move |this, cx| {
           cx.background_executor().timer(Duration::from_millis(AUTOSAVE_MS)).await;
-          let _ = this.update(cx, |this, cx| {
-            let Some(path) = path else {
-              return;
-            };
-            this.flush_save(&path, generation, cx);
-          });
+          let _ = this.update(cx, |this, cx| this.flush_save(generation, cx));
         })
         .detach();
       }
@@ -176,10 +180,14 @@ impl FileViewer {
     });
   }
 
-  fn flush_save(&mut self, path: &str, generation: u64, cx: &mut Context<Self>) {
-    let token = SaveToken {
-      path: path.to_string(),
-      generation,
+  fn flush_save(&mut self, generation: u64, cx: &mut Context<Self>) {
+    let Some(token) = self
+      .save_token
+      .as_ref()
+      .filter(|token| token.generation == generation)
+      .cloned()
+    else {
+      return;
     };
     if !token_still_valid(&token, self.loaded_path.as_deref(), &self.save) {
       return;
@@ -247,6 +255,36 @@ impl FileViewer {
   fn reset_save(&mut self, hash: String) {
     self.save.saved_hash = hash;
     self.save.dirty = false;
+    self.save_token = None;
+  }
+
+  fn follow_open_path(&mut self, cx: &App) {
+    let Some((path, has_content)) = self
+      .repo
+      .read(cx)
+      .state()
+      .open_file
+      .as_ref()
+      .map(|open| (open.path.clone(), open.content.is_some()))
+    else {
+      return;
+    };
+    self.follow_renamed_path(&path, has_content);
+  }
+
+  fn follow_renamed_path(&mut self, path: &str, has_content: bool) {
+    let Some(loaded) = self.loaded_path.clone() else {
+      return;
+    };
+    if loaded == path || !has_content {
+      return;
+    }
+    if let Some(token) = &mut self.save_token
+      && token.path == loaded
+    {
+      token.path = path.to_string();
+    }
+    self.loaded_path = Some(path.to_string());
   }
 
   fn sync_open_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -266,32 +304,70 @@ impl FileViewer {
       Ready(Snap),
     }
 
-    let prep = {
+    enum Raw {
+      Empty,
+      Loading {
+        path: String,
+      },
+      Ready {
+        path: String,
+        pending_line: Option<usize>,
+        hash: String,
+        language: Option<String>,
+        content: String,
+        kind: ViewerKind,
+      },
+    }
+
+    let raw = {
       let state = self.repo.read(cx).state();
       match state.open_file.as_ref() {
-        None => Prep::Empty,
-        Some(open) if open.content.is_none() => Prep::Loading {
+        None => Raw::Empty,
+        Some(open) if open.content.is_none() => Raw::Loading {
           path: open.path.clone(),
-          new_path: self.loaded_path.as_deref() != Some(open.path.as_str()),
         },
         Some(open) => {
           let content = open.content.as_ref().expect("checked");
-          let kind = classify(Some(open));
-          let new_path = self.loaded_path.as_deref() != Some(open.path.as_str());
-          let apply_image = kind == ViewerKind::Image
-            && (new_path || self.loaded_hash.as_deref() != Some(content.content_hash.as_str()));
-          let apply_text = kind == ViewerKind::Text
-            && (new_path || (!self.save.dirty && self.save.should_reload_external(&content.content_hash)));
-          Prep::Ready(Snap {
-            kind,
+          Raw::Ready {
             path: open.path.clone(),
             pending_line: open.pending_line,
-            new_path,
             hash: content.content_hash.clone(),
             language: content.language.clone(),
-            body: (apply_image || apply_text).then(|| content.content.clone()),
-          })
+            content: content.content.clone(),
+            kind: classify(Some(open)),
+          }
         }
+      }
+    };
+
+    let prep = match raw {
+      Raw::Empty => Prep::Empty,
+      Raw::Loading { path } => Prep::Loading {
+        new_path: self.loaded_path.as_deref() != Some(path.as_str()),
+        path,
+      },
+      Raw::Ready {
+        path,
+        pending_line,
+        hash,
+        language,
+        content,
+        kind,
+      } => {
+        self.follow_renamed_path(&path, true);
+        let new_path = self.loaded_path.as_deref() != Some(path.as_str());
+        let apply_image = kind == ViewerKind::Image && (new_path || self.loaded_hash.as_deref() != Some(hash.as_str()));
+        let apply_text =
+          kind == ViewerKind::Text && (new_path || (!self.save.dirty && self.save.should_reload_external(&hash)));
+        Prep::Ready(Snap {
+          kind,
+          path,
+          pending_line,
+          new_path,
+          hash,
+          language,
+          body: (apply_image || apply_text).then_some(content),
+        })
       }
     };
 
