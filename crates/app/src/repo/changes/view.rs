@@ -121,7 +121,7 @@ impl ChangesView {
       layout,
       commit,
       filter,
-      filter_text: String::new(),
+      filter_text: file_filter,
       filter_generation: 0,
       commit_generation: 0,
       committing: false,
@@ -258,26 +258,22 @@ impl ChangesView {
   }
 
   pub(crate) fn menu_open_changes(&mut self, row: &FileRow, window: &mut Window, cx: &mut Context<Self>) {
-    let targets = self.target_keys(row);
-    self.selected = targets.iter().map(|(kind, path, _)| (*kind, path.clone())).collect();
-    if !targets.is_empty() {
-      self.layout.update(cx, |layout, cx| {
-        layout.select_main_view(MainView::Changes, cx);
-        layout.dock_terminal(cx);
-      });
-      for (kind, path, staged) in &targets {
-        self.send(
-          Intent::OpenScmDiff {
-            path: path.clone(),
-            staged: *staged,
-            group_kind: Some(*kind),
-          },
-          window,
-          cx,
-        );
-      }
-    }
-    cx.notify();
+    let group_id = match row.group_kind {
+      ResourceGroupKind::Merge => GroupId::Merge,
+      ResourceGroupKind::Index => GroupId::Staged,
+      ResourceGroupKind::WorkingTree | ResourceGroupKind::Untracked => GroupId::Changes,
+    };
+    let index = assemble_groups(self.model.read(cx).state(), self.filter_text())
+      .iter()
+      .find(|group| group.id == group_id)
+      .and_then(|group| match &group.body {
+        GroupBody::Files(rows) => rows
+          .iter()
+          .position(|item| item.path == row.path && item.group_kind == row.group_kind),
+        _ => None,
+      })
+      .unwrap_or(0);
+    self.select_file(row, group_id, index, window, cx);
   }
 
   pub(crate) fn menu_open_file(&mut self, row: &FileRow, _: &mut Window, cx: &mut Context<Self>) {

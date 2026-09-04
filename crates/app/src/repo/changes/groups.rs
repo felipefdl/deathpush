@@ -5,7 +5,6 @@ use deathpush_core::session::types::Intent;
 use deathpush_core::theme::UiPalette;
 use deathpush_core::types::{FileStatus, ResourceGroupKind, StashEntry};
 use gpui_kit::base::{resizable_panel, v_resizable};
-use gpui_kit::component::badge::Badge;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::*;
@@ -244,7 +243,15 @@ fn render_header(
         .text_color(hsla(palette.muted_foreground))
         .child(group.id.label().to_uppercase()),
     )
-    .child(Badge::new().count(group.count).child(div().size(px(12.0))));
+    .child(
+      div()
+        .px_2()
+        .rounded_full()
+        .text_size(px(11.0))
+        .bg(hsla(palette.badge))
+        .text_color(hsla(palette.badge_foreground))
+        .child(group.count.to_string()),
+    );
 
   match group.id {
     GroupId::Staged => {
