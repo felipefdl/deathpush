@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use deathpush_core::session::types::{DEFAULT_REMOTE, Intent};
 use deathpush_core::theme::UiPalette;
 use deathpush_core::types::{BranchEntry, TagEntry};
@@ -15,6 +17,7 @@ use crate::repo::model::RepoModel;
 use crate::repo::state::NetworkOp;
 use crate::theme::{ActivePalette, hsla};
 
+/// One branch in the picker list after filtering and ordering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BranchRow {
   pub name: String,
@@ -24,9 +27,8 @@ pub struct BranchRow {
   pub behind: usize,
 }
 
-fn matches_query(name: &str, query: &str) -> bool {
-  let needle = query.trim().to_lowercase();
-  needle.is_empty() || name.to_lowercase().contains(&needle)
+fn matches_query(name: &str, needle: &str) -> bool {
+  needle.is_empty() || name.to_lowercase().contains(needle)
 }
 
 fn kind_rank(is_head: bool, is_remote: bool) -> u8 {
@@ -41,9 +43,10 @@ fn kind_rank(is_head: bool, is_remote: bool) -> u8 {
 
 /// Current first, then local, then remote, each by name; case-insensitive substring filter.
 pub fn branch_rows(branches: &[BranchEntry], query: &str) -> Vec<BranchRow> {
+  let needle = query.trim().to_lowercase();
   let mut rows: Vec<BranchRow> = branches
     .iter()
-    .filter(|branch| matches_query(&branch.name, query))
+    .filter(|branch| matches_query(&branch.name, &needle))
     .map(|branch| BranchRow {
       name: branch.name.clone(),
       is_head: branch.is_head,
@@ -60,10 +63,12 @@ pub fn branch_rows(branches: &[BranchEntry], query: &str) -> Vec<BranchRow> {
   rows
 }
 
+/// Case-insensitive substring filter over tag names, preserving list order.
 pub fn tag_rows(tags: &[TagEntry], query: &str) -> Vec<TagEntry> {
+  let needle = query.trim().to_lowercase();
   tags
     .iter()
-    .filter(|tag| matches_query(&tag.name, query))
+    .filter(|tag| matches_query(&tag.name, &needle))
     .cloned()
     .collect()
 }
@@ -78,6 +83,7 @@ pub fn create_candidate(names: &[&str], query: &str) -> Option<String> {
   }
 }
 
+/// Behind first, then ahead. A zero count is omitted.
 pub fn ahead_behind_badges(ahead: usize, behind: usize) -> Vec<String> {
   let mut badges = Vec::new();
   if behind > 0 {
@@ -89,6 +95,7 @@ pub fn ahead_behind_badges(ahead: usize, behind: usize) -> Vec<String> {
   badges
 }
 
+/// Context-menu labels in spec order. `{name}` is replaced when rendering rebase.
 pub const BRANCH_MENU: [&str; 7] = [
   "Checkout",
   "Copy Branch Name",
@@ -99,25 +106,64 @@ pub const BRANCH_MENU: [&str; 7] = [
   "Delete Remote Branch",
 ];
 
+/// Current: checkout and copy. Origin remotes add remote delete. Other remotes omit it. Local non-current: all but remote delete.
 pub fn branch_menu_items(row: &BranchRow) -> Vec<&'static str> {
   if row.is_head {
     vec![BRANCH_MENU[0], BRANCH_MENU[1]]
   } else if row.is_remote {
-    vec![BRANCH_MENU[0], BRANCH_MENU[1], BRANCH_MENU[6]]
+    if origin_branch_name(&row.name).is_some() {
+      vec![BRANCH_MENU[0], BRANCH_MENU[1], BRANCH_MENU[6]]
+    } else {
+      vec![BRANCH_MENU[0], BRANCH_MENU[1]]
+    }
   } else {
     BRANCH_MENU[..6].to_vec()
   }
 }
 
-fn remote_branch_name(name: &str) -> &str {
+fn origin_branch_name(name: &str) -> Option<&str> {
   name
     .strip_prefix(DEFAULT_REMOTE)
     .and_then(|rest| rest.strip_prefix('/'))
-    .unwrap_or(name)
+    .filter(|short| !short.is_empty())
 }
 
 fn remote_delete_message(kind: &str, name: &str) -> String {
   format!("Are you sure you want to delete remote {kind} \"{name}\"?\n\nThis cannot be undone.")
+}
+
+fn prompt_accepted(choice: usize) -> bool {
+  choice == 0
+}
+
+fn remote_delete_intent(listed_name: &str, accepted: bool) -> Option<Intent> {
+  if !accepted {
+    return None;
+  }
+  Some(Intent::DeleteRemoteBranch {
+    name: origin_branch_name(listed_name)?.to_string(),
+  })
+}
+
+fn remote_tag_intent(name: String, accepted: bool) -> Option<Intent> {
+  accepted.then_some(Intent::DeleteRemoteTag { name })
+}
+
+fn delete_local_branch_intent(name: String) -> Intent {
+  Intent::DeleteBranch {
+    name,
+    force: false,
+    confirmed: false,
+  }
+}
+
+fn rename_decision(old_name: &str, new_name: &str) -> Option<String> {
+  let new_name = new_name.trim();
+  if new_name.is_empty() || new_name == old_name {
+    None
+  } else {
+    Some(new_name.to_string())
+  }
 }
 
 fn menu_icon(item: &str) -> &'static str {
@@ -133,10 +179,47 @@ fn menu_icon(item: &str) -> &'static str {
   }
 }
 
+/// Close the overlay.
 pub enum BranchPickerEvent {
   Close,
 }
 
+#[derive(Clone, Default)]
+struct Derived {
+  branches: Vec<BranchRow>,
+  tags: Vec<TagEntry>,
+  create_branch: Option<String>,
+  create_tag: Option<String>,
+  query_empty: bool,
+}
+
+impl Derived {
+  fn build(branches: &[BranchEntry], tags: &[TagEntry], query: &str) -> Self {
+    let listed = branch_rows(branches, query);
+    let listed_tags = tag_rows(tags, query);
+    let branch_names: Vec<&str> = branches.iter().map(|branch| branch.name.as_str()).collect();
+    let tag_names: Vec<&str> = tags.iter().map(|tag| tag.name.as_str()).collect();
+    Self {
+      branches: listed,
+      tags: listed_tags,
+      create_branch: create_candidate(&branch_names, query),
+      create_tag: create_candidate(&tag_names, query),
+      query_empty: query.trim().is_empty(),
+    }
+  }
+}
+
+#[derive(Clone, Copy)]
+enum ListItem {
+  Branch(usize),
+  CreateBranch,
+  TagsHeader,
+  NoTags,
+  Tag(usize),
+  CreateTag,
+}
+
+/// Branch and tag switcher overlay opened from the status bar.
 pub struct BranchPicker {
   model: Entity<RepoModel>,
   search: Entity<InputState>,
@@ -144,29 +227,64 @@ pub struct BranchPicker {
   rename: Option<String>,
   rename_field: Option<Entity<InputState>>,
   rename_sub: Option<Subscription>,
+  derived: Arc<Derived>,
 }
 
 impl EventEmitter<BranchPickerEvent> for BranchPicker {}
 
 impl BranchPicker {
   pub fn new(model: Entity<RepoModel>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-    cx.observe(&model, |_, _, cx| cx.notify()).detach();
+    cx.observe(&model, |this, _, cx| {
+      this.refresh(cx);
+      cx.notify();
+    })
+    .detach();
     let search = cx.new(|cx| InputState::new(window, cx).placeholder("Switch to branch..."));
     search.update(cx, |state, cx| state.focus(window, cx));
-    cx.subscribe(&search, |_, _, event: &InputEvent, cx| {
+    cx.subscribe(&search, |this, _, event: &InputEvent, cx| {
       if matches!(event, InputEvent::Change) {
+        this.refresh(cx);
         cx.notify();
       }
     })
     .detach();
-    Self {
+    let mut this = Self {
       model,
       search,
       tags_open: false,
       rename: None,
       rename_field: None,
       rename_sub: None,
+      derived: Arc::new(Derived::default()),
+    };
+    this.refresh(cx);
+    this
+  }
+
+  fn refresh(&mut self, cx: &App) {
+    let query = self.search.read(cx).value().to_string();
+    let state = self.model.read(cx).state();
+    self.derived = Arc::new(Derived::build(&state.branches, &state.tags, &query));
+  }
+
+  fn list_items(&self) -> Vec<ListItem> {
+    let derived = self.derived.as_ref();
+    let mut items = Vec::with_capacity(derived.branches.len() + derived.tags.len() + 4);
+    items.extend((0..derived.branches.len()).map(ListItem::Branch));
+    if derived.create_branch.is_some() {
+      items.push(ListItem::CreateBranch);
     }
+    items.push(ListItem::TagsHeader);
+    if self.tags_open {
+      if derived.tags.is_empty() && derived.query_empty {
+        items.push(ListItem::NoTags);
+      }
+      items.extend((0..derived.tags.len()).map(ListItem::Tag));
+      if derived.create_tag.is_some() {
+        items.push(ListItem::CreateTag);
+      }
+    }
+    items
   }
 
   pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -175,10 +293,6 @@ impl BranchPicker {
 
   fn close(&mut self, cx: &mut Context<Self>) {
     cx.emit(BranchPickerEvent::Close);
-  }
-
-  fn query(&self, cx: &App) -> String {
-    self.search.read(cx).value().to_string()
   }
 
   fn send(&self, intent: Intent, window: &mut Window, cx: &mut Context<Self>) {
@@ -201,16 +315,8 @@ impl BranchPicker {
       self.save_rename(window, cx);
       return;
     }
-    let query = self.query(cx);
-    let name = {
-      let state = self.model.read(cx).state();
-      branch_rows(&state.branches, &query)
-        .into_iter()
-        .next()
-        .map(|row| row.name)
-    };
-    if let Some(name) = name {
-      self.send_and_close(Intent::CheckoutBranch { name }, window, cx);
+    if let Some(row) = self.derived.branches.first() {
+      self.send_and_close(Intent::CheckoutBranch { name: row.name.clone() }, window, cx);
     }
   }
 
@@ -244,6 +350,7 @@ impl BranchPicker {
       state.set_value("", window, cx);
       state.focus(window, cx);
     });
+    self.refresh(cx);
     cx.notify();
   }
 
@@ -294,20 +401,9 @@ impl BranchPicker {
       .unwrap_or_default();
     self.rename_field = None;
     self.rename_sub = None;
-    let new_name = new_name.trim();
-    if new_name.is_empty() || new_name == old_name {
-      self.search.update(cx, |state, cx| state.focus(window, cx));
-      cx.notify();
-      return;
+    if let Some(new_name) = rename_decision(&old_name, &new_name) {
+      self.send(Intent::RenameBranch { old_name, new_name }, window, cx);
     }
-    self.send(
-      Intent::RenameBranch {
-        old_name,
-        new_name: new_name.to_string(),
-      },
-      window,
-      cx,
-    );
     self.search.update(cx, |state, cx| state.focus(window, cx));
     cx.notify();
   }
@@ -319,38 +415,32 @@ impl BranchPicker {
       "Merge into Current Branch" => self.send_and_close(Intent::MergeBranch { name: row.name.clone() }, window, cx),
       "Rebase onto {name}" => self.send_and_close(Intent::RebaseBranch { name: row.name.clone() }, window, cx),
       "Rename Branch..." => self.start_rename(row.name.clone(), window, cx),
-      "Delete Branch" => self.send(
-        Intent::DeleteBranch {
-          name: row.name.clone(),
-          force: false,
-          confirmed: false,
-        },
-        window,
-        cx,
-      ),
+      "Delete Branch" => self.send(delete_local_branch_intent(row.name.clone()), window, cx),
       "Delete Remote Branch" => self.delete_remote_branch(row.name.clone(), window, cx),
       _ => {}
     }
   }
 
   fn delete_remote_branch(&self, name: String, window: &mut Window, cx: &mut Context<Self>) {
-    let message = remote_delete_message("branch", &name);
-    let short = remote_branch_name(&name).to_string();
+    if origin_branch_name(&name).is_none() {
+      return;
+    }
     self.prompt_remote_delete(
       "Delete Remote Branch",
-      message,
-      Intent::DeleteRemoteBranch { name: short },
+      remote_delete_message("branch", &name),
+      name,
+      true,
       window,
       cx,
     );
   }
 
   fn delete_remote_tag(&self, name: String, window: &mut Window, cx: &mut Context<Self>) {
-    let message = remote_delete_message("tag", &name);
     self.prompt_remote_delete(
       "Delete Remote Tag",
-      message,
-      Intent::DeleteRemoteTag { name: name.clone() },
+      remote_delete_message("tag", &name),
+      name,
+      false,
       window,
       cx,
     );
@@ -360,20 +450,26 @@ impl BranchPicker {
     &self,
     title: &'static str,
     message: String,
-    intent: Intent,
+    listed: String,
+    branch: bool,
     window: &mut Window,
     cx: &mut Context<Self>,
   ) {
     let answer = window.prompt(PromptLevel::Warning, title, Some(&message), &["Delete", "Cancel"], cx);
-    let model = self.model.clone();
     cx.spawn_in(window, async move |this, cx| {
-      if let Ok(0) = answer.await {
-        let _ = this.update_in(cx, |_, window, cx| {
-          model.update(cx, |model, cx| {
-            model.dispatch_network(NetworkOp::Push, intent, window, cx)
-          });
-        });
-      }
+      let Ok(choice) = answer.await else {
+        return;
+      };
+      let _ = this.update_in(cx, |this, window, cx| {
+        let intent = if branch {
+          remote_delete_intent(&listed, prompt_accepted(choice))
+        } else {
+          remote_tag_intent(listed, prompt_accepted(choice))
+        };
+        if let Some(intent) = intent {
+          this.send_network(intent, window, cx);
+        }
+      });
     })
     .detach();
   }
@@ -390,72 +486,29 @@ impl BranchPicker {
 impl Render for BranchPicker {
   fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let palette = cx.global::<ActivePalette>().0;
-    let query = self.query(cx);
-    let (branches, tags) = {
-      let state = self.model.read(cx).state();
-      (state.branches.clone(), state.tags.clone())
-    };
-    let rows = branch_rows(&branches, &query);
-    let listed_tags = tag_rows(&tags, &query);
-    let branch_names: Vec<&str> = branches.iter().map(|branch| branch.name.as_str()).collect();
-    let tag_names: Vec<&str> = tags.iter().map(|tag| tag.name.as_str()).collect();
-    let create_branch = create_candidate(&branch_names, &query);
-    let create_tag = create_candidate(&tag_names, &query);
+    let derived = self.derived.clone();
+    let items = Arc::new(self.list_items());
+    let count = items.len();
     let view = cx.weak_entity();
     let renaming = self.rename.clone();
     let rename_field = self.rename_field.clone();
     let tags_open = self.tags_open;
-
-    let mut list: Vec<AnyElement> = rows
-      .iter()
-      .map(|row| {
-        let editing = renaming.as_deref() == Some(row.name.as_str());
-        render_branch_row(row, editing, rename_field.clone(), view.clone(), palette)
-      })
-      .collect();
-
-    if let Some(name) = create_branch {
-      list.push(render_create_row(
-        "branch-picker-create-branch",
-        format!("Create branch: {name}"),
-        name,
-        view.clone(),
-        palette,
-        true,
-      ));
-    }
-
-    list.push(render_tags_header(listed_tags.len(), tags_open, view.clone(), palette));
-
-    if tags_open {
-      if listed_tags.is_empty() && query.trim().is_empty() {
-        list.push(
-          div()
-            .h(px(26.0))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .px_2()
-            .text_size(px(13.0))
-            .text_color(hsla(palette.muted_foreground))
-            .child("No tags")
-            .into_any_element(),
-        );
-      }
-      for tag in &listed_tags {
-        list.push(render_tag_row(tag, view.clone(), palette));
-      }
-      if let Some(name) = create_tag {
-        list.push(render_create_row(
-          "branch-picker-create-tag",
-          format!("Create tag: {name}"),
-          name,
-          view.clone(),
-          palette,
-          false,
-        ));
-      }
-    }
+    let list = uniform_list("branch-picker-list", count, move |range, _, _| {
+      range
+        .filter_map(|index| {
+          let item = *items.get(index)?;
+          Some(render_list_item(
+            item,
+            &derived,
+            tags_open,
+            renaming.as_deref(),
+            rename_field.clone(),
+            view.clone(),
+            palette,
+          ))
+        })
+        .collect()
+    });
 
     backdrop("branch-picker-backdrop", |_, _| {}, cx)
       .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close(cx)))
@@ -489,17 +542,60 @@ impl Render for BranchPicker {
               .border_color(hsla(palette.border))
               .child(Input::new(&self.search).appearance(false).h(px(32.0)).w_full()),
           )
-          .child(
-            div()
-              .id("branch-picker-list")
-              .flex_1()
-              .min_h_0()
-              .overflow_y_scroll()
-              .flex()
-              .flex_col()
-              .children(list),
-          ),
+          .child(list.flex_1().min_h_0()),
       )
+  }
+}
+
+fn render_list_item(
+  item: ListItem,
+  derived: &Derived,
+  tags_open: bool,
+  renaming: Option<&str>,
+  rename_field: Option<Entity<InputState>>,
+  view: WeakEntity<BranchPicker>,
+  palette: UiPalette,
+) -> AnyElement {
+  match item {
+    ListItem::Branch(index) => {
+      let row = &derived.branches[index];
+      let editing = renaming == Some(row.name.as_str());
+      render_branch_row(row, editing, rename_field, view, palette)
+    }
+    ListItem::CreateBranch => {
+      let name = derived.create_branch.clone().unwrap_or_default();
+      render_create_row(
+        "branch-picker-create-branch",
+        format!("Create branch: {name}"),
+        name,
+        view,
+        palette,
+        true,
+      )
+    }
+    ListItem::TagsHeader => render_tags_header(derived.tags.len(), tags_open, view, palette),
+    ListItem::NoTags => div()
+      .h(px(26.0))
+      .flex_shrink_0()
+      .flex()
+      .items_center()
+      .px_2()
+      .text_size(px(13.0))
+      .text_color(hsla(palette.muted_foreground))
+      .child("No tags")
+      .into_any_element(),
+    ListItem::Tag(index) => render_tag_row(&derived.tags[index], view, palette),
+    ListItem::CreateTag => {
+      let name = derived.create_tag.clone().unwrap_or_default();
+      render_create_row(
+        "branch-picker-create-tag",
+        format!("Create tag: {name}"),
+        name,
+        view,
+        palette,
+        false,
+      )
+    }
   }
 }
 
@@ -796,6 +892,7 @@ fn render_tag_row(tag: &TagEntry, view: WeakEntity<BranchPicker>, palette: UiPal
 mod tests {
   use super::*;
   use core::prelude::v1::test;
+  use deathpush_core::session::types::Intent;
 
   fn branch(name: &str, is_head: bool, is_remote: bool, ahead: usize, behind: usize) -> BranchEntry {
     BranchEntry {
@@ -877,5 +974,63 @@ mod tests {
       branch_menu_items(&row("origin/main", false, true)),
       ["Checkout", "Copy Branch Name", "Delete Remote Branch"]
     );
+    assert_eq!(
+      branch_menu_items(&row("upstream/topic", false, true)),
+      ["Checkout", "Copy Branch Name"]
+    );
+  }
+
+  #[test]
+  fn origin_remote_name_handling() {
+    assert_eq!(origin_branch_name("origin/main"), Some("main"));
+    assert_eq!(origin_branch_name("origin/feat/x"), Some("feat/x"));
+    assert_eq!(origin_branch_name("upstream/topic"), None);
+    assert_eq!(origin_branch_name("main"), None);
+    assert_eq!(origin_branch_name("origin"), None);
+    assert_eq!(origin_branch_name("origin/"), None);
+  }
+
+  #[test]
+  fn remote_confirmation_copy_matches_spec() {
+    assert_eq!(
+      remote_delete_message("branch", "origin/main"),
+      "Are you sure you want to delete remote branch \"origin/main\"?\n\nThis cannot be undone."
+    );
+    assert_eq!(
+      remote_delete_message("tag", "v1"),
+      "Are you sure you want to delete remote tag \"v1\"?\n\nThis cannot be undone."
+    );
+  }
+
+  #[test]
+  fn cancel_produces_no_remote_delete_intent() {
+    assert!(!prompt_accepted(1));
+    assert_eq!(remote_delete_intent("origin/main", false), None);
+    assert_eq!(remote_delete_intent("upstream/topic", true), None);
+    assert_eq!(
+      remote_delete_intent("origin/main", true),
+      Some(Intent::DeleteRemoteBranch { name: "main".into() })
+    );
+  }
+
+  #[test]
+  fn local_delete_is_not_forced() {
+    assert_eq!(
+      delete_local_branch_intent("feat".into()),
+      Intent::DeleteBranch {
+        name: "feat".into(),
+        force: false,
+        confirmed: false,
+      }
+    );
+  }
+
+  #[test]
+  fn empty_or_unchanged_rename_is_suppressed() {
+    assert_eq!(rename_decision("feat", ""), None);
+    assert_eq!(rename_decision("feat", "   "), None);
+    assert_eq!(rename_decision("feat", "feat"), None);
+    assert_eq!(rename_decision("feat", "  feat  "), None);
+    assert_eq!(rename_decision("feat", " topic ").as_deref(), Some("topic"));
   }
 }
