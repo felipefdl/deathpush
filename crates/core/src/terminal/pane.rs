@@ -91,6 +91,8 @@ pub enum PaneCommand {
   Bytes(Vec<u8>),
   /// Clipboard text written to the PTY, bracketed when the terminal has paste bracketing on.
   Paste(String),
+  /// Committed UTF-8 from IME or character input, written to the PTY without paste bracketing.
+  Text(String),
   /// Encode a key and write the result to the PTY.
   Key(KeyInput),
   /// Encode a mouse event when tracking is on.
@@ -394,6 +396,10 @@ impl PaneThread {
         self.handle_paste(text);
         CommandEffect::Clean
       }
+      PaneCommand::Text(text) => {
+        self.handle_text(text);
+        CommandEffect::Clean
+      }
       PaneCommand::Key(input) => {
         self.handle_key(input);
         CommandEffect::Clean
@@ -433,6 +439,15 @@ impl PaneThread {
         CommandEffect::Dirty
       }
     }
+  }
+
+  fn handle_text(&mut self, text: String) {
+    if text.is_empty() {
+      return;
+    }
+    self.pty_buf.clear();
+    self.pty_buf.extend_from_slice(text.as_bytes());
+    self.flush_pty();
   }
 
   fn handle_paste(&mut self, text: String) {
@@ -906,6 +921,28 @@ mod tests {
       assert_eq!(cell.fg, Some(Rgb(red.r, red.g, red.b)));
     }
     assert_eq!(snap.row_text(0), "red");
+  }
+
+  #[test]
+  fn text_writes_utf8_to_pty_without_brackets() {
+    let collected = Arc::new(Mutex::new(Vec::new()));
+    let writer_buf = Arc::clone(&collected);
+    let writer: PtyWriter = Box::new(move |bytes| writer_buf.lock().unwrap().extend(bytes));
+    let handle = PaneHandle::spawn(20, 4, None, writer, Box::new(|| {})).unwrap();
+    handle.push_bytes(b"\x1b[?2004h");
+    wait_snapshot(&handle, |snap| snap.seq > 0);
+    handle.send(PaneCommand::Text("é".into()));
+    let got = wait_bytes(&collected, |bytes| {
+      bytes.windows("é".len()).any(|w| w == "é".as_bytes())
+    });
+    assert!(
+      got.windows("é".len()).any(|w| w == "é".as_bytes()),
+      "expected utf-8 in {got:?}"
+    );
+    assert!(
+      !got.windows(6).any(|w| w == b"\x1b[200~"),
+      "text must not use bracketed paste"
+    );
   }
 
   #[test]

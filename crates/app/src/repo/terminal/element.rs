@@ -9,8 +9,11 @@ use gpui_kit::*;
 use super::pane_view::PaneView;
 use crate::config::AppConfig;
 use crate::theme::{ActivePalette, hsla};
-use crate::window::WindowRegistry;
 
+/// Paint settings resolved from app config and the active palette.
+///
+/// Font family, size, weights, line height, letter spacing, and saturation are cache-sensitive:
+/// changing any of them invalidates shaped glyph runs.
 #[derive(Clone)]
 pub struct TerminalPaint {
   pub family: SharedString,
@@ -29,11 +32,13 @@ pub struct TerminalPaint {
   pub background: Rgba,
 }
 
+/// Custom element that paints a [`PaneView`] snapshot and routes input.
 pub struct TerminalElement {
   pub view: Entity<PaneView>,
   pub settings: TerminalPaint,
 }
 
+/// Resolve [`TerminalPaint`] from the current app config and [`ActivePalette`].
 pub fn paint_from_app(cx: &App) -> TerminalPaint {
   let settings = &AppConfig::get(cx).settings.terminal;
   let palette = cx.global::<ActivePalette>().0;
@@ -60,6 +65,7 @@ pub fn paint_from_app(cx: &App) -> TerminalPaint {
   }
 }
 
+/// Scale an RGB color's HSL saturation by `factor`, clamped to `0..=1`.
 pub fn saturate(color: Rgba, factor: f32) -> Rgba {
   let (h, s, l) = rgb_to_hsl(color.r, color.g, color.b);
   let s = (s * factor).clamp(0.0, 1.0);
@@ -67,6 +73,7 @@ pub fn saturate(color: Rgba, factor: f32) -> Rgba {
   Rgba { r, g, b, a: color.a }
 }
 
+/// Cell size in pixels: width is the `M` advance plus `letter_spacing`, height is `size * line_height`.
 pub fn cell_size(window: &Window, family: &str, size: f32, line_height: f32, letter_spacing: f32) -> (Pixels, Pixels) {
   let font_size = px(size);
   let run = TextRun {
@@ -93,6 +100,7 @@ pub fn cell_size(window: &Window, family: &str, size: f32, line_height: f32, let
   (cell_w.max(px(1.0)), px((size * line_height).max(1.0)))
 }
 
+/// Convert a window point to a 0-based cell, clamped to `[0, cols)` × `[0, rows)`.
 pub fn cell_at(
   point: Point<Pixels>,
   origin: Point<Pixels>,
@@ -112,12 +120,49 @@ pub fn cell_at(
   )
 }
 
+/// Layout metrics from [`TerminalElement`] prepaint: hitbox, origin, cell size, and grid.
 pub struct PaintState {
   hitbox: Hitbox,
   origin: Point<Pixels>,
   cell: (Pixels, Pixels),
   cols: u16,
   rows: u16,
+}
+
+/// Cached shaped runs for one snapshot sequence and paint inputs.
+///
+/// Reused while the snapshot sequence and cache-sensitive paint settings are unchanged, so cursor
+/// blink and selection changes do not reshape. Nonzero letter-spacing still paints per cell.
+#[derive(Default)]
+pub struct PaintCache {
+  key: Option<PaintCacheKey>,
+  rows: Vec<CachedRow>,
+}
+
+#[derive(Clone, PartialEq)]
+struct PaintCacheKey {
+  seq: u64,
+  family: SharedString,
+  font_size: f32,
+  letter_spacing: f32,
+  saturation: f32,
+  weight: FontWeight,
+  weight_bold: FontWeight,
+  cell_w: f32,
+  cell_h: f32,
+  cols: u16,
+  rows: u16,
+}
+
+struct CachedRow {
+  runs: Vec<CachedRun>,
+}
+
+struct CachedRun {
+  start_x: u16,
+  cells: Vec<String>,
+  style: RunStyle,
+  line: Option<ShapedLine>,
 }
 
 impl IntoElement for TerminalElement {
@@ -172,25 +217,22 @@ impl Element for TerminalElement {
     );
     cell_w = cell_w.max(px(1.0));
     cell_h = cell_h.max(px(1.0));
-    let cols = ((bounds.size.width / cell_w).floor() as u16).max(1);
-    let rows = ((bounds.size.height / cell_h).floor() as u16).max(1);
     let cell_w_px = cell_w.as_f32().round().max(1.0) as u32;
     let cell_h_px = cell_h.as_f32().round().max(1.0) as u32;
-    self.view.update(cx, |this, cx| {
+    let schedule = self.view.update(cx, |this, _cx| {
       this.set_cell((cell_w, cell_h));
-      if this.needs_resize(cols, rows, cell_w_px, cell_h_px) {
-        this.remember_grid(cols, rows, cell_w_px, cell_h_px);
-        this.send(PaneCommand::Resize {
-          cols,
-          rows,
-          cell_w: cell_w_px,
-          cell_h: cell_h_px,
-        });
-        if let Some(core) = cx.try_global::<WindowRegistry>().and_then(|reg| reg.core.clone()) {
-          let _ = core.terminal_resize(this.id, cols, rows);
-        }
-      }
+      let Some((cols, rows)) = grid_from_bounds(bounds.size.width, bounds.size.height, cell_w, cell_h) else {
+        return false;
+      };
+      this.needs_resize(cols, rows, cell_w_px, cell_h_px) && this.queue_resize(cols, rows, cell_w_px, cell_h_px)
     });
+    if schedule {
+      let view = self.view.clone();
+      window.defer(cx, move |_window, cx| {
+        view.update(cx, |this, cx| this.flush_resize(cx));
+      });
+    }
+    let (cols, rows) = grid_from_bounds(bounds.size.width, bounds.size.height, cell_w, cell_h).unwrap_or((1, 1));
     PaintState {
       hitbox: window.insert_hitbox(bounds, HitboxBehavior::Normal),
       origin: bounds.origin,
@@ -228,7 +270,17 @@ impl Element for TerminalElement {
         prepaint.cell,
         window,
       );
-      paint_rows(snap, &settings, prepaint.origin, prepaint.cell, window, cx);
+      self.view.update(cx, |this, cx| {
+        paint_rows(
+          snap,
+          &settings,
+          prepaint.origin,
+          prepaint.cell,
+          this.paint_cache(),
+          window,
+          cx,
+        );
+      });
       paint_cursor(
         snap,
         &settings,
@@ -240,6 +292,9 @@ impl Element for TerminalElement {
         window,
         cx,
       );
+      if let Some(marked) = self.view.read(cx).marked_text().map(str::to_string) {
+        paint_marked(&marked, snap, &settings, prepaint.origin, prepaint.cell, window, cx);
+      }
     }
 
     let view = self.view.clone();
@@ -250,6 +305,11 @@ impl Element for TerminalElement {
     let rows = prepaint.rows;
     let focused = view.read(cx).focus_handle().is_focused(window);
     if focused {
+      window.handle_input(
+        view.read(cx).focus_handle(),
+        ElementInputHandler::new(bounds, view.clone()),
+        cx,
+      );
       window.on_key_event({
         let view = view.clone();
         move |event: &KeyDownEvent, phase, _window, cx| {
@@ -280,7 +340,7 @@ impl Element for TerminalElement {
       let view = view.clone();
       let hitbox = hitbox.clone();
       move |event: &MouseMoveEvent, phase, window, cx| {
-        if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
+        if phase == DispatchPhase::Bubble && (hitbox.is_hovered(window) || view.read(cx).mouse_captured()) {
           on_mouse_move(&view, event, origin, cell, cols, rows, cx);
         }
       }
@@ -289,7 +349,7 @@ impl Element for TerminalElement {
       let view = view.clone();
       let hitbox = hitbox.clone();
       move |event: &MouseUpEvent, phase, window, cx| {
-        if phase == DispatchPhase::Bubble && (hitbox.is_hovered(window) || view.read(cx).dragging()) {
+        if phase == DispatchPhase::Bubble && (hitbox.is_hovered(window) || view.read(cx).mouse_captured()) {
           on_mouse_up(&view, event, origin, cell, cols, rows, cx);
         }
       }
@@ -303,6 +363,31 @@ impl Element for TerminalElement {
       }
     });
   }
+}
+
+/// Grid size for a pane bound. `None` when the bound has no area.
+pub fn grid_from_bounds(width: Pixels, height: Pixels, cell_w: Pixels, cell_h: Pixels) -> Option<(u16, u16)> {
+  if width <= Pixels::ZERO || height <= Pixels::ZERO {
+    return None;
+  }
+  Some((
+    ((width / cell_w.max(px(1.0))).floor() as u16).max(1),
+    ((height / cell_h.max(px(1.0))).floor() as u16).max(1),
+  ))
+}
+
+/// Clamp one selection anchor to the last valid column and row of `cols`×`rows`.
+pub fn clamp_sel_anchor(cell: (u16, u16), cols: u16, rows: u16) -> (u16, u16) {
+  (cell.0.min(cols.saturating_sub(1)), cell.1.min(rows.saturating_sub(1)))
+}
+
+/// Clamp both selection endpoints when the grid shrinks.
+pub fn clamp_selection(
+  selection: Option<((u16, u16), (u16, u16))>,
+  cols: u16,
+  rows: u16,
+) -> Option<((u16, u16), (u16, u16))> {
+  selection.map(|(start, end)| (clamp_sel_anchor(start, cols, rows), clamp_sel_anchor(end, cols, rows)))
 }
 
 fn paint_cells(
@@ -368,24 +453,121 @@ struct RowRun {
   style: RunStyle,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_rows(
   snap: &PaneSnapshot,
   settings: &TerminalPaint,
   origin: Point<Pixels>,
   cell: (Pixels, Pixels),
+  cache: &mut PaintCache,
   window: &mut Window,
   cx: &mut App,
 ) {
+  rebuild_cache(cache, snap, settings, cell, window);
   let font_size = px(settings.font_size);
   let spaced = settings.letter_spacing != 0.0;
-  for y in 0..snap.rows {
-    let y_pos = origin.y + cell.1 * usize::from(y);
-    for run in row_runs(snap, y, settings) {
-      paint_run(
+  for (y, row) in cache.rows.iter().enumerate() {
+    let y_pos = origin.y + cell.1 * y;
+    for run in &row.runs {
+      paint_cached_run(
         run, origin.x, y_pos, cell.0, cell.1, font_size, spaced, settings, window, cx,
       );
     }
   }
+}
+
+fn cache_key(snap: &PaneSnapshot, settings: &TerminalPaint, cell: (Pixels, Pixels)) -> PaintCacheKey {
+  PaintCacheKey {
+    seq: snap.seq,
+    family: settings.family.clone(),
+    font_size: settings.font_size,
+    letter_spacing: settings.letter_spacing,
+    saturation: settings.saturation,
+    weight: settings.weight,
+    weight_bold: settings.weight_bold,
+    cell_w: cell.0.as_f32(),
+    cell_h: cell.1.as_f32(),
+    cols: snap.cols,
+    rows: snap.rows,
+  }
+}
+
+fn rebuild_cache(
+  cache: &mut PaintCache,
+  snap: &PaneSnapshot,
+  settings: &TerminalPaint,
+  cell: (Pixels, Pixels),
+  window: &Window,
+) {
+  let key = cache_key(snap, settings, cell);
+  if cache.key.as_ref() == Some(&key) {
+    return;
+  }
+  let spaced = settings.letter_spacing != 0.0;
+  let font_size = px(settings.font_size);
+  let mut rows = Vec::with_capacity(usize::from(snap.rows));
+  for y in 0..snap.rows {
+    let mut runs = Vec::new();
+    for run in row_runs(snap, y, settings) {
+      let line = if spaced || run.cells.iter().all(String::is_empty) {
+        None
+      } else {
+        let text = run.cells.concat();
+        if text.is_empty() {
+          None
+        } else {
+          let shaped = text_run(text.len(), run.style, settings);
+          Some(window.text_system().shape_line(text.into(), font_size, &[shaped], None))
+        }
+      };
+      runs.push(CachedRun {
+        start_x: run.start_x,
+        cells: run.cells,
+        style: run.style,
+        line,
+      });
+    }
+    rows.push(CachedRow { runs });
+  }
+  cache.key = Some(key);
+  cache.rows = rows;
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_cached_run(
+  run: &CachedRun,
+  origin_x: Pixels,
+  y_pos: Pixels,
+  cell_w: Pixels,
+  cell_h: Pixels,
+  font_size: Pixels,
+  spaced: bool,
+  settings: &TerminalPaint,
+  window: &mut Window,
+  cx: &mut App,
+) {
+  if run.cells.iter().all(|text| text.is_empty()) {
+    return;
+  }
+  if spaced {
+    for (index, text) in run.cells.iter().enumerate() {
+      if text.is_empty() {
+        continue;
+      }
+      let shaped = text_run(text.len(), run.style, settings);
+      let line = window
+        .text_system()
+        .shape_line(text.clone().into(), font_size, &[shaped], None);
+      let pos = point(origin_x + cell_w * (usize::from(run.start_x) + index), y_pos);
+      let _ = line.paint(pos, cell_h, TextAlign::Left, None, window, cx);
+    }
+    return;
+  }
+  let Some(line) = run.line.as_ref() else {
+    return;
+  };
+  let pos = point(origin_x + cell_w * usize::from(run.start_x), y_pos);
+  let _ = line.paint(pos, cell_h, TextAlign::Left, None, window, cx);
 }
 
 fn row_runs(snap: &PaneSnapshot, y: u16, settings: &TerminalPaint) -> Vec<RowRun> {
@@ -419,44 +601,38 @@ fn row_runs(snap: &PaneSnapshot, y: u16, settings: &TerminalPaint) -> Vec<RowRun
   runs
 }
 
-#[allow(clippy::too_many_arguments)]
-fn paint_run(
-  run: RowRun,
-  origin_x: Pixels,
-  y_pos: Pixels,
-  cell_w: Pixels,
-  cell_h: Pixels,
-  font_size: Pixels,
-  spaced: bool,
+fn paint_marked(
+  text: &str,
+  snap: &PaneSnapshot,
   settings: &TerminalPaint,
+  origin: Point<Pixels>,
+  cell: (Pixels, Pixels),
   window: &mut Window,
   cx: &mut App,
 ) {
-  if run.cells.iter().all(|text| text.is_empty()) {
-    return;
-  }
-  if spaced {
-    for (index, text) in run.cells.iter().enumerate() {
-      if text.is_empty() {
-        continue;
-      }
-      let shaped = text_run(text.len(), run.style, settings);
-      let line = window
-        .text_system()
-        .shape_line(text.clone().into(), font_size, &[shaped], None);
-      let pos = point(origin_x + cell_w * (usize::from(run.start_x) + index), y_pos);
-      let _ = line.paint(pos, cell_h, TextAlign::Left, None, window, cx);
-    }
-    return;
-  }
-  let text = run.cells.concat();
   if text.is_empty() {
     return;
   }
-  let shaped = text_run(text.len(), run.style, settings);
-  let line = window.text_system().shape_line(text.into(), font_size, &[shaped], None);
-  let pos = point(origin_x + cell_w * usize::from(run.start_x), y_pos);
-  let _ = line.paint(pos, cell_h, TextAlign::Left, None, window, cx);
+  let Some(cursor) = snap.cursor.as_ref() else {
+    return;
+  };
+  let style = RunStyle {
+    fg: paint_rgb(snap.foreground, settings.saturation),
+    bg: paint_rgb(snap.background, settings.saturation),
+    bold: false,
+    italic: false,
+    underline: true,
+    strikethrough: false,
+  };
+  let run = text_run(text.len(), style, settings);
+  let line = window
+    .text_system()
+    .shape_line(text.to_string().into(), px(settings.font_size), &[run], None);
+  let pos = point(
+    origin.x + cell.0 * usize::from(cursor.x),
+    origin.y + cell.1 * usize::from(cursor.y),
+  );
+  let _ = line.paint(pos, cell.1, TextAlign::Left, None, window, cx);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -632,7 +808,7 @@ fn reading_pos(cell: (u16, u16)) -> u32 {
   (u32::from(cell.1) << 16) | u32::from(cell.0)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum KeyRoute {
   Ignore,
   Paste,
@@ -665,6 +841,58 @@ fn classify_key(keystroke: &Keystroke) -> KeyRoute {
   }
 }
 
+/// Printable unmodified keys go through the IME input handler; named keys and chords stay on the key path.
+pub fn key_uses_ime(keystroke: &Keystroke) -> bool {
+  let mods = &keystroke.modifiers;
+  if mods.control || mods.alt || mods.platform || mods.function {
+    return false;
+  }
+  if keystroke.key_char.as_deref().is_none_or(str::is_empty) {
+    return false;
+  }
+  !matches!(
+    keystroke.key.as_str(),
+    "enter"
+      | "tab"
+      | "escape"
+      | "backspace"
+      | "delete"
+      | "up"
+      | "down"
+      | "left"
+      | "right"
+      | "home"
+      | "end"
+      | "pageup"
+      | "pagedown"
+      | "insert"
+      | "f1"
+      | "f2"
+      | "f3"
+      | "f4"
+      | "f5"
+      | "f6"
+      | "f7"
+      | "f8"
+      | "f9"
+      | "f10"
+      | "f11"
+      | "f12"
+      | "f13"
+      | "f14"
+      | "f15"
+      | "f16"
+      | "f17"
+      | "f18"
+      | "f19"
+      | "f20"
+      | "f21"
+      | "f22"
+      | "f23"
+      | "f24"
+  )
+}
+
 fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mut App) {
   match classify_key(&event.keystroke) {
     KeyRoute::Ignore => {}
@@ -682,7 +910,7 @@ fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mut App) {
         if copied {
           this.note_copy_consumed(event.keystroke.key.clone());
         } else {
-          this.note_sent_key(event.keystroke.key.clone());
+          this.note_sent_key(event.keystroke.key.clone(), mods_from(&event.keystroke.modifiers));
         }
       });
       if !copied {
@@ -691,7 +919,13 @@ fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mut App) {
       cx.stop_propagation();
     }
     KeyRoute::Send => {
-      view.update(cx, |this, _| this.note_sent_key(event.keystroke.key.clone()));
+      if key_uses_ime(&event.keystroke) {
+        cx.stop_propagation();
+        return;
+      }
+      view.update(cx, |this, _| {
+        this.note_sent_key(event.keystroke.key.clone(), mods_from(&event.keystroke.modifiers));
+      });
       send_key(view, &event.keystroke, true, cx);
       cx.stop_propagation();
     }
@@ -732,6 +966,15 @@ fn send_key(view: &Entity<PaneView>, keystroke: &Keystroke, press: bool, cx: &mu
   });
 }
 
+fn tracking_button(button: MouseButton) -> Option<TermMouse> {
+  match button {
+    MouseButton::Left => Some(TermMouse::Left),
+    MouseButton::Right => Some(TermMouse::Right),
+    MouseButton::Middle => Some(TermMouse::Middle),
+    _ => None,
+  }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn on_mouse_down(
   view: &Entity<PaneView>,
@@ -751,6 +994,7 @@ fn on_mouse_down(
     match event.button {
       MouseButton::Left => {
         if tracking && !force_sel {
+          this.set_forwarded_button(Some(TermMouse::Left));
           this.send(PaneCommand::Mouse(MouseInput {
             action: MouseAction::Press,
             button: Some(TermMouse::Left),
@@ -764,6 +1008,7 @@ fn on_mouse_down(
       }
       MouseButton::Right => {
         if tracking && !force_sel {
+          this.set_forwarded_button(Some(TermMouse::Right));
           this.send(PaneCommand::Mouse(MouseInput {
             action: MouseAction::Press,
             button: Some(TermMouse::Right),
@@ -776,6 +1021,7 @@ fn on_mouse_down(
         }
       }
       MouseButton::Middle if tracking => {
+        this.set_forwarded_button(Some(TermMouse::Middle));
         this.send(PaneCommand::Mouse(MouseInput {
           action: MouseAction::Press,
           button: Some(TermMouse::Middle),
@@ -803,15 +1049,18 @@ fn on_mouse_move(
   view.update(cx, |this, cx| {
     if this.dragging() {
       this.extend_selection((x, y), cx);
+    } else if let Some(button) = this.forwarded_button() {
+      this.send(PaneCommand::Mouse(MouseInput {
+        action: MouseAction::Motion,
+        button: Some(button),
+        x,
+        y,
+        mods: mods_from(&event.modifiers),
+      }));
     } else if this.mouse_tracking() {
       this.send(PaneCommand::Mouse(MouseInput {
         action: MouseAction::Motion,
-        button: match event.pressed_button {
-          Some(MouseButton::Left) => Some(TermMouse::Left),
-          Some(MouseButton::Right) => Some(TermMouse::Right),
-          Some(MouseButton::Middle) => Some(TermMouse::Middle),
-          _ => None,
-        },
+        button: event.pressed_button.and_then(tracking_button),
         x,
         y,
         mods: mods_from(&event.modifiers),
@@ -836,22 +1085,55 @@ fn on_mouse_up(
       if AppConfig::get(cx).settings.terminal.copy_on_select {
         this.copy_selection(cx);
       }
-    } else if this.mouse_tracking() {
-      let button = match event.button {
-        MouseButton::Left => Some(TermMouse::Left),
-        MouseButton::Right => Some(TermMouse::Right),
-        MouseButton::Middle => Some(TermMouse::Middle),
-        _ => None,
-      };
+    } else if this.forwarded_button().is_some() {
       this.send(PaneCommand::Mouse(MouseInput {
         action: MouseAction::Release,
-        button,
+        button: tracking_button(event.button),
         x,
         y,
         mods: mods_from(&event.modifiers),
       }));
+      this.set_forwarded_button(None);
     }
   });
+}
+
+/// Convert a GPUI scroll delta into whole cell lines, accumulating sub-cell remainders.
+///
+/// Positive GPUI vertical delta is toward the top of the view.
+pub fn wheel_lines(delta: ScrollDelta, cell_h: f32, accum: &mut f32) -> isize {
+  let add = match delta {
+    ScrollDelta::Lines(delta) => delta.y,
+    ScrollDelta::Pixels(delta) => delta.y.as_f32() / cell_h.max(1.0),
+  };
+  *accum += add;
+  let lines = accum.trunc() as isize;
+  *accum -= lines as f32;
+  lines
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WheelCommand {
+  Scroll(isize),
+  Track { button: TermMouse, count: u32 },
+}
+
+fn wheel_command(gpui_lines: isize, tracking: bool) -> Option<WheelCommand> {
+  if gpui_lines == 0 {
+    return None;
+  }
+  if tracking {
+    Some(WheelCommand::Track {
+      button: if gpui_lines > 0 {
+        TermMouse::WheelUp
+      } else {
+        TermMouse::WheelDown
+      },
+      count: gpui_lines.unsigned_abs() as u32,
+    })
+  } else {
+    Some(WheelCommand::Scroll(-gpui_lines))
+  }
 }
 
 fn on_scroll(
@@ -863,33 +1145,25 @@ fn on_scroll(
   rows: u16,
   cx: &mut App,
 ) {
-  let dy = match event.delta {
-    ScrollDelta::Lines(delta) => delta.y.round() as isize,
-    ScrollDelta::Pixels(delta) => {
-      let height = cell.1.as_f32().max(1.0);
-      (delta.y.as_f32() / height).round() as isize
-    }
-  };
-  if dy == 0 {
+  let gpui_lines = view.update(cx, |this, _| {
+    wheel_lines(event.delta, cell.1.as_f32(), this.wheel_accum())
+  });
+  let Some(command) = wheel_command(gpui_lines, view.read(cx).mouse_tracking()) else {
     return;
-  }
+  };
   let (x, y) = cell_at(event.position, origin, cell, cols, rows);
-  view.update(cx, |this, _| {
-    if this.mouse_tracking() {
-      let button = if dy < 0 {
-        TermMouse::WheelUp
-      } else {
-        TermMouse::WheelDown
-      };
-      this.send(PaneCommand::Mouse(MouseInput {
-        action: MouseAction::Press,
-        button: Some(button),
-        x,
-        y,
-        mods: mods_from(&event.modifiers),
-      }));
-    } else {
-      this.send(PaneCommand::Scroll(dy));
+  view.update(cx, |this, _| match command {
+    WheelCommand::Scroll(delta) => this.send(PaneCommand::Scroll(delta)),
+    WheelCommand::Track { button, count } => {
+      for _ in 0..count {
+        this.send(PaneCommand::Mouse(MouseInput {
+          action: MouseAction::Press,
+          button: Some(button),
+          x,
+          y,
+          mods: mods_from(&event.modifiers),
+        }));
+      }
     }
   });
   cx.stop_propagation();
@@ -980,6 +1254,14 @@ mod tests {
     }
   }
 
+  fn keystroke(key: &str, key_char: Option<&str>, modifiers: Modifiers) -> Keystroke {
+    Keystroke {
+      key: key.into(),
+      key_char: key_char.map(str::to_string),
+      modifiers,
+    }
+  }
+
   #[test]
   fn saturate_scales_saturation_and_clamps() {
     let red = Rgba::rgb(255, 0, 0);
@@ -1004,6 +1286,95 @@ mod tests {
       (79, 23)
     );
     assert_eq!(cell_at(point(px(10.0), px(20.0)), origin, cell, 0, 0), (0, 0));
+  }
+
+  #[test]
+  fn resize_skips_zero_size_bounds() {
+    assert_eq!(grid_from_bounds(px(0.0), px(100.0), px(8.0), px(16.0)), None);
+    assert_eq!(grid_from_bounds(px(80.0), px(0.0), px(8.0), px(16.0)), None);
+    assert_eq!(grid_from_bounds(px(80.0), px(48.0), px(8.0), px(16.0)), Some((10, 3)));
+  }
+
+  #[test]
+  fn wheel_converts_both_directions_and_tracking_modes() {
+    assert_eq!(wheel_command(3, false), Some(WheelCommand::Scroll(-3)));
+    assert_eq!(wheel_command(-2, false), Some(WheelCommand::Scroll(2)));
+    assert_eq!(
+      wheel_command(3, true),
+      Some(WheelCommand::Track {
+        button: TermMouse::WheelUp,
+        count: 3
+      })
+    );
+    assert_eq!(
+      wheel_command(-2, true),
+      Some(WheelCommand::Track {
+        button: TermMouse::WheelDown,
+        count: 2
+      })
+    );
+    assert_eq!(wheel_command(0, false), None);
+
+    let mut accum = 0.0;
+    assert_eq!(
+      wheel_lines(ScrollDelta::Pixels(point(px(0.0), px(8.0))), 16.0, &mut accum),
+      0
+    );
+    assert_eq!(accum, 0.5);
+    assert_eq!(
+      wheel_lines(ScrollDelta::Pixels(point(px(0.0), px(8.0))), 16.0, &mut accum),
+      1
+    );
+    assert_eq!(accum, 0.0);
+
+    let mut accum = 0.0;
+    assert_eq!(
+      wheel_lines(ScrollDelta::Pixels(point(px(0.0), px(-40.0))), 16.0, &mut accum),
+      -2
+    );
+    assert!((accum + 0.5).abs() < f32::EPSILON);
+
+    let mut accum = 0.0;
+    assert_eq!(wheel_lines(ScrollDelta::Lines(point(0.0, 2.7)), 16.0, &mut accum), 2);
+    assert!((accum - 0.7).abs() < 1e-5);
+    assert_eq!(wheel_lines(ScrollDelta::Lines(point(0.0, -0.2)), 16.0, &mut accum), 0);
+  }
+
+  #[test]
+  fn printable_keys_use_ime_named_and_chords_use_key_path() {
+    assert!(key_uses_ime(&keystroke("a", Some("a"), Modifiers::default())));
+    assert!(key_uses_ime(&keystroke(
+      "a",
+      Some("A"),
+      Modifiers {
+        shift: true,
+        ..Modifiers::default()
+      }
+    )));
+    assert!(key_uses_ime(&keystroke("space", Some(" "), Modifiers::default())));
+    assert!(!key_uses_ime(&keystroke("enter", Some("\n"), Modifiers::default())));
+    assert!(!key_uses_ime(&keystroke("tab", Some("\t"), Modifiers::default())));
+    assert!(!key_uses_ime(&keystroke("up", None, Modifiers::default())));
+    assert!(!key_uses_ime(&keystroke(
+      "c",
+      None,
+      Modifiers {
+        control: true,
+        ..Modifiers::default()
+      }
+    )));
+    assert!(!key_uses_ime(&keystroke(
+      "v",
+      None,
+      Modifiers {
+        platform: true,
+        ..Modifiers::default()
+      }
+    )));
+    assert_eq!(
+      classify_key(&keystroke("enter", None, Modifiers::default())),
+      KeyRoute::Send
+    );
   }
 
   #[gpui_kit::test]
