@@ -31,6 +31,7 @@ pub enum Overlay {
   Licenses(Entity<crate::overlays::licenses::LicensesDialog>),
   QuickOpen(Entity<crate::overlays::quick_open::QuickOpen>),
   BranchPicker(Entity<crate::overlays::branch_picker::BranchPicker>),
+  ThemePicker(Entity<crate::overlays::theme_picker::ThemePicker>),
 }
 
 pub struct Shell {
@@ -449,6 +450,23 @@ impl Shell {
     self.set_overlay(Some(Overlay::BranchPicker(overlay)), window, cx);
   }
 
+  pub fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    if let Some(Overlay::ThemePicker(view)) = &self.overlay {
+      view.update(cx, |view, cx| view.focus(window, cx));
+      return;
+    }
+    let overlay = cx.new(|cx| crate::overlays::theme_picker::ThemePicker::new(window, cx));
+    cx.subscribe_in(
+      &overlay,
+      window,
+      |this, _, _: &crate::overlays::theme_picker::ThemePickerEvent, window, cx| {
+        this.set_overlay(None, window, cx);
+      },
+    )
+    .detach();
+    self.set_overlay(Some(Overlay::ThemePicker(overlay)), window, cx);
+  }
+
   pub fn open_licenses(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     let dialog = cx.new(crate::overlays::licenses::LicensesDialog::new);
     dialog.update(cx, |dialog, cx| dialog.focus(window, cx));
@@ -542,6 +560,7 @@ impl Render for Shell {
       Some(Overlay::Licenses(view)) => Some(view.clone().into_any_element()),
       Some(Overlay::QuickOpen(view)) => Some(view.clone().into_any_element()),
       Some(Overlay::BranchPicker(view)) => Some(view.clone().into_any_element()),
+      Some(Overlay::ThemePicker(view)) => Some(view.clone().into_any_element()),
     };
     div()
       .key_context(key_context.as_str())
@@ -575,6 +594,7 @@ impl Render for Shell {
       .on_action(cx.listener(|_, _: &ZoomOut, _, cx| zoom::set_zoom_level(zoom::current_level(cx) - 1, cx)))
       .on_action(cx.listener(|_, _: &ZoomReset, _, cx| zoom::set_zoom_level(0, cx)))
       .on_action(cx.listener(|this, _: &QuickOpen, window, cx| this.open_quick_open(window, cx)))
+      .on_action(cx.listener(|this, _: &ColorTheme, window, cx| this.open_theme_picker(window, cx)))
       .on_action(cx.listener(|this, _: &ShowBranchPicker, window, cx| this.open_branch_picker(window, cx)))
       .on_action(cx.listener(|this, _: &OpenLicenses, window, cx| this.open_licenses(window, cx)))
       .on_action(cx.listener(|this, _: &ConfigureWorkspace, window, cx| this.open_workspace_settings(window, cx)))
@@ -752,6 +772,31 @@ mod tests {
         shell.mount_repository(snapshot(config_dir.path().to_str().unwrap()), window, cx);
         shell.open_branch_picker(window, cx);
         assert!(matches!(shell.overlay, Some(Overlay::BranchPicker(_))));
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn theme_picker_opens_on_any_screen(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    window
+      .update(cx, |shell, window, cx| {
+        shell.open_theme_picker(window, cx);
+        assert!(matches!(shell.overlay, Some(Overlay::ThemePicker(_))));
+        shell.open_theme_picker(window, cx);
+        assert!(matches!(shell.overlay, Some(Overlay::ThemePicker(_))));
+        shell.set_overlay(None, window, cx);
+        shell.mount_repository(snapshot(config_dir.path().to_str().unwrap()), window, cx);
+        shell.open_theme_picker(window, cx);
+        assert!(matches!(shell.overlay, Some(Overlay::ThemePicker(_))));
       })
       .unwrap();
   }

@@ -4,4 +4,5 @@ pub mod frame;
 pub mod licenses;
 pub mod opening;
 pub mod quick_open;
+pub mod theme_picker;
 pub mod workspace_settings;

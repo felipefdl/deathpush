@@ -20,7 +20,6 @@ pub struct ThemeEntry {
 
 /// Every bundled theme, parsed once.
 pub struct ThemeCatalog {
-  #[allow(dead_code)]
   pub entries: Vec<ThemeEntry>,
   specs: HashMap<String, Arc<ThemeSpec>>,
   palettes: HashMap<String, UiPalette>,
@@ -239,8 +238,7 @@ fn resolve_id(catalog: &ThemeCatalog, id: &str, wanted: ThemeKind) -> String {
   }
 }
 
-/// Switch gpui-component and our palette to `id`. Unknown ids fall back to the default of their kind.
-pub fn apply_theme(id: &str, wanted: ThemeKind, window: Option<&mut Window>, cx: &mut App) {
+fn apply_visual(id: &str, wanted: ThemeKind, window: Option<&mut Window>, cx: &mut App) -> String {
   let catalog = ThemeCatalog::get(cx);
   let id = resolve_id(catalog, id, wanted);
   let kind = catalog.kind(&id).unwrap_or(ThemeKind::Dark);
@@ -268,7 +266,36 @@ pub fn apply_theme(id: &str, wanted: ThemeKind, window: Option<&mut Window>, cx:
     cx,
   );
   cx.set_global(ActivePalette(palette));
+  id
+}
+
+/// Switch gpui-component and our palette to `id`. Unknown ids fall back to the default of their kind.
+pub fn apply_theme(id: &str, wanted: ThemeKind, window: Option<&mut Window>, cx: &mut App) {
+  let id = apply_visual(id, wanted, window, cx);
   AppConfig::update(cx, |c| c.settings.theme.current = id);
+}
+
+/// Apply `id` without writing settings.
+pub fn preview_theme(id: &str, window: &mut Window, cx: &mut App) {
+  let wanted = ThemeCatalog::get(cx).kind(id).unwrap_or(ThemeKind::Dark);
+  apply_visual(id, wanted, Some(window), cx);
+}
+
+/// Save `current` and the preferred theme of `id`'s kind.
+pub fn commit_theme(id: &str, cx: &mut App) {
+  let catalog = ThemeCatalog::get(cx);
+  let wanted = catalog.kind(id).unwrap_or(ThemeKind::Dark);
+  let id = resolve_id(catalog, id, wanted);
+  let kind = catalog.kind(&id).unwrap_or(wanted);
+  AppConfig::update(cx, |c| {
+    crate::overlays::theme_picker::preferred_update(kind, &id, &mut c.settings.theme)
+  });
+}
+
+/// Apply the theme that was current when the picker opened, without writing settings.
+pub fn restore_theme(original_id: &str, window: &mut Window, cx: &mut App) {
+  let wanted = ThemeCatalog::get(cx).kind(original_id).unwrap_or(ThemeKind::Dark);
+  apply_visual(original_id, wanted, Some(window), cx);
 }
 
 /// The preferred theme for the OS appearance.
@@ -343,6 +370,22 @@ mod tests {
       apply_theme("ayu-light", ThemeKind::Light, None, cx);
       assert_eq!(Theme::global(cx).mode, ThemeMode::Light);
       assert_eq!(cx.global::<ActivePalette>().0.kind, ThemeKind::Light);
+    });
+  }
+
+  #[gpui_kit::test]
+  fn commit_theme_saves_current_and_preferred_kind(cx: &mut TestAppContext) {
+    let dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(dir.path().to_path_buf(), cx);
+      init(cx);
+      let preferred_dark = AppConfig::get(cx).settings.theme.preferred_dark.clone();
+      commit_theme("ayu-light", cx);
+      let theme = &AppConfig::get(cx).settings.theme;
+      assert_eq!(theme.current, "ayu-light");
+      assert_eq!(theme.preferred_light, "ayu-light");
+      assert_eq!(theme.preferred_dark, preferred_dark);
     });
   }
 }

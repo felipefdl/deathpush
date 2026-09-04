@@ -300,6 +300,20 @@ mod tests {
   }
 
   #[test]
+  fn color_theme_chord_binds_in_app_context() {
+    for (mac, primary) in [(true, "cmd"), (false, "ctrl")] {
+      let rows = binding_table(mac);
+      let key = format!("{primary}-k {primary}-t");
+      assert!(
+        rows
+          .iter()
+          .any(|(keys, name, ctx)| keys == &key && *name == "ColorTheme" && *ctx == Some(CONTEXT_APP)),
+        "{key} -> ColorTheme in DeathPush"
+      );
+    }
+  }
+
+  #[test]
   fn welcome_list_keys_bind_inside_the_input_context() {
     let rows = binding_table(true);
     let context = Some(CONTEXT_WELCOME_LIST_INPUT);
