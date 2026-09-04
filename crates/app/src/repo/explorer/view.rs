@@ -196,10 +196,14 @@ impl ExplorerView {
     if self.edit_for == edit && self.edit_field.is_some() == edit.is_some() {
       return;
     }
+    let had_field = self.edit_field.is_some();
     self.edit_for = edit.clone();
     self.edit_field = None;
     self.edit_sub = None;
     let Some(edit) = edit else {
+      if had_field {
+        self.focus_tree(window, cx);
+      }
       return;
     };
     let name = match &edit {
@@ -242,18 +246,25 @@ impl ExplorerView {
           cx.emit(ExplorerEvent::Toast("Invalid file name".into()));
         });
       } else {
-        self.stop_edit(cx);
+        self.stop_edit(window, cx);
       }
       return;
     }
+    self.edit_sub = None;
     self.model.update(cx, |model, cx| model.commit_edit(name, window, cx));
   }
 
-  fn stop_edit(&mut self, cx: &mut Context<Self>) {
+  fn stop_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     self.edit_field = None;
     self.edit_sub = None;
     self.edit_for = None;
     self.model.update(cx, |model, cx| model.cancel_edit(cx));
+    self.focus_tree(window, cx);
+  }
+
+  fn focus_tree(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    self.tree.update(cx, |tree, cx| tree.focus(window, cx));
+    cx.defer_in(window, |this, window, cx| this.capture_tree_focus(window, cx));
   }
 
   pub(crate) fn on_item_menu(
@@ -589,9 +600,9 @@ impl Render for ExplorerView {
         this.model.update(cx, |model, cx| model.mark(ClipboardOp::Copy, cx));
       }))
       .on_action(cx.listener(|this, _: &ExplorerPaste, window, cx| this.paste_keyboard(window, cx)))
-      .on_action(cx.listener(|this, _: &Cancel, _, cx| {
+      .on_action(cx.listener(|this, _: &Cancel, window, cx| {
         if this.edit_field.is_some() {
-          this.stop_edit(cx);
+          this.stop_edit(window, cx);
         }
       }));
 

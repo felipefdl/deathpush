@@ -241,7 +241,9 @@ impl ExplorerModel {
   }
 
   pub fn begin_create(&mut self, parent: &str, is_directory: bool, cx: &mut Context<Self>) {
-    self.create_in_flight = false;
+    if should_ignore_begin_edit(self.create_in_flight) {
+      return;
+    }
     let existing = child_names(&self.roots, parent);
     let base = if is_directory { "New Folder" } else { "New File" };
     let name = next_entry_name(&existing, base);
@@ -261,7 +263,9 @@ impl ExplorerModel {
   }
 
   pub fn begin_rename(&mut self, path: &str, cx: &mut Context<Self>) {
-    self.create_in_flight = false;
+    if should_ignore_begin_edit(self.create_in_flight) {
+      return;
+    }
     let Some(node) = find_node(&self.roots, path) else {
       return;
     };
@@ -303,6 +307,7 @@ impl ExplorerModel {
           self.cancel_edit(cx);
           return;
         }
+        self.create_in_flight = true;
         let new_path = join_repo_path(&parent_path(&path), &name);
         let core = self.core.clone();
         let session = self.session;
@@ -314,6 +319,7 @@ impl ExplorerModel {
           let result = join_unit(task.await);
           let _ = this.update(cx, |this, cx| match result {
             Ok(()) => {
+              this.create_in_flight = false;
               this.edit = None;
               this.remap_after_rename(&path, &new_path);
               cx.emit(ExplorerEvent::Renamed {
@@ -322,7 +328,10 @@ impl ExplorerModel {
               });
               this.reload_tree(cx);
             }
-            Err(message) => this.emit_core_error(message, &name, cx),
+            Err(message) => {
+              this.create_in_flight = false;
+              this.emit_core_error(message, &name, cx);
+            }
           });
         })
         .detach();
@@ -680,21 +689,34 @@ impl ExplorerModel {
     exists_name: Option<String>,
     cx: &mut Context<Self>,
   ) {
+    let spawned = select_after
+      .as_ref()
+      .zip(exists_name.as_ref())
+      .map(|((path, is_directory), name)| (parent_path(path), name.clone(), *is_directory));
     cx.spawn(async move |this, cx| {
       let result = join_unit(task.await);
-      let _ = this.update(cx, |this, cx| match result {
-        Ok(()) => {
-          this.create_in_flight = false;
-          this.edit = None;
-          this.select_after_load = select_after;
-          this.reload_tree(cx);
-        }
-        Err(message) => {
-          this.create_in_flight = false;
-          if let Some(name) = exists_name {
-            this.emit_core_error(message, &name, cx);
-          } else {
-            this.fail(message, cx);
+      let _ = this.update(cx, |this, cx| {
+        let spawned = spawned
+          .as_ref()
+          .map(|(parent, name, is_directory)| (parent.as_str(), name.as_str(), *is_directory));
+        match result {
+          Ok(()) => {
+            if should_clear_edit_after_unit(this.edit.as_ref(), spawned) {
+              this.create_in_flight = false;
+              this.edit = None;
+            }
+            this.select_after_load = select_after;
+            this.reload_tree(cx);
+          }
+          Err(message) => {
+            if should_clear_edit_after_unit(this.edit.as_ref(), spawned) {
+              this.create_in_flight = false;
+            }
+            if let Some(name) = exists_name {
+              this.emit_core_error(message, &name, cx);
+            } else {
+              this.fail(message, cx);
+            }
           }
         }
       });
@@ -794,6 +816,17 @@ fn creating_still_live(edit: Option<&EditState>, parent: &str, name: &str, is_di
       is_directory: live_dir,
     }) if live_parent == parent && live_name == name && *live_dir == is_directory
   )
+}
+
+fn should_clear_edit_after_unit(edit: Option<&EditState>, spawned: Option<(&str, &str, bool)>) -> bool {
+  match spawned {
+    Some((parent, name, is_directory)) => creating_still_live(edit, parent, name, is_directory),
+    None => false,
+  }
+}
+
+fn should_ignore_begin_edit(create_in_flight: bool) -> bool {
+  create_in_flight
 }
 
 fn retain_expanded(expanded: &HashSet<String>, roots: &[Node]) -> HashSet<String> {
@@ -1253,5 +1286,36 @@ mod tests {
       "a.rs",
       false
     ));
+  }
+
+  #[test]
+  fn await_unit_clears_edit_only_for_the_spawned_create() {
+    let creating = EditState::Creating {
+      parent: "src".into(),
+      is_directory: false,
+      name: "a.rs".into(),
+    };
+    assert!(should_clear_edit_after_unit(
+      Some(&creating),
+      Some(("src", "a.rs", false))
+    ));
+    assert!(!should_clear_edit_after_unit(Some(&creating), None));
+    assert!(!should_clear_edit_after_unit(
+      Some(&creating),
+      Some(("src", "b.rs", false))
+    ));
+    assert!(!should_clear_edit_after_unit(
+      Some(&EditState::Renaming {
+        path: "src/a.rs".into(),
+        name: "a.rs".into(),
+      }),
+      None
+    ));
+  }
+
+  #[test]
+  fn begin_edit_is_ignored_while_a_write_is_in_flight() {
+    assert!(should_ignore_begin_edit(true));
+    assert!(!should_ignore_begin_edit(false));
   }
 }
