@@ -44,7 +44,7 @@ pub fn grammar_name(language: &str) -> Option<&'static str> {
   })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Side {
   Old,
   New,

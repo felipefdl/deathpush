@@ -12,6 +12,12 @@ pub const CONTEXT_WELCOME_LIST: &str = "WelcomeList";
 pub const CONTEXT_WELCOME_LIST_INPUT: &str = "WelcomeList > Input";
 pub const CONTEXT_REPOSITORY: &str = "Repository";
 pub const CONTEXT_DIALOG: &str = "Dialog";
+#[allow(dead_code)]
+pub const CONTEXT_CHANGES: &str = "Changes";
+pub const CONTEXT_CHANGES_INPUT: &str = "Changes > Input";
+pub const CONTEXT_DIFF: &str = "Diff";
+pub const CONTEXT_BRANCH_LIST: &str = "BranchList";
+pub const CONTEXT_BRANCH_LIST_INPUT: &str = "BranchList > Input";
 
 /// (keystrokes, action name, context). Pure so it can be tested per platform.
 pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static str>)> {
@@ -31,6 +37,11 @@ pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static st
     (format!("{m}-shift-g"), "ReloadSession", Some(CONTEXT_REPOSITORY)),
     (format!("{m}-s"), "SwallowSave", Some(CONTEXT_REPOSITORY)),
     ("escape".to_string(), "ClearSelection", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-c"), "CopyDiffSelection", Some(CONTEXT_DIFF)),
+    (format!("{m}-enter"), "CommitFromBox", Some(CONTEXT_CHANGES_INPUT)),
+    ("enter".to_string(), "Confirm", Some(CONTEXT_BRANCH_LIST_INPUT)),
+    ("escape".to_string(), "Cancel", Some(CONTEXT_BRANCH_LIST)),
+    ("escape".to_string(), "Cancel", Some(CONTEXT_BRANCH_LIST_INPUT)),
     (format!("{m}-1"), "FocusRecentFilter", Some(CONTEXT_WELCOME)),
     (format!("{m}-2"), "FocusWorkspaceFilter", Some(CONTEXT_WELCOME)),
     (format!("{m}-="), "ZoomIn", Some(CONTEXT_APP)),
@@ -84,6 +95,8 @@ fn binding_for(keys: &str, name: &str, context: Option<&str>) -> KeyBinding {
     "ReloadSession" => KeyBinding::new(keys, ReloadSession, context),
     "SwallowSave" => KeyBinding::new(keys, SwallowSave, context),
     "ClearSelection" => KeyBinding::new(keys, ClearSelection, context),
+    "CopyDiffSelection" => KeyBinding::new(keys, CopyDiffSelection, context),
+    "CommitFromBox" => KeyBinding::new(keys, CommitFromBox, context),
     "FocusRecentFilter" => KeyBinding::new(keys, FocusRecentFilter, context),
     "FocusWorkspaceFilter" => KeyBinding::new(keys, FocusWorkspaceFilter, context),
     "WelcomeListUp" => KeyBinding::new(keys, WelcomeListUp, context),
@@ -171,6 +184,25 @@ mod tests {
     assert_eq!(clear.len(), 1);
     assert_eq!(clear[0].0, "escape");
     assert_eq!(clear[0].2, Some(CONTEXT_REPOSITORY));
+  }
+
+  #[test]
+  fn scm_and_diff_keys_bind_in_their_contexts() {
+    for (mac, primary) in [(true, "cmd"), (false, "ctrl")] {
+      let rows = binding_table(mac);
+      assert!(
+        rows.iter().any(|(keys, name, ctx)| {
+          keys == &format!("{primary}-enter") && *name == "CommitFromBox" && *ctx == Some(CONTEXT_CHANGES_INPUT)
+        }),
+        "{primary}-enter -> CommitFromBox in Changes > Input"
+      );
+      assert!(
+        rows.iter().any(|(keys, name, ctx)| {
+          keys == &format!("{primary}-c") && *name == "CopyDiffSelection" && *ctx == Some(CONTEXT_DIFF)
+        }),
+        "{primary}-c -> CopyDiffSelection in Diff"
+      );
+    }
   }
 
   #[test]

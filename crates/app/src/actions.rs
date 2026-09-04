@@ -56,6 +56,7 @@ actions!(
     ReloadSession,
     SwallowSave,
     ClearSelection,
+    CopyDiffSelection,
     ShowBranchPicker,
     ToggleTerminalMaximize,
     ClosePanel,

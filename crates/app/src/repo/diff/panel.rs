@@ -1,23 +1,26 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use deathpush_core::config::layout::MainView;
 use deathpush_core::config::settings::{DiffLayout, HunkSeparators, LineDiffType};
 use deathpush_core::diff_view::{DiffRows, RowOptions, build_rows};
 use deathpush_core::session::types::Intent;
+use deathpush_core::types::ResourceGroupKind;
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::*;
 
 use super::header;
-use super::highlight::Highlighted;
-use super::rows::{self, RowPaint, RowsMetrics};
+use super::highlight::{Highlighted, Side};
+use super::rows::{self, HunkOp, Layouts, RowInteract, RowPaint, RowsMetrics};
+use super::selection::{Anchor, Selection, row_at};
 use super::states::{self, DiffKind, classify};
+use crate::actions::{ClearSelection, CopyDiffSelection};
 use crate::config::AppConfig;
 use crate::repo::layout_model::LayoutModel;
 use crate::repo::model::RepoModel;
 use crate::theme::ActivePalette;
-
-#[derive(Clone, Debug)]
-pub struct Selection;
 
 #[derive(Clone, Default)]
 struct CachedImages {
@@ -44,8 +47,13 @@ pub struct DiffPanel {
   new_image: Option<Arc<Image>>,
   scroll: UniformListScrollHandle,
   h_scroll: ScrollHandle,
-  #[allow(dead_code)]
   selection: Option<Selection>,
+  dragging: bool,
+  layouts: Layouts,
+  hunk_ids: Vec<String>,
+  staged: bool,
+  merge: bool,
+  line_height: f32,
   focus_handle: FocusHandle,
 }
 
@@ -73,6 +81,12 @@ impl DiffPanel {
       scroll: UniformListScrollHandle::new(),
       h_scroll: ScrollHandle::new(),
       selection: None,
+      dragging: false,
+      layouts: Rc::new(RefCell::new(HashMap::new())),
+      hunk_ids: Vec::new(),
+      staged: false,
+      merge: false,
+      line_height: 20.0,
       focus_handle: cx.focus_handle(),
     }
   }
@@ -130,6 +144,9 @@ impl DiffPanel {
         highlighter: Option<Option<Arc<Highlighted>>>,
         images: Option<CachedImages>,
         reset_scroll: bool,
+        hunk_ids: Vec<String>,
+        staged: bool,
+        merge: bool,
       },
     }
     let plan = (|| {
@@ -147,6 +164,12 @@ impl DiffPanel {
         return Plan::Skip;
       }
       let hash_changed = self.rows_key.content_hash != key.content_hash;
+      let hunk_ids: Vec<String> = payload.hunks.iter().map(|hunk| hunk.id.clone()).collect();
+      let staged = payload.staged;
+      let merge = state
+        .selected_file
+        .as_ref()
+        .is_some_and(|file| file.group_kind == ResourceGroupKind::Merge);
       match classify(Some(payload)) {
         DiffKind::Text => {
           let rows = Arc::new(build_rows(
@@ -169,6 +192,9 @@ impl DiffPanel {
             highlighter: rebuild_highlighter.then(|| Some(Arc::new(Highlighted::build(payload)))),
             images: hash_changed.then_some(CachedImages::default()),
             reset_scroll: hash_changed,
+            hunk_ids,
+            staged,
+            merge,
           }
         }
         DiffKind::Image => Plan::Apply {
@@ -181,6 +207,9 @@ impl DiffPanel {
             CachedImages { old, new }
           }),
           reset_scroll: hash_changed,
+          hunk_ids,
+          staged,
+          merge,
         },
         _ => Plan::Apply {
           key,
@@ -189,6 +218,9 @@ impl DiffPanel {
           highlighter: hash_changed.then_some(None),
           images: hash_changed.then_some(CachedImages::default()),
           reset_scroll: hash_changed,
+          hunk_ids,
+          staged,
+          merge,
         },
       }
     })();
@@ -201,6 +233,11 @@ impl DiffPanel {
         self.old_image = None;
         self.new_image = None;
         self.rows_key = RowsKey::default();
+        self.hunk_ids.clear();
+        self.staged = false;
+        self.merge = false;
+        self.clear_text_selection();
+        self.layouts.borrow_mut().clear();
       }
       Plan::Apply {
         key,
@@ -209,9 +246,17 @@ impl DiffPanel {
         highlighter,
         images,
         reset_scroll,
+        hunk_ids,
+        staged,
+        merge,
       } => {
         self.rows = rows;
         self.metrics = metrics;
+        self.hunk_ids = hunk_ids;
+        self.staged = staged;
+        self.merge = merge;
+        self.clear_text_selection();
+        self.layouts.borrow_mut().clear();
         if let Some(highlighter) = highlighter {
           self.highlighter = highlighter;
         }
@@ -227,13 +272,157 @@ impl DiffPanel {
       }
     }
   }
+
+  fn has_text_selection(&self) -> bool {
+    self.selection.as_ref().is_some_and(|sel| !sel.is_empty())
+  }
+
+  fn clear_text_selection(&mut self) {
+    self.selection = None;
+    self.dragging = false;
+  }
+
+  fn begin_selection(&mut self, anchor: Anchor, cx: &mut Context<Self>) {
+    self.selection = Some(Selection { anchor, head: anchor });
+    self.dragging = true;
+    cx.notify();
+  }
+
+  fn update_head(&mut self, pos: Point<Pixels>, cx: &mut Context<Self>) {
+    if !self.dragging {
+      return;
+    }
+    let Some(rows) = self.rows.as_ref() else {
+      return;
+    };
+    let Some(sel) = self.selection.as_mut() else {
+      return;
+    };
+    let Some(head) = hit_anchor(
+      &self.layouts,
+      pos,
+      sel.anchor.side,
+      rows,
+      self.line_height,
+      &self.scroll,
+    ) else {
+      return;
+    };
+    if sel.head != head {
+      sel.head = head;
+      cx.notify();
+    }
+  }
+
+  fn copy_selection(&self, cx: &mut App) {
+    let Some(sel) = self.selection.as_ref().filter(|sel| !sel.is_empty()) else {
+      return;
+    };
+    let Some(rows) = self.rows.as_ref() else {
+      return;
+    };
+    cx.write_to_clipboard(ClipboardItem::new_string(sel.text(rows)));
+  }
+
+  fn hunk_action(&self, op: HunkOp, hunk_id: String, window: &mut Window, cx: &mut Context<Self>) {
+    let intent = match op {
+      HunkOp::Stage => Intent::StageHunk { hunk_id },
+      HunkOp::Unstage => Intent::UnstageHunk { hunk_id },
+      HunkOp::Discard => Intent::DiscardHunk {
+        hunk_id,
+        confirmed: false,
+      },
+    };
+    self.model.update(cx, |model, cx| model.dispatch(intent, window, cx));
+  }
+}
+
+fn hit_anchor(
+  layouts: &Layouts,
+  pos: Point<Pixels>,
+  side: Side,
+  rows: &DiffRows,
+  line_height: f32,
+  scroll: &UniformListScrollHandle,
+) -> Option<Anchor> {
+  let n = rows.len();
+  if n == 0 {
+    return None;
+  }
+  let map = layouts.borrow();
+  let mut min_top: Option<Pixels> = None;
+  for ((row, layout_side), layout) in map.iter() {
+    if *layout_side != side && matches!(rows, DiffRows::SideBySide(_)) {
+      continue;
+    }
+    let Some(bounds) = rows::ready_bounds(layout) else {
+      continue;
+    };
+    min_top = Some(min_top.map_or(bounds.top(), |top| top.min(bounds.top())));
+    if pos.y >= bounds.top() && pos.y < bounds.bottom() {
+      let len = row_at(rows, *row, side).map(|row| row.text.len()).unwrap_or(0);
+      let byte = rows::byte_at(layout, pos, len).unwrap_or(len);
+      return Some(clamp_anchor(Anchor { row: *row, side, byte }, rows));
+    }
+  }
+  drop(map);
+  let row = row_from_scroll(pos, n, line_height, scroll).unwrap_or_else(|| {
+    if min_top.is_some_and(|top| pos.y < top) {
+      0
+    } else {
+      n - 1
+    }
+  });
+  let byte = if min_top.is_some_and(|top| pos.y < top) {
+    0
+  } else {
+    row_at(rows, row, side).map(|row| row.text.len()).unwrap_or(0)
+  };
+  Some(clamp_anchor(Anchor { row, side, byte }, rows))
+}
+
+fn clamp_anchor(mut anchor: Anchor, rows: &DiffRows) -> Anchor {
+  let n = rows.len();
+  if n == 0 {
+    return anchor;
+  }
+  anchor.row = anchor.row.min(n - 1);
+  if let Some(row) = row_at(rows, anchor.row, anchor.side) {
+    anchor.byte = anchor.byte.min(row.text.len());
+  }
+  anchor
+}
+
+fn row_from_scroll(pos: Point<Pixels>, n: usize, line_height: f32, scroll: &UniformListScrollHandle) -> Option<usize> {
+  if line_height <= 0.0 || n == 0 {
+    return None;
+  }
+  let state = scroll.0.borrow();
+  let bounds = state.base_handle.bounds();
+  if bounds.size.height == px(0.0) {
+    return None;
+  }
+  let offset = state.base_handle.offset();
+  let y = f32::from(pos.y - bounds.origin.y) - f32::from(offset.y);
+  let row = (y / line_height).floor();
+  Some(row.clamp(0.0, (n - 1) as f32) as usize)
 }
 
 impl Render for DiffPanel {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     self.sync_rows(cx);
     let palette = cx.global::<ActivePalette>().0;
-    let (layout, show_line_numbers, show_background, indicators, line_diff, font_family, font_size, line_height) = {
+    let (
+      layout,
+      show_line_numbers,
+      show_background,
+      indicators,
+      line_diff,
+      font_family,
+      font_size,
+      line_height,
+      show_hunk_actions,
+    ) = {
       let settings = &AppConfig::get(cx).settings;
       (
         settings.diff.layout,
@@ -244,6 +433,7 @@ impl Render for DiffPanel {
         settings.editor.font_family.clone(),
         settings.editor.font_size,
         settings.editor.line_height,
+        settings.diff.show_inline_hunk_actions,
       )
     };
     let (selected, load_ready, kind) = {
@@ -260,7 +450,15 @@ impl Render for DiffPanel {
       .flex()
       .flex_col()
       .track_focus(&self.focus_handle)
-      .key_context("Diff");
+      .key_context("Diff")
+      .on_action(cx.listener(|this, _: &CopyDiffSelection, _, cx| this.copy_selection(cx)))
+      .on_action(cx.listener(|this, _: &ClearSelection, _, cx| {
+        if this.has_text_selection() {
+          this.clear_text_selection();
+          cx.stop_propagation();
+          cx.notify();
+        }
+      }));
     let Some(selection) = selected else {
       return root.child(states::render_empty(palette));
     };
@@ -279,6 +477,7 @@ impl Render for DiffPanel {
       DiffKind::Large => root.child(states::render_large(weak, palette)),
       DiffKind::Text => match self.rows.clone() {
         Some(rows) => {
+          self.line_height = line_height as f32;
           let family = rows::editor_font_family(&font_family);
           let font_size = font_size as f32;
           let advance = rows::measure_advance(window, family.as_ref(), font_size);
@@ -299,9 +498,31 @@ impl Render for DiffPanel {
           let width = rows::content_width(&self.metrics, &paint, layout, advance);
           let count = rows.len();
           let scroll = self.scroll.clone();
+          let layouts = self.layouts.clone();
+          let interact = RowInteract {
+            selection: self.selection,
+            layouts: layouts.clone(),
+            hunk_ids: Rc::new(self.hunk_ids.clone()),
+            staged: self.staged,
+            merge: self.merge,
+            show_hunk_actions,
+            on_mouse_down: Rc::new({
+              let view = weak.clone();
+              move |anchor, _, cx| {
+                let _ = view.update(cx, |this, cx| this.begin_selection(anchor, cx));
+              }
+            }),
+            on_hunk: Rc::new({
+              let view = weak;
+              move |op, hunk_id, window, cx| {
+                let _ = view.update(cx, |this, cx| this.hunk_action(op, hunk_id, window, cx));
+              }
+            }),
+          };
           let list = uniform_list("diff-rows", count, move |range, _, _| {
+            layouts.borrow_mut().retain(|&(index, _), _| range.contains(&index));
             range
-              .map(|index| rows::render_row(rows.as_ref(), index, &paint))
+              .map(|index| rows::render_row(rows.as_ref(), index, &paint, &interact))
               .collect()
           })
           .size_full()
@@ -313,6 +534,32 @@ impl Render for DiffPanel {
               .min_h_0()
               .overflow_x_scroll()
               .track_scroll(&self.h_scroll)
+              .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                  if !this.dragging {
+                    this.clear_text_selection();
+                    cx.notify();
+                  }
+                }),
+              )
+              .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                if this.dragging {
+                  this.update_head(event.position, cx);
+                }
+              }))
+              .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| {
+                  this.dragging = false;
+                }),
+              )
+              .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| {
+                  this.dragging = false;
+                }),
+              )
               .child(div().h_full().min_w(px(width)).child(list)),
           )
         }

@@ -1,14 +1,44 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::Range;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use deathpush_core::config::settings::{DiffIndicators, DiffLayout, LineDiffType, MONO_FONT_STACK};
 use deathpush_core::diff_view::{DiffRow, DiffRows, RowKind};
 use deathpush_core::theme::UiPalette;
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::highlighter::HighlightTheme;
+use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::*;
 
 use super::highlight::{Highlighted, Side};
+use super::selection::{Anchor, Selection};
 use crate::theme::hsla;
+
+pub type Layouts = Rc<RefCell<HashMap<(usize, Side), TextLayout>>>;
+pub type SelectFn = Rc<dyn Fn(Anchor, &mut Window, &mut App)>;
+pub type HunkFn = Rc<dyn Fn(HunkOp, String, &mut Window, &mut App)>;
+
+#[derive(Clone, Copy)]
+pub enum HunkOp {
+  Stage,
+  Unstage,
+  Discard,
+}
+
+#[derive(Clone)]
+pub struct RowInteract {
+  pub selection: Option<Selection>,
+  pub layouts: Layouts,
+  pub hunk_ids: Rc<Vec<String>>,
+  pub staged: bool,
+  pub merge: bool,
+  pub show_hunk_actions: bool,
+  pub on_mouse_down: SelectFn,
+  pub on_hunk: HunkFn,
+}
 
 #[derive(Clone, Copy, Default)]
 pub struct RowsMetrics {
@@ -110,52 +140,58 @@ enum Gutter {
   SingleNew,
 }
 
-pub fn render_row(rows: &DiffRows, index: usize, paint: &RowPaint) -> AnyElement {
+pub fn render_row(rows: &DiffRows, index: usize, paint: &RowPaint, interact: &RowInteract) -> AnyElement {
   match rows {
     DiffRows::Inline(rows) => rows
       .get(index)
-      .map(|row| render_inline_row(row, paint))
+      .map(|row| render_inline_row(row, paint, index, interact))
       .unwrap_or_else(|| div().into_any_element()),
     DiffRows::SideBySide(rows) => rows
       .get(index)
-      .map(|row| render_side_row(&row.left, &row.right, paint))
+      .map(|row| render_side_row(&row.left, &row.right, paint, index, interact))
       .unwrap_or_else(|| div().into_any_element()),
   }
 }
 
-fn render_inline_row(row: &DiffRow, paint: &RowPaint) -> AnyElement {
+fn render_inline_row(row: &DiffRow, paint: &RowPaint, index: usize, interact: &RowInteract) -> AnyElement {
   if row.kind == RowKind::Separator {
-    return render_separator(row, paint).into_any_element();
+    return render_separator(row, paint, interact).into_any_element();
   }
   let side = match row.kind {
     RowKind::Remove => Side::Old,
     _ => Side::New,
   };
-  render_cell(row, side, Gutter::Dual, paint).into_any_element()
+  render_cell(row, side, Gutter::Dual, paint, index, interact).into_any_element()
 }
 
-fn render_side_row(left: &DiffRow, right: &DiffRow, paint: &RowPaint) -> AnyElement {
+fn render_side_row(
+  left: &DiffRow,
+  right: &DiffRow,
+  paint: &RowPaint,
+  index: usize,
+  interact: &RowInteract,
+) -> AnyElement {
   if left.kind == RowKind::Separator {
-    return render_separator(left, paint).into_any_element();
+    return render_separator(left, paint, interact).into_any_element();
   }
   div()
     .flex()
     .h(px(paint.line_height))
     .child(
-      render_cell(left, Side::Old, Gutter::SingleOld, paint)
+      render_cell(left, Side::Old, Gutter::SingleOld, paint, index, interact)
         .flex_1()
         .min_w_0(),
     )
     .child(div().w(px(1.0)).h_full().bg(hsla(paint.palette.border)))
     .child(
-      render_cell(right, Side::New, Gutter::SingleNew, paint)
+      render_cell(right, Side::New, Gutter::SingleNew, paint, index, interact)
         .flex_1()
         .min_w_0(),
     )
     .into_any_element()
 }
 
-fn render_separator(row: &DiffRow, paint: &RowPaint) -> Div {
+fn render_separator(row: &DiffRow, paint: &RowPaint, interact: &RowInteract) -> Div {
   let mut row_el = div()
     .h(px(paint.line_height))
     .flex()
@@ -170,10 +206,75 @@ fn render_separator(row: &DiffRow, paint: &RowPaint) -> Div {
   }
   row_el
     .child(div().flex_1().min_w_0().child(row.text.clone()))
-    .child(div())
+    .child(hunk_action_slot(row, interact))
 }
 
-fn render_cell(row: &DiffRow, side: Side, gutter: Gutter, paint: &RowPaint) -> Div {
+fn hunk_action_slot(row: &DiffRow, interact: &RowInteract) -> Div {
+  let slot = div().flex().items_center().gap_1();
+  if !interact.show_hunk_actions || interact.merge {
+    return slot;
+  }
+  let Some(hunk_id) = interact.hunk_ids.get(row.hunk).cloned() else {
+    return slot;
+  };
+  let slot = slot.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+  if interact.staged {
+    slot.child(hunk_button(
+      SharedString::from(format!("hunk-unstage-{hunk_id}")),
+      "icons/remove.svg",
+      "Unstage Hunk",
+      HunkOp::Unstage,
+      hunk_id,
+      interact.on_hunk.clone(),
+    ))
+  } else {
+    slot
+      .child(hunk_button(
+        SharedString::from(format!("hunk-stage-{hunk_id}")),
+        "icons/add.svg",
+        "Stage Hunk",
+        HunkOp::Stage,
+        hunk_id.clone(),
+        interact.on_hunk.clone(),
+      ))
+      .child(hunk_button(
+        SharedString::from(format!("hunk-discard-{hunk_id}")),
+        "icons/clear-all.svg",
+        "Discard Hunk",
+        HunkOp::Discard,
+        hunk_id,
+        interact.on_hunk.clone(),
+      ))
+  }
+}
+
+fn hunk_button(
+  id: SharedString,
+  icon: &'static str,
+  tooltip: &'static str,
+  op: HunkOp,
+  hunk_id: String,
+  on_hunk: HunkFn,
+) -> impl IntoElement {
+  Button::new(id)
+    .ghost()
+    .xsmall()
+    .icon(Icon::empty().path(icon))
+    .tooltip(tooltip)
+    .on_click(move |_, window, cx| {
+      cx.stop_propagation();
+      (on_hunk)(op, hunk_id.clone(), window, cx);
+    })
+}
+
+fn render_cell(
+  row: &DiffRow,
+  side: Side,
+  gutter: Gutter,
+  paint: &RowPaint,
+  index: usize,
+  interact: &RowInteract,
+) -> Div {
   let mut cell = div()
     .flex()
     .h(px(paint.line_height))
@@ -201,14 +302,93 @@ fn render_cell(row: &DiffRow, side: Side, gutter: Gutter, paint: &RowPaint) -> D
   if paint.indicators != DiffIndicators::None {
     cell = cell.child(indicator(row.kind, paint));
   }
+  let styled = StyledText::new(row.text.clone()).with_highlights(text_runs(row, side, paint));
+  let next_layout = styled.layout().clone();
+  let prev_layout = {
+    let mut map = interact.layouts.borrow_mut();
+    let prev = map.get(&(index, side)).cloned();
+    map.insert((index, side), next_layout);
+    prev
+  };
+  let quad = selection_quad(row, side, index, paint, interact, prev_layout.as_ref());
+  let selectable = row.kind != RowKind::Empty;
+  let mut text = div()
+    .id(SharedString::from(format!("diff-text-{index}-{}", side as u8)))
+    .relative()
+    .size_full()
+    .whitespace_nowrap();
+  if selectable {
+    let on_down = interact.on_mouse_down.clone();
+    let layouts = interact.layouts.clone();
+    let text_len = row.text.len();
+    text = text.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+      let byte = layouts
+        .borrow()
+        .get(&(index, side))
+        .and_then(|layout| byte_at(layout, event.position, text_len))
+        .unwrap_or(0);
+      (on_down)(Anchor { row: index, side, byte }, window, cx);
+      cx.stop_propagation();
+    });
+  }
   cell.child(
     div()
       .flex_1()
       .min_w_0()
+      .h_full()
       .px_1()
-      .whitespace_nowrap()
-      .child(StyledText::new(row.text.clone()).with_highlights(text_runs(row, side, paint))),
+      .child(text.children(quad).child(styled)),
   )
+}
+
+fn selection_quad(
+  row: &DiffRow,
+  side: Side,
+  index: usize,
+  paint: &RowPaint,
+  interact: &RowInteract,
+  layout: Option<&TextLayout>,
+) -> Option<Div> {
+  let sel = interact.selection.as_ref().filter(|sel| !sel.is_empty())?;
+  let range = sel.range_in(index, side, row.text.len())?;
+  let layout = layout?;
+  let (x0, x1) = selection_xs(layout, range)?;
+  let width = (x1 - x0).max(1.0);
+  Some(
+    div()
+      .absolute()
+      .top_0()
+      .left(px(x0))
+      .h_full()
+      .w(px(width))
+      .bg(hsla(paint.palette.selection)),
+  )
+}
+
+pub(crate) fn ready_bounds(layout: &TextLayout) -> Option<Bounds<Pixels>> {
+  catch_unwind(AssertUnwindSafe(|| layout.bounds())).ok()
+}
+
+pub(crate) fn byte_at(layout: &TextLayout, pos: Point<Pixels>, text_len: usize) -> Option<usize> {
+  catch_unwind(AssertUnwindSafe(|| match layout.index_for_position(pos) {
+    Ok(i) | Err(i) => i.min(text_len).min(layout.len()),
+  }))
+  .ok()
+}
+
+fn selection_xs(layout: &TextLayout, range: Range<usize>) -> Option<(f32, f32)> {
+  catch_unwind(AssertUnwindSafe(|| {
+    let origin = layout.position_for_index(0)?;
+    let start = layout.position_for_index(range.start)?;
+    let end = layout
+      .position_for_index(range.end)
+      .or_else(|| layout.position_for_index(layout.len()))?;
+    let x0 = f32::from(start.x - origin.x).max(0.0);
+    let x1 = f32::from(end.x - origin.x).max(x0);
+    Some((x0, x1))
+  }))
+  .ok()
+  .flatten()
 }
 
 fn row_background(kind: RowKind, paint: &RowPaint) -> Option<deathpush_core::theme::Rgba> {
