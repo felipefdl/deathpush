@@ -463,7 +463,7 @@ impl Render for WelcomeView {
             svg()
               .path("brand/deathpush.svg")
               .size(px(80.0))
-              .text_color(cx.theme().foreground)
+              .text_color(hsla(cx.global::<ActivePalette>().0.mark))
               .opacity(0.6)
               .mb(px(16.0)),
           )

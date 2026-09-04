@@ -14,15 +14,28 @@ use crate::git::repository_runtime::RepositoryRuntime;
 use crate::git::status::StatusScope;
 use crate::session::SessionId;
 
+fn repo_name(root: &str) -> String {
+  std::path::Path::new(root)
+    .file_name()
+    .map(|n| n.to_string_lossy().into_owned())
+    .unwrap_or_else(|| "DeathPush".into())
+}
+
 /// The OS window title for a repository window.
 pub fn window_title(root: &str, head_branch: Option<&str>) -> String {
-  let repo_name = std::path::Path::new(root)
-    .file_name()
-    .map(|n| n.to_string_lossy().to_string())
-    .unwrap_or_else(|| "DeathPush".into());
+  let repo_name = repo_name(root);
   match head_branch {
     Some(branch) if !branch.is_empty() => format!("{repo_name} ({branch}) - DeathPush"),
     _ => format!("{repo_name} - DeathPush"),
+  }
+}
+
+/// The in-window title for a repository window.
+pub fn in_window_title(root: &str, head_branch: Option<&str>) -> String {
+  let repo_name = repo_name(root);
+  match head_branch {
+    Some(branch) if !branch.is_empty() => format!("{repo_name} - {branch}"),
+    _ => repo_name,
   }
 }
 
@@ -66,7 +79,7 @@ impl Core {
 
 #[cfg(test)]
 mod tests {
-  use super::window_title;
+  use super::{in_window_title, window_title};
 
   #[test]
   fn title_with_branch() {
@@ -80,5 +93,16 @@ mod tests {
   fn title_detached() {
     assert_eq!(window_title("/tmp/deathpush", None), "deathpush - DeathPush");
     assert_eq!(window_title("/tmp/deathpush", Some("")), "deathpush - DeathPush");
+  }
+
+  #[test]
+  fn in_window_title_with_branch() {
+    assert_eq!(in_window_title("/tmp/deathpush", Some("main")), "deathpush - main");
+  }
+
+  #[test]
+  fn in_window_title_detached() {
+    assert_eq!(in_window_title("/tmp/deathpush", None), "deathpush");
+    assert_eq!(in_window_title("/tmp/deathpush", Some("")), "deathpush");
   }
 }

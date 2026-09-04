@@ -162,13 +162,14 @@ impl Shell {
         }
         match result {
           Ok(Ok(IntentOutcome::Snapshot { snapshot })) => {
-            let title = deathpush_core::ops::window_title(&snapshot.repo.root, snapshot.repo.head_branch.as_deref());
+            let os_title = deathpush_core::ops::window_title(&snapshot.repo.root, snapshot.repo.head_branch.as_deref());
+            let title = deathpush_core::ops::in_window_title(&snapshot.repo.root, snapshot.repo.head_branch.as_deref());
             let now = chrono::Utc::now().to_rfc3339();
             let root = snapshot.repo.root.clone();
             let branch = snapshot.repo.head_branch.clone();
             AppConfig::update(cx, move |config| config.recents.add(&root, branch, &now));
             this.title = title.clone().into();
-            window.set_window_title(&title);
+            window.set_window_title(&os_title);
             let view = cx.new(|_| RepoPlaceholder {
               title: title.into(),
               status_events: 0,
@@ -176,7 +177,7 @@ impl Shell {
             this.screen = Screen::Repository(view);
             this.sync_menus(window, cx);
           }
-          Ok(Ok(other)) => this.show_toast(format!("Unexpected outcome: {other:?}"), cx),
+          Ok(Ok(_)) => this.show_toast("Unexpected outcome", cx),
           Ok(Err(err)) => {
             this.show_toast(err.to_string(), cx);
             if matches!(this.screen, Screen::Boot) {
@@ -290,13 +291,14 @@ impl Shell {
       let _ = this.update_in(cx, |this, window, cx| match result {
         Ok(Ok(IntentOutcome::Snapshot { snapshot })) => {
           this.set_overlay(None, cx);
-          let title = deathpush_core::ops::window_title(&snapshot.repo.root, snapshot.repo.head_branch.as_deref());
+          let os_title = deathpush_core::ops::window_title(&snapshot.repo.root, snapshot.repo.head_branch.as_deref());
+          let title = deathpush_core::ops::in_window_title(&snapshot.repo.root, snapshot.repo.head_branch.as_deref());
           let now = chrono::Utc::now().to_rfc3339();
           let root = snapshot.repo.root.clone();
           let branch = snapshot.repo.head_branch.clone();
           AppConfig::update(cx, move |config| config.recents.add(&root, branch, &now));
           this.title = title.clone().into();
-          window.set_window_title(&title);
+          window.set_window_title(&os_title);
           let view = cx.new(|_| RepoPlaceholder {
             title: title.into(),
             status_events: 0,
@@ -305,9 +307,9 @@ impl Shell {
           this.sync_menus(window, cx);
           cx.notify();
         }
-        Ok(Ok(other)) => {
+        Ok(Ok(_)) => {
           dialog.update(cx, |dialog, cx| dialog.set_cloning(false, cx));
-          this.show_toast(format!("Unexpected outcome: {other:?}"), cx);
+          this.show_toast("Unexpected outcome", cx);
         }
         Ok(Err(err)) => {
           dialog.update(cx, |dialog, cx| dialog.set_cloning(false, cx));
@@ -387,7 +389,7 @@ impl Shell {
         .py_2()
         .rounded_md()
         .bg(hsla(palette.danger))
-        .text_color(hsla(deathpush_core::theme::Rgba::rgb(255, 255, 255)))
+        .text_color(hsla(palette.primary_foreground))
         .text_size(px(12.0))
         .cursor_pointer()
         .on_mouse_down(

@@ -236,8 +236,8 @@ impl Default for TerminalSettings {
       font_weight_bold: "bold".to_string(),
       letter_spacing: 0.0,
       cursor_width: 1,
-      right_click_selects_word: true,
-      mac_option_click_forces_selection: true,
+      right_click_selects_word: false,
+      mac_option_click_forces_selection: false,
       shell_path: String::new(),
       bell_style: BellStyle::Off,
       color_saturation: 1.42,
@@ -257,11 +257,25 @@ impl Default for GitSettings {
   }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WorkspaceEntry {
   pub directory: String,
+  #[serde(default = "default_scan_depth")]
   pub scan_depth: u32,
+}
+
+fn default_scan_depth() -> u32 {
+  1
+}
+
+impl Default for WorkspaceEntry {
+  fn default() -> Self {
+    Self {
+      directory: String::new(),
+      scan_depth: default_scan_depth(),
+    }
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -302,9 +316,19 @@ mod tests {
     assert_eq!(settings.diff.layout, DiffLayout::SideBySide);
     assert_eq!(settings.diff.hunk_separators, HunkSeparators::Simple);
     assert_eq!(settings.terminal.scrollback, 5000);
+    assert!(!settings.terminal.right_click_selects_word);
+    assert!(!settings.terminal.mac_option_click_forces_selection);
     assert!(settings.git.blame);
     assert_eq!(settings.theme.preferred_dark, "vesper");
     assert_eq!(settings.theme.preferred_light, "ayu-light");
+  }
+
+  #[test]
+  fn workspace_entry_defaults_scan_depth_to_one() {
+    assert_eq!(WorkspaceEntry::default().scan_depth, 1);
+    let entry: WorkspaceEntry = serde_json::from_str(r#"{"directory":"/tmp/work"}"#).unwrap();
+    assert_eq!(entry.directory, "/tmp/work");
+    assert_eq!(entry.scan_depth, 1);
   }
 
   #[test]

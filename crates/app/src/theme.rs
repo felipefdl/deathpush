@@ -203,17 +203,22 @@ pub fn init(cx: &mut App) {
     palettes,
   });
   let current = AppConfig::get(cx).settings.theme.current.clone();
-  apply_theme(&current, None, cx);
+  let wanted = ThemeCatalog::get(cx).kind(&current).unwrap_or(ThemeKind::Dark);
+  apply_theme(&current, wanted, None, cx);
+}
+
+fn resolve_id(catalog: &ThemeCatalog, id: &str, wanted: ThemeKind) -> String {
+  if catalog.specs.contains_key(id) {
+    id.to_string()
+  } else {
+    default_for(wanted).to_string()
+  }
 }
 
 /// Switch gpui-component and our palette to `id`. Unknown ids fall back to the default of their kind.
-pub fn apply_theme(id: &str, window: Option<&mut Window>, cx: &mut App) {
+pub fn apply_theme(id: &str, wanted: ThemeKind, window: Option<&mut Window>, cx: &mut App) {
   let catalog = ThemeCatalog::get(cx);
-  let id = if catalog.specs.contains_key(id) {
-    id.to_string()
-  } else {
-    DEFAULT_DARK_THEME.to_string()
-  };
+  let id = resolve_id(catalog, id, wanted);
   let kind = catalog.kind(&id).unwrap_or(ThemeKind::Dark);
   let palette = catalog.palette(&id).expect("catalog has the id");
   let config: Rc<ThemeConfig> = ThemeRegistry::global(cx)
@@ -246,6 +251,7 @@ pub fn apply_theme(id: &str, window: Option<&mut Window>, cx: &mut App) {
 #[allow(dead_code)]
 pub fn apply_for_appearance(appearance: WindowAppearance, window: Option<&mut Window>, cx: &mut App) {
   let dark = matches!(appearance, WindowAppearance::Dark | WindowAppearance::VibrantDark);
+  let wanted = if dark { ThemeKind::Dark } else { ThemeKind::Light };
   let id = {
     let theme = &AppConfig::get(cx).settings.theme;
     if dark {
@@ -254,10 +260,9 @@ pub fn apply_for_appearance(appearance: WindowAppearance, window: Option<&mut Wi
       theme.preferred_light.clone()
     }
   };
-  apply_theme(&id, window, cx);
+  apply_theme(&id, wanted, window, cx);
 }
 
-#[allow(dead_code)]
 pub fn default_for(kind: ThemeKind) -> &'static str {
   match kind {
     ThemeKind::Dark => DEFAULT_DARK_THEME,
@@ -299,7 +304,7 @@ mod tests {
       init(cx);
       assert_eq!(ThemeCatalog::get(cx).entries.len(), 65);
       assert_eq!(Theme::global(cx).mode, ThemeMode::Dark);
-      apply_theme("ayu-light", None, cx);
+      apply_theme("ayu-light", ThemeKind::Light, None, cx);
       assert_eq!(Theme::global(cx).mode, ThemeMode::Light);
       assert_eq!(cx.global::<ActivePalette>().0.kind, ThemeKind::Light);
     });

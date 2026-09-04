@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
+use std::path::Path;
 
 use crate::config::settings::WorkspaceEntry;
 use crate::types::ProjectInfo;
@@ -16,12 +17,18 @@ fn normalize(directory: &str) -> String {
   directory.trim_end_matches(['/', '\\']).to_string()
 }
 
+fn slash_path(path: &str) -> String {
+  path.replace('\\', "/")
+}
+
 fn insert_under(root: &mut WorkspaceNode, root_directory: &str, projects: &[ProjectInfo]) {
+  let root_slash = slash_path(root_directory);
   for project in projects {
-    let Some(relative) = project.path.strip_prefix(&format!("{root_directory}/")) else {
+    let path_slash = slash_path(&project.path);
+    let Some(relative) = path_slash.strip_prefix(&format!("{root_slash}/")) else {
       continue;
     };
-    let parts: Vec<&str> = relative.split('/').collect();
+    let parts: Vec<&str> = relative.split(['/', '\\']).collect();
     let mut current = &mut *root;
     for part in &parts[..parts.len().saturating_sub(1)] {
       let key = format!("{}/{part}", current.key);
@@ -41,28 +48,32 @@ fn insert_under(root: &mut WorkspaceNode, root_directory: &str, projects: &[Proj
 /// One node per workspace directory; deeper directories become nested nodes when the scan depth is above 1.
 pub fn build_tree(projects: &[ProjectInfo], workspaces: &[WorkspaceEntry]) -> WorkspaceNode {
   let mut root = WorkspaceNode::default();
-  let mut sorted: Vec<(String, u32)> = workspaces
+  let mut sorted: Vec<(String, String, u32)> = workspaces
     .iter()
-    .map(|ws| (normalize(&ws.directory), ws.scan_depth))
+    .map(|ws| {
+      let dir = normalize(&ws.directory);
+      let slash = slash_path(&dir);
+      (dir, slash, ws.scan_depth)
+    })
     .collect();
-  sorted.sort_by_key(|dir| std::cmp::Reverse(dir.0.len()));
+  sorted.sort_by_key(|entry| std::cmp::Reverse(entry.0.len()));
   let mut by_workspace: BTreeMap<String, Vec<ProjectInfo>> =
-    sorted.iter().map(|(dir, _)| (dir.clone(), Vec::new())).collect();
+    sorted.iter().map(|(dir, _, _)| (dir.clone(), Vec::new())).collect();
   for project in projects {
-    if let Some((dir, _)) = sorted
+    let path_slash = slash_path(&project.path);
+    if let Some((dir, _, _)) = sorted
       .iter()
-      .find(|(dir, _)| project.path.starts_with(&format!("{dir}/")))
+      .find(|(_, dir_slash, _)| path_slash.starts_with(&format!("{dir_slash}/")))
     {
       by_workspace.get_mut(dir).unwrap().push(project.clone());
     }
   }
-  for (dir, depth) in &sorted {
-    let name = dir
-      .rsplit('/')
-      .next()
+  for (dir, slash, depth) in &sorted {
+    let name = Path::new(slash)
+      .file_name()
+      .map(|n| n.to_string_lossy().into_owned())
       .filter(|n| !n.is_empty())
-      .unwrap_or(dir)
-      .to_string();
+      .unwrap_or_else(|| dir.clone());
     let mut node = WorkspaceNode {
       name,
       key: dir.clone(),
@@ -162,7 +173,7 @@ mod tests {
   fn project(path: &str) -> ProjectInfo {
     ProjectInfo {
       path: path.into(),
-      name: path.rsplit('/').next().unwrap().into(),
+      name: path.rsplit(['/', '\\']).next().unwrap().into(),
     }
   }
 
@@ -215,6 +226,33 @@ mod tests {
     expanded.insert("/w/group".to_string());
     let rows = tree_rows(&tree, &expanded);
     assert!(matches!(&rows[2], WorkspaceRow::Project { name, depth: 2, .. } if name == "a"));
+  }
+
+  #[test]
+  fn windows_paths_nest_the_same_as_posix() {
+    let tree = build_tree(
+      &[project(r"C:\work\group\a"), project(r"C:\work\b")],
+      &[workspace(r"C:\work", 3)],
+    );
+    let node = &tree.children[r"C:\work"];
+    assert_eq!(node.name, "work");
+    assert_eq!(node.projects.len(), 1);
+    assert_eq!(node.projects[0].name, "b");
+    let group = &node.children["group"];
+    assert_eq!(group.key, r"C:\work/group");
+    assert_eq!(group.projects[0].name, "a");
+  }
+
+  #[test]
+  fn windows_depth_one_lists_projects_flat() {
+    let tree = build_tree(
+      &[project(r"C:\work\a"), project(r"C:\work\b")],
+      &[workspace(r"C:\work\", 1)],
+    );
+    let node = &tree.children[r"C:\work"];
+    assert_eq!(node.name, "work");
+    assert_eq!(node.projects.len(), 2);
+    assert!(node.children.is_empty());
   }
 
   #[test]
