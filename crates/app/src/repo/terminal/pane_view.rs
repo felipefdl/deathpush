@@ -1,3 +1,8 @@
+//! One focused terminal pane: paints snapshots and routes input.
+//!
+//! Create a wake pair, pass the callback to [`PaneHandle::spawn`], then
+//! [`PaneView::new`] with the receiver.
+
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
@@ -21,8 +26,10 @@ pub struct PaneView {
   grid: Option<(u16, u16, u32, u32)>,
   blink_on: bool,
   blink_task: Option<Task<()>>,
+  copy_consumed_key: Option<String>,
 }
 
+/// Producer half of the pane-thread wake. Pass the callback to [`PaneHandle::spawn`].
 #[allow(dead_code)]
 pub fn wake_pair() -> (Box<dyn Fn() + Send>, Receiver<()>) {
   let (tx, rx) = mpsc::channel();
@@ -35,7 +42,7 @@ pub fn wake_pair() -> (Box<dyn Fn() + Send>, Receiver<()>) {
 }
 
 #[allow(dead_code)]
-pub fn subscribe_wake(rx: Receiver<()>, cx: &mut Context<PaneView>) {
+fn subscribe_wake(rx: Receiver<()>, cx: &mut Context<PaneView>) {
   cx.spawn(async move |this, cx| {
     loop {
       cx.background_executor().timer(Duration::from_millis(8)).await;
@@ -65,8 +72,10 @@ pub fn subscribe_wake(rx: Receiver<()>, cx: &mut Context<PaneView>) {
 }
 
 impl PaneView {
+  /// Installs the wake subscription: on wake, pulls [`PaneHandle::snapshot`] and notifies.
   #[allow(dead_code)]
-  pub fn new(id: u64, handle: Arc<PaneHandle>, cx: &mut Context<Self>) -> Self {
+  pub fn new(id: u64, handle: Arc<PaneHandle>, wake_rx: Receiver<()>, cx: &mut Context<Self>) -> Self {
+    subscribe_wake(wake_rx, cx);
     Self::build(id, Some(handle), cx)
   }
 
@@ -83,6 +92,7 @@ impl PaneView {
       grid: None,
       blink_on: true,
       blink_task: None,
+      copy_consumed_key: None,
     }
   }
 
@@ -187,6 +197,19 @@ impl PaneView {
     }
     self.dragging = false;
     cx.notify();
+  }
+
+  pub(crate) fn note_copy_consumed(&mut self, key: String) {
+    self.copy_consumed_key = Some(key);
+  }
+
+  pub(crate) fn take_copy_consumed(&mut self, key: &str) -> bool {
+    if self.copy_consumed_key.as_deref() == Some(key) {
+      self.copy_consumed_key = None;
+      true
+    } else {
+      false
+    }
   }
 
   pub(crate) fn select_word_at(&mut self, x: u16, y: u16, cx: &mut Context<Self>) {
@@ -295,13 +318,7 @@ mod tests {
       crate::theme::init(cx);
     });
     let snapshot = injected_snapshot("hi");
-    let window = cx.add_window({
-      move |_, cx| {
-        let (_wake, rx) = wake_pair();
-        subscribe_wake(rx, cx);
-        PaneView::new_unthreaded(1, cx)
-      }
-    });
+    let window = cx.add_window(move |_, cx| PaneView::new_unthreaded(1, cx));
     window
       .update(cx, |view, window, cx| {
         view.set_snapshot(snapshot.clone());

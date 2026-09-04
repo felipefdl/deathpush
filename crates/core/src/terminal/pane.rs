@@ -10,7 +10,7 @@ use libghostty_vt::mouse::{self, Encoder as MouseEncoder, Event as MouseEvent};
 use libghostty_vt::render::{CellIterator, CursorVisualStyle, RowIterator};
 use libghostty_vt::screen::CellWide;
 use libghostty_vt::style::Underline;
-use libghostty_vt::terminal::ScrollViewport;
+use libghostty_vt::terminal::{Mode, ScrollViewport};
 use libghostty_vt::{RenderState, Terminal};
 
 use crate::error::{Error, Result};
@@ -89,6 +89,8 @@ pub struct MouseInput {
 pub enum PaneCommand {
   /// Bytes from the PTY, written into the VT parser.
   Bytes(Vec<u8>),
+  /// Clipboard text written to the PTY, bracketed when the terminal has paste bracketing on.
+  Paste(String),
   /// Encode a key and write the result to the PTY.
   Key(KeyInput),
   /// Encode a mouse event when tracking is on.
@@ -388,6 +390,10 @@ impl PaneThread {
         self.terminal.vt_write(&bytes);
         CommandEffect::Dirty
       }
+      PaneCommand::Paste(text) => {
+        self.handle_paste(text);
+        CommandEffect::Clean
+      }
       PaneCommand::Key(input) => {
         self.handle_key(input);
         CommandEffect::Clean
@@ -427,6 +433,19 @@ impl PaneThread {
         CommandEffect::Dirty
       }
     }
+  }
+
+  fn handle_paste(&mut self, text: String) {
+    let bracketed = self.terminal.mode(Mode::BRACKETED_PASTE).unwrap_or(false);
+    self.pty_buf.clear();
+    if bracketed {
+      self.pty_buf.extend_from_slice(b"\x1b[200~");
+      self.pty_buf.extend_from_slice(text.as_bytes());
+      self.pty_buf.extend_from_slice(b"\x1b[201~");
+    } else {
+      self.pty_buf.extend_from_slice(text.as_bytes());
+    }
+    self.flush_pty();
   }
 
   fn handle_key(&mut self, input: KeyInput) {
@@ -887,6 +906,24 @@ mod tests {
       assert_eq!(cell.fg, Some(Rgb(red.r, red.g, red.b)));
     }
     assert_eq!(snap.row_text(0), "red");
+  }
+
+  #[test]
+  fn paste_writes_to_pty_and_brackets_when_mode_is_on() {
+    let collected = Arc::new(Mutex::new(Vec::new()));
+    let writer_buf = Arc::clone(&collected);
+    let writer: PtyWriter = Box::new(move |bytes| writer_buf.lock().unwrap().extend(bytes));
+    let handle = PaneHandle::spawn(20, 4, None, writer, Box::new(|| {})).unwrap();
+    handle.send(PaneCommand::Paste("hi".into()));
+    let plain = wait_bytes(&collected, |bytes| bytes == b"hi");
+    assert_eq!(plain, b"hi");
+
+    handle.push_bytes(b"\x1b[?2004h");
+    wait_snapshot(&handle, |snap| snap.seq > 0);
+    collected.lock().unwrap().clear();
+    handle.send(PaneCommand::Paste("ab".into()));
+    let bracketed = wait_bytes(&collected, |bytes| bytes.starts_with(b"\x1b[200~"));
+    assert_eq!(bracketed, b"\x1b[200~ab\x1b[201~");
   }
 
   #[test]

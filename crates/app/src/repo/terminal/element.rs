@@ -372,15 +372,21 @@ fn paint_rows(
 ) {
   let font_size = px(settings.font_size);
   for y in 0..snap.rows {
-    let (text, runs) = shape_row(snap, y, settings);
-    if text.is_empty() {
-      continue;
+    for x in 0..snap.cols {
+      let Some(cell_data) = snap.cell(x, y) else {
+        continue;
+      };
+      if cell_data.text.is_empty() {
+        continue;
+      }
+      let style = run_style(cell_data, snap, settings);
+      let run = text_run(cell_data.text.len(), style, settings);
+      let line = window
+        .text_system()
+        .shape_line(cell_data.text.clone().into(), font_size, &[run], None);
+      let pos = point(origin.x + cell.0 * usize::from(x), origin.y + cell.1 * usize::from(y));
+      let _ = line.paint(pos, cell.1, TextAlign::Left, None, window, cx);
     }
-    let line = window
-      .text_system()
-      .shape_line(text, font_size, &runs, Some(cell.0 * usize::from(snap.cols)));
-    let pos = point(origin.x, origin.y + cell.1 * usize::from(y));
-    let _ = line.paint(pos, cell.1, TextAlign::Left, None, window, cx);
   }
 }
 
@@ -481,51 +487,23 @@ fn paint_bar_cursor(bounds: Bounds<Pixels>, width: Pixels, color: Hsla, window: 
 #[derive(Clone, Copy, PartialEq)]
 struct RunStyle {
   fg: Hsla,
+  #[allow(dead_code)]
+  bg: Hsla,
   bold: bool,
   italic: bool,
   underline: bool,
   strikethrough: bool,
 }
 
-fn shape_row(snap: &PaneSnapshot, y: u16, settings: &TerminalPaint) -> (SharedString, Vec<TextRun>) {
-  let mut text = String::new();
-  let mut runs = Vec::new();
-  let mut current: Option<(RunStyle, usize)> = None;
-  for x in 0..snap.cols {
-    let cell = snap.cell(x, y).cloned().unwrap_or_default();
-    let style = run_style(&cell, snap, settings);
-    let add = cell.text.len();
-    text.push_str(&cell.text);
-    match current {
-      Some((prev, len)) if prev == style => current = Some((prev, len + add)),
-      Some((prev, len)) => {
-        runs.push(text_run(len, prev, settings));
-        current = Some((style, add));
-      }
-      None => current = Some((style, add)),
-    }
-  }
-  if let Some((style, len)) = current {
-    runs.push(text_run(len, style, settings));
-  }
-  (text.into(), runs)
-}
-
 fn run_style(cell: &SnapshotCell, snap: &PaneSnapshot, settings: &TerminalPaint) -> RunStyle {
-  let (fg, _) = effective_colors(cell, snap);
+  let (fg, bg) = effective_colors(cell, snap);
+  let mut fg = paint_rgb(fg, settings.saturation);
   if cell.faint {
-    let mut color = paint_rgb(fg, settings.saturation);
-    color.a *= 0.5;
-    return RunStyle {
-      fg: color,
-      bold: cell.bold,
-      italic: cell.italic,
-      underline: cell.underline,
-      strikethrough: cell.strikethrough,
-    };
+    fg.a *= 0.5;
   }
   RunStyle {
-    fg: paint_rgb(fg, settings.saturation),
+    fg,
+    bg: paint_rgb(bg, settings.saturation),
     bold: cell.bold,
     italic: cell.italic,
     underline: cell.underline,
@@ -608,16 +586,13 @@ fn classify_key(keystroke: &Keystroke) -> KeyRoute {
       return KeyRoute::CopyOrSend;
     }
     KeyRoute::Ignore
+  } else if mods.platform {
+    KeyRoute::Ignore
+  } else if mods.control && !mods.shift && !mods.alt && !mods.function && key == "v" {
+    KeyRoute::Paste
+  } else if mods.control && !mods.shift && !mods.alt && !mods.function && key == "c" {
+    KeyRoute::CopyOrSend
   } else {
-    if mods.platform {
-      return KeyRoute::Ignore;
-    }
-    if mods.control && mods.shift && !mods.alt && !mods.function && key == "v" {
-      return KeyRoute::Paste;
-    }
-    if mods.control && mods.shift && !mods.alt && !mods.function && key == "c" {
-      return KeyRoute::CopyOrSend;
-    }
     KeyRoute::Send
   }
 }
@@ -628,13 +603,18 @@ fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mut App) {
     KeyRoute::Paste => {
       if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
         view.update(cx, |this, _| {
-          this.send(PaneCommand::Bytes(text.into_bytes()));
+          this.send(PaneCommand::Paste(text));
         });
       }
       cx.stop_propagation();
     }
     KeyRoute::CopyOrSend => {
       let copied = view.update(cx, |this, cx| this.copy_selection(cx).is_some());
+      view.update(cx, |this, _| {
+        if copied {
+          this.note_copy_consumed(event.keystroke.key.clone());
+        }
+      });
       if !copied {
         send_key(view, &event.keystroke, true, cx);
       }
@@ -649,7 +629,13 @@ fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mut App) {
 
 fn on_key_up(view: &Entity<PaneView>, event: &KeyUpEvent, cx: &mut App) {
   match classify_key(&event.keystroke) {
-    KeyRoute::Send | KeyRoute::CopyOrSend => send_key(view, &event.keystroke, false, cx),
+    KeyRoute::Send => send_key(view, &event.keystroke, false, cx),
+    KeyRoute::CopyOrSend => {
+      let suppress = view.update(cx, |this, _| this.take_copy_consumed(&event.keystroke.key));
+      if !suppress {
+        send_key(view, &event.keystroke, false, cx);
+      }
+    }
     KeyRoute::Ignore | KeyRoute::Paste => {}
   }
 }
@@ -904,6 +890,15 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
 mod tests {
   use super::*;
   use core::prelude::v1::test;
+  use gpui_kit::TestAppContext;
+
+  struct CellSizeProbe;
+
+  impl Render for CellSizeProbe {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+      div()
+    }
+  }
 
   #[test]
   fn saturate_scales_saturation_and_clamps() {
@@ -929,5 +924,24 @@ mod tests {
       (79, 23)
     );
     assert_eq!(cell_at(point(px(10.0), px(20.0)), origin, cell, 0, 0), (0, 0));
+  }
+
+  #[gpui_kit::test]
+  fn cell_size_measures_font_line_height_and_letter_spacing(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let window = cx.add_window(|_, _cx| CellSizeProbe);
+    window
+      .update(cx, |_, window, _| {
+        let family = MONO_FONT_STACK;
+        let (w0, h0) = cell_size(window, family, 13.0, 1.2, 0.0);
+        let (w1, h1) = cell_size(window, family, 13.0, 1.2, 3.0);
+        assert_eq!(h0, px(13.0 * 1.2));
+        assert_eq!(h1, h0);
+        assert_eq!(w1, w0 + px(3.0));
+        let (w2, h2) = cell_size(window, family, 26.0, 2.0, 0.0);
+        assert_eq!(h2, px(52.0));
+        assert!(w2 > w0);
+      })
+      .unwrap();
   }
 }
