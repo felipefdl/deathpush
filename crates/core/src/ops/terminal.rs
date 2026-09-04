@@ -64,6 +64,26 @@ impl Core {
     Ok(())
   }
 
+  #[cfg(test)]
+  pub fn terminal_kill_blocking(&self, terminal: u64) -> Result<()> {
+    let session = {
+      let mut sessions = self.terminals.lock().map_err(|e| Error::Other(e.to_string()))?;
+      sessions.remove(&terminal)
+    };
+    let Some(session) = session else {
+      return Ok(());
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    self.runtime_handle().spawn_blocking(move || {
+      let mut session = session;
+      session.shutdown();
+      let _ = tx.send(());
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(3))
+      .map_err(|err| Error::Other(err.to_string()))?;
+    Ok(())
+  }
+
   /// Foreground process name for `terminal` in `session`.
   ///
   /// Unix discovery uses `pgrep` and `ps`. On Windows the name stays the shell name;
@@ -247,14 +267,27 @@ mod tests {
   }
 
   #[cfg(unix)]
-  fn trap_term_script() -> (tempfile::TempDir, String) {
+  fn trap_term_tree() -> (tempfile::TempDir, String, String, std::path::PathBuf) {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::TempDir::new().unwrap();
-    let path = dir.path().join("trap-term.sh");
-    std::fs::write(&path, "#!/bin/sh\ntrap \"\" TERM\nsleep 30\n").unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let path = path.to_string_lossy().into_owned();
-    (dir, path)
+    let child = dir.path().join("trap-child.sh");
+    std::fs::write(&child, "#!/bin/sh\ntrap \"\" TERM\nsleep 30\n").unwrap();
+    std::fs::set_permissions(&child, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let parent = dir.path().join("trap-parent.sh");
+    std::fs::write(&parent, "#!/bin/sh\n\"$1\" &\necho $! > \"$2\"\nwait\n").unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let pidfile = dir.path().join("child.pid");
+    (
+      dir,
+      parent.to_string_lossy().into_owned(),
+      child.to_string_lossy().into_owned(),
+      pidfile,
+    )
+  }
+
+  #[cfg(unix)]
+  fn read_pidfile(path: &std::path::Path) -> Option<u32> {
+    std::fs::read_to_string(path).ok()?.trim().parse().ok()
   }
 
   #[cfg(unix)]
@@ -262,18 +295,24 @@ mod tests {
   fn terminal_kill_tears_down_a_term_resistant_child() {
     let core = core();
     let (session, _events) = core.open_session();
-    let (_dir, script) = trap_term_script();
-    let spawned = core
-      .terminal_spawn(session, 80, 24, Some(script), Some(String::new()))
-      .unwrap();
-    let pid = core.terminal_pid(spawned.id).expect("spawned pid");
-    assert!(pid_alive(pid), "trap-term shell should be running before kill");
-    let started = std::time::Instant::now();
-    core.terminal_kill(spawned.id).unwrap();
-    assert!(core.terminal_pid(spawned.id).is_none());
+    let (_dir, parent, child, pidfile) = trap_term_tree();
+    let args = format!("{} {}", child, pidfile.display());
+    let spawned = core.terminal_spawn(session, 80, 24, Some(parent), Some(args)).unwrap();
+    let leader = core.terminal_pid(spawned.id).expect("spawned pid");
+    assert!(pid_alive(leader), "parent shell should be running before kill");
     assert!(
-      wait_until(Duration::from_secs(2), || !pid_alive(pid)),
-      "TERM-resistant pid {pid} should be gone after SIGKILL"
+      wait_until(Duration::from_secs(2), || read_pidfile(&pidfile).is_some_and(pid_alive)),
+      "descendant pidfile should appear"
+    );
+    let descendant = read_pidfile(&pidfile).expect("descendant pid");
+    assert_ne!(descendant, leader);
+    let started = std::time::Instant::now();
+    core.terminal_kill_blocking(spawned.id).unwrap();
+    assert!(core.terminal_pid(spawned.id).is_none());
+    assert!(!pid_alive(leader), "leader pid {leader} should be gone after teardown");
+    assert!(
+      !pid_alive(descendant),
+      "descendant pid {descendant} should be gone after group SIGKILL"
     );
     assert!(
       started.elapsed() < Duration::from_secs(2),

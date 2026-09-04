@@ -7,7 +7,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 use crate::error::{Error, Result};
 use crate::events::{CoreEvent, EventHub};
@@ -183,7 +185,7 @@ impl PtySession {
 
   /// Kill the child, close the PTY master so the reader exits, and join the reader.
   ///
-  /// Unix: SIGTERM, then SIGKILL on the process group if the child ignores TERM.
+  /// Unix: SIGTERM to the process group, then SIGKILL if any member remains.
   /// The reader join waits at most 2s, then detaches.
   pub fn shutdown(&mut self) {
     self.signal_exit();
@@ -209,22 +211,23 @@ impl PtySession {
       if self.child_pid == 0 {
         return;
       }
-      let pid = self.child_pid as i32;
-      // SAFETY: pid is the PTY session leader from spawn (`setsid`).
+      let pgid = self.child_pid as i32;
+      // SAFETY: pgid is the PTY session leader from spawn (`setsid`).
       unsafe {
-        libc::kill(pid, libc::SIGTERM);
+        libc::killpg(pgid, libc::SIGTERM);
       }
       let start = Instant::now();
       while start.elapsed() < Duration::from_millis(100) {
-        if self.child_has_exited() {
+        if !process_group_alive(pgid) {
           return;
         }
         thread::sleep(Duration::from_millis(10));
       }
-      // SAFETY: negative pid signals the process group so trapped TERM descendants die.
-      unsafe {
-        libc::kill(-pid, libc::SIGKILL);
-        libc::kill(pid, libc::SIGKILL);
+      if process_group_alive(pgid) {
+        // SAFETY: SIGKILL the group when any member ignored TERM.
+        unsafe {
+          libc::killpg(pgid, libc::SIGKILL);
+        }
       }
     }
     #[cfg(not(unix))]
@@ -232,13 +235,6 @@ impl PtySession {
       if let Ok(mut child) = self.child.lock() {
         let _ = child.kill();
       }
-    }
-  }
-
-  fn child_has_exited(&self) -> bool {
-    match self.child.lock() {
-      Ok(mut child) => child.try_wait().ok().flatten().is_some(),
-      Err(_) => true,
     }
   }
 
@@ -268,6 +264,12 @@ impl Drop for PtySession {
   fn drop(&mut self) {
     self.shutdown();
   }
+}
+
+#[cfg(unix)]
+fn process_group_alive(pgid: i32) -> bool {
+  // SAFETY: signal 0 probes the group; ESRCH means no member remains.
+  unsafe { libc::kill(-pgid, 0) == 0 }
 }
 
 /// Determine default shell arguments per platform, matching VS Code behavior:
