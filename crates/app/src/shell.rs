@@ -76,7 +76,7 @@ impl Shell {
       cli_installed,
       opening_generation: 0,
     };
-    shell.listen(events, cx);
+    shell.listen(events, window, cx);
     zoom::apply_zoom_to_window(zoom::current_level(cx), window);
     window
       .observe_window_appearance(|window, cx| {
@@ -90,7 +90,10 @@ impl Shell {
     .detach();
     let this = cx.weak_entity();
     window.on_window_should_close(cx, move |_, cx| {
-      let _ = this.update(cx, |this, cx| this.abandon_theme_picker(cx));
+      let _ = this.update(cx, |this, cx| {
+        this.abandon_theme_picker(cx);
+        this.shutdown_terminals(cx);
+      });
       true
     });
     match initial {
@@ -101,10 +104,10 @@ impl Shell {
     shell
   }
 
-  fn listen(&self, mut events: UnboundedReceiver<CoreEvent>, cx: &mut Context<Self>) {
-    cx.spawn(async move |this, cx| {
+  fn listen(&self, mut events: UnboundedReceiver<CoreEvent>, window: &mut Window, cx: &mut Context<Self>) {
+    cx.spawn_in(window, async move |this, cx| {
       while let Some(event) = events.recv().await {
-        let alive = this.update(cx, |this, cx| match (&event, &this.screen) {
+        let alive = this.update_in(cx, |this, window, cx| match (&event, &this.screen) {
           (CoreEvent::SessionStatus(status), Screen::Repository(view)) => {
             let model = view.read(cx).model().clone();
             model.update(cx, |model, cx| model.apply_status_event(status.clone(), cx));
@@ -136,7 +139,7 @@ impl Shell {
           (CoreEvent::TerminalExited { id }, Screen::Repository(view)) => {
             let terminal = view.read(cx).terminal().clone();
             let id = *id;
-            terminal.update(cx, |model, cx| model.on_exited(id, cx));
+            terminal.update(cx, |model, cx| model.on_exited(id, Some(window), cx));
           }
           _ => {}
         });
@@ -146,6 +149,13 @@ impl Shell {
       }
     })
     .detach();
+  }
+
+  fn shutdown_terminals(&self, cx: &mut Context<Self>) {
+    if let Screen::Repository(view) = &self.screen {
+      let terminal = view.read(cx).terminal().clone();
+      terminal.update(cx, |model, cx| model.shutdown(cx));
+    }
   }
 
   fn mount_repository(
@@ -201,6 +211,7 @@ impl Shell {
     )
     .detach();
     view.update(cx, |view, cx| view.focus(window, cx));
+    self.shutdown_terminals(cx);
     self.screen = Screen::Repository(view);
     self.sync_menus(window, cx);
     cx.notify();
@@ -224,6 +235,7 @@ impl Shell {
       },
     )
     .detach();
+    self.shutdown_terminals(cx);
     self.screen = Screen::Welcome(view);
     self.title = "DeathPush".into();
     window.set_window_title("DeathPush");

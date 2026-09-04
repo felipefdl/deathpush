@@ -1,9 +1,10 @@
-use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::thread::JoinHandle;
 
 use crate::error::{Error, Result};
 use crate::events::{CoreEvent, EventHub};
@@ -19,7 +20,9 @@ pub struct PtySession {
   pub child_pid: u32,
   pub session: SessionId,
   writer: Arc<Mutex<Box<dyn Write + Send>>>,
-  master: Box<dyn MasterPty + Send>,
+  master: Option<Box<dyn MasterPty + Send>>,
+  child: Mutex<Box<dyn Child + Send + Sync>>,
+  reader: Option<JoinHandle<()>>,
 }
 
 impl PtySession {
@@ -68,7 +71,7 @@ impl PtySession {
     cmd.env("TERM", "xterm-256color");
     cmd.cwd(cwd);
 
-    let mut child = pair.slave.spawn_command(cmd).map_err(|e| Error::Other(e.to_string()))?;
+    let child = pair.slave.spawn_command(cmd).map_err(|e| Error::Other(e.to_string()))?;
     let child_pid = child.process_id().unwrap_or(0);
     drop(pair.slave);
 
@@ -83,7 +86,7 @@ impl PtySession {
     let thread_hub = hub.clone();
     #[cfg(windows)]
     let writer_for_reader = Arc::clone(&writer);
-    thread::spawn(move || {
+    let reader = thread::spawn(move || {
       let mut reader = reader;
       let mut buf = [0u8; 65536];
       // Leftover bytes from an incomplete UTF-8 sequence at the end of the
@@ -161,7 +164,6 @@ impl PtySession {
         },
       );
       thread_hub.send(session, CoreEvent::TerminalExited { id: session_id });
-      let _ = child.wait();
     });
 
     Ok(Self {
@@ -170,8 +172,30 @@ impl PtySession {
       child_pid,
       session,
       writer,
-      master: pair.master,
+      master: Some(pair.master),
+      child: Mutex::new(child),
+      reader: Some(reader),
     })
+  }
+
+  /// Kill the child, close the PTY master so the reader exits, and join the reader.
+  pub fn shutdown(&mut self) {
+    if let Ok(mut child) = self.child.lock() {
+      let _ = child.kill();
+    }
+    self.master.take();
+    if let Some(reader) = self.reader.take() {
+      let _ = reader.join();
+    }
+    if let Ok(mut child) = self.child.lock() {
+      let _ = child.wait();
+    }
+  }
+
+  #[cfg(test)]
+  pub fn try_wait(&self) -> Result<Option<portable_pty::ExitStatus>> {
+    let mut child = self.child.lock().map_err(|e| Error::Other(e.to_string()))?;
+    child.try_wait().map_err(|e| Error::Other(e.to_string()))
   }
 
   pub fn write_data(&self, data: &str) -> Result<()> {
@@ -182,8 +206,10 @@ impl PtySession {
   }
 
   pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
-    self
-      .master
+    let Some(master) = self.master.as_ref() else {
+      return Ok(());
+    };
+    master
       .resize(PtySize {
         rows,
         cols,
@@ -191,6 +217,12 @@ impl PtySession {
         pixel_height: 0,
       })
       .map_err(|e| Error::Other(e.to_string()))
+  }
+}
+
+impl Drop for PtySession {
+  fn drop(&mut self) {
+    self.shutdown();
   }
 }
 

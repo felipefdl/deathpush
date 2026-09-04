@@ -1,8 +1,10 @@
-pub fn default_name(n: usize) -> String {
+/// Default pane label, 1-based (`Terminal 1`).
+pub(crate) fn default_name(n: usize) -> String {
   format!("Terminal {n}")
 }
 
-pub fn display_name(default: &str, shell: Option<&str>, foreground: Option<&str>) -> String {
+/// Foreground process name, then the shell name, then `default`.
+pub(crate) fn display_name(default: &str, shell: Option<&str>, foreground: Option<&str>) -> String {
   if let Some(name) = foreground.filter(|name| !name.is_empty()) {
     return name.to_string();
   }

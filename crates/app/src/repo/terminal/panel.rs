@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use deathpush_core::config::layout::PanelTab;
 use gpui_kit::base::{ResizableState, h_resizable, resizable_panel, v_resizable};
@@ -60,6 +60,24 @@ impl TerminalPanel {
       .clone()
   }
 
+  fn prune_split_states(&mut self, cx: &App) {
+    let live: HashSet<u64> = self
+      .model
+      .read(cx)
+      .groups
+      .iter()
+      .flat_map(|group| group.tree.split_ids())
+      .collect();
+    self.split_states.retain(|id, _| live.contains(id));
+  }
+
+  #[cfg(test)]
+  pub(crate) fn split_state_ids(&self) -> Vec<u64> {
+    let mut ids: Vec<u64> = self.split_states.keys().copied().collect();
+    ids.sort_unstable();
+    ids
+  }
+
   fn render_tree(&mut self, tree: &SplitTree, cx: &mut Context<Self>) -> AnyElement {
     match tree {
       SplitTree::Leaf(id) => self
@@ -95,6 +113,7 @@ impl TerminalPanel {
   fn render_sidebar(&self, pane_ids: &[u64], cx: &App) -> impl IntoElement {
     let palette = cx.global::<ActivePalette>().0;
     let model = self.model.clone();
+    let layout = self.layout.clone();
     let rows: Vec<AnyElement> = pane_ids
       .iter()
       .copied()
@@ -139,8 +158,18 @@ impl TerminalPanel {
             "icons/split-horizontal.svg",
             "Split Horizontally",
             hover.clone(),
-            move |window, cx| {
-              split_h.update(cx, |model, cx| model.split(pane_id, Axis::Vertical, window, cx));
+            {
+              let layout = layout.clone();
+              move |window, cx| {
+                layout.update(cx, |layout, cx| {
+                  layout.set_terminal_visible(true, cx);
+                  layout.set_panel_tab(PanelTab::Terminal, cx);
+                });
+                split_h.update(cx, |model, cx| {
+                  model.set_panes_visible(true, cx);
+                  model.split(pane_id, Axis::Vertical, window, cx);
+                });
+              }
             },
           ))
           .child(sidebar_icon(
@@ -148,8 +177,18 @@ impl TerminalPanel {
             "icons/split-vertical.svg",
             "Split Vertically",
             hover.clone(),
-            move |window, cx| {
-              split_v.update(cx, |model, cx| model.split(pane_id, Axis::Horizontal, window, cx));
+            {
+              let layout = layout.clone();
+              move |window, cx| {
+                layout.update(cx, |layout, cx| {
+                  layout.set_terminal_visible(true, cx);
+                  layout.set_panel_tab(PanelTab::Terminal, cx);
+                });
+                split_v.update(cx, |model, cx| {
+                  model.set_panes_visible(true, cx);
+                  model.split(pane_id, Axis::Horizontal, window, cx);
+                });
+              }
             },
           ))
           .child(sidebar_icon(
@@ -157,8 +196,8 @@ impl TerminalPanel {
             "icons/close.svg",
             "Kill Terminal",
             hover,
-            move |_, cx| {
-              kill.update(cx, |model, cx| model.kill_pane(pane_id, cx));
+            move |window, cx| {
+              kill.update(cx, |model, cx| model.kill_pane(pane_id, Some(window), cx));
             },
           ))
           .into_any_element()
@@ -236,6 +275,7 @@ fn header_icon(
 
 impl Render for TerminalPanel {
   fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    self.prune_split_states(cx);
     let palette = cx.global::<ActivePalette>().0;
     let layout = self.layout.read(cx).layout().clone();
     let active = layout.panel_tab;
@@ -420,7 +460,7 @@ mod tests {
       let layout_dir = layout_dir.clone();
       move |_, cx| {
         let model = cx.new(|cx| {
-          let mut model = TerminalModel::new(core, session, "/tmp".into(), cx);
+          let mut model = TerminalModel::new(core, session, cx);
           let pane = cx.new(|cx| PaneView::new_unthreaded(1, cx));
           pane.update(cx, |view, _| view.set_snapshot(snapshot.clone()));
           model.insert_test_pane(pane, cx);
@@ -445,6 +485,77 @@ mod tests {
       .update(cx, |panel, _, cx| {
         assert_eq!(panel.model().read(cx).groups.len(), 1);
         assert_eq!(panel.model().read(cx).panes.len(), 1);
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn prune_split_states_drops_ids_not_in_any_tree(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let layout_dir = config_dir.path().to_path_buf();
+    let window = cx.add_window({
+      let core = core.clone();
+      let layout_dir = layout_dir.clone();
+      move |_, cx| {
+        let model = cx.new(|cx| {
+          let mut model = TerminalModel::new(core, session, cx);
+          let a = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+          let a2 = cx.new(|cx| PaneView::new_unthreaded(3, cx));
+          let b = cx.new(|cx| PaneView::new_unthreaded(2, cx));
+          let b2 = cx.new(|cx| PaneView::new_unthreaded(4, cx));
+          model.insert_test_pane(a, cx);
+          model.insert_test_pane(b, cx);
+          model.attach_test_pane(1, Axis::Horizontal, a2, cx);
+          model.attach_test_pane(2, Axis::Vertical, b2, cx);
+          model.activate_group(1, cx);
+          model
+        });
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, "/tmp", true));
+        let output = cx.new(|_| OutputLog::default());
+        TerminalPanel::new(model, layout, output, cx)
+      }
+    });
+    AnyWindowHandle::from(window)
+      .update(cx, |_, window, cx| {
+        let _ = window.draw(cx);
+      })
+      .unwrap();
+    window
+      .update(cx, |panel, _, cx| {
+        assert_eq!(panel.split_state_ids().len(), 1);
+        panel.model().update(cx, |model, cx| {
+          assert!(model.activate_group(2, cx));
+        });
+      })
+      .unwrap();
+    AnyWindowHandle::from(window)
+      .update(cx, |_, window, cx| {
+        let _ = window.draw(cx);
+      })
+      .unwrap();
+    window
+      .update(cx, |panel, _, cx| {
+        assert_eq!(panel.split_state_ids().len(), 2);
+        let second = panel.model().read(cx).groups[1].id;
+        panel.model().update(cx, |model, cx| model.kill_group(second, None, cx));
+      })
+      .unwrap();
+    AnyWindowHandle::from(window)
+      .update(cx, |_, window, cx| {
+        let _ = window.draw(cx);
+      })
+      .unwrap();
+    window
+      .update(cx, |panel, _, _| {
+        assert_eq!(panel.split_state_ids().len(), 1);
       })
       .unwrap();
   }

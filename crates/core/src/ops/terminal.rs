@@ -4,6 +4,7 @@ use crate::core::Core;
 use crate::error::{Error, Result};
 use crate::pty::PtySession;
 use crate::session::SessionId;
+#[cfg(not(windows))]
 use crate::util::sync_command;
 
 #[derive(Serialize)]
@@ -51,38 +52,75 @@ impl Core {
 
   pub fn terminal_kill(&self, terminal: u64) -> Result<()> {
     let mut sessions = self.terminals.lock().map_err(|e| Error::Other(e.to_string()))?;
-    sessions.remove(&terminal);
+    if let Some(mut session) = sessions.remove(&terminal) {
+      session.shutdown();
+    }
     Ok(())
   }
 
-  pub fn terminal_foreground_process(&self, terminal: u64) -> Result<String> {
+  /// Foreground process name for `terminal` in `session`.
+  ///
+  /// Unix discovery uses `pgrep` and `ps`. On Windows the name stays the shell name;
+  /// no process is queried.
+  pub fn terminal_foreground_process(&self, session: SessionId, terminal: u64) -> Result<String> {
     let (child_pid, shell_name) = {
       let sessions = self.terminals.lock().map_err(|e| Error::Other(e.to_string()))?;
-      let session = sessions
+      let pty = sessions
         .get(&terminal)
         .ok_or(Error::Other("No terminal session".into()))?;
-      (session.child_pid, session.shell_name.clone())
+      if pty.session != session {
+        return Err(Error::Other("No terminal session".into()));
+      }
+      (pty.child_pid, pty.shell_name.clone())
     };
 
     Ok(get_foreground_process_name(child_pid, &shell_name))
   }
 
-  pub fn terminals_have_active_process(&self) -> Result<bool> {
-    let snapshots: Vec<(u32, String)> = {
-      let sessions = self.terminals.lock().map_err(|e| Error::Other(e.to_string()))?;
-      sessions
-        .values()
-        .map(|session| (session.child_pid, session.shell_name.clone()))
-        .collect()
-    };
-    Ok(
-      snapshots
-        .iter()
-        .any(|(pid, shell)| get_foreground_process_name(*pid, shell) != *shell),
-    )
+  /// Whether any terminal in `session` has a child process other than the shell.
+  ///
+  /// Unix only. On Windows this is always false; process discovery does not run.
+  pub fn terminals_have_active_process(&self, session: SessionId) -> Result<bool> {
+    #[cfg(windows)]
+    {
+      let _ = session;
+      return Ok(false);
+    }
+    #[cfg(not(windows))]
+    {
+      let snapshots: Vec<(u32, String)> = {
+        let sessions = self.terminals.lock().map_err(|e| Error::Other(e.to_string()))?;
+        sessions
+          .values()
+          .filter(|pty| pty.session == session)
+          .map(|pty| (pty.child_pid, pty.shell_name.clone()))
+          .collect()
+      };
+      Ok(
+        snapshots
+          .iter()
+          .any(|(pid, shell)| get_foreground_process_name(*pid, shell) != *shell),
+      )
+    }
+  }
+
+  #[cfg(test)]
+  pub fn terminal_pid(&self, terminal: u64) -> Option<u32> {
+    self
+      .terminals
+      .lock()
+      .ok()?
+      .get(&terminal)
+      .map(|session| session.child_pid)
   }
 }
 
+#[cfg(windows)]
+fn get_foreground_process_name(_shell_pid: u32, shell_name: &str) -> String {
+  shell_name.to_string()
+}
+
+#[cfg(not(windows))]
 fn get_foreground_process_name(shell_pid: u32, shell_name: &str) -> String {
   let Ok(output) = sync_command("pgrep").args(["-P", &shell_pid.to_string()]).output() else {
     return shell_name.to_string();
@@ -110,4 +148,107 @@ fn get_foreground_process_name(shell_pid: u32, shell_name: &str) -> String {
     .file_name()
     .map(|n| n.to_string_lossy().to_string())
     .unwrap_or(name)
+}
+
+#[cfg(test)]
+mod tests {
+  use crate::Core;
+  #[cfg(unix)]
+  use std::time::Duration;
+
+  fn core() -> std::sync::Arc<Core> {
+    let dir = tempfile::TempDir::new().unwrap();
+    Core::new(dir.path().to_path_buf()).unwrap()
+  }
+
+  #[cfg(unix)]
+  fn pid_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+      .args(["-0", &pid.to_string()])
+      .stdout(std::process::Stdio::null())
+      .stderr(std::process::Stdio::null())
+      .status()
+      .map(|status| status.success())
+      .unwrap_or(false)
+  }
+
+  #[cfg(unix)]
+  fn wait_until(timeout: Duration, mut pred: impl FnMut() -> bool) -> bool {
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+      if pred() {
+        return true;
+      }
+      std::thread::sleep(Duration::from_millis(50));
+    }
+    false
+  }
+
+  #[cfg(unix)]
+  fn hold_script() -> (tempfile::TempDir, String) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("hold.sh");
+    std::fs::write(&path, "#!/bin/sh\nsleep 30\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = path.to_string_lossy().into_owned();
+    (dir, path)
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn terminal_kill_terminates_the_child() {
+    let core = core();
+    let (session, _events) = core.open_session();
+    let spawned = core
+      .terminal_spawn(session, 80, 24, Some("/bin/sleep".into()), Some("30".into()))
+      .unwrap();
+    let pid = core.terminal_pid(spawned.id).expect("spawned pid");
+    assert!(pid_alive(pid), "sleep should be running before kill");
+    core.terminal_kill(spawned.id).unwrap();
+    assert!(core.terminal_pid(spawned.id).is_none());
+    assert!(
+      wait_until(Duration::from_secs(2), || !pid_alive(pid)),
+      "sleep pid {pid} should be gone after terminal_kill"
+    );
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn terminals_have_active_process_is_session_scoped() {
+    let core = core();
+    let (session_a, _a) = core.open_session();
+    let (session_b, _b) = core.open_session();
+    let (_dir, script) = hold_script();
+    let spawned = core
+      .terminal_spawn(session_a, 80, 24, Some(script), Some(String::new()))
+      .unwrap();
+    assert_ne!(spawned.shell, "sleep");
+    assert!(
+      wait_until(Duration::from_secs(3), || {
+        core.terminals_have_active_process(session_a).unwrap_or(false)
+      }),
+      "session A should see the sleep child"
+    );
+    assert!(
+      !core.terminals_have_active_process(session_b).unwrap(),
+      "session B must ignore A's child"
+    );
+    let name = core.terminal_foreground_process(session_a, spawned.id).unwrap();
+    assert_eq!(name, "sleep");
+    assert!(core.terminal_foreground_process(session_b, spawned.id).is_err());
+    core.terminal_kill(spawned.id).unwrap();
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn terminals_have_active_process_is_false_on_windows() {
+    let core = core();
+    let (session, _events) = core.open_session();
+    let spawned = core.terminal_spawn(session, 80, 24, None, None).unwrap();
+    assert!(!core.terminals_have_active_process(session).unwrap());
+    let name = core.terminal_foreground_process(session, spawned.id).unwrap();
+    assert_eq!(name, spawned.shell);
+    core.terminal_kill(spawned.id).unwrap();
+  }
 }

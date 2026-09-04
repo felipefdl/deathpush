@@ -75,6 +75,7 @@ impl ProjectLayout {
     self.sidebar_width = self.sidebar_width.clamp(200.0, 600.0);
     self.terminal_height = self.terminal_height.clamp(100.0, 600.0);
     self.history_list_width = self.history_list_width.clamp(200.0, 600.0);
+    self.terminal_sidebar_width = self.terminal_sidebar_width.clamp(80.0, 400.0);
     if always_open_terminal {
       self.terminal_visible = true;
     }
@@ -144,6 +145,7 @@ mod tests {
       main_view: MainView::Settings,
       sidebar_width: 50.0,
       terminal_height: 9000.0,
+      terminal_sidebar_width: 10.0,
       terminal_visible: false,
       ..Default::default()
     }
@@ -151,13 +153,16 @@ mod tests {
     assert_eq!(layout.main_view, MainView::Changes);
     assert_eq!(layout.sidebar_width, 200.0);
     assert_eq!(layout.terminal_height, 600.0);
+    assert_eq!(layout.terminal_sidebar_width, 80.0);
     assert!(layout.terminal_visible);
     let history = ProjectLayout {
       main_view: MainView::History,
+      terminal_sidebar_width: 900.0,
       ..Default::default()
     }
     .sanitized(false);
     assert_eq!(history.main_view, MainView::History);
+    assert_eq!(history.terminal_sidebar_width, 400.0);
   }
 
   #[test]

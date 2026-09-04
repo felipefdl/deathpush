@@ -80,8 +80,7 @@ impl RepoView {
     let history = cx.new(|cx| HistoryView::new(model.clone(), layout.clone(), history_diff, cx));
     let terminal = cx.new({
       let core = core.clone();
-      let root = root.clone();
-      move |cx| TerminalModel::new(core, session, root, cx)
+      move |cx| TerminalModel::new(core, session, cx)
     });
     cx.observe(&terminal, |_, _, cx| cx.notify()).detach();
     if layout.read(cx).layout().terminal_visible {
@@ -144,12 +143,25 @@ impl RepoView {
   }
 
   fn activate_terminal_group(&self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    let activated = self.terminal.update(cx, |model, cx| model.activate_group(index, cx));
+    if !activated {
+      return;
+    }
     self.show_terminal_tab(cx);
     self.terminal.update(cx, |model, cx| {
       model.set_panes_visible(true, cx);
-      model.activate_group(index, cx);
       if let Some(id) = model.active_pane() {
         model.activate_pane(id, window, cx);
+      }
+    });
+  }
+
+  fn split_terminal(&self, axis: Axis, window: &mut Window, cx: &mut Context<Self>) {
+    self.show_terminal_tab(cx);
+    self.terminal.update(cx, |model, cx| {
+      model.set_panes_visible(true, cx);
+      if let Some(id) = model.active_pane() {
+        model.split(id, axis, window, cx);
       }
     });
   }
@@ -348,33 +360,25 @@ impl Render for RepoView {
           .update(cx, |layout, cx| layout.set_terminal_visible(false, cx));
         this.terminal.update(cx, |model, cx| model.set_panes_visible(false, cx));
       }))
-      .on_action(cx.listener(|this, _: &KillTerminal, _, cx| {
+      .on_action(cx.listener(|this, _: &KillTerminal, window, cx| {
         this.terminal.update(cx, |model, cx| {
           if let Some(id) = model.active_group {
-            model.kill_group(id, cx);
+            model.kill_group(id, Some(window), cx);
           }
         });
       }))
-      .on_action(cx.listener(|this, _: &KillTerminalPane, _, cx| {
+      .on_action(cx.listener(|this, _: &KillTerminalPane, window, cx| {
         this.terminal.update(cx, |model, cx| {
           if let Some(id) = model.active_pane() {
-            model.kill_pane(id, cx);
+            model.kill_pane(id, Some(window), cx);
           }
         });
       }))
       .on_action(cx.listener(|this, _: &SplitTerminalHorizontal, window, cx| {
-        this.terminal.update(cx, |model, cx| {
-          if let Some(id) = model.active_pane() {
-            model.split(id, Axis::Vertical, window, cx);
-          }
-        });
+        this.split_terminal(Axis::Vertical, window, cx);
       }))
       .on_action(cx.listener(|this, _: &SplitTerminalVertical, window, cx| {
-        this.terminal.update(cx, |model, cx| {
-          if let Some(id) = model.active_pane() {
-            model.split(id, Axis::Horizontal, window, cx);
-          }
-        });
+        this.split_terminal(Axis::Horizontal, window, cx);
       }))
       .on_action(cx.listener(|this, _: &ActivateTerminalGroup1, window, cx| {
         this.activate_terminal_group(1, window, cx);
@@ -665,6 +669,86 @@ mod tests {
           view.model().read(cx).state().running.contains(&NetworkOp::Sync),
           "GitSync body on focused RepoView should mark NetworkOp::Sync running"
         );
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn activate_terminal_group_out_of_range_does_not_show_panel(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let layout_dir = config_dir.path().to_path_buf();
+    let root = layout_dir.to_string_lossy().into_owned();
+    let window = cx.add_window({
+      let core = core.clone();
+      let snapshot = snapshot(&root);
+      let layout_dir = layout_dir.clone();
+      let root = root.clone();
+      move |window, cx| {
+        let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, false));
+        let output = cx.new(|_| OutputLog::default());
+        RepoView::new(model, layout, output, window, cx)
+      }
+    });
+    window
+      .update(cx, |view, window, cx| {
+        view.focus(window, cx);
+        view
+          .layout()
+          .update(cx, |layout, cx| layout.set_terminal_visible(false, cx));
+        view.activate_terminal_group(9, window, cx);
+        assert!(!view.layout().read(cx).layout().terminal_visible);
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn split_actions_select_the_terminal_tab(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let layout_dir = config_dir.path().to_path_buf();
+    let root = layout_dir.to_string_lossy().into_owned();
+    let window = cx.add_window({
+      let core = core.clone();
+      let snapshot = snapshot(&root);
+      let layout_dir = layout_dir.clone();
+      let root = root.clone();
+      move |window, cx| {
+        let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
+        let output = cx.new(|_| OutputLog::default());
+        RepoView::new(model, layout, output, window, cx)
+      }
+    });
+    window
+      .update(cx, |view, window, cx| {
+        view.focus(window, cx);
+        view.layout().update(cx, |layout, cx| {
+          layout.set_panel_tab(PanelTab::GitOutput, cx);
+          layout.toggle_terminal_maximized(cx);
+        });
+        view.split_terminal(Axis::Vertical, window, cx);
+        assert_eq!(view.layout().read(cx).layout().panel_tab, PanelTab::Terminal);
+        view
+          .layout()
+          .update(cx, |layout, cx| layout.set_panel_tab(PanelTab::GitOutput, cx));
+        view.split_terminal(Axis::Horizontal, window, cx);
+        assert_eq!(view.layout().read(cx).layout().panel_tab, PanelTab::Terminal);
       })
       .unwrap();
   }

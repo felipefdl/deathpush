@@ -92,6 +92,7 @@ impl LayoutModel {
   }
 
   pub fn set_terminal_sidebar_width(&mut self, width: f32, cx: &mut Context<Self>) {
+    let width = width.clamp(80.0, 400.0);
     if (self.layout.terminal_sidebar_width - width).abs() > 0.5 {
       self.layout.terminal_sidebar_width = width;
       self.changed(cx);
@@ -187,5 +188,17 @@ mod tests {
     let model = LayoutModel::load_from(dir.path().to_path_buf(), "/r", false);
     assert!(model.is_collapsed("scm.nested"));
     assert!(!model.is_collapsed("scm.changes"));
+  }
+
+  #[gpui_kit::test]
+  fn terminal_sidebar_width_clamps_on_set(cx: &mut TestAppContext) {
+    let dir = tempfile::TempDir::new().unwrap();
+    let model = cx.new(|_| LayoutModel::load_from(dir.path().to_path_buf(), "/repos/a", false));
+    model.update(cx, |model, cx| {
+      model.set_terminal_sidebar_width(10.0, cx);
+      assert_eq!(model.layout().terminal_sidebar_width, 80.0);
+      model.set_terminal_sidebar_width(900.0, cx);
+      assert_eq!(model.layout().terminal_sidebar_width, 400.0);
+    });
   }
 }
