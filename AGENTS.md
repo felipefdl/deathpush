@@ -25,8 +25,8 @@ DeathPush is a standalone desktop Git client built on GPUI (Rust) that replicate
 
 ## Layout
 
-- `crates/core/` -- `deathpush-core`. No UI dependency. `Core` (runtime, registries, event hub), `ops/` (every operation as a `Core` method), `session/` (intent apply, registry, types, `SessionId`), `git/` (git2 reads, CLI writes, status coordinator, watcher, repository runtime, invalidation), `terminal/` (VT screen), `pty.rs`, `events.rs` (`CoreEvent`, `EventHub`), `shell_env.rs`, `types.rs`, `error.rs`, `config/` (settings, recents, window bounds), `theme/` (tm-themes parsing, `UiPalette`), `workspace.rs`, `deep_link.rs`.
-- `crates/app/` -- `deathpush`, the gpui binary. `assets.rs` (embedded assets, gpui-kit fallback), `config.rs` (`AppConfig` global, debounced save), `theme.rs` (catalog, `apply_theme`, `ActivePalette`), `zoom.rs`, `actions.rs`, `keymap.rs` (binding table per OS, key contexts), `menus.rs` (native menus, Linux rows), `window.rs` (window options, registry), `shell.rs` (`Shell` root: screens, overlays, toast), `title_bar.rs`, `welcome/`, `overlays/`, `cli_install.rs`, `open_requests.rs`.
+- `crates/core/` -- `deathpush-core`. No UI dependency. `Core` (runtime, registries, event hub), `ops/` (every operation as a `Core` method), `session/` (intent apply, registry, types, `SessionId`), `git/` (git2 reads, CLI writes, status coordinator, watcher, repository runtime, invalidation), `terminal/` (VT screen), `pty.rs`, `events.rs` (`CoreEvent`, `EventHub`), `shell_env.rs`, `types.rs`, `error.rs`, `relative_time.rs`, `config/` (settings, recents, window bounds, `layout.rs` per-project layout), `theme/` (tm-themes parsing, `UiPalette`), `workspace.rs`, `deep_link.rs`.
+- `crates/app/` -- `deathpush`, the gpui binary. `assets.rs` (embedded assets, gpui-kit fallback), `config.rs` (`AppConfig` global, debounced save), `theme.rs` (catalog, `apply_theme`, `ActivePalette`), `zoom.rs`, `actions.rs`, `keymap.rs` (binding table per OS, key contexts), `menus.rs` (native menus, Linux rows), `window.rs` (window options, registry), `shell.rs` (`Shell` root: screens, overlays, toast), `title_bar.rs`, `welcome/`, `overlays/`, `repo/` (`state.rs` (pure session guards), `model.rs` (`RepoModel`, intents, `NeedsConfirmation` prompt), `layout_model.rs`, `output_log.rs`, `view.rs` (chrome), `sidebar.rs`, `main_panel.rs`, `terminal_panel.rs`, `status_bar.rs`), `cli_install.rs`, `open_requests.rs`.
 - `assets/` -- `bin/` (dp launchers), `app-icons/`, `brand/`, `fonts/`, `metainfo/`.
 - `docs/specs/` -- surface specs and the architecture spec. `docs/adr/` -- decision records.
 
@@ -60,6 +60,7 @@ DeathPush is a standalone desktop Git client built on GPUI (Rust) that replicate
 ### UI
 
 - Overlays are the shell's own layer, not gpui-component dialogs. Colors come from `cx.theme()` or `ActivePalette`; no literal colors outside the boot splash.
+- Views read `RepoModel::state()`; only `RepoModel` mutates it, through `dispatch` or `apply_status_event`.
 
 ### Testing
 
