@@ -119,6 +119,9 @@ impl ExplorerView {
         self.open_file(path, None, window, cx);
       }
     }
+  }
+
+  fn capture_tree_focus(&mut self, window: &Window, cx: &App) {
     if let Some(focused) = window.focused(cx) {
       self.tree_focus = focused;
     }
@@ -234,31 +237,40 @@ impl Render for ExplorerView {
     let rows = Rc::new(self.model.read(cx).visible_rows(status.as_ref()));
     let view = cx.weak_entity();
     root.child(
-      div().flex_1().min_h_0().w_full().track_focus(&self.tree_focus).child(
-        Tree::new(&self.tree)
-          .item(move |_, entry, entry_state, _, _| {
-            let path = entry.item().id.as_str();
-            if is_stub_id(path) {
-              return div().h(px(0.0)).into_any_element();
-            }
-            let Some(row) = rows.iter().find(|row| row.path == path) else {
-              return div().into_any_element();
-            };
-            render_row(
-              row,
-              &RowPaint {
-                kind,
-                density,
-                palette,
-                selected: row.selected || entry_state.is_selected(),
-              },
-              view.clone(),
-            )
-          })
-          .flex_1()
-          .min_h_0()
-          .w_full(),
-      ),
+      div()
+        .flex_1()
+        .min_h_0()
+        .w_full()
+        .track_focus(&self.tree_focus)
+        .on_mouse_down(
+          MouseButton::Left,
+          cx.listener(|this, _, window, cx| this.capture_tree_focus(window, cx)),
+        )
+        .child(
+          Tree::new(&self.tree)
+            .item(move |_, entry, entry_state, _, _| {
+              let path = entry.item().id.as_str();
+              if is_stub_id(path) {
+                return div().h(px(0.0)).into_any_element();
+              }
+              let Some(row) = rows.iter().find(|row| row.path == path) else {
+                return div().into_any_element();
+              };
+              render_row(
+                row,
+                &RowPaint {
+                  kind,
+                  density,
+                  palette,
+                  selected: row.selected || entry_state.is_selected(),
+                },
+                view.clone(),
+              )
+            })
+            .flex_1()
+            .min_h_0()
+            .w_full(),
+        ),
     )
   }
 }
