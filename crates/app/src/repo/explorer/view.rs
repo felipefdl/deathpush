@@ -349,8 +349,8 @@ impl ExplorerView {
       .read(cx)
       .selected_entry()
       .map(|entry| entry.item().id.to_string());
-    let anchor = self.model.read(cx).anchor.clone();
-    let Some(path) = keyboard_path_to_select(tree_id.as_deref(), anchor.as_deref()) else {
+    let selected = self.model.read(cx).selected.clone();
+    let Some(path) = keyboard_path_to_select(tree_id.as_deref(), &selected) else {
       return;
     };
     self.model.update(cx, |model, cx| model.select(&path, false, false, cx));
@@ -506,9 +506,13 @@ fn is_stub_id(id: &str) -> bool {
   id.ends_with('\u{2060}')
 }
 
-fn keyboard_path_to_select(tree_id: Option<&str>, anchor: Option<&str>) -> Option<String> {
+fn keyboard_path_to_select(tree_id: Option<&str>, selected: &[String]) -> Option<String> {
   let id = tree_id.filter(|id| !is_stub_id(id))?;
-  if anchor == Some(id) { None } else { Some(id.to_string()) }
+  if selected.iter().any(|path| path == id) {
+    None
+  } else {
+    Some(id.to_string())
+  }
 }
 
 fn items_from_nodes(nodes: &[Node], expanded: &HashSet<String>, filter: &str) -> Vec<TreeItem> {
@@ -866,13 +870,21 @@ mod tests {
   }
 
   #[test]
-  fn keyboard_selection_resyncs_when_the_tree_id_differs_from_the_anchor() {
+  fn keyboard_selection_resyncs_when_the_tree_id_is_not_selected() {
     assert_eq!(
-      keyboard_path_to_select(Some("b.rs"), Some("a.rs")).as_deref(),
+      keyboard_path_to_select(Some("b.rs"), &["a.rs".into()]).as_deref(),
       Some("b.rs")
     );
-    assert_eq!(keyboard_path_to_select(Some("a.rs"), Some("a.rs")), None);
-    assert_eq!(keyboard_path_to_select(None, Some("a.rs")), None);
-    assert_eq!(keyboard_path_to_select(Some("src\u{2060}"), Some("a.rs")), None);
+    assert_eq!(keyboard_path_to_select(Some("a.rs"), &["a.rs".into()]), None);
+    assert_eq!(keyboard_path_to_select(None, &["a.rs".into()]), None);
+    assert_eq!(keyboard_path_to_select(Some("src\u{2060}"), &["a.rs".into()]), None);
+    assert_eq!(
+      keyboard_path_to_select(Some("a.rs"), &["a.rs".into(), "b.rs".into()]),
+      None
+    );
+    assert_eq!(
+      keyboard_path_to_select(Some("b.rs"), &["a.rs".into(), "b.rs".into()]),
+      None
+    );
   }
 }

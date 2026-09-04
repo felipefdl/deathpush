@@ -104,7 +104,6 @@ pub fn render_row(row: &Row, paint: &RowPaint, view: WeakEntity<ExplorerView>) -
     is_directory,
   };
   let drop_into = if is_directory { path.clone() } else { parent_path(&path) };
-  let can_drop_into = drop_into.clone();
   let drop_view = view.clone();
   let mut row_el = div()
     .id(SharedString::from(row.path.clone()))
@@ -133,11 +132,7 @@ pub fn render_row(row: &Row, paint: &RowPaint, view: WeakEntity<ExplorerView>) -
     });
   }
   row_el = row_el
-    .can_drop(move |value, _, _| {
-      value
-        .downcast_ref::<DragEntry>()
-        .is_some_and(|entry| !drop_ignored(&entry.path, entry.is_directory, &can_drop_into))
-    })
+    .can_drop(|value, _, _| value.downcast_ref::<DragEntry>().is_some())
     .drag_over::<DragEntry>(move |style, _, _, _| style.bg(hover))
     .on_drop::<DragEntry>(move |entry, window, cx| {
       let _ = drop_view.update(cx, |this, cx| this.drop_entry(entry, &drop_into, window, cx));
