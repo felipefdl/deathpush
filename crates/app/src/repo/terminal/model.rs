@@ -90,6 +90,7 @@ pub struct Group {
   pub id: u64,
   pub tree: SplitTree,
   pub active: u64,
+  #[allow(dead_code)]
   pub next_index: usize,
 }
 
@@ -117,6 +118,7 @@ pub struct TerminalModel {
   pub active_group: Option<u64>,
   pub panes: HashMap<u64, PaneInfo>,
   next_group: u64,
+  next_split: u64,
   counter: usize,
   polling: bool,
 }
@@ -131,6 +133,7 @@ impl TerminalModel {
       active_group: None,
       panes: HashMap::new(),
       next_group: 1,
+      next_split: 1,
       counter: 0,
       polling: false,
     }
@@ -162,12 +165,11 @@ impl TerminalModel {
     let Some(new_pane) = self.spawn_pane(cx) else {
       return;
     };
-    if let Some(group) = self.groups.iter_mut().find(|group| group.id == group_id) {
-      group.next_index += 1;
-      let split_id = group.next_index as u64;
-      if group.tree.split(pane, axis, new_pane, split_id) {
-        group.active = new_pane;
-      }
+    let split_id = self.alloc_split_id();
+    if let Some(group) = self.groups.iter_mut().find(|group| group.id == group_id)
+      && group.tree.split(pane, axis, new_pane, split_id)
+    {
+      group.active = new_pane;
     }
     self.active_group = Some(group_id);
     self.activate_pane(new_pane, window, cx);
@@ -368,6 +370,12 @@ impl TerminalModel {
     cx.notify();
   }
 
+  fn alloc_split_id(&mut self) -> u64 {
+    let id = self.next_split;
+    self.next_split += 1;
+    id
+  }
+
   fn group_id_for_pane(&self, pane: u64) -> Option<u64> {
     self
       .groups
@@ -476,13 +484,12 @@ impl TerminalModel {
         handle: None,
       },
     );
+    let split_id = self.alloc_split_id();
     if let Some(group) = self
       .groups
       .iter_mut()
       .find(|group| group.tree.panes().contains(&split_of))
     {
-      group.next_index += 1;
-      let split_id = group.next_index as u64;
       group.tree.split(split_of, axis, id, split_id);
       group.active = id;
     }
@@ -619,6 +626,41 @@ mod tests {
       assert_eq!(model.groups[0].active, 1);
       assert!(model.panes[&1].view.read(cx).active());
       assert!(!model.panes[&2].view.read(cx).active());
+    });
+  }
+
+  fn first_split_id(tree: &SplitTree) -> u64 {
+    match tree {
+      SplitTree::Split { id, .. } => *id,
+      other => panic!("expected a split, got {other:?}"),
+    }
+  }
+
+  #[gpui_kit::test]
+  fn split_ids_are_unique_across_groups(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let model = cx.new(|cx| {
+      let mut model = TerminalModel::new(core, session, "/tmp".into(), cx);
+      let a = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+      let a2 = cx.new(|cx| PaneView::new_unthreaded(3, cx));
+      let b = cx.new(|cx| PaneView::new_unthreaded(2, cx));
+      let b2 = cx.new(|cx| PaneView::new_unthreaded(4, cx));
+      model.insert_test_pane(a, cx);
+      model.insert_test_pane(b, cx);
+      model.attach_test_pane(1, Axis::Horizontal, a2, cx);
+      model.attach_test_pane(2, Axis::Vertical, b2, cx);
+      model
+    });
+    model.update(cx, |model, _| {
+      let id_a = first_split_id(&model.groups[0].tree);
+      let id_b = first_split_id(&model.groups[1].tree);
+      assert_ne!(
+        id_a, id_b,
+        "groups must not share a split id (panel keys ResizableState by it)"
+      );
     });
   }
 }
