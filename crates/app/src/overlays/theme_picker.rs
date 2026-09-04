@@ -3,11 +3,11 @@ use deathpush_core::theme::ThemeKind;
 use gpui_kit::base::actions::{SelectDown, SelectUp};
 use gpui_kit::component::IndexPath;
 use gpui_kit::component::command::{Command, CommandGroup, CommandItem, CommandState};
+use gpui_kit::component::theme::Theme;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use super::frame::backdrop;
-use crate::actions::Cancel;
 use crate::config::AppConfig;
 use crate::keymap::CONTEXT_DIALOG;
 use crate::theme::{ActivePalette, ThemeCatalog, ThemeEntry, commit_theme, hsla, preview_theme, restore_theme};
@@ -90,11 +90,15 @@ pub struct ThemePicker {
   query: String,
   original_id: String,
   os_dark: bool,
+  committed: bool,
+  finished: bool,
+  needs_initial_selection: bool,
 }
 
 impl EventEmitter<ThemePickerEvent> for ThemePicker {}
 
 impl ThemePicker {
+  /// Open the picker on the current theme, with search focused.
   pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
     let os_dark = matches!(
       cx.window_appearance(),
@@ -104,26 +108,43 @@ impl ThemePicker {
     let original_id = AppConfig::get(cx).settings.theme.current.clone();
     let state = cx.new(|cx| CommandState::new(window, cx));
     state.update(cx, |state, cx| state.focus(window, cx));
-    let current = original_id.clone();
-    cx.defer_in(window, move |this, window, cx| {
-      let (first, second) = grouped(&this.entries, "", this.os_dark);
-      if let Some(path) = index_path_of(&first, &second, &current) {
-        this.state.update(cx, |state, cx| {
-          state.set_selected_index(Some(path), window, cx);
-        });
-      }
-    });
     Self {
       state,
       entries,
       query: String::new(),
       original_id,
       os_dark,
+      committed: false,
+      finished: false,
+      needs_initial_selection: true,
     }
   }
 
+  /// Move focus to the search field.
   pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
     self.state.update(cx, |state, cx| state.focus(window, cx));
+  }
+
+  /// Restore the original theme unless the user confirmed a pick.
+  pub fn finish(&mut self, cx: &mut Context<Self>) {
+    if self.finished {
+      return;
+    }
+    self.finished = true;
+    if self.committed {
+      apply_catalog_accent(cx);
+    } else {
+      restore_theme(&self.original_id, None, cx);
+    }
+  }
+
+  pub(crate) fn is_finished(&self) -> bool {
+    self.finished
+  }
+
+  #[cfg(test)]
+  fn selected_path(&self, cx: &App) -> Option<IndexPath> {
+    self.state.read(cx).selected_index()
   }
 
   fn groups(&self) -> (Vec<ThemeEntry>, Vec<ThemeEntry>) {
@@ -170,17 +191,14 @@ impl ThemePicker {
     let Some(entry) = self.entry_at(path) else {
       return;
     };
+    self.committed = true;
     preview_theme(&entry.id, window, cx);
     commit_theme(&entry.id, cx);
     self.close(cx);
   }
 
-  fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-    restore_theme(&self.original_id, window, cx);
-    self.close(cx);
-  }
-
   fn close(&mut self, cx: &mut Context<Self>) {
+    self.finish(cx);
     cx.emit(ThemePickerEvent::Close);
   }
 }
@@ -192,8 +210,37 @@ fn command_items(entries: &[ThemeEntry]) -> Vec<CommandItem> {
     .collect()
 }
 
+fn apply_list_selection_tokens(cx: &mut App) {
+  let palette = cx.global::<ActivePalette>().0;
+  let theme = Theme::global_mut(cx);
+  theme.accent = hsla(palette.list_active);
+  theme.accent_foreground = hsla(palette.list_active_foreground);
+}
+
+fn apply_catalog_accent(cx: &mut App) {
+  let palette = cx.global::<ActivePalette>().0;
+  let theme = Theme::global_mut(cx);
+  theme.accent = hsla(palette.accent);
+  theme.accent_foreground = hsla(palette.foreground);
+}
+
 impl Render for ThemePicker {
-  fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+  fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    if !self.finished {
+      apply_list_selection_tokens(cx);
+    }
+    if self.needs_initial_selection {
+      self.needs_initial_selection = false;
+      let (first, second) = grouped(&self.entries, &self.query, self.os_dark);
+      if let Some(path) = index_path_of(&first, &second, &self.original_id) {
+        let state = self.state.clone();
+        window.on_next_frame(move |window, cx| {
+          state.update(cx, |state, cx| {
+            state.set_selected_index(Some(path), window, cx);
+          });
+        });
+      }
+    }
     let palette = cx.global::<ActivePalette>().0;
     let this = cx.entity().downgrade();
     let (first, second) = self.groups();
@@ -220,8 +267,8 @@ impl Render for ThemePicker {
       .on_confirm(move |index, window, cx| {
         let _ = on_confirm.update(cx, |this, cx| this.confirm(index, window, cx));
       })
-      .on_cancel(move |window, cx| {
-        let _ = on_cancel.update(cx, |this, cx| this.cancel(window, cx));
+      .on_cancel(move |_, cx| {
+        let _ = on_cancel.update(cx, |this, cx| this.close(cx));
       });
     if !first.is_empty() {
       command = command.group(CommandGroup::new().label(first_label).items(command_items(&first)));
@@ -233,10 +280,7 @@ impl Render for ThemePicker {
       command = command.group(CommandGroup::new().label(second_label).items(command_items(&second)));
     }
     backdrop("theme-picker-backdrop", |_, _| {}, cx)
-      .on_mouse_down(
-        MouseButton::Left,
-        cx.listener(|this, _, window, cx| this.cancel(window, cx)),
-      )
+      .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close(cx)))
       .child(
         div()
           .key_context(CONTEXT_DIALOG)
@@ -252,7 +296,6 @@ impl Render for ThemePicker {
           .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
           .capture_action(cx.listener(|this, _: &SelectUp, window, cx| this.schedule_preview(window, cx)))
           .capture_action(cx.listener(|this, _: &SelectDown, window, cx| this.schedule_preview(window, cx)))
-          .on_action(cx.listener(|this, _: &Cancel, window, cx| this.cancel(window, cx)))
           .child(command),
       )
   }
@@ -321,5 +364,86 @@ mod tests {
     assert_eq!(settings.current, "one-dark");
     assert_eq!(settings.preferred_dark, "one-dark");
     assert_eq!(settings.preferred_light, "github-light");
+  }
+
+  fn boot_picker(cx: &mut gpui_kit::TestAppContext) -> gpui_kit::WindowHandle<ThemePicker> {
+    let dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    cx.add_window(ThemePicker::new)
+  }
+
+  #[gpui_kit::test]
+  fn highlights_a_non_first_current_theme(cx: &mut gpui_kit::TestAppContext) {
+    let dir = tempfile::TempDir::new().unwrap();
+    let current_id = cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+      let entries = ThemeCatalog::get(cx).entries.clone();
+      let os_dark = matches!(
+        cx.window_appearance(),
+        WindowAppearance::Dark | WindowAppearance::VibrantDark
+      );
+      let (first, second) = grouped(&entries, "", os_dark);
+      let current = first
+        .get(1)
+        .or(second.first())
+        .expect("catalog has more than one theme");
+      crate::theme::apply_theme(&current.id, current.kind, None, cx);
+      current.id.clone()
+    });
+    let (picker, cx) = cx.add_window_view(ThemePicker::new);
+    cx.update(|window, cx| {
+      let _ = window.draw(cx);
+      window.simulate_next_frame(cx);
+    });
+    let (original_id, selected, expected) = picker.read_with(cx, |picker, cx| {
+      let (first, second) = grouped(&picker.entries, "", picker.os_dark);
+      (
+        picker.original_id.clone(),
+        picker.selected_path(cx),
+        index_path_of(&first, &second, &current_id),
+      )
+    });
+    assert_eq!(original_id, current_id);
+    assert_eq!(selected, expected);
+    let path = expected.expect("current theme is in the list");
+    assert!(
+      path.section > 0 || path.row > 0,
+      "current theme must not be the first row"
+    );
+  }
+
+  #[gpui_kit::test]
+  fn finish_restores_unless_committed(cx: &mut gpui_kit::TestAppContext) {
+    let window = boot_picker(cx);
+    window
+      .update(cx, |picker, window, cx| {
+        let original_kind = cx.global::<ActivePalette>().0.kind;
+        preview_theme("ayu-light", window, cx);
+        assert_eq!(cx.global::<ActivePalette>().0.kind, ThemeKind::Light);
+        picker.finish(cx);
+        assert_eq!(cx.global::<ActivePalette>().0.kind, original_kind);
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn finish_keeps_a_committed_theme(cx: &mut gpui_kit::TestAppContext) {
+    let window = boot_picker(cx);
+    window
+      .update(cx, |picker, window, cx| {
+        preview_theme("ayu-light", window, cx);
+        picker.committed = true;
+        picker.finish(cx);
+        assert_eq!(cx.global::<ActivePalette>().0.kind, ThemeKind::Light);
+        picker.finish(cx);
+        assert_eq!(cx.global::<ActivePalette>().0.kind, ThemeKind::Light);
+      })
+      .unwrap();
   }
 }

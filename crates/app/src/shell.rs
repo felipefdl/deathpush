@@ -269,6 +269,7 @@ impl Shell {
   }
 
   pub fn set_overlay(&mut self, overlay: Option<Overlay>, window: &mut Window, cx: &mut Context<Self>) {
+    self.abandon_theme_picker(cx);
     self.overlay = overlay;
     if self.overlay.is_none() {
       match &self.screen {
@@ -277,6 +278,14 @@ impl Shell {
       }
     }
     cx.notify();
+  }
+
+  fn abandon_theme_picker(&mut self, cx: &mut Context<Self>) {
+    if let Some(Overlay::ThemePicker(view)) = &self.overlay
+      && !view.read(cx).is_finished()
+    {
+      view.update(cx, |view, cx| view.finish(cx));
+    }
   }
 
   pub fn set_cli_installed(&mut self, installed: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -587,7 +596,10 @@ impl Render for Shell {
       }))
       .on_action(cx.listener(|this, _: &OpenRepository, window, cx| this.prompt_open_repository(window, cx)))
       .on_action(cx.listener(|this, _: &CloneRepository, window, cx| this.open_clone_dialog(window, cx)))
-      .on_action(cx.listener(|_, _: &CloseWindow, window, _| window.remove_window()))
+      .on_action(cx.listener(|this, _: &CloseWindow, window, cx| {
+        this.abandon_theme_picker(cx);
+        window.remove_window();
+      }))
       .on_action(cx.listener(|_, _: &Minimize, window, _| window.minimize_window()))
       .on_action(cx.listener(|_, _: &Maximize, window, _| window.zoom_window()))
       .on_action(cx.listener(|_, _: &ZoomIn, _, cx| zoom::set_zoom_level(zoom::current_level(cx) + 1, cx)))
@@ -637,6 +649,8 @@ mod tests {
   };
   use deathpush_core::types::{RepoOperationState, StatusPhase};
   use gpui_kit::TestAppContext;
+
+  use crate::theme::preview_theme;
 
   fn snapshot(root: &str) -> SessionSnapshot {
     SessionSnapshot {
@@ -797,6 +811,59 @@ mod tests {
         shell.mount_repository(snapshot(config_dir.path().to_str().unwrap()), window, cx);
         shell.open_theme_picker(window, cx);
         assert!(matches!(shell.overlay, Some(Overlay::ThemePicker(_))));
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn replacing_the_theme_picker_restores_the_preview(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    window
+      .update(cx, |shell, window, cx| {
+        let original_kind = cx.global::<ActivePalette>().0.kind;
+        shell.open_theme_picker(window, cx);
+        preview_theme("ayu-light", window, cx);
+        assert_eq!(
+          cx.global::<ActivePalette>().0.kind,
+          deathpush_core::theme::ThemeKind::Light
+        );
+        shell.open_licenses(window, cx);
+        assert!(matches!(shell.overlay, Some(Overlay::Licenses(_))));
+        assert_eq!(cx.global::<ActivePalette>().0.kind, original_kind);
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn closing_the_window_restores_a_theme_preview(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    window
+      .update(cx, |shell, window, cx| {
+        let original_kind = cx.global::<ActivePalette>().0.kind;
+        shell.open_theme_picker(window, cx);
+        preview_theme("ayu-light", window, cx);
+        assert_eq!(
+          cx.global::<ActivePalette>().0.kind,
+          deathpush_core::theme::ThemeKind::Light
+        );
+        shell.abandon_theme_picker(cx);
+        assert_eq!(cx.global::<ActivePalette>().0.kind, original_kind);
       })
       .unwrap();
   }

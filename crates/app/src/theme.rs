@@ -20,7 +20,8 @@ pub struct ThemeEntry {
 
 /// Every bundled theme, parsed once.
 pub struct ThemeCatalog {
-  pub entries: Vec<ThemeEntry>,
+  /// Bundled themes, sorted by label.
+  pub(crate) entries: Vec<ThemeEntry>,
   specs: HashMap<String, Arc<ThemeSpec>>,
   palettes: HashMap<String, UiPalette>,
 }
@@ -293,9 +294,9 @@ pub fn commit_theme(id: &str, cx: &mut App) {
 }
 
 /// Apply the theme that was current when the picker opened, without writing settings.
-pub fn restore_theme(original_id: &str, window: &mut Window, cx: &mut App) {
+pub fn restore_theme(original_id: &str, window: Option<&mut Window>, cx: &mut App) {
   let wanted = ThemeCatalog::get(cx).kind(original_id).unwrap_or(ThemeKind::Dark);
-  apply_visual(original_id, wanted, Some(window), cx);
+  apply_visual(original_id, wanted, window, cx);
 }
 
 /// The preferred theme for the OS appearance.
