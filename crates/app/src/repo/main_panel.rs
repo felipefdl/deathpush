@@ -1,10 +1,11 @@
 use deathpush_core::config::layout::MainView;
 use gpui_kit::*;
 
+use super::diff::DiffPanel;
 use crate::theme::{ActivePalette, hsla};
 
-/// The main panel body for a view. Changes shows the SCM diff empty state; the other views are slots for later plans.
-pub fn render_main_panel(view: MainView, cx: &App) -> impl IntoElement {
+/// The main panel body for a view. Changes shows the SCM diff; the other views are slots for later plans.
+pub fn render_main_panel(view: MainView, diff: &Entity<DiffPanel>, cx: &App) -> impl IntoElement {
   let palette = cx.global::<ActivePalette>().0;
   let empty = |text: &'static str| {
     div()
@@ -30,7 +31,7 @@ pub fn render_main_panel(view: MainView, cx: &App) -> impl IntoElement {
       )
   };
   let body: AnyElement = match view {
-    MainView::Changes => empty("Select a file to view changes").into_any_element(),
+    MainView::Changes => diff.clone().into_any_element(),
     MainView::File => empty("Select a file to view").into_any_element(),
     MainView::History => div().size_full().into_any_element(),
     MainView::Settings => div().size_full().into_any_element(),

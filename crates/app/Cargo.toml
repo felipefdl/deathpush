@@ -15,6 +15,7 @@ name = "deathpush"
 path = "src/main.rs"
 
 [dependencies]
+base64.workspace = true
 chrono.workspace = true
 deathpush-core.workspace = true
 dirs.workspace = true

@@ -7,6 +7,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use super::changes::ChangesView;
+use super::diff::DiffPanel;
 use super::layout_model::LayoutModel;
 use super::main_panel::render_main_panel;
 use super::model::RepoModel;
@@ -25,6 +26,7 @@ pub struct RepoView {
   layout: Entity<LayoutModel>,
   output: Entity<OutputLog>,
   changes: Entity<ChangesView>,
+  diff: Entity<DiffPanel>,
   body_state: Entity<ResizableState>,
   main_state: Entity<ResizableState>,
   pub(crate) focus_handle: FocusHandle,
@@ -42,11 +44,13 @@ impl RepoView {
     cx.observe(&layout, |_, _, cx| cx.notify()).detach();
     cx.observe(&output, |_, _, cx| cx.notify()).detach();
     let changes = cx.new(|cx| ChangesView::new(model.clone(), layout.clone(), window, cx));
+    let diff = cx.new(|cx| DiffPanel::new(model.clone(), layout.clone(), cx));
     Self {
       model,
       layout,
       output,
       changes,
+      diff,
       body_state: cx.new(|_| ResizableState::default()),
       main_state: cx.new(|_| ResizableState::default()),
       focus_handle: cx.focus_handle(),
@@ -69,6 +73,11 @@ impl RepoView {
   #[allow(dead_code)]
   pub fn changes(&self) -> &Entity<ChangesView> {
     &self.changes
+  }
+
+  #[allow(dead_code)]
+  pub fn diff(&self) -> &Entity<DiffPanel> {
+    &self.diff
   }
 
   pub fn focus(&self, window: &mut Window, cx: &mut App) {
@@ -99,7 +108,7 @@ impl RepoView {
       div().into_any_element()
     };
     let sidebar = render_sidebar(layout.sidebar_view, select, sidebar_body, cx).into_any_element();
-    let main_panel = render_main_panel(layout.main_view, cx).into_any_element();
+    let main_panel = render_main_panel(layout.main_view, &self.diff, cx).into_any_element();
     let terminal =
       render_terminal_panel(layout.panel_tab, layout.terminal_maximized, &self.output, cx).into_any_element();
     let main_area: AnyElement = match (layout.terminal_visible, layout.terminal_maximized) {
@@ -195,6 +204,7 @@ impl Render for RepoView {
             DiffLayout::SideBySide => DiffLayout::Inline,
           };
         });
+        cx.notify();
       }))
       .on_action(cx.listener(|this, _: &ReloadSession, window, cx| {
         this.model.update(cx, |model, cx| model.reload(window, cx));
