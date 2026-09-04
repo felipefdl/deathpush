@@ -466,7 +466,7 @@ impl ExplorerView {
         return;
       };
       let _ = this.update_in(cx, |this, window, cx| {
-        this.finish_transfer(pending, result, ui, window, cx);
+        this.finish_transfer(pending, result, ui, on_conflict, window, cx);
       });
     })
     .detach();
@@ -477,12 +477,15 @@ impl ExplorerView {
     pending: PendingTransfer,
     result: Result<(), String>,
     ui: ConflictUi,
+    on_conflict: Option<&'static str>,
     window: &mut Window,
     cx: &mut Context<Self>,
   ) {
     match result {
       Ok(()) => {
-        if let PendingTransfer::Move { source, into } = &pending {
+        if let PendingTransfer::Move { source, into } = &pending
+          && on_conflict != Some("keep-both")
+        {
           let new_path = move_destination(source, into);
           self
             .repo

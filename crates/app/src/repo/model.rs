@@ -45,9 +45,42 @@ pub fn should_request_blame(
   blame_enabled && !dirty && has_content && requested_path != Some(path)
 }
 
-/// New path for the open file after a rename or move, when the open path is the source.
+/// New path for the open file after a rename or move of that path or an ancestor.
 pub fn retarget_open_path(current: Option<&str>, old_path: &str, new_path: &str) -> Option<String> {
-  (current == Some(old_path)).then(|| new_path.to_string())
+  let current = current?;
+  if current == old_path {
+    return Some(new_path.to_string());
+  }
+  if old_path.is_empty() {
+    return None;
+  }
+  current
+    .strip_prefix(old_path)
+    .and_then(|rest| rest.strip_prefix('/'))
+    .map(|rest| {
+      if new_path.is_empty() {
+        rest.to_string()
+      } else {
+        format!("{new_path}/{rest}")
+      }
+    })
+}
+
+/// Where an in-flight write should land, if it should still hit disk.
+pub fn write_path_still_current<'a>(
+  open_path: Option<&'a str>,
+  requested_path: &'a str,
+  latest_write: Option<(&'a str, u64)>,
+  generation: u64,
+) -> Option<&'a str> {
+  let open = open_path?;
+  if open == requested_path {
+    return Some(requested_path);
+  }
+  match latest_write {
+    Some((tracked, latest_gen)) if tracked == open && latest_gen == generation => Some(open),
+    _ => None,
+  }
 }
 
 /// Same-path open keeps the buffer and only updates `pending_line`.
@@ -272,12 +305,12 @@ impl RepoModel {
       return;
     };
     if let Some(open) = self.state.open_file.as_mut() {
-      open.path = next.clone();
+      open.path = next;
     }
-    if let Some((path, _)) = &mut self.latest_write
-      && path == old_path
+    if let Some((tracked, _)) = &mut self.latest_write
+      && let Some(tracked_next) = retarget_open_path(Some(tracked.as_str()), old_path, new_path)
     {
-      *path = next;
+      *tracked = tracked_next;
     }
     cx.emit(RepoEvent::Changed);
     cx.notify();
@@ -392,15 +425,30 @@ impl RepoModel {
     let session = self.session;
     let handle = core.runtime_handle().clone();
     let written = content.clone();
-    let write_path = path.clone();
-    let task = handle.spawn_blocking(move || core.write_file(session, &write_path, &content));
     cx.spawn(async move |this, cx| {
+      let dest = match this.update(cx, |this, _cx| {
+        write_path_still_current(
+          this.state.open_file.as_ref().map(|open| open.path.as_str()),
+          &path,
+          this
+            .latest_write
+            .as_ref()
+            .map(|(tracked, latest)| (tracked.as_str(), *latest)),
+          generation,
+        )
+        .map(str::to_string)
+      }) {
+        Ok(Some(dest)) => dest,
+        _ => return,
+      };
+      let write_dest = dest.clone();
+      let task = handle.spawn_blocking(move || core.write_file(session, &write_dest, &content));
       let result = task.await;
       let _ = this.update(cx, |this, cx| match result {
         Ok(Ok(result)) => {
           let hash = result.content_hash;
           let (path_match, current_hash) = match this.state.open_file.as_ref() {
-            Some(open) if open.path == path => (true, open.content.as_ref().map(|file| file.content_hash.clone())),
+            Some(open) if open.path == dest => (true, open.content.as_ref().map(|file| file.content_hash.clone())),
             _ => (false, None),
           };
           if path_match && current_hash.as_deref() == Some(expected_hash.as_str()) {
@@ -408,17 +456,21 @@ impl RepoModel {
               file.content_hash = hash.clone();
               file.content = written;
             }
-            cx.emit(RepoEvent::Saved { path, hash, generation });
+            cx.emit(RepoEvent::Saved {
+              path: dest,
+              hash,
+              generation,
+            });
             cx.notify();
           } else if let Some(current) = current_hash {
             let latest = this
               .latest_write
               .as_ref()
-              .filter(|(tracked, _)| tracked == &path)
+              .filter(|(tracked, _)| tracked == &dest)
               .map(|(_, latest)| *latest)
               .unwrap_or(0);
             if should_retry_skipped_write(path_match, retry, generation, latest) {
-              this.spawn_write(path, written, current, generation, true, cx);
+              this.spawn_write(dest, written, current, generation, true, cx);
             }
           }
         }
@@ -611,10 +663,38 @@ mod tests {
     assert_eq!(retarget_open_path(Some("src/x.rs"), "src/a.rs", "src/b.rs"), None);
     assert_eq!(retarget_open_path(None, "src/a.rs", "src/b.rs"), None);
     assert_eq!(
-      retarget_open_path(Some("src/a.rs"), "src", "lib"),
-      None,
-      "only the open path itself retargets"
+      retarget_open_path(Some("src/a.rs"), "src", "lib").as_deref(),
+      Some("lib/a.rs")
     );
+    assert_eq!(
+      retarget_open_path(Some("src2/a.rs"), "src", "lib"),
+      None,
+      "a sibling prefix does not retarget"
+    );
+  }
+
+  #[test]
+  fn in_flight_write_follows_the_current_path_or_drops() {
+    assert_eq!(
+      write_path_still_current(Some("src/a.rs"), "src/a.rs", Some(("src/a.rs", 1)), 1),
+      Some("src/a.rs")
+    );
+    assert_eq!(
+      write_path_still_current(Some("lib/a.rs"), "src/a.rs", Some(("lib/a.rs", 1)), 1),
+      Some("lib/a.rs"),
+      "retarget routes the write to the new path"
+    );
+    assert_eq!(
+      write_path_still_current(Some("b.rs"), "a.rs", None, 1),
+      None,
+      "a path switch drops the write"
+    );
+    assert_eq!(
+      write_path_still_current(Some("b.rs"), "a.rs", Some(("b.rs", 2)), 1),
+      None,
+      "a later write on another file does not take the old bytes"
+    );
+    assert_eq!(write_path_still_current(None, "a.rs", Some(("a.rs", 1)), 1), None);
   }
 
   #[test]
