@@ -25,7 +25,7 @@ pub struct TerminalPanel {
   layout: Entity<LayoutModel>,
   output: Entity<OutputLog>,
   sidebar_state: Entity<ResizableState>,
-  split_states: HashMap<String, Entity<ResizableState>>,
+  split_states: HashMap<u64, Entity<ResizableState>>,
 }
 
 impl TerminalPanel {
@@ -52,10 +52,10 @@ impl TerminalPanel {
     &self.model
   }
 
-  fn split_state(&mut self, key: String, cx: &mut Context<Self>) -> Entity<ResizableState> {
+  fn split_state(&mut self, id: u64, cx: &mut Context<Self>) -> Entity<ResizableState> {
     self
       .split_states
-      .entry(key)
+      .entry(id)
       .or_insert_with(|| cx.new(|_| ResizableState::default()))
       .clone()
   }
@@ -69,14 +69,19 @@ impl TerminalPanel {
         .get(id)
         .map(|pane| pane.view.clone().into_any_element())
         .unwrap_or_else(|| div().size_full().into_any_element()),
-      SplitTree::Split { axis, first, second } => {
-        let key = split_key(tree);
-        let state = self.split_state(key.clone(), cx);
+      SplitTree::Split {
+        id,
+        axis,
+        first,
+        second,
+      } => {
+        let state = self.split_state(*id, cx);
         let first = self.render_tree(first, cx);
         let second = self.render_tree(second, cx);
+        let key = SharedString::from(format!("term-split-{id}"));
         let group = match axis {
-          Axis::Horizontal => h_resizable(SharedString::from(key)),
-          Axis::Vertical => v_resizable(SharedString::from(key)),
+          Axis::Horizontal => h_resizable(key),
+          Axis::Vertical => v_resizable(key),
         };
         group
           .with_state(&state)
@@ -193,27 +198,6 @@ impl TerminalPanel {
     .size_full()
     .into_any_element()
   }
-}
-
-fn split_key(tree: &SplitTree) -> String {
-  let axis = match tree {
-    SplitTree::Leaf(_) => "leaf",
-    SplitTree::Split {
-      axis: Axis::Horizontal, ..
-    } => "h",
-    SplitTree::Split {
-      axis: Axis::Vertical, ..
-    } => "v",
-  };
-  format!(
-    "{axis}-{}",
-    tree
-      .panes()
-      .iter()
-      .map(ToString::to_string)
-      .collect::<Vec<_>>()
-      .join(",")
-  )
 }
 
 fn sidebar_icon(

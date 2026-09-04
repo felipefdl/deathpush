@@ -14,6 +14,7 @@ use crate::config::AppConfig;
 pub enum SplitTree {
   Leaf(u64),
   Split {
+    id: u64,
     axis: Axis,
     first: Box<SplitTree>,
     second: Box<SplitTree>,
@@ -21,10 +22,11 @@ pub enum SplitTree {
 }
 
 impl SplitTree {
-  pub fn split(&mut self, pane: u64, axis: Axis, new_pane: u64) -> bool {
+  pub fn split(&mut self, pane: u64, axis: Axis, new_pane: u64, split_id: u64) -> bool {
     match self {
       SplitTree::Leaf(id) if *id == pane => {
         *self = SplitTree::Split {
+          id: split_id,
           axis,
           first: Box::new(SplitTree::Leaf(pane)),
           second: Box::new(SplitTree::Leaf(new_pane)),
@@ -32,7 +34,9 @@ impl SplitTree {
         true
       }
       SplitTree::Leaf(_) => false,
-      SplitTree::Split { first, second, .. } => first.split(pane, axis, new_pane) || second.split(pane, axis, new_pane),
+      SplitTree::Split { first, second, .. } => {
+        first.split(pane, axis, new_pane, split_id) || second.split(pane, axis, new_pane, split_id)
+      }
     }
   }
 
@@ -42,6 +46,7 @@ impl SplitTree {
       SplitTree::Split { .. } => {
         let taken = std::mem::replace(self, SplitTree::Leaf(0));
         let SplitTree::Split {
+          id,
           axis,
           mut first,
           mut second,
@@ -58,7 +63,12 @@ impl SplitTree {
           return true;
         }
         let removed = first.remove(pane) || second.remove(pane);
-        *self = SplitTree::Split { axis, first, second };
+        *self = SplitTree::Split {
+          id,
+          axis,
+          first,
+          second,
+        };
         removed
       }
     }
@@ -80,7 +90,6 @@ pub struct Group {
   pub id: u64,
   pub tree: SplitTree,
   pub active: u64,
-  #[allow(dead_code)]
   pub next_index: usize,
 }
 
@@ -153,10 +162,12 @@ impl TerminalModel {
     let Some(new_pane) = self.spawn_pane(cx) else {
       return;
     };
-    if let Some(group) = self.groups.iter_mut().find(|group| group.id == group_id)
-      && group.tree.split(pane, axis, new_pane)
-    {
-      group.active = new_pane;
+    if let Some(group) = self.groups.iter_mut().find(|group| group.id == group_id) {
+      group.next_index += 1;
+      let split_id = group.next_index as u64;
+      if group.tree.split(pane, axis, new_pane, split_id) {
+        group.active = new_pane;
+      }
     }
     self.active_group = Some(group_id);
     self.activate_pane(new_pane, window, cx);
@@ -199,17 +210,10 @@ impl TerminalModel {
   }
 
   pub fn activate_pane(&mut self, pane: u64, window: &mut Window, cx: &mut Context<Self>) {
-    if let Some(group_id) = self.group_id_for_pane(pane) {
-      self.active_group = Some(group_id);
-      if let Some(group) = self.groups.iter_mut().find(|group| group.id == group_id) {
-        group.active = pane;
-      }
-    }
-    self.set_active_flags(pane, cx);
+    self.mark_active(pane, cx);
     if let Some(info) = self.panes.get(&pane) {
       info.view.update(cx, |view, cx| view.focus(window, cx));
     }
-    cx.notify();
   }
 
   pub fn on_data(&mut self, id: u64, data: &str) {
@@ -314,6 +318,7 @@ impl TerminalModel {
     };
     let view_handle = handle.clone();
     let view = cx.new(|cx| PaneView::new(id, view_handle, wake_rx, cx));
+    self.subscribe_pane(&view, cx);
     self.counter += 1;
     let shell = if spawned.shell.is_empty() {
       None
@@ -347,6 +352,7 @@ impl TerminalModel {
       self.kill_group(group_id, cx);
       return;
     }
+    let was_active_group = self.active_group == Some(group_id);
     let group = &mut self.groups[index];
     let ids = group.tree.panes();
     let slot = ids.iter().position(|&id| id == pane).unwrap_or(0);
@@ -355,8 +361,9 @@ impl TerminalModel {
     let remaining = group.tree.panes();
     if let Some(&next) = remaining.get(slot.min(remaining.len().saturating_sub(1))) {
       group.active = next;
-      self.active_group = Some(group_id);
-      self.set_active_flags(next, cx);
+      if was_active_group {
+        self.set_active_flags(next, cx);
+      }
     }
     cx.notify();
   }
@@ -367,6 +374,25 @@ impl TerminalModel {
       .iter()
       .find(|group| group.tree.panes().contains(&pane))
       .map(|group| group.id)
+  }
+
+  fn mark_active(&mut self, pane: u64, cx: &mut Context<Self>) {
+    if let Some(group_id) = self.group_id_for_pane(pane) {
+      self.active_group = Some(group_id);
+      if let Some(group) = self.groups.iter_mut().find(|group| group.id == group_id) {
+        group.active = pane;
+      }
+    }
+    self.set_active_flags(pane, cx);
+    cx.notify();
+  }
+
+  fn subscribe_pane(&mut self, view: &Entity<PaneView>, cx: &mut Context<Self>) {
+    cx.subscribe(view, |this, _, event: &pane_view::PaneEvent, cx| {
+      let pane_view::PaneEvent::Focused(id) = *event;
+      this.mark_active(id, cx);
+    })
+    .detach();
   }
 
   fn set_active_flags(&self, pane: u64, cx: &mut Context<Self>) {
@@ -402,6 +428,7 @@ impl TerminalModel {
   #[cfg(test)]
   pub(crate) fn insert_test_pane(&mut self, view: Entity<PaneView>, cx: &mut Context<Self>) -> u64 {
     let id = view.read(cx).id;
+    self.subscribe_pane(&view, cx);
     self.counter += 1;
     self.panes.insert(
       id,
@@ -426,6 +453,42 @@ impl TerminalModel {
     cx.notify();
     group_id
   }
+
+  #[cfg(test)]
+  pub(crate) fn attach_test_pane(
+    &mut self,
+    split_of: u64,
+    axis: Axis,
+    view: Entity<PaneView>,
+    cx: &mut Context<Self>,
+  ) -> u64 {
+    let id = view.read(cx).id;
+    self.subscribe_pane(&view, cx);
+    self.counter += 1;
+    self.panes.insert(
+      id,
+      PaneInfo {
+        id,
+        default_name: default_name(self.counter),
+        shell: None,
+        foreground: None,
+        view,
+        handle: None,
+      },
+    );
+    if let Some(group) = self
+      .groups
+      .iter_mut()
+      .find(|group| group.tree.panes().contains(&split_of))
+    {
+      group.next_index += 1;
+      let split_id = group.next_index as u64;
+      group.tree.split(split_of, axis, id, split_id);
+      group.active = id;
+    }
+    cx.notify();
+    id
+  }
 }
 
 #[cfg(test)]
@@ -439,20 +502,39 @@ mod tests {
   fn split_tree_split_remove_and_collapse() {
     let mut tree = SplitTree::Leaf(1);
     assert_eq!(tree.panes(), vec![1]);
-    assert!(tree.split(1, Axis::Horizontal, 2));
+    assert!(tree.split(1, Axis::Horizontal, 2, 10));
     assert_eq!(tree.panes(), vec![1, 2]);
-    assert!(matches!(
-      tree,
+    match &tree {
       SplitTree::Split {
+        id,
         axis: Axis::Horizontal,
         ..
-      }
-    ));
-    assert!(tree.split(2, Axis::Vertical, 3));
+      } => assert_eq!(*id, 10),
+      other => panic!("expected horizontal split, got {other:?}"),
+    }
+    assert!(tree.split(2, Axis::Vertical, 3, 11));
     assert_eq!(tree.panes(), vec![1, 2, 3]);
-    assert!(!tree.split(99, Axis::Horizontal, 4));
+    match &tree {
+      SplitTree::Split { id, second, .. } => {
+        assert_eq!(*id, 10);
+        match second.as_ref() {
+          SplitTree::Split {
+            id,
+            axis: Axis::Vertical,
+            ..
+          } => assert_eq!(*id, 11),
+          other => panic!("expected nested vertical split, got {other:?}"),
+        }
+      }
+      other => panic!("expected parent split, got {other:?}"),
+    }
+    assert!(!tree.split(99, Axis::Horizontal, 4, 12));
     assert!(tree.remove(2));
     assert_eq!(tree.panes(), vec![1, 3]);
+    match &tree {
+      SplitTree::Split { id, .. } => assert_eq!(*id, 10),
+      other => panic!("parent split id should survive child removal, got {other:?}"),
+    }
     assert!(tree.remove(3));
     assert_eq!(tree, SplitTree::Leaf(1));
     assert!(tree.remove(1));
@@ -484,6 +566,59 @@ mod tests {
       assert_eq!(model.active_group, Some(first));
       model.activate_group(0, cx);
       assert_eq!(model.active_group, Some(first));
+    });
+  }
+
+  #[gpui_kit::test]
+  fn remove_pane_in_background_group_keeps_active_group(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let model = cx.new(|cx| {
+      let mut model = TerminalModel::new(core, session, "/tmp".into(), cx);
+      let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+      let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
+      let third = cx.new(|cx| PaneView::new_unthreaded(3, cx));
+      model.insert_test_pane(first, cx);
+      model.insert_test_pane(second, cx);
+      model.attach_test_pane(2, Axis::Horizontal, third, cx);
+      model
+    });
+    model.update(cx, |model, cx| {
+      let foreground = model.groups[0].id;
+      let background = model.groups[1].id;
+      model.activate_group(1, cx);
+      assert_eq!(model.active_group, Some(foreground));
+      assert_eq!(model.groups[1].tree.panes(), vec![2, 3]);
+      model.on_exited(3, cx);
+      assert_eq!(model.active_group, Some(foreground));
+      assert_eq!(model.groups.len(), 2);
+      assert_eq!(model.groups[1].id, background);
+      assert_eq!(model.groups[1].tree, SplitTree::Leaf(2));
+    });
+  }
+
+  #[gpui_kit::test]
+  fn focused_pane_becomes_the_active_pane(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let model = cx.new(|cx| {
+      let mut model = TerminalModel::new(core, session, "/tmp".into(), cx);
+      let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+      let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
+      model.insert_test_pane(first, cx);
+      model.attach_test_pane(1, Axis::Vertical, second, cx);
+      model
+    });
+    let first_view = model.read_with(cx, |model, _| model.panes[&1].view.clone());
+    first_view.update(cx, |_, cx| cx.emit(super::super::pane_view::PaneEvent::Focused(1)));
+    model.update(cx, |model, cx| {
+      assert_eq!(model.groups[0].active, 1);
+      assert!(model.panes[&1].view.read(cx).active());
+      assert!(!model.panes[&2].view.read(cx).active());
     });
   }
 }

@@ -15,6 +15,13 @@ use gpui_kit::*;
 
 use super::element::{PaintCache, TerminalElement, clamp_selection, paint_from_app};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaneEvent {
+  Focused(u64),
+}
+
+impl EventEmitter<PaneEvent> for PaneView {}
+
 struct SentPress {
   key: String,
   mods: KeyMods,
@@ -38,6 +45,7 @@ pub struct PaneView {
   blink_task: Option<Task<()>>,
   wake_task: Option<Task<()>>,
   blur_sub: Option<Subscription>,
+  focus_sub: Option<Subscription>,
   copy_consumed_key: Option<String>,
   sent_presses: Vec<SentPress>,
   wheel_accum: f32,
@@ -111,6 +119,7 @@ impl PaneView {
       blink_task: None,
       wake_task: None,
       blur_sub: None,
+      focus_sub: None,
       copy_consumed_key: None,
       sent_presses: Vec::new(),
       wheel_accum: 0.0,
@@ -587,6 +596,11 @@ impl Render for PaneView {
         this.on_focus_lost();
       }));
     }
+    if self.focus_sub.is_none() {
+      self.focus_sub = Some(cx.on_focus(&self.focus_handle, window, |this, _, cx| {
+        cx.emit(PaneEvent::Focused(this.id));
+      }));
+    }
     let view = cx.entity();
     let focus = self.focus_handle.clone();
     div()
@@ -597,7 +611,9 @@ impl Render for PaneView {
       .opacity(if self.active { 1.0 } else { 0.7 })
       .on_mouse_down(MouseButton::Left, {
         let focus = focus.clone();
+        let view = view.clone();
         move |_, window, cx| {
+          view.update(cx, |this, cx| cx.emit(PaneEvent::Focused(this.id)));
           focus.focus(window, cx);
         }
       })
