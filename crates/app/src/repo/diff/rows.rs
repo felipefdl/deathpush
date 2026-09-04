@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Range;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -32,6 +31,7 @@ pub enum HunkOp {
 pub struct RowInteract {
   pub selection: Option<Selection>,
   pub layouts: Layouts,
+  pub pending: Layouts,
   pub hunk_ids: Rc<Vec<String>>,
   pub staged: bool,
   pub merge: bool,
@@ -305,12 +305,8 @@ fn render_cell(
   }
   let styled = StyledText::new(row.text.clone()).with_highlights(text_runs(row, side, paint));
   let next_layout = styled.layout().clone();
-  let prev_layout = {
-    let mut map = interact.layouts.borrow_mut();
-    let prev = map.get(&(index, side)).cloned();
-    map.insert((index, side), next_layout);
-    prev
-  };
+  let prev_layout = interact.layouts.borrow().get(&(index, side)).cloned();
+  interact.pending.borrow_mut().insert((index, side), next_layout);
   let quad = selection_quad(row, side, index, paint, interact, prev_layout.as_ref());
   let selectable = row.kind != RowKind::Empty;
   let mut text = div()
@@ -320,12 +316,10 @@ fn render_cell(
     .whitespace_nowrap();
   if selectable {
     let on_down = interact.on_mouse_down.clone();
-    let layouts = interact.layouts.clone();
     let text_len = row.text.len();
     text = text.on_mouse_down(MouseButton::Left, move |event, window, cx| {
-      let byte = layouts
-        .borrow()
-        .get(&(index, side))
+      let byte = prev_layout
+        .as_ref()
         .and_then(|layout| byte_at(layout, event.position, text_len))
         .unwrap_or(0);
       (on_down)(Anchor { row: index, side, byte }, window, cx);
@@ -366,30 +360,25 @@ fn selection_quad(
   )
 }
 
-pub(crate) fn ready_bounds(layout: &TextLayout) -> Option<Bounds<Pixels>> {
-  catch_unwind(AssertUnwindSafe(|| layout.bounds())).ok()
+pub(crate) fn ready_bounds(layout: &TextLayout) -> Bounds<Pixels> {
+  layout.bounds()
 }
 
 pub(crate) fn byte_at(layout: &TextLayout, pos: Point<Pixels>, text_len: usize) -> Option<usize> {
-  catch_unwind(AssertUnwindSafe(|| match layout.index_for_position(pos) {
-    Ok(i) | Err(i) => i.min(text_len).min(layout.len()),
-  }))
-  .ok()
+  match layout.index_for_position(pos) {
+    Ok(i) | Err(i) => Some(i.min(text_len).min(layout.len())),
+  }
 }
 
 fn selection_xs(layout: &TextLayout, range: Range<usize>) -> Option<(f32, f32)> {
-  catch_unwind(AssertUnwindSafe(|| {
-    let origin = layout.position_for_index(0)?;
-    let start = layout.position_for_index(range.start)?;
-    let end = layout
-      .position_for_index(range.end)
-      .or_else(|| layout.position_for_index(layout.len()))?;
-    let x0 = f32::from(start.x - origin.x).max(0.0);
-    let x1 = f32::from(end.x - origin.x).max(x0);
-    Some((x0, x1))
-  }))
-  .ok()
-  .flatten()
+  let origin = layout.position_for_index(0)?;
+  let start = layout.position_for_index(range.start)?;
+  let end = layout
+    .position_for_index(range.end)
+    .or_else(|| layout.position_for_index(layout.len()))?;
+  let x0 = f32::from(start.x - origin.x).max(0.0);
+  let x1 = f32::from(end.x - origin.x).max(x0);
+  Some((x0, x1))
 }
 
 fn row_background(kind: RowKind, paint: &RowPaint) -> Option<deathpush_core::theme::Rgba> {

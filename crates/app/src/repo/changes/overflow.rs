@@ -1,10 +1,11 @@
 use deathpush_core::session::types::Intent;
 use deathpush_core::theme::UiPalette;
-use deathpush_core::types::BranchEntry;
+use deathpush_core::types::{BranchEntry, ResourceGroupKind};
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::*;
 
 use super::view::ChangesView;
+use crate::repo::model::RepoModel;
 use crate::repo::state::{NetworkOp, RepoState};
 
 #[derive(Clone, Copy)]
@@ -191,6 +192,74 @@ pub fn network_intent(item: OverflowItem) -> Option<(NetworkOp, Intent)> {
     OverflowItem::Fetch => Some((NetworkOp::Fetch, Intent::Fetch { prune: true })),
     OverflowItem::Sync => Some((NetworkOp::Sync, Intent::Sync)),
     _ => None,
+  }
+}
+
+pub fn discard_all_paths(state: &RepoState) -> Vec<String> {
+  state
+    .status
+    .as_ref()
+    .map(|status| {
+      status
+        .groups
+        .iter()
+        .filter(|group| group.kind != ResourceGroupKind::Index)
+        .flat_map(|group| group.files.iter().map(|file| file.path.clone()))
+        .collect()
+    })
+    .unwrap_or_default()
+}
+
+/// Model-only overflow actions shared by `ChangesView` and the `RepoView` Git menu handlers.
+pub fn dispatch_item(model: &Entity<RepoModel>, item: OverflowItem, window: &mut Window, cx: &mut App) -> bool {
+  if let Some((op, intent)) = network_intent(item) {
+    model.update(cx, |model, cx| model.dispatch_network(op, intent, window, cx));
+    return true;
+  }
+  match item {
+    OverflowItem::DiscardAll => {
+      let paths = discard_all_paths(model.read(cx).state());
+      model.update(cx, |model, cx| {
+        model.dispatch(
+          Intent::Discard {
+            paths,
+            confirmed: false,
+          },
+          window,
+          cx,
+        );
+      });
+      true
+    }
+    OverflowItem::StashIncludeUntracked => {
+      model.update(cx, |model, cx| {
+        model.dispatch(
+          Intent::StashSave {
+            include_untracked: true,
+            staged_only: false,
+            message: None,
+          },
+          window,
+          cx,
+        );
+      });
+      true
+    }
+    OverflowItem::StashStagedOnly => {
+      model.update(cx, |model, cx| {
+        model.dispatch(
+          Intent::StashSave {
+            include_untracked: false,
+            staged_only: true,
+            message: None,
+          },
+          window,
+          cx,
+        );
+      });
+      true
+    }
+    _ => false,
   }
 }
 

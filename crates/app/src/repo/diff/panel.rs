@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::mem;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -50,6 +51,7 @@ pub struct DiffPanel {
   selection: Option<Selection>,
   dragging: bool,
   layouts: Layouts,
+  pending_layouts: Layouts,
   hunk_ids: Vec<String>,
   staged: bool,
   merge: bool,
@@ -83,6 +85,7 @@ impl DiffPanel {
       selection: None,
       dragging: false,
       layouts: Rc::new(RefCell::new(HashMap::new())),
+      pending_layouts: Rc::new(RefCell::new(HashMap::new())),
       hunk_ids: Vec::new(),
       staged: false,
       merge: false,
@@ -238,6 +241,7 @@ impl DiffPanel {
         self.merge = false;
         self.clear_text_selection();
         self.layouts.borrow_mut().clear();
+        self.pending_layouts.borrow_mut().clear();
       }
       Plan::Apply {
         key,
@@ -257,6 +261,7 @@ impl DiffPanel {
         self.merge = merge;
         self.clear_text_selection();
         self.layouts.borrow_mut().clear();
+        self.pending_layouts.borrow_mut().clear();
         if let Some(highlighter) = highlighter {
           self.highlighter = highlighter;
         }
@@ -306,6 +311,7 @@ impl DiffPanel {
       rows,
       self.line_height,
       &self.scroll,
+      Some(sel.head.byte),
     ) else {
       return;
     };
@@ -345,6 +351,7 @@ fn hit_anchor(
   rows: &DiffRows,
   line_height: f32,
   scroll: &UniformListScrollHandle,
+  fallback_byte: Option<usize>,
 ) -> Option<Anchor> {
   let n = rows.len();
   if n == 0 {
@@ -356,17 +363,14 @@ fn hit_anchor(
     if *layout_side != side && matches!(rows, DiffRows::SideBySide(_)) {
       continue;
     }
-    let Some(bounds) = rows::ready_bounds(layout) else {
-      continue;
-    };
+    let bounds = rows::ready_bounds(layout);
     min_top = Some(min_top.map_or(bounds.top(), |top| top.min(bounds.top())));
     if pos.y >= bounds.top() && pos.y < bounds.bottom() {
       let len = row_at(rows, *row, side).map(|row| row.text.len()).unwrap_or(0);
-      let byte = rows::byte_at(layout, pos, len).unwrap_or(len);
+      let byte = rows::byte_at(layout, pos, len).or(fallback_byte)?;
       return Some(clamp_anchor(Anchor { row: *row, side, byte }, rows));
     }
   }
-  drop(map);
   let row = row_from_scroll(pos, n, line_height, scroll).unwrap_or_else(|| {
     if min_top.is_some_and(|top| pos.y < top) {
       0
@@ -374,12 +378,24 @@ fn hit_anchor(
       n - 1
     }
   });
-  let byte = if min_top.is_some_and(|top| pos.y < top) {
-    0
+  let len = row_at(rows, row, side).map(|row| row.text.len()).unwrap_or(0);
+  let byte = if let Some(layout) = map.get(&(row, side)) {
+    map_byte_in_row(layout, pos, len).or(fallback_byte)
   } else {
-    row_at(rows, row, side).map(|row| row.text.len()).unwrap_or(0)
-  };
+    fallback_byte
+  }?;
   Some(clamp_anchor(Anchor { row, side, byte }, rows))
+}
+
+fn map_byte_in_row(layout: &TextLayout, pos: Point<Pixels>, text_len: usize) -> Option<usize> {
+  let bounds = rows::ready_bounds(layout);
+  let mut mapped = pos;
+  let top = f32::from(bounds.top());
+  let bottom = f32::from(bounds.bottom());
+  if bottom > top {
+    mapped.y = px(f32::from(pos.y).clamp(top, (bottom - 0.01).max(top)));
+  }
+  rows::byte_at(layout, mapped, text_len)
 }
 
 fn clamp_anchor(mut anchor: Anchor, rows: &DiffRows) -> Anchor {
@@ -411,6 +427,12 @@ fn row_from_scroll(pos: Point<Pixels>, n: usize, line_height: f32, scroll: &Unif
 
 impl Render for DiffPanel {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    {
+      let mut pending = self.pending_layouts.borrow_mut();
+      if !pending.is_empty() {
+        *self.layouts.borrow_mut() = mem::take(&mut *pending);
+      }
+    }
     self.sync_rows(cx);
     let palette = cx.global::<ActivePalette>().0;
     let (
@@ -500,9 +522,11 @@ impl Render for DiffPanel {
           let count = rows.len();
           let scroll = self.scroll.clone();
           let layouts = self.layouts.clone();
+          let pending = self.pending_layouts.clone();
           let interact = RowInteract {
             selection: self.selection,
             layouts: layouts.clone(),
+            pending: pending.clone(),
             hunk_ids: Rc::new(self.hunk_ids.clone()),
             staged: self.staged,
             merge: self.merge,
@@ -523,6 +547,7 @@ impl Render for DiffPanel {
           };
           let list = uniform_list("diff-rows", count, move |range, _, _| {
             layouts.borrow_mut().retain(|&(index, _), _| range.contains(&index));
+            pending.borrow_mut().retain(|&(index, _), _| range.contains(&index));
             range
               .map(|index| rows::render_row(rows.as_ref(), index, &paint, &interact))
               .collect()

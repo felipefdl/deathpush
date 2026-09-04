@@ -200,6 +200,11 @@ fn build_inline(payload: &DiffPayload, options: &RowOptions) -> Vec<DiffRow> {
         continue;
       }
       let (removes, adds, next) = change_block(lines, i);
+      if next == i {
+        rows.push(row_for(&lines[i], hunk_index));
+        i += 1;
+        continue;
+      }
       for (k, &r) in removes.iter().enumerate() {
         let mut row = row_for(&lines[r], hunk_index);
         if let Some(&a) = adds.get(k) {
@@ -240,6 +245,15 @@ fn build_side_by_side(payload: &DiffPayload, options: &RowOptions) -> Vec<SideRo
         continue;
       }
       let (removes, adds, next) = change_block(lines, i);
+      if next == i {
+        let row = row_for(&lines[i], hunk_index);
+        rows.push(SideRow {
+          left: row.clone(),
+          right: row,
+        });
+        i += 1;
+        continue;
+      }
       for k in 0..removes.len().max(adds.len()) {
         let left = match removes.get(k) {
           Some(&r) => {
@@ -466,6 +480,29 @@ mod tests {
     assert_eq!(rows.max_columns(), 11);
     assert_eq!(rows.len(), 2);
     assert!(!rows.is_empty());
+  }
+
+  #[test]
+  fn unknown_line_type_terminates_and_is_context() {
+    let p = payload(vec![hunk(vec![
+      line("context", "keep", Some(1), Some(1)),
+      line("meta", "weird", Some(2), Some(2)),
+      line("add", "new", None, Some(3)),
+    ])]);
+    let DiffRows::Inline(inline) = build_rows(&p, &options(DiffLayout::Inline, LineDiffType::None)) else {
+      panic!("inline expected");
+    };
+    assert_eq!(inline.len(), 4);
+    assert_eq!(inline[2].kind, RowKind::Context);
+    assert_eq!(inline[2].text, "weird");
+    assert_eq!(inline[3].kind, RowKind::Add);
+    let DiffRows::SideBySide(side) = build_rows(&p, &options(DiffLayout::SideBySide, LineDiffType::None)) else {
+      panic!("side by side expected");
+    };
+    assert_eq!(side.len(), 4);
+    assert_eq!(side[2].left.kind, RowKind::Context);
+    assert_eq!(side[2].left.text, "weird");
+    assert_eq!(side[3].right.kind, RowKind::Add);
   }
 
   #[test]

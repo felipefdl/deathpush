@@ -41,6 +41,7 @@ impl RepoModel {
 
   /// Send an intent to core; the outcome applies on the foreground executor.
   pub fn dispatch(&mut self, intent: Intent, window: &mut Window, cx: &mut Context<Self>) {
+    self.state.mark_commit_intent(&intent);
     let clear_file = matches!(intent, Intent::ClearFile);
     if clear_file {
       self.state.pending_clear_file = true;
@@ -158,6 +159,7 @@ impl RepoModel {
 
   fn fail(&mut self, message: String, cx: &mut Context<Self>) {
     self.state.pending_clear_file = false;
+    self.state.resolve_commit_outcome(false);
     self.state.error = Some(message.clone());
     cx.emit(RepoEvent::Error(message));
   }
@@ -171,6 +173,8 @@ impl RepoModel {
     window: &mut Window,
     cx: &mut Context<Self>,
   ) {
+    let confirming = matches!(outcome, IntentOutcome::NeedsConfirmation { .. });
+    self.state.resolve_commit_outcome(confirming);
     match outcome {
       IntentOutcome::Snapshot { snapshot } => self.state.apply_snapshot(*snapshot),
       IntentOutcome::Patch {
@@ -220,6 +224,12 @@ impl RepoModel {
         cx.spawn_in(window, async move |this, cx| {
           if let Ok(0) = answer.await {
             let _ = this.update_in(cx, |this, window, cx| this.dispatch(sent.confirmed(), window, cx));
+          } else {
+            let _ = this.update_in(cx, |this, _, cx| {
+              this.state.resolve_commit_outcome(false);
+              cx.emit(RepoEvent::Changed);
+              cx.notify();
+            });
           }
         })
         .detach();

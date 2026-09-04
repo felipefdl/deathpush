@@ -2,7 +2,8 @@ use std::collections::HashSet;
 
 use deathpush_core::ops::repository::NestedRepository;
 use deathpush_core::session::types::{
-  DiffPayload, FileSelection, SessionActions, SessionPatch, SessionSnapshot, SessionStatusEvent, SessionStatusExtras,
+  DiffPayload, FileSelection, Intent, SessionActions, SessionPatch, SessionSnapshot, SessionStatusEvent,
+  SessionStatusExtras,
 };
 use deathpush_core::types::{
   BranchEntry, CommitDetail, CommitEntry, FileBlame, LastCommitInfo, RepositoryStatus, ResourceGroupKind, StashEntry,
@@ -40,6 +41,7 @@ pub struct RepoState {
   pub pending_clear_file: bool,
   pub running: HashSet<NetworkOp>,
   pub nested_repositories: Vec<NestedRepository>,
+  pub committing: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -88,6 +90,21 @@ fn same_file(a: Option<&FileSelection>, b: Option<&FileSelection>) -> bool {
 impl RepoState {
   pub fn root(&self) -> Option<&str> {
     self.status.as_ref().map(|status| status.root.as_str())
+  }
+
+  pub fn mark_commit_intent(&mut self, intent: &Intent) {
+    if matches!(
+      intent,
+      Intent::Commit { .. } | Intent::CommitAndPush { .. } | Intent::CommitAndSync { .. }
+    ) {
+      self.committing = true;
+    }
+  }
+
+  pub fn resolve_commit_outcome(&mut self, confirming: bool) {
+    if !confirming {
+      self.committing = false;
+    }
   }
 
   pub fn network_busy(&self) -> bool {
@@ -713,5 +730,26 @@ mod tests {
     state.apply_status_event(event);
     assert_eq!(state.branches.len(), 1);
     assert_eq!(state.stashes.len(), 1);
+  }
+
+  #[test]
+  fn committing_survives_confirmation_and_clears_otherwise() {
+    let mut state = RepoState::default();
+    assert!(!state.committing);
+    state.mark_commit_intent(&Intent::Commit { confirmed: false });
+    assert!(state.committing);
+    state.resolve_commit_outcome(true);
+    assert!(state.committing);
+    state.mark_commit_intent(&Intent::Commit { confirmed: true });
+    assert!(state.committing);
+    state.resolve_commit_outcome(false);
+    assert!(!state.committing);
+    state.mark_commit_intent(&Intent::StageAll);
+    assert!(!state.committing);
+    state.mark_commit_intent(&Intent::CommitAndPush { confirmed: false });
+    assert!(state.committing);
+    state.resolve_commit_outcome(false);
+    state.mark_commit_intent(&Intent::CommitAndSync { confirmed: false });
+    assert!(state.committing);
   }
 }

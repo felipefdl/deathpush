@@ -14,12 +14,11 @@ use super::banner::render_banner;
 use super::commit_box::{self, render_commit_box};
 use super::filter::{self, FILTER_DEBOUNCE_MS};
 use super::groups::{FileRow, GroupBody, GroupId, assemble_groups, render_groups};
-use super::overflow::{BranchListMode, OverflowItem, filter_branches, network_intent};
+use super::overflow::{BranchListMode, OverflowItem, dispatch_item, filter_branches};
 use super::toolbar::render_toolbar;
 use crate::actions::*;
 use crate::repo::layout_model::LayoutModel;
 use crate::repo::model::{RepoEvent, RepoModel};
-use crate::repo::state::NetworkOp;
 use crate::theme::{ActivePalette, hsla};
 
 pub(crate) struct ChangesChrome {
@@ -30,6 +29,7 @@ pub(crate) struct ChangesChrome {
   pub operation_state: RepoOperationState,
   pub amend_mode: bool,
   pub head_branch: Option<String>,
+  pub committing: bool,
 }
 
 pub struct ChangesView {
@@ -40,7 +40,6 @@ pub struct ChangesView {
   filter_text: String,
   filter_generation: u64,
   commit_generation: u64,
-  pub(crate) committing: bool,
   pub(crate) selected: HashSet<(ResourceGroupKind, String)>,
   pub(crate) anchor: Option<(GroupId, usize)>,
   pub(crate) groups_state: Entity<ResizableState>,
@@ -101,7 +100,6 @@ impl ChangesView {
     })
     .detach();
     cx.subscribe(&model, |this, model, event: &RepoEvent, cx| {
-      this.committing = false;
       if matches!(event, RepoEvent::Changed) {
         let message = model.read(cx).state().commit_message.clone();
         let current = this.commit.read(cx).value().to_string();
@@ -136,7 +134,6 @@ impl ChangesView {
       filter_text: file_filter,
       filter_generation: 0,
       commit_generation: 0,
-      committing: false,
       selected: HashSet::new(),
       anchor: None,
       groups_state: cx.new(|_| ResizableState::default()),
@@ -152,8 +149,6 @@ impl ChangesView {
   }
 
   pub fn commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-    self.committing = true;
-    cx.notify();
     self.send(Intent::Commit { confirmed: false }, window, cx);
   }
 
@@ -165,15 +160,8 @@ impl ChangesView {
     self.model.update(cx, |model, cx| model.dispatch(intent, window, cx));
   }
 
-  fn dispatch_network(&self, op: NetworkOp, intent: Intent, window: &mut Window, cx: &mut Context<Self>) {
-    self
-      .model
-      .update(cx, |model, cx| model.dispatch_network(op, intent, window, cx));
-  }
-
   pub(crate) fn activate_overflow(&mut self, item: OverflowItem, window: &mut Window, cx: &mut Context<Self>) {
-    if let Some((op, intent)) = network_intent(item) {
-      self.dispatch_network(op, intent, window, cx);
+    if dispatch_item(&self.model, item, window, cx) {
       return;
     }
     match item {
@@ -181,29 +169,10 @@ impl ChangesView {
       OverflowItem::RebaseBranch => self.open_branch_list(BranchListMode::Rebase, window, cx),
       OverflowItem::StageAll => self.send(Intent::StageAll, window, cx),
       OverflowItem::UnstageAll => self.send(Intent::UnstageAll, window, cx),
-      OverflowItem::DiscardAll => self.discard_all(window, cx),
       OverflowItem::Stash => self.send(
         Intent::StashSave {
           include_untracked: false,
           staged_only: false,
-          message: None,
-        },
-        window,
-        cx,
-      ),
-      OverflowItem::StashIncludeUntracked => self.send(
-        Intent::StashSave {
-          include_untracked: true,
-          staged_only: false,
-          message: None,
-        },
-        window,
-        cx,
-      ),
-      OverflowItem::StashStagedOnly => self.send(
-        Intent::StashSave {
-          include_untracked: false,
-          staged_only: true,
           message: None,
         },
         window,
@@ -257,32 +226,6 @@ impl ChangesView {
     let intent = mode.intent(name);
     self.close_branch_list(window, cx);
     self.send(intent, window, cx);
-  }
-
-  fn discard_all(&self, window: &mut Window, cx: &mut Context<Self>) {
-    let paths = self
-      .model
-      .read(cx)
-      .state()
-      .status
-      .as_ref()
-      .map(|status| {
-        status
-          .groups
-          .iter()
-          .filter(|group| group.kind != ResourceGroupKind::Index)
-          .flat_map(|group| group.files.iter().map(|file| file.path.clone()))
-          .collect()
-      })
-      .unwrap_or_default();
-    self.send(
-      Intent::Discard {
-        paths,
-        confirmed: false,
-      },
-      window,
-      cx,
-    );
   }
 
   fn dispatch_intent(&self, intent: Intent, cx: &mut Context<Self>) {
@@ -671,6 +614,7 @@ impl Render for ChangesView {
             .unwrap_or(RepoOperationState::None),
           amend_mode: state.amend_mode,
           head_branch: state.head_branch().map(str::to_string),
+          committing: state.committing,
         },
         groups,
       )
@@ -683,18 +627,19 @@ impl Render for ChangesView {
       .flex_col()
       .track_focus(&self.focus_handle)
       .key_context("Changes")
-      .on_action(cx.listener(|this, _: &CommitFromBox, window, cx| this.commit(window, cx)))
+      .on_action(cx.listener(|this, _: &CommitFromBox, window, cx| {
+        if !this.commit.read(cx).focus_handle(cx).is_focused(window) {
+          return;
+        }
+        this.commit(window, cx);
+      }))
       .on_action(cx.listener(|this, _: &CommitAmendMode, window, cx| {
         this.send(Intent::SetAmend { enabled: true }, window, cx);
       }))
       .on_action(cx.listener(|this, _: &CommitAndPush, window, cx| {
-        this.committing = true;
-        cx.notify();
         this.send(Intent::CommitAndPush { confirmed: false }, window, cx);
       }))
       .on_action(cx.listener(|this, _: &CommitAndSync, window, cx| {
-        this.committing = true;
-        cx.notify();
         this.send(Intent::CommitAndSync { confirmed: false }, window, cx);
       }))
       .on_action(cx.listener(|this, _: &RefreshStatus, window, cx| {
@@ -712,24 +657,6 @@ impl Render for ChangesView {
       }))
       .on_action(cx.listener(|this, _: &FocusCommitMessage, window, cx| {
         this.focus_commit(window, cx);
-      }))
-      .on_action(cx.listener(|this, _: &GitSync, window, cx| {
-        this.activate_overflow(OverflowItem::Sync, window, cx);
-      }))
-      .on_action(cx.listener(|this, _: &GitPullRebase, window, cx| {
-        this.activate_overflow(OverflowItem::PullRebase, window, cx);
-      }))
-      .on_action(cx.listener(|this, _: &GitPushForce, window, cx| {
-        this.activate_overflow(OverflowItem::PushForce, window, cx);
-      }))
-      .on_action(cx.listener(|this, _: &GitDiscardAll, window, cx| {
-        this.activate_overflow(OverflowItem::DiscardAll, window, cx);
-      }))
-      .on_action(cx.listener(|this, _: &GitStashIncludeUntracked, window, cx| {
-        this.activate_overflow(OverflowItem::StashIncludeUntracked, window, cx);
-      }))
-      .on_action(cx.listener(|this, _: &GitStashStagedOnly, window, cx| {
-        this.activate_overflow(OverflowItem::StashStagedOnly, window, cx);
       }))
       .on_action(cx.listener(|this, _: &MergeBranchPicker, window, cx| {
         this.open_branch_list(BranchListMode::Merge, window, cx);

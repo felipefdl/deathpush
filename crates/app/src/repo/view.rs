@@ -7,6 +7,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use super::changes::ChangesView;
+use super::changes::overflow::{OverflowItem, dispatch_item};
 use super::diff::DiffPanel;
 use super::layout_model::LayoutModel;
 use super::main_panel::render_main_panel;
@@ -281,6 +282,24 @@ impl Render for RepoView {
           this.send(Intent::UndoCommit { confirmed: false }, window, cx)
         }),
       )
+      .on_action(cx.listener(|this, _: &GitSync, window, cx| {
+        dispatch_item(&this.model, OverflowItem::Sync, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &GitPullRebase, window, cx| {
+        dispatch_item(&this.model, OverflowItem::PullRebase, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &GitPushForce, window, cx| {
+        dispatch_item(&this.model, OverflowItem::PushForce, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &GitDiscardAll, window, cx| {
+        dispatch_item(&this.model, OverflowItem::DiscardAll, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &GitStashIncludeUntracked, window, cx| {
+        dispatch_item(&this.model, OverflowItem::StashIncludeUntracked, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &GitStashStagedOnly, window, cx| {
+        dispatch_item(&this.model, OverflowItem::StashStagedOnly, window, cx);
+      }))
       .child(body)
       .child(status_bar)
   }
@@ -445,6 +464,44 @@ mod tests {
         window.refresh();
         assert!(view.changes().read(cx).filter_text().is_empty());
         assert!(view.model().read(cx).state().has_changes());
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn git_sync_on_focused_repo_view_marks_sync_running(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let layout_dir = config_dir.path().to_path_buf();
+    let root = layout_dir.to_string_lossy().into_owned();
+    let window = cx.add_window({
+      let core = core.clone();
+      let snapshot = snapshot(&root);
+      let layout_dir = layout_dir.clone();
+      let root = root.clone();
+      move |window, cx| {
+        let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
+        let output = cx.new(|_| OutputLog::default());
+        RepoView::new(model, layout, output, window, cx)
+      }
+    });
+    window
+      .update(cx, |view, window, cx| {
+        view.focus(window, cx);
+        assert_eq!(window.focused(cx).as_ref(), Some(&view.focus_handle));
+        dispatch_item(&view.model, OverflowItem::Sync, window, cx);
+        assert!(
+          view.model().read(cx).state().running.contains(&NetworkOp::Sync),
+          "GitSync body on focused RepoView should mark NetworkOp::Sync running"
+        );
       })
       .unwrap();
   }

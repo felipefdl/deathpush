@@ -46,7 +46,7 @@ pub fn render_commit_box(
   let label = actions
     .map(|actions| actions.commit_label.clone())
     .unwrap_or_else(|| "Commit".into());
-  let committing = view.committing;
+  let committing = chrome.committing;
   let disabled = !can_commit || committing;
   let button_tooltip = commit_button_tooltip(chrome.amend_mode);
 
