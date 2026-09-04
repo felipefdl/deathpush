@@ -51,6 +51,15 @@ pub fn should_complete_save(
   dirty && current_path == Some(event_path) && current_generation == event_generation
 }
 
+pub fn should_retry_skipped_write(
+  path_match: bool,
+  already_retried: bool,
+  generation: u64,
+  latest_write_generation: u64,
+) -> bool {
+  path_match && !already_retried && generation >= latest_write_generation
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -111,5 +120,15 @@ mod tests {
       "already completed"
     );
     assert!(!should_complete_save(Some("b.rs"), "a.rs", 2, 2, true));
+    assert!(
+      should_retry_skipped_write(true, false, 2, 2),
+      "current generation retries once"
+    );
+    assert!(
+      !should_retry_skipped_write(true, false, 1, 2),
+      "gen-1 must not retry after gen-2 applies"
+    );
+    assert!(!should_retry_skipped_write(true, true, 2, 2));
+    assert!(!should_retry_skipped_write(false, false, 2, 2));
   }
 }

@@ -6,6 +6,7 @@ use deathpush_core::session::types::{Intent, IntentOutcome, SessionSnapshot, Ses
 use deathpush_core::{Core, SessionId};
 use gpui_kit::*;
 
+use super::file_viewer::autosave::should_retry_skipped_write;
 use super::state::{NetworkOp, OpenFile, PayloadVerdict, RepoState};
 use crate::config::AppConfig;
 
@@ -28,6 +29,7 @@ pub struct RepoModel {
   session: SessionId,
   state: RepoState,
   blame_requested: Option<String>,
+  latest_write: Option<(String, u64)>,
 }
 
 impl EventEmitter<RepoEvent> for RepoModel {}
@@ -52,6 +54,7 @@ impl RepoModel {
       session,
       state,
       blame_requested: None,
+      latest_write: None,
     }
   }
 
@@ -202,6 +205,7 @@ impl RepoModel {
     self.state.cursor_line = line;
     self.state.blame = None;
     self.blame_requested = None;
+    self.latest_write = None;
     cx.emit(RepoEvent::Changed);
     cx.notify();
     let core = self.core.clone();
@@ -224,6 +228,7 @@ impl RepoModel {
     self.state.cursor_line = None;
     self.state.blame = None;
     self.blame_requested = None;
+    self.latest_write = None;
     cx.emit(RepoEvent::Changed);
     cx.notify();
   }
@@ -300,6 +305,14 @@ impl RepoModel {
     generation: u64,
     cx: &mut Context<Self>,
   ) {
+    match &mut self.latest_write {
+      Some((tracked, latest)) if tracked == &path => {
+        if generation > *latest {
+          *latest = generation;
+        }
+      }
+      _ => self.latest_write = Some((path.clone(), generation)),
+    }
     self.spawn_write(path, content, expected_hash, generation, false, cx);
   }
 
@@ -334,11 +347,16 @@ impl RepoModel {
             }
             cx.emit(RepoEvent::Saved { path, hash, generation });
             cx.notify();
-          } else if path_match
-            && !retry
-            && let Some(current) = current_hash
-          {
-            this.spawn_write(path, written, current, generation, true, cx);
+          } else if let Some(current) = current_hash {
+            let latest = this
+              .latest_write
+              .as_ref()
+              .filter(|(tracked, _)| tracked == &path)
+              .map(|(_, latest)| *latest)
+              .unwrap_or(0);
+            if should_retry_skipped_write(path_match, retry, generation, latest) {
+              this.spawn_write(path, written, current, generation, true, cx);
+            }
           }
         }
         Ok(Err(err)) => this.fail(err.to_string(), cx),
