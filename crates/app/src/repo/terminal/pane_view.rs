@@ -8,14 +8,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use deathpush_core::terminal::pane::{KeyInput, KeyMods, MouseButton as TermMouse, PaneCommand, PaneHandle};
-use deathpush_core::terminal::snapshot::PaneSnapshot;
+use deathpush_core::terminal::snapshot::{PaneSnapshot, Rgb};
+use deathpush_core::theme::{Rgba, UiPalette};
 use futures::StreamExt;
 use futures::channel::mpsc::{TryRecvError, UnboundedReceiver, unbounded};
 use gpui_kit::*;
 
 use super::bell::bell_flashes;
-use super::element::{PaintCache, TerminalElement, clamp_selection, paint_from_app};
+use super::element::{PaintCache, TerminalElement, clamp_selection, on_key_down, on_key_up, paint_from_app};
 use crate::config::AppConfig;
+use crate::theme::ActivePalette;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaneEvent {
@@ -23,6 +25,57 @@ pub enum PaneEvent {
 }
 
 impl EventEmitter<PaneEvent> for PaneView {}
+
+#[cfg(test)]
+pub(crate) struct BlockedWake {
+  pub entered: std::sync::Arc<std::sync::atomic::AtomicBool>,
+  release: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[cfg(test)]
+impl BlockedWake {
+  pub fn spawn_handle() -> (std::sync::Arc<PaneHandle>, Self) {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread;
+    use std::time::Duration;
+
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let entered_flag = Arc::clone(&entered);
+    let release_flag = Arc::clone(&release);
+    let wake = Box::new(move || {
+      entered_flag.store(true, Ordering::Release);
+      while !release_flag.load(Ordering::Acquire) {
+        thread::sleep(Duration::from_millis(1));
+      }
+    });
+    let handle = Arc::new(PaneHandle::spawn(20, 4, None, Box::new(|_| {}), wake).unwrap());
+    (handle, Self { entered, release })
+  }
+
+  pub fn wait_entered(&self) {
+    use std::sync::atomic::Ordering;
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+      if self.entered.load(Ordering::Acquire) {
+        return;
+      }
+      thread::sleep(Duration::from_millis(1));
+    }
+    panic!("wake did not run");
+  }
+}
+
+#[cfg(test)]
+impl Drop for BlockedWake {
+  fn drop(&mut self) {
+    self.release.store(true, std::sync::atomic::Ordering::Release);
+  }
+}
 
 struct SentPress {
   key: String,
@@ -56,10 +109,41 @@ pub struct PaneView {
   paint_cache: PaintCache,
   flashing: bool,
   flash_task: Option<Task<()>>,
+  vt_colors: Option<VtColors>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct VtColors {
+  foreground: Rgb,
+  background: Rgb,
+  cursor: Rgb,
+  ansi: [Rgb; 16],
+}
+
+pub(crate) fn vt_set_colors(palette: &UiPalette) -> PaneCommand {
+  let colors = vt_colors_from_palette(palette);
+  PaneCommand::SetColors {
+    foreground: colors.foreground,
+    background: colors.background,
+    cursor: colors.cursor,
+    ansi: colors.ansi,
+  }
+}
+
+fn vt_colors_from_palette(palette: &UiPalette) -> VtColors {
+  VtColors {
+    foreground: rgb_from_rgba(palette.terminal_foreground),
+    background: rgb_from_rgba(palette.terminal_background),
+    cursor: rgb_from_rgba(palette.terminal_cursor),
+    ansi: palette.terminal_ansi.map(rgb_from_rgba),
+  }
+}
+
+fn rgb_from_rgba(color: Rgba) -> Rgb {
+  Rgb(color.r, color.g, color.b)
 }
 
 /// Producer half of the pane-thread wake. Pass the callback to [`PaneHandle::spawn`].
-#[allow(dead_code)]
 pub fn wake_pair() -> (Box<dyn Fn() + Send>, UnboundedReceiver<()>) {
   let (tx, rx) = unbounded();
   (
@@ -97,7 +181,6 @@ fn subscribe_wake(rx: UnboundedReceiver<()>, cx: &mut Context<PaneView>) -> Task
 
 impl PaneView {
   /// Installs the wake subscription: on wake, pulls [`PaneHandle::snapshot`] and notifies.
-  #[allow(dead_code)]
   pub fn new(id: u64, handle: Arc<PaneHandle>, wake_rx: UnboundedReceiver<()>, cx: &mut Context<Self>) -> Self {
     let wake_task = subscribe_wake(wake_rx, cx);
     let mut this = Self::build(id, Some(handle), cx);
@@ -133,6 +216,7 @@ impl PaneView {
       paint_cache: PaintCache::default(),
       flashing: false,
       flash_task: None,
+      vt_colors: None,
     }
   }
 
@@ -149,7 +233,6 @@ impl PaneView {
     this
   }
 
-  #[allow(dead_code)]
   pub fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
     if self.active != active {
       self.active = active;
@@ -160,7 +243,6 @@ impl PaneView {
     }
   }
 
-  #[allow(dead_code)]
   pub fn set_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
     if self.visible != visible {
       self.visible = visible;
@@ -171,7 +253,6 @@ impl PaneView {
     }
   }
 
-  #[allow(dead_code)]
   pub fn focus(&self, window: &mut Window, cx: &mut App) {
     self.focus_handle.focus(window, cx);
   }
@@ -191,6 +272,26 @@ impl PaneView {
     if let Some(handle) = self.handle.as_ref() {
       handle.send(command);
     }
+  }
+
+  fn sync_vt_colors(&mut self, cx: &App) {
+    if self.handle.is_none() {
+      return;
+    }
+    let Some(palette) = cx.try_global::<ActivePalette>() else {
+      return;
+    };
+    let colors = vt_colors_from_palette(&palette.0);
+    if self.vt_colors.as_ref() == Some(&colors) {
+      return;
+    }
+    self.vt_colors = Some(colors);
+    self.send(PaneCommand::SetColors {
+      foreground: colors.foreground,
+      background: colors.background,
+      cursor: colors.cursor,
+      ansi: colors.ansi,
+    });
   }
 
   pub(crate) fn mouse_tracking(&self) -> bool {
@@ -625,6 +726,7 @@ impl EntityInputHandler for PaneView {
 
 impl Render for PaneView {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    self.sync_vt_colors(cx);
     let settings = paint_from_app(cx);
     let focused = self.focus_handle.is_focused(window);
     self.sync_blink(focused, settings.cursor_blink, cx);
@@ -646,6 +748,14 @@ impl Render for PaneView {
       .track_focus(&self.focus_handle)
       .key_context("Terminal")
       .opacity(if self.active { 1.0 } else { 0.7 })
+      .on_key_down({
+        let view = view.clone();
+        move |event, _, cx| on_key_down(&view, event, cx)
+      })
+      .on_key_up({
+        let view = view.clone();
+        move |event, _, cx| on_key_up(&view, event, cx)
+      })
       .on_mouse_down(MouseButton::Left, {
         let focus = focus.clone();
         let view = view.clone();
@@ -676,6 +786,24 @@ mod tests {
   impl Render for PaneHost {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
       self.pane.clone()
+    }
+  }
+
+  struct RepoPaneHost {
+    pane: Entity<PaneView>,
+    clear_fired: std::rc::Rc<std::cell::Cell<bool>>,
+  }
+
+  impl Render for RepoPaneHost {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+      let fired = std::rc::Rc::clone(&self.clear_fired);
+      div()
+        .key_context(crate::keymap::CONTEXT_REPOSITORY)
+        .size_full()
+        .on_action(move |_: &crate::actions::ClearSelection, _, _| {
+          fired.set(true);
+        })
+        .child(self.pane.clone())
     }
   }
 
@@ -710,6 +838,56 @@ mod tests {
     assert_eq!(clamp_sel_anchor((1, 1), 4, 3), (1, 1));
     let clamped = clamp_selection(Some(((9, 9), (8, 0))), 5, 2);
     assert_eq!(clamped, Some(((4, 1), (4, 0))));
+  }
+
+  #[gpui_kit::test]
+  fn second_paint_of_unchanged_snapshot_does_not_reshape(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+      AppConfig::update(cx, |config| {
+        config.settings.terminal.letter_spacing = 1.0;
+        config.settings.terminal.cursor_blink = false;
+      });
+    });
+    let snapshot = injected_snapshot("ab");
+    let window = cx.add_window(move |_, cx| PaneHost {
+      pane: cx.new(|cx| PaneView::new_unthreaded(1, cx)),
+    });
+    window
+      .update(cx, |host, window, cx| {
+        host.pane.update(cx, |view, cx| {
+          view.set_snapshot(snapshot.clone());
+          view.set_active(true, cx);
+          view.focus(window, cx);
+        });
+        window.refresh();
+      })
+      .unwrap();
+    AnyWindowHandle::from(window)
+      .update(cx, |_, window, cx| {
+        let _ = window.draw(cx);
+      })
+      .unwrap();
+    let first = window
+      .update(cx, |host, _, cx| {
+        host.pane.update(cx, |view, _| view.paint_cache().shape_calls())
+      })
+      .unwrap();
+    assert!(first > 0, "spaced paint must shape cells");
+    AnyWindowHandle::from(window)
+      .update(cx, |_, window, cx| {
+        let _ = window.draw(cx);
+      })
+      .unwrap();
+    let second = window
+      .update(cx, |host, _, cx| {
+        host.pane.update(cx, |view, _| view.paint_cache().shape_calls())
+      })
+      .unwrap();
+    assert_eq!(second, first, "unchanged snapshot must not reshape");
   }
 
   #[gpui_kit::test]
@@ -959,6 +1137,54 @@ mod tests {
         });
       })
       .unwrap();
+    drop(handle);
+  }
+
+  #[gpui_kit::test]
+  fn escape_reaches_the_focused_pane_key_path(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+      cx.bind_keys(crate::keymap::bindings());
+    });
+    let collected = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let writer_buf = Arc::clone(&collected);
+    let writer: PtyWriter = Box::new(move |bytes| writer_buf.lock().unwrap().extend(bytes));
+    let handle = Arc::new(PaneHandle::spawn(20, 4, None, writer, Box::new(|| {})).unwrap());
+    let (_, rx) = unbounded();
+    let clear_fired = std::rc::Rc::new(std::cell::Cell::new(false));
+    let window = cx.add_window({
+      let handle = Arc::clone(&handle);
+      let clear_fired = std::rc::Rc::clone(&clear_fired);
+      move |_, cx| RepoPaneHost {
+        pane: cx.new(|cx| PaneView::new(1, handle, rx, cx)),
+        clear_fired,
+      }
+    });
+    window
+      .update(cx, |host, window, cx| {
+        host.pane.update(cx, |view, cx| {
+          view.set_active(true, cx);
+          view.focus(window, cx);
+        });
+        window.refresh();
+      })
+      .unwrap();
+    AnyWindowHandle::from(window)
+      .update(cx, |_, window, cx| {
+        let _ = window.draw(cx);
+      })
+      .unwrap();
+    cx.dispatch_keystroke(window.into(), Keystroke::parse("escape").unwrap());
+    cx.run_until_parked();
+    let got = wait_bytes(&collected, |bytes| bytes.contains(&0x1b));
+    assert!(got.contains(&0x1b), "expected ESC in {got:?}");
+    assert!(
+      !clear_fired.get(),
+      "ClearSelection must not fire while Terminal is focused"
+    );
     drop(handle);
   }
 }

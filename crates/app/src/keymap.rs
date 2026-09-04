@@ -11,6 +11,7 @@ pub const CONTEXT_WELCOME: &str = "Welcome";
 pub const CONTEXT_WELCOME_LIST: &str = "WelcomeList";
 pub const CONTEXT_WELCOME_LIST_INPUT: &str = "WelcomeList > Input";
 pub const CONTEXT_REPOSITORY: &str = "Repository";
+pub const CONTEXT_REPOSITORY_KEYS: &str = "Repository && !Terminal";
 pub const CONTEXT_DIALOG: &str = "Dialog";
 #[allow(dead_code)]
 pub const CONTEXT_CHANGES: &str = "Changes";
@@ -56,7 +57,7 @@ pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static st
     (format!("alt-{m}-9"), "ActivateTerminalGroup9", Some(CONTEXT_REPOSITORY)),
     (format!("{m}-shift-g"), "ReloadSession", Some(CONTEXT_REPOSITORY)),
     (format!("{m}-s"), "SwallowSave", Some(CONTEXT_REPOSITORY)),
-    ("escape".to_string(), "ClearSelection", Some(CONTEXT_REPOSITORY)),
+    ("escape".to_string(), "ClearSelection", Some(CONTEXT_REPOSITORY_KEYS)),
     (format!("{m}-c"), "CopyDiffSelection", Some(CONTEXT_DIFF)),
     (format!("{m}-enter"), "CommitFromBox", Some(CONTEXT_CHANGES_INPUT)),
     ("enter".to_string(), "Confirm", Some(CONTEXT_BRANCH_LIST_INPUT)),
@@ -230,7 +231,7 @@ mod tests {
     let clear: Vec<_> = rows.iter().filter(|(_, name, _)| *name == "ClearSelection").collect();
     assert_eq!(clear.len(), 1);
     assert_eq!(clear[0].0, "escape");
-    assert_eq!(clear[0].2, Some(CONTEXT_REPOSITORY));
+    assert_eq!(clear[0].2, Some(CONTEXT_REPOSITORY_KEYS));
   }
 
   #[test]

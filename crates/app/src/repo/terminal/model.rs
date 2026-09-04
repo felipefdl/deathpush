@@ -9,6 +9,7 @@ use gpui_kit::*;
 use super::names::default_name;
 use super::pane_view::{self, PaneView};
 use crate::config::AppConfig;
+use crate::theme::ActivePalette;
 
 /// Nested split layout for one terminal group.
 ///
@@ -367,6 +368,9 @@ impl TerminalModel {
         return None;
       }
     };
+    if let Some(palette) = cx.try_global::<ActivePalette>() {
+      handle.send(pane_view::vt_set_colors(&palette.0));
+    }
     let view_handle = handle.clone();
     let view = cx.new(|cx| PaneView::new(id, view_handle, wake_rx, cx));
     self.subscribe_pane(&view, cx);
@@ -552,6 +556,26 @@ impl TerminalModel {
 
   #[cfg(test)]
   pub(crate) fn insert_test_pane(&mut self, view: Entity<PaneView>, cx: &mut Context<Self>) -> u64 {
+    self.insert_test_pane_inner(view, None, cx)
+  }
+
+  #[cfg(test)]
+  pub(crate) fn insert_test_pane_with_handle(
+    &mut self,
+    view: Entity<PaneView>,
+    handle: Arc<PaneHandle>,
+    cx: &mut Context<Self>,
+  ) -> u64 {
+    self.insert_test_pane_inner(view, Some(handle), cx)
+  }
+
+  #[cfg(test)]
+  fn insert_test_pane_inner(
+    &mut self,
+    view: Entity<PaneView>,
+    handle: Option<Arc<PaneHandle>>,
+    cx: &mut Context<Self>,
+  ) -> u64 {
     let id = view.read(cx).id;
     self.subscribe_pane(&view, cx);
     self.counter += 1;
@@ -563,7 +587,7 @@ impl TerminalModel {
         shell: None,
         foreground: None,
         view,
-        handle: None,
+        handle,
       },
     );
     let group_id = self.next_group;
@@ -1144,5 +1168,81 @@ mod tests {
         );
       })
       .unwrap();
+  }
+
+  fn blocked_pane(
+    id: u64,
+    cx: &mut Context<TerminalModel>,
+  ) -> (Entity<PaneView>, Arc<PaneHandle>, pane_view::BlockedWake) {
+    let (handle, blocked) = pane_view::BlockedWake::spawn_handle();
+    handle.push_bytes(b"x");
+    blocked.wait_entered();
+    let (_, rx) = futures::channel::mpsc::unbounded();
+    let view = cx.new({
+      let handle = Arc::clone(&handle);
+      move |cx| PaneView::new(id, handle, rx, cx)
+    });
+    (view, handle, blocked)
+  }
+
+  fn assert_returns_quickly(start: std::time::Instant) {
+    assert!(
+      start.elapsed() < std::time::Duration::from_millis(200),
+      "teardown waited on a blocked pane thread"
+    );
+  }
+
+  #[gpui_kit::test]
+  fn kill_pane_returns_while_the_pane_thread_is_blocked(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let model = cx.new(|cx| TerminalModel::new(core, session, cx));
+    let blocked = model.update(cx, |model, cx| {
+      let (view, handle, blocked) = blocked_pane(1, cx);
+      model.insert_test_pane_with_handle(view, handle, cx);
+      blocked
+    });
+    let start = std::time::Instant::now();
+    model.update(cx, |model, cx| model.kill_pane(1, None, cx));
+    assert_returns_quickly(start);
+    drop(blocked);
+  }
+
+  #[gpui_kit::test]
+  fn kill_group_returns_while_the_pane_thread_is_blocked(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let model = cx.new(|cx| TerminalModel::new(core, session, cx));
+    let (group, blocked) = model.update(cx, |model, cx| {
+      let (view, handle, blocked) = blocked_pane(1, cx);
+      let group = model.insert_test_pane_with_handle(view, handle, cx);
+      (group, blocked)
+    });
+    let start = std::time::Instant::now();
+    model.update(cx, |model, cx| model.kill_group(group, None, cx));
+    assert_returns_quickly(start);
+    drop(blocked);
+  }
+
+  #[gpui_kit::test]
+  fn shutdown_returns_while_the_pane_thread_is_blocked(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let model = cx.new(|cx| TerminalModel::new(core, session, cx));
+    let blocked = model.update(cx, |model, cx| {
+      let (view, handle, blocked) = blocked_pane(1, cx);
+      model.insert_test_pane_with_handle(view, handle, cx);
+      blocked
+    });
+    let start = std::time::Instant::now();
+    model.update(cx, |model, cx| model.shutdown(cx));
+    assert_returns_quickly(start);
+    drop(blocked);
   }
 }

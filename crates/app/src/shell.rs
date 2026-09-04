@@ -1010,4 +1010,73 @@ mod tests {
     assert!(should_prompt_before_close(true, false));
     assert!(!should_prompt_before_close(true, true));
   }
+
+  fn inject_blocked_pane(shell: &Shell, cx: &mut Context<Shell>) -> crate::repo::terminal::pane_view::BlockedWake {
+    let Screen::Repository(view) = &shell.screen else {
+      panic!("expected a repository screen");
+    };
+    let terminal = view.read(cx).terminal().clone();
+    let (handle, blocked) = crate::repo::terminal::pane_view::BlockedWake::spawn_handle();
+    handle.push_bytes(b"x");
+    blocked.wait_entered();
+    let (_, rx) = futures::channel::mpsc::unbounded();
+    terminal.update(cx, |model, cx| {
+      let view = cx.new(|cx| crate::repo::terminal::pane_view::PaneView::new(1, Arc::clone(&handle), rx, cx));
+      model.insert_test_pane_with_handle(view, handle, cx);
+    });
+    blocked
+  }
+
+  fn assert_returns_quickly(start: std::time::Instant) {
+    assert!(
+      start.elapsed() < std::time::Duration::from_millis(200),
+      "teardown waited on a blocked pane thread"
+    );
+  }
+
+  #[gpui_kit::test]
+  fn repository_switch_returns_while_the_pane_thread_is_blocked(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    window
+      .update(cx, |shell, window, cx| {
+        shell.mount_repository(snapshot(config_dir.path().to_str().unwrap()), window, cx);
+        let blocked = inject_blocked_pane(shell, cx);
+        let start = std::time::Instant::now();
+        shell.show_welcome(window, cx);
+        assert_returns_quickly(start);
+        drop(blocked);
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn window_close_returns_while_the_pane_thread_is_blocked(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    window
+      .update(cx, |shell, window, cx| {
+        shell.mount_repository(snapshot(config_dir.path().to_str().unwrap()), window, cx);
+        let blocked = inject_blocked_pane(shell, cx);
+        let start = std::time::Instant::now();
+        assert!(shell.request_close(window, cx));
+        assert_returns_quickly(start);
+        drop(blocked);
+      })
+      .unwrap();
+  }
 }

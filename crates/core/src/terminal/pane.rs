@@ -1,5 +1,7 @@
 //! One OS thread per terminal pane. libghostty types stay here; the app sees snapshots.
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
@@ -9,7 +11,7 @@ use libghostty_vt::key::{self, Encoder as KeyEncoder, Event as KeyEvent};
 use libghostty_vt::mouse::{self, Encoder as MouseEncoder, Event as MouseEvent};
 use libghostty_vt::render::{CellIterator, CursorVisualStyle, RowIterator};
 use libghostty_vt::screen::CellWide;
-use libghostty_vt::style::Underline;
+use libghostty_vt::style::{PaletteIndex, RgbColor, Underline};
 use libghostty_vt::terminal::{Mode, ScrollViewport};
 use libghostty_vt::{RenderState, Terminal};
 
@@ -114,6 +116,17 @@ pub enum PaneCommand {
   ScrollToBottom,
   /// Set the scrollback byte limit; `None` is unlimited.
   SetScrollbackBytes(Option<usize>),
+  /// Apply theme colors to libghostty defaults and publish a fresh snapshot.
+  SetColors {
+    /// Default foreground.
+    foreground: Rgb,
+    /// Default background.
+    background: Rgb,
+    /// Default cursor color.
+    cursor: Rgb,
+    /// Palette entries 0..15.
+    ansi: [Rgb; 16],
+  },
   /// Stop the pane thread.
   Shutdown,
 }
@@ -141,7 +154,7 @@ struct PaneIo {
 /// Bytes the pane thread wants written to the PTY (encoded keys, mouse reports, pasted text).
 pub type PtyWriter = Box<dyn Fn(Vec<u8>) + Send + 'static>;
 
-/// Handle to a pane thread. Dropping it shuts the thread down and joins.
+/// Handle to a pane thread. Dropping it shuts the thread down; the join runs in the background.
 pub struct PaneHandle {
   tx: Sender<PaneMsg>,
   slot: Arc<Mutex<Option<Arc<PaneSnapshot>>>>,
@@ -153,11 +166,12 @@ pub struct PaneHandle {
 impl PaneHandle {
   /// Spawns the pane thread.
   ///
-  /// `writer` receives encoded PTY input on the pane thread.
+  /// `writer` receives encoded PTY input and libghostty `on_pty_write` responses on the pane thread.
   /// `wake` runs on the pane thread after every new snapshot so the app can schedule a redraw.
-  /// It must not block, must hold only weak or lifetime-safe app state, and is finished by the
-  /// time [`Drop`] returns. Shutdown is an atomic flag plus a [`PaneCommand::Shutdown`] on the
-  /// same FIFO; [`Drop`] sets the flag, sends, and joins.
+  /// It must not block and must hold only weak or lifetime-safe app state. Shutdown is an atomic
+  /// flag plus a [`PaneCommand::Shutdown`] on the same FIFO; [`Drop`] sets the flag, sends, and
+  /// joins on a background thread so the UI is not blocked. Shared snapshot state stays alive
+  /// until that join completes.
   pub fn spawn(
     cols: u16,
     rows: u16,
@@ -243,13 +257,29 @@ impl PaneHandle {
   }
 }
 
-/// Sets the shutdown flag, sends [`PaneCommand::Shutdown`] on the FIFO, and joins the pane thread.
+/// Sets the shutdown flag and sends [`PaneCommand::Shutdown`]. The pane thread is joined in the
+/// background so Drop does not block the UI. Snapshot state stays alive until that join completes.
 impl Drop for PaneHandle {
   fn drop(&mut self) {
     self.shutdown.store(true, Ordering::Release);
     let _ = self.tx.send(PaneMsg::Command(PaneCommand::Shutdown));
-    if let Some(join) = self.join.take() {
-      let _ = join.join();
+    let Some(join) = self.join.take() else {
+      return;
+    };
+    let slot = Arc::clone(&self.slot);
+    let mouse_tracking = Arc::clone(&self.mouse_tracking);
+    let shutdown = Arc::clone(&self.shutdown);
+    if thread::Builder::new()
+      .name("dp-vt-pane-join".into())
+      .spawn(move || {
+        let _ = join.join();
+        drop((slot, mouse_tracking, shutdown));
+      })
+      .is_err()
+    {
+      std::mem::forget(Arc::clone(&self.slot));
+      std::mem::forget(Arc::clone(&self.mouse_tracking));
+      std::mem::forget(Arc::clone(&self.shutdown));
     }
   }
 }
@@ -263,7 +293,7 @@ struct PaneThread {
   key_event: KeyEvent<'static>,
   mouse_encoder: MouseEncoder<'static>,
   mouse_event: MouseEvent<'static>,
-  writer: PtyWriter,
+  writer: Rc<PtyWriter>,
   wake: Box<dyn Fn() + Send + 'static>,
   slot: Arc<Mutex<Option<Arc<PaneSnapshot>>>>,
   mouse_tracking: Arc<AtomicBool>,
@@ -275,7 +305,7 @@ struct PaneThread {
   pty_buf: Vec<u8>,
   last_snapshot_error: Option<String>,
   shutdown: Arc<AtomicBool>,
-  bell: bool,
+  bell: Rc<Cell<bool>>,
 }
 
 impl PaneThread {
@@ -288,7 +318,27 @@ impl PaneThread {
     io: PaneIo,
   ) -> Result<Self> {
     let (cols, rows) = clamp_grid(cols, rows);
+    let writer = Rc::new(writer);
+    let bell = Rc::new(Cell::new(false));
     let mut terminal = Terminal::new(cols, rows).map_err(vt_err)?;
+    {
+      let writer = Rc::clone(&writer);
+      terminal
+        .on_pty_write(move |_term, data| {
+          if !data.is_empty() {
+            (*writer)(data.to_vec());
+          }
+        })
+        .map_err(vt_err)?;
+    }
+    {
+      let bell = Rc::clone(&bell);
+      terminal
+        .on_bell(move |_term| {
+          bell.set(true);
+        })
+        .map_err(vt_err)?;
+    }
     let cell_w = 8;
     let cell_h = 16;
     if let Err(err) = terminal.resize(cols, rows, cell_w, cell_h) {
@@ -318,7 +368,7 @@ impl PaneThread {
       pty_buf: Vec::new(),
       last_snapshot_error: None,
       shutdown: io.shutdown,
-      bell: false,
+      bell,
     })
   }
 
@@ -330,9 +380,6 @@ impl PaneThread {
     match msg {
       PaneMsg::Bytes(data) => {
         *byte_count = byte_count.saturating_add(data.len());
-        if data.contains(&0x07) {
-          self.bell = true;
-        }
         self.terminal.vt_write(&data);
         *dirty = true;
         false
@@ -394,9 +441,6 @@ impl PaneThread {
     match command {
       PaneCommand::Shutdown => CommandEffect::Shutdown,
       PaneCommand::Bytes(bytes) => {
-        if bytes.contains(&0x07) {
-          self.bell = true;
-        }
         self.terminal.vt_write(&bytes);
         CommandEffect::Dirty
       }
@@ -446,6 +490,38 @@ impl PaneThread {
         }
         CommandEffect::Dirty
       }
+      PaneCommand::SetColors {
+        foreground,
+        background,
+        cursor,
+        ansi,
+      } => {
+        self.apply_theme_colors(foreground, background, cursor, ansi);
+        CommandEffect::Dirty
+      }
+    }
+  }
+
+  fn apply_theme_colors(&mut self, foreground: Rgb, background: Rgb, cursor: Rgb, ansi: [Rgb; 16]) {
+    let to_rgb = |Rgb(r, g, b)| RgbColor { r, g, b };
+    if let Err(err) = self
+      .terminal
+      .set_default_fg_color(Some(to_rgb(foreground)))
+      .and_then(|term| term.set_default_bg_color(Some(to_rgb(background))))
+      .and_then(|term| term.set_default_cursor_color(Some(to_rgb(cursor))))
+    {
+      tracing::warn!(%err, "set terminal default colors failed");
+    }
+    match self.terminal.default_color_palette() {
+      Ok(mut palette) => {
+        for (index, color) in ansi.into_iter().enumerate() {
+          palette.set(PaletteIndex(index as u8), to_rgb(color));
+        }
+        if let Err(err) = self.terminal.set_default_color_palette(Some(palette)) {
+          tracing::warn!(%err, "set terminal palette failed");
+        }
+      }
+      Err(err) => tracing::warn!(%err, "read terminal palette failed"),
     }
   }
 
@@ -548,7 +624,7 @@ impl PaneThread {
     if self.pty_buf.is_empty() {
       return;
     }
-    (self.writer)(std::mem::take(&mut self.pty_buf));
+    (*self.writer)(std::mem::take(&mut self.pty_buf));
   }
 
   fn mouse_tracking_now(&self) -> bool {
@@ -569,7 +645,7 @@ impl PaneThread {
     match self.build_snapshot() {
       Ok(snapshot) => {
         self.last_snapshot_error = None;
-        self.bell = false;
+        self.bell.set(false);
         let snapshot = Arc::new(snapshot);
         if let Ok(mut slot) = self.slot.lock() {
           *slot = Some(Arc::clone(&snapshot));
@@ -670,7 +746,7 @@ impl PaneThread {
       cursor_color: cursor_color.map(|color| Rgb(color.r, color.g, color.b)),
       viewport_offset,
       scrollback_rows,
-      bell: self.bell,
+      bell: self.bell.get(),
     })
   }
 }
@@ -1126,5 +1202,81 @@ mod tests {
     let elapsed = start.elapsed();
     drop(unblock);
     assert!(elapsed < Duration::from_millis(200), "push_bytes or send blocked");
+  }
+
+  #[test]
+  fn set_colors_updates_snapshot_background() {
+    let handle = PaneHandle::spawn(20, 4, None, noop_writer(), Box::new(|| {})).unwrap();
+    let mut ansi = [Rgb(0, 0, 0); 16];
+    ansi[0] = Rgb(10, 11, 12);
+    handle.send(PaneCommand::SetColors {
+      foreground: Rgb(1, 2, 3),
+      background: Rgb(4, 5, 6),
+      cursor: Rgb(7, 8, 9),
+      ansi,
+    });
+    let snap = wait_snapshot(&handle, |snap| snap.background == Rgb(4, 5, 6));
+    assert_eq!(snap.foreground, Rgb(1, 2, 3));
+    assert_eq!(snap.background, Rgb(4, 5, 6));
+    assert_eq!(snap.cursor_color, Some(Rgb(7, 8, 9)));
+  }
+
+  #[test]
+  fn osc_title_bel_does_not_bell_but_bare_bel_does() {
+    let handle = PaneHandle::spawn(20, 4, None, noop_writer(), Box::new(|| {})).unwrap();
+    handle.push_bytes(b"\x1b]0;title\x07hi");
+    let snap = wait_snapshot(&handle, |snap| snap.row_text(0).contains("hi"));
+    assert!(!snap.bell, "BEL that terminates OSC must not flash");
+    let seq = snap.seq;
+    handle.push_bytes(b"\x07");
+    let snap = wait_snapshot(&handle, |snap| snap.seq > seq && snap.bell);
+    assert!(snap.bell);
+  }
+
+  #[test]
+  fn dsr_request_writes_to_the_pty() {
+    let collected = Arc::new(Mutex::new(Vec::new()));
+    let writer_buf = Arc::clone(&collected);
+    let writer: PtyWriter = Box::new(move |bytes| writer_buf.lock().unwrap().extend(bytes));
+    let handle = PaneHandle::spawn(20, 4, None, writer, Box::new(|| {})).unwrap();
+    handle.push_bytes(b"\x1b[6n");
+    let got = wait_bytes(&collected, |bytes| !bytes.is_empty());
+    assert!(
+      got.starts_with(b"\x1b[") && got.ends_with(b"R"),
+      "expected DSR cursor report, got {got:?}"
+    );
+  }
+
+  #[test]
+  fn drop_returns_while_the_pane_thread_is_blocked() {
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let entered_flag = Arc::clone(&entered);
+    let release_flag = Arc::clone(&release);
+    let wake = Box::new(move || {
+      entered_flag.store(true, Ordering::Release);
+      while !release_flag.load(Ordering::Acquire) {
+        thread::sleep(Duration::from_millis(1));
+      }
+    });
+    let handle = PaneHandle::spawn(20, 4, None, noop_writer(), wake).unwrap();
+    let unblock = ReleaseWake(Arc::clone(&release));
+    handle.push_bytes(b"x");
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+      if entered.load(Ordering::Acquire) {
+        break;
+      }
+      thread::sleep(Duration::from_millis(1));
+    }
+    assert!(entered.load(Ordering::Acquire), "wake did not run");
+    let start = Instant::now();
+    drop(handle);
+    let elapsed = start.elapsed();
+    drop(unblock);
+    assert!(
+      elapsed < Duration::from_millis(200),
+      "Drop joined a blocked pane thread"
+    );
   }
 }

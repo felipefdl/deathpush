@@ -132,11 +132,21 @@ pub struct PaintState {
 /// Cached shaped runs for one snapshot sequence and paint inputs.
 ///
 /// Reused while the snapshot sequence and cache-sensitive paint settings are unchanged, so cursor
-/// blink and selection changes do not reshape. Nonzero letter-spacing still paints per cell.
+/// blink and selection changes do not reshape. Nonzero letter-spacing caches one shaped line per
+/// cell under the same key.
 #[derive(Default)]
 pub struct PaintCache {
   key: Option<PaintCacheKey>,
   rows: Vec<CachedRow>,
+  #[cfg(test)]
+  shape_calls: usize,
+}
+
+#[cfg(test)]
+impl PaintCache {
+  pub(crate) fn shape_calls(&self) -> usize {
+    self.shape_calls
+  }
 }
 
 #[derive(Clone, PartialEq)]
@@ -161,8 +171,8 @@ struct CachedRow {
 struct CachedRun {
   start_x: u16,
   cells: Vec<String>,
-  style: RunStyle,
   line: Option<ShapedLine>,
+  cell_lines: Vec<Option<ShapedLine>>,
 }
 
 impl IntoElement for TerminalElement {
@@ -314,22 +324,6 @@ impl Element for TerminalElement {
         ElementInputHandler::new(bounds, view.clone()),
         cx,
       );
-      window.on_key_event({
-        let view = view.clone();
-        move |event: &KeyDownEvent, phase, _window, cx| {
-          if phase == DispatchPhase::Bubble {
-            on_key_down(&view, event, cx);
-          }
-        }
-      });
-      window.on_key_event({
-        let view = view.clone();
-        move |event: &KeyUpEvent, phase, _window, cx| {
-          if phase == DispatchPhase::Bubble {
-            on_key_up(&view, event, cx);
-          }
-        }
-      });
     }
     window.on_mouse_event({
       let view = view.clone();
@@ -468,14 +462,11 @@ fn paint_rows(
   cx: &mut App,
 ) {
   rebuild_cache(cache, snap, settings, cell, window);
-  let font_size = px(settings.font_size);
   let spaced = settings.letter_spacing != 0.0;
   for (y, row) in cache.rows.iter().enumerate() {
     let y_pos = origin.y + cell.1 * y;
     for run in &row.runs {
-      paint_cached_run(
-        run, origin.x, y_pos, cell.0, cell.1, font_size, spaced, settings, window, cx,
-      );
+      paint_cached_run(run, origin.x, y_pos, cell.0, cell.1, spaced, window, cx);
     }
   }
 }
@@ -513,28 +504,71 @@ fn rebuild_cache(
   for y in 0..snap.rows {
     let mut runs = Vec::new();
     for run in row_runs(snap, y, settings) {
-      let line = if spaced || run.cells.iter().all(String::is_empty) {
-        None
+      let empty = run.cells.iter().all(String::is_empty);
+      let (line, cell_lines) = if empty {
+        (None, Vec::new())
+      } else if spaced {
+        let cell_lines = run
+          .cells
+          .iter()
+          .map(|text| {
+            if text.is_empty() {
+              None
+            } else {
+              Some(shape_cached(
+                cache,
+                window,
+                text.clone().into(),
+                font_size,
+                run.style,
+                settings,
+              ))
+            }
+          })
+          .collect();
+        (None, cell_lines)
       } else {
         let text = run.cells.concat();
         if text.is_empty() {
-          None
+          (None, Vec::new())
         } else {
-          let shaped = text_run(text.len(), run.style, settings);
-          Some(window.text_system().shape_line(text.into(), font_size, &[shaped], None))
+          (
+            Some(shape_cached(cache, window, text.into(), font_size, run.style, settings)),
+            Vec::new(),
+          )
         }
       };
       runs.push(CachedRun {
         start_x: run.start_x,
         cells: run.cells,
-        style: run.style,
         line,
+        cell_lines,
       });
     }
     rows.push(CachedRow { runs });
   }
   cache.key = Some(key);
   cache.rows = rows;
+}
+
+fn shape_cached(
+  cache: &mut PaintCache,
+  window: &Window,
+  text: SharedString,
+  font_size: Pixels,
+  style: RunStyle,
+  settings: &TerminalPaint,
+) -> ShapedLine {
+  #[cfg(test)]
+  {
+    cache.shape_calls += 1;
+  }
+  #[cfg(not(test))]
+  {
+    let _ = cache;
+  }
+  let shaped = text_run(text.len(), style, settings);
+  window.text_system().shape_line(text, font_size, &[shaped], None)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -544,9 +578,7 @@ fn paint_cached_run(
   y_pos: Pixels,
   cell_w: Pixels,
   cell_h: Pixels,
-  font_size: Pixels,
   spaced: bool,
-  settings: &TerminalPaint,
   window: &mut Window,
   cx: &mut App,
 ) {
@@ -554,14 +586,10 @@ fn paint_cached_run(
     return;
   }
   if spaced {
-    for (index, text) in run.cells.iter().enumerate() {
-      if text.is_empty() {
+    for (index, line) in run.cell_lines.iter().enumerate() {
+      let Some(line) = line else {
         continue;
-      }
-      let shaped = text_run(text.len(), run.style, settings);
-      let line = window
-        .text_system()
-        .shape_line(text.clone().into(), font_size, &[shaped], None);
+      };
       let pos = point(origin_x + cell_w * (usize::from(run.start_x) + index), y_pos);
       let _ = line.paint(pos, cell_h, TextAlign::Left, None, window, cx);
     }
@@ -897,7 +925,7 @@ pub fn key_uses_ime(keystroke: &Keystroke) -> bool {
   )
 }
 
-fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mut App) {
+pub(crate) fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mut App) {
   match classify_key(&event.keystroke) {
     KeyRoute::Ignore => {}
     KeyRoute::Paste => {
@@ -935,7 +963,7 @@ fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mut App) {
   }
 }
 
-fn on_key_up(view: &Entity<PaneView>, event: &KeyUpEvent, cx: &mut App) {
+pub(crate) fn on_key_up(view: &Entity<PaneView>, event: &KeyUpEvent, cx: &mut App) {
   let key = event.keystroke.key.as_str();
   let mods = view.update(cx, |this, _| {
     if this.take_copy_consumed(key) {
