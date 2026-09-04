@@ -343,7 +343,8 @@ impl Shell {
   }
 
   pub fn open_licenses(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-    let dialog = cx.new(|_| crate::overlays::licenses::LicensesDialog::new());
+    let dialog = cx.new(crate::overlays::licenses::LicensesDialog::new);
+    dialog.update(cx, |dialog, cx| dialog.focus(window, cx));
     cx.subscribe_in(
       &dialog,
       window,

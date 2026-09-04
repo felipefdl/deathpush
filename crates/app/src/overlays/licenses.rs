@@ -20,14 +20,7 @@ pub struct LicenseRow {
 }
 
 #[derive(Deserialize)]
-struct Metadata {
-  packages: Vec<Package>,
-  workspace_members: Vec<String>,
-}
-
-#[derive(Deserialize)]
 struct Package {
-  id: String,
   name: String,
   license: Option<String>,
   repository: Option<String>,
@@ -54,12 +47,10 @@ pub fn license_groups() -> Vec<(&'static str, Vec<LicenseRow>)> {
       url: Some("https://github.com/shikijs/textmate-grammars-themes".into()),
     },
   ];
-  let backend = match serde_json::from_str::<Metadata>(METADATA) {
-    Ok(metadata) => {
-      let mut rows: Vec<LicenseRow> = metadata
-        .packages
+  let backend = match serde_json::from_str::<Vec<Package>>(METADATA) {
+    Ok(packages) => {
+      let mut rows: Vec<LicenseRow> = packages
         .into_iter()
-        .filter(|package| !metadata.workspace_members.contains(&package.id))
         .map(|package| LicenseRow {
           name: package.name,
           license: package.license.unwrap_or_else(|| "Unknown".into()),
@@ -81,15 +72,21 @@ pub fn license_groups() -> Vec<(&'static str, Vec<LicenseRow>)> {
 
 pub struct LicensesDialog {
   groups: Vec<(&'static str, Vec<LicenseRow>)>,
+  focus_handle: FocusHandle,
 }
 
 impl EventEmitter<LicensesEvent> for LicensesDialog {}
 
 impl LicensesDialog {
-  pub fn new() -> Self {
+  pub fn new(cx: &mut Context<Self>) -> Self {
     Self {
       groups: license_groups(),
+      focus_handle: cx.focus_handle(),
     }
+  }
+
+  pub fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
+    self.focus_handle.focus(window, cx);
   }
 }
 
@@ -157,6 +154,7 @@ impl Render for LicensesDialog {
       )
       .child(
         dialog_frame(560.0, "Open Source Licenses", cx)
+          .track_focus(&self.focus_handle)
           .max_h(max_height)
           .on_action(cx.listener(|_, _: &Cancel, _, cx| cx.emit(LicensesEvent::Close)))
           .child(
@@ -188,14 +186,15 @@ mod tests {
   #[test]
   fn assets_group_comes_first_and_backend_is_sorted() {
     let groups = license_groups();
+    assert_eq!(groups.len(), 2);
     assert_eq!(groups[0].0, "Assets");
     assert_eq!(groups[0].1.len(), 3);
-    if let Some((_, backend)) = groups.get(1) {
-      let names: Vec<String> = backend.iter().map(|row| row.name.to_lowercase()).collect();
-      let mut sorted = names.clone();
-      sorted.sort();
-      assert_eq!(names, sorted);
-      assert!(backend.iter().any(|row| row.name == "git2"));
-    }
+    assert_eq!(groups[1].0, "Backend");
+    let backend = &groups[1].1;
+    let names: Vec<String> = backend.iter().map(|row| row.name.to_lowercase()).collect();
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(names, sorted);
+    assert!(backend.iter().any(|row| row.name == "git2"));
   }
 }

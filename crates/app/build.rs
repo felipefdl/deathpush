@@ -16,11 +16,36 @@ fn main() {
     .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
     .output();
   let json = match metadata {
-    Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).into_owned(),
-    _ => String::from("{\"packages\":[],\"workspace_members\":[]}"),
+    Ok(output) if output.status.success() => shrink_licenses(&output.stdout),
+    _ => String::from("[]"),
   };
   std::fs::write(&licenses_path, json).expect("write licenses.json");
   println!("cargo:rerun-if-changed=../../Cargo.lock");
   println!("cargo:rerun-if-changed=../../.git/HEAD");
   println!("cargo:rerun-if-changed=../../.git/refs");
+}
+
+fn shrink_licenses(stdout: &[u8]) -> String {
+  let Ok(metadata) = serde_json::from_slice::<serde_json::Value>(stdout) else {
+    return String::from("[]");
+  };
+  let members: Vec<&str> = metadata["workspace_members"]
+    .as_array()
+    .map(|arr| arr.iter().filter_map(|value| value.as_str()).collect())
+    .unwrap_or_default();
+  let Some(packages) = metadata["packages"].as_array() else {
+    return String::from("[]");
+  };
+  let rows: Vec<serde_json::Value> = packages
+    .iter()
+    .filter(|package| package["id"].as_str().map(|id| !members.contains(&id)).unwrap_or(true))
+    .map(|package| {
+      serde_json::json!({
+        "name": package["name"],
+        "license": package["license"],
+        "repository": package["repository"],
+      })
+    })
+    .collect();
+  serde_json::to_string(&rows).unwrap_or_else(|_| String::from("[]"))
 }
