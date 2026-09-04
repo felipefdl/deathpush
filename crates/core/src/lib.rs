@@ -4,6 +4,7 @@ pub mod config;
 pub mod content_hash;
 pub mod core;
 pub mod deep_link;
+pub mod diff_view;
 pub mod error;
 pub mod events;
 pub mod git;
