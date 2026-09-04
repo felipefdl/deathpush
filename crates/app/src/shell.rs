@@ -102,6 +102,10 @@ impl Shell {
             let output = view.read(cx).output().clone();
             output.update(cx, |output, cx| output.push(command.clone(), cx));
           }
+          (CoreEvent::PathsChanged(event), Screen::Repository(view)) => {
+            let explorer = view.read(cx).explorer_model().clone();
+            explorer.update(cx, |model, cx| model.on_paths_changed(event, cx));
+          }
           (CoreEvent::WatcherError(message), _) => this.show_toast(message.clone(), cx),
           _ => {}
         });
@@ -153,6 +157,17 @@ impl Shell {
     )
     .detach();
     let view = cx.new(|cx| crate::repo::RepoView::new(model, layout, output, window, cx));
+    let explorer = view.read(cx).explorer_model().clone();
+    cx.subscribe(
+      &explorer,
+      |this, _, event: &crate::repo::explorer::ExplorerEvent, cx| match event {
+        crate::repo::explorer::ExplorerEvent::Error(message) | crate::repo::explorer::ExplorerEvent::Toast(message) => {
+          this.show_toast(message.clone(), cx)
+        }
+        _ => {}
+      },
+    )
+    .detach();
     view.update(cx, |view, cx| view.focus(window, cx));
     self.screen = Screen::Repository(view);
     self.sync_menus(window, cx);

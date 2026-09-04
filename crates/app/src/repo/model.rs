@@ -39,6 +39,14 @@ impl RepoModel {
     &mut self.state
   }
 
+  pub(crate) fn core(&self) -> Arc<Core> {
+    self.core.clone()
+  }
+
+  pub(crate) fn session(&self) -> SessionId {
+    self.session
+  }
+
   /// Send an intent to core; the outcome applies on the foreground executor.
   pub fn dispatch(&mut self, intent: Intent, window: &mut Window, cx: &mut Context<Self>) {
     self.state.mark_commit_intent(&intent);

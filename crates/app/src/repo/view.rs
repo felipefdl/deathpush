@@ -9,6 +9,7 @@ use gpui_kit::*;
 use super::changes::ChangesView;
 use super::changes::overflow::{OverflowItem, dispatch_item};
 use super::diff::DiffPanel;
+use super::explorer::ExplorerModel;
 use super::layout_model::LayoutModel;
 use super::main_panel::render_main_panel;
 use super::model::RepoModel;
@@ -28,6 +29,7 @@ pub struct RepoView {
   output: Entity<OutputLog>,
   changes: Entity<ChangesView>,
   diff: Entity<DiffPanel>,
+  explorer: Entity<ExplorerModel>,
   body_state: Entity<ResizableState>,
   main_state: Entity<ResizableState>,
   pub(crate) focus_handle: FocusHandle,
@@ -44,6 +46,20 @@ impl RepoView {
     cx.observe(&model, |_, _, cx| cx.notify()).detach();
     cx.observe(&layout, |_, _, cx| cx.notify()).detach();
     cx.observe(&output, |_, _, cx| cx.notify()).detach();
+    let (core, session, root) = {
+      let model = model.read(cx);
+      (
+        model.core(),
+        model.session(),
+        model.state().root().unwrap_or("").to_string(),
+      )
+    };
+    let explorer = cx.new(|cx| {
+      let mut explorer = ExplorerModel::new(core, session, root);
+      explorer.load(cx);
+      explorer
+    });
+    cx.observe(&explorer, |_, _, cx| cx.notify()).detach();
     let changes = cx.new(|cx| ChangesView::new(model.clone(), layout.clone(), window, cx));
     let diff = cx.new(|cx| DiffPanel::new(model.clone(), layout.clone(), cx));
     Self {
@@ -52,6 +68,7 @@ impl RepoView {
       output,
       changes,
       diff,
+      explorer,
       body_state: cx.new(|_| ResizableState::default()),
       main_state: cx.new(|_| ResizableState::default()),
       focus_handle: cx.focus_handle(),
@@ -79,6 +96,10 @@ impl RepoView {
   #[allow(dead_code)]
   pub fn diff(&self) -> &Entity<DiffPanel> {
     &self.diff
+  }
+
+  pub fn explorer_model(&self) -> &Entity<ExplorerModel> {
+    &self.explorer
   }
 
   pub fn focus(&self, window: &mut Window, cx: &mut App) {

@@ -1,5 +1,6 @@
 pub mod changes;
 pub mod diff;
+pub mod explorer;
 pub mod layout_model;
 pub mod main_panel;
 pub mod model;

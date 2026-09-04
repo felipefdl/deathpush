@@ -37,6 +37,8 @@ pub struct RepoState {
   pub status_generation: u64,
   pub status_revision: u64,
   pub blame: Option<FileBlame>,
+  #[allow(dead_code)]
+  pub open_file: Option<String>,
   pub cursor_line: Option<usize>,
   pub pending_clear_file: bool,
   pub running: HashSet<NetworkOp>,
