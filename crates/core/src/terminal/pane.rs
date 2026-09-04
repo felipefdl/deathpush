@@ -4,7 +4,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use libghostty_vt::key::{self, Encoder as KeyEncoder, Event as KeyEvent};
@@ -154,7 +154,7 @@ struct PaneIo {
 /// Bytes the pane thread wants written to the PTY (encoded keys, mouse reports, pasted text).
 pub type PtyWriter = Box<dyn Fn(Vec<u8>) + Send + 'static>;
 
-/// Handle to a pane thread. Dropping it shuts the thread down; the join runs in the background.
+/// Handle to a pane thread. Dropping it shuts the thread down and detaches the join handle.
 pub struct PaneHandle {
   tx: Sender<PaneMsg>,
   slot: Arc<Mutex<Option<Arc<PaneSnapshot>>>>,
@@ -168,10 +168,10 @@ impl PaneHandle {
   ///
   /// `writer` receives encoded PTY input and libghostty `on_pty_write` responses on the pane thread.
   /// `wake` runs on the pane thread after every new snapshot so the app can schedule a redraw.
-  /// It must not block and must hold only weak or lifetime-safe app state. Shutdown is an atomic
-  /// flag plus a [`PaneCommand::Shutdown`] on the same FIFO; [`Drop`] sets the flag, sends, and
-  /// joins on a background thread so the UI is not blocked. Shared snapshot state stays alive
-  /// until that join completes.
+  /// It must not block and must hold only weak or lifetime-safe app state. `wake` may still be in
+  /// flight briefly after [`Drop`]. Shutdown is an atomic flag plus a [`PaneCommand::Shutdown`] on
+  /// the same FIFO; [`Drop`] sets the flag, sends, and detaches the pane thread. The pane thread
+  /// owns its snapshot Arcs and exits on the shutdown flag.
   pub fn spawn(
     cols: u16,
     rows: u16,
@@ -257,32 +257,13 @@ impl PaneHandle {
   }
 }
 
-/// Sets the shutdown flag and sends [`PaneCommand::Shutdown`]. The pane thread is joined by a
-/// process-wide reaper so Drop does not block the UI. The pane thread owns the snapshot Arcs
-/// until it exits.
+/// Sets the shutdown flag and sends [`PaneCommand::Shutdown`]. The join handle is detached so Drop
+/// does not block. The pane thread owns its Arcs and exits on the shutdown flag.
 impl Drop for PaneHandle {
   fn drop(&mut self) {
     self.shutdown.store(true, Ordering::Release);
     let _ = self.tx.send(PaneMsg::Command(PaneCommand::Shutdown));
-    if let Some(join) = self.join.take() {
-      enqueue_pane_join(join);
-    }
-  }
-}
-
-fn enqueue_pane_join(join: JoinHandle<()>) {
-  static TX: OnceLock<Sender<JoinHandle<()>>> = OnceLock::new();
-  let tx = TX.get_or_init(|| {
-    let (tx, rx) = mpsc::channel::<JoinHandle<()>>();
-    let _ = thread::Builder::new().name("dp-vt-pane-join".into()).spawn(move || {
-      while let Ok(handle) = rx.recv() {
-        let _ = handle.join();
-      }
-    });
-    tx
-  });
-  if let Err(err) = tx.send(join) {
-    drop(err.0);
+    drop(self.join.take());
   }
 }
 
@@ -1298,5 +1279,32 @@ mod tests {
       elapsed < Duration::from_millis(200),
       "Drop joined a blocked pane thread"
     );
+  }
+
+  struct ExitFlag(Arc<AtomicBool>);
+
+  impl Drop for ExitFlag {
+    fn drop(&mut self) {
+      self.0.store(true, Ordering::Release);
+    }
+  }
+
+  #[test]
+  fn pane_thread_exits_after_handle_is_dropped() {
+    let exited = Arc::new(AtomicBool::new(false));
+    let flag = ExitFlag(Arc::clone(&exited));
+    let writer: PtyWriter = Box::new(move |_| {
+      let _ = &flag;
+    });
+    let handle = PaneHandle::spawn(20, 4, None, writer, Box::new(|| {})).unwrap();
+    drop(handle);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+      if exited.load(Ordering::Acquire) {
+        break;
+      }
+      thread::sleep(Duration::from_millis(1));
+    }
+    assert!(exited.load(Ordering::Acquire), "pane thread did not exit after Drop");
   }
 }
