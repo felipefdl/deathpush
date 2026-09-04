@@ -281,6 +281,39 @@ pub enum Intent {
   },
 }
 
+impl Intent {
+  /// The same intent with `confirmed: true`, for resending after `IntentOutcome::NeedsConfirmation`.
+  /// Variants without a confirmation flag come back unchanged.
+  pub fn confirmed(self) -> Self {
+    match self {
+      Intent::Discard { paths, .. } => Intent::Discard { paths, confirmed: true },
+      Intent::Commit { .. } => Intent::Commit { confirmed: true },
+      Intent::CommitAndPush { .. } => Intent::CommitAndPush { confirmed: true },
+      Intent::CommitAndSync { .. } => Intent::CommitAndSync { confirmed: true },
+      Intent::Push { force, .. } => Intent::Push { force, confirmed: true },
+      Intent::UndoCommit { .. } => Intent::UndoCommit { confirmed: true },
+      Intent::DiscardHunk { hunk_id, .. } => Intent::DiscardHunk {
+        hunk_id,
+        confirmed: true,
+      },
+      Intent::StashDrop { index, .. } => Intent::StashDrop { index, confirmed: true },
+      Intent::DeleteBranch { name, force, .. } => Intent::DeleteBranch {
+        name,
+        force,
+        confirmed: true,
+      },
+      Intent::DeleteTag { name, .. } => Intent::DeleteTag { name, confirmed: true },
+      Intent::Reset { commit, mode, .. } => Intent::Reset {
+        commit,
+        mode,
+        confirmed: true,
+      },
+      Intent::DeleteFile { path, .. } => Intent::DeleteFile { path, confirmed: true },
+      other => other,
+    }
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum SessionPatch {
@@ -527,5 +560,77 @@ mod tests {
     assert!(json.contains("\"sessionGeneration\":3"), "{json}");
     assert!(json.contains("\"sessionRevision\":7"), "{json}");
     assert!(json.contains("\"kind\":\"patch\""), "{json}");
+  }
+}
+
+#[cfg(test)]
+mod confirmed_tests {
+  use super::Intent;
+
+  #[test]
+  fn confirmed_sets_the_flag_and_keeps_fields() {
+    assert!(matches!(
+      Intent::UndoCommit { confirmed: false }.confirmed(),
+      Intent::UndoCommit { confirmed: true }
+    ));
+    assert!(matches!(
+      Intent::Discard { paths: vec!["a".into()], confirmed: false }.confirmed(),
+      Intent::Discard { paths, confirmed: true } if paths == vec!["a".to_string()]
+    ));
+    assert!(matches!(Intent::RefreshStatus.confirmed(), Intent::RefreshStatus));
+    assert!(matches!(
+      Intent::Commit { confirmed: false }.confirmed(),
+      Intent::Commit { confirmed: true }
+    ));
+    assert!(matches!(
+      Intent::CommitAndPush { confirmed: false }.confirmed(),
+      Intent::CommitAndPush { confirmed: true }
+    ));
+    assert!(matches!(
+      Intent::CommitAndSync { confirmed: false }.confirmed(),
+      Intent::CommitAndSync { confirmed: true }
+    ));
+    assert!(matches!(
+      Intent::Push {
+        force: true,
+        confirmed: false
+      }
+      .confirmed(),
+      Intent::Push {
+        force: true,
+        confirmed: true
+      }
+    ));
+    assert!(matches!(
+      Intent::DiscardHunk { hunk_id: "h".into(), confirmed: false }.confirmed(),
+      Intent::DiscardHunk { hunk_id, confirmed: true } if hunk_id == "h"
+    ));
+    assert!(matches!(
+      Intent::StashDrop {
+        index: 2,
+        confirmed: false
+      }
+      .confirmed(),
+      Intent::StashDrop {
+        index: 2,
+        confirmed: true
+      }
+    ));
+    assert!(matches!(
+      Intent::DeleteBranch { name: "x".into(), force: true, confirmed: false }.confirmed(),
+      Intent::DeleteBranch { name, force: true, confirmed: true } if name == "x"
+    ));
+    assert!(matches!(
+      Intent::DeleteTag { name: "v".into(), confirmed: false }.confirmed(),
+      Intent::DeleteTag { name, confirmed: true } if name == "v"
+    ));
+    assert!(matches!(
+      Intent::Reset { commit: "abc".into(), mode: "hard".into(), confirmed: false }.confirmed(),
+      Intent::Reset { commit, mode, confirmed: true } if commit == "abc" && mode == "hard"
+    ));
+    assert!(matches!(
+      Intent::DeleteFile { path: "a.rs".into(), confirmed: false }.confirmed(),
+      Intent::DeleteFile { path, confirmed: true } if path == "a.rs"
+    ));
   }
 }

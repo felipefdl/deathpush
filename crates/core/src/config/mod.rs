@@ -1,3 +1,4 @@
+pub mod layout;
 pub mod recents;
 pub mod settings;
 pub mod store;

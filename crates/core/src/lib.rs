@@ -9,6 +9,7 @@ pub mod events;
 pub mod git;
 pub mod ops;
 pub mod pty;
+pub mod relative_time;
 pub mod session;
 pub mod shell_env;
 pub mod terminal;
