@@ -86,6 +86,11 @@ impl Shell {
       this.sync_menus(window, cx);
     })
     .detach();
+    let this = cx.weak_entity();
+    window.on_window_should_close(cx, move |_, cx| {
+      let _ = this.update(cx, |this, cx| this.abandon_theme_picker(cx));
+      true
+    });
     match initial {
       Some(path) => cx.defer_in(window, move |this, window, cx| this.open_repository(path, window, cx)),
       None => cx.defer_in(window, |this, window, cx| this.show_welcome(window, cx)),
@@ -650,6 +655,7 @@ mod tests {
   use deathpush_core::types::{RepoOperationState, StatusPhase};
   use gpui_kit::TestAppContext;
 
+  use crate::actions::CloseWindow;
   use crate::theme::preview_theme;
 
   fn snapshot(root: &str) -> SessionSnapshot {
@@ -853,7 +859,7 @@ mod tests {
     });
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
     let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
-    window
+    let original_kind = window
       .update(cx, |shell, window, cx| {
         let original_kind = cx.global::<ActivePalette>().0.kind;
         shell.open_theme_picker(window, cx);
@@ -862,9 +868,39 @@ mod tests {
           cx.global::<ActivePalette>().0.kind,
           deathpush_core::theme::ThemeKind::Light
         );
-        shell.abandon_theme_picker(cx);
-        assert_eq!(cx.global::<ActivePalette>().0.kind, original_kind);
+        original_kind
       })
       .unwrap();
+    cx.dispatch_action(*window, CloseWindow);
+    cx.update(|cx| {
+      assert_eq!(cx.global::<ActivePalette>().0.kind, original_kind);
+    });
+  }
+
+  #[gpui_kit::test]
+  fn os_close_restores_a_theme_preview(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (shell, cx) = cx.add_window_view(|window, cx| Shell::new(core, 0, None, window, cx));
+    let original_kind = cx.update(|window, cx| {
+      let original_kind = cx.global::<ActivePalette>().0.kind;
+      shell.update(cx, |shell, cx| shell.open_theme_picker(window, cx));
+      preview_theme("ayu-light", window, cx);
+      assert_eq!(
+        cx.global::<ActivePalette>().0.kind,
+        deathpush_core::theme::ThemeKind::Light
+      );
+      original_kind
+    });
+    assert!(cx.simulate_close());
+    cx.update(|_, cx| {
+      assert_eq!(cx.global::<ActivePalette>().0.kind, original_kind);
+    });
   }
 }
