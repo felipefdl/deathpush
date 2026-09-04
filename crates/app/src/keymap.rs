@@ -8,6 +8,7 @@ pub const PRIMARY: &str = if cfg!(target_os = "macos") { "cmd" } else { "ctrl" }
 /// Key contexts the shell sets on its regions.
 pub const CONTEXT_APP: &str = "DeathPush";
 pub const CONTEXT_WELCOME: &str = "Welcome";
+pub const CONTEXT_WELCOME_LIST: &str = "WelcomeList";
 pub const CONTEXT_REPOSITORY: &str = "Repository";
 pub const CONTEXT_DIALOG: &str = "Dialog";
 
@@ -36,6 +37,13 @@ pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static st
     (format!("{m}-m"), "Minimize", Some(CONTEXT_APP)),
     ("escape".to_string(), "Cancel", Some(CONTEXT_DIALOG)),
     ("enter".to_string(), "Confirm", Some(CONTEXT_DIALOG)),
+    ("up".to_string(), "ListUp", Some(CONTEXT_WELCOME_LIST)),
+    ("down".to_string(), "ListDown", Some(CONTEXT_WELCOME_LIST)),
+    ("enter".to_string(), "ListConfirm", Some(CONTEXT_WELCOME_LIST)),
+    ("escape".to_string(), "ListEscape", Some(CONTEXT_WELCOME_LIST)),
+    ("space".to_string(), "RowToggle", Some(CONTEXT_WELCOME_LIST)),
+    ("right".to_string(), "RowToggle", Some(CONTEXT_WELCOME_LIST)),
+    ("left".to_string(), "RowToggle", Some(CONTEXT_WELCOME_LIST)),
   ];
   if mac {
     rows.push(("cmd-w".to_string(), "CloseWindow", Some(CONTEXT_APP)));
@@ -66,6 +74,11 @@ fn binding_for(keys: &str, name: &str, context: Option<&str>) -> KeyBinding {
     "NewTerminal" => KeyBinding::new(keys, NewTerminal, context),
     "FocusRecentFilter" => KeyBinding::new(keys, FocusRecentFilter, context),
     "FocusWorkspaceFilter" => KeyBinding::new(keys, FocusWorkspaceFilter, context),
+    "ListUp" => KeyBinding::new(keys, ListUp, context),
+    "ListDown" => KeyBinding::new(keys, ListDown, context),
+    "ListConfirm" => KeyBinding::new(keys, ListConfirm, context),
+    "ListEscape" => KeyBinding::new(keys, ListEscape, context),
+    "RowToggle" => KeyBinding::new(keys, RowToggle, context),
     "ZoomIn" => KeyBinding::new(keys, ZoomIn, context),
     "ZoomOut" => KeyBinding::new(keys, ZoomOut, context),
     "ZoomReset" => KeyBinding::new(keys, ZoomReset, context),

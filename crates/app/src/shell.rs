@@ -117,11 +117,28 @@ impl Shell {
 
   pub fn show_welcome(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     let view = cx.new(|cx| crate::welcome::WelcomeView::new(window, cx));
+    cx.subscribe_in(
+      &view,
+      window,
+      |this, _, event: &crate::welcome::WelcomeEvent, window, cx| match event {
+        crate::welcome::WelcomeEvent::Open(path) => this.open_repository(path.clone(), window, cx),
+        crate::welcome::WelcomeEvent::Clone => this.open_clone_dialog(window, cx),
+        crate::welcome::WelcomeEvent::ConfigureWorkspace => this.open_workspace_settings(window, cx),
+      },
+    )
+    .detach();
     self.screen = Screen::Welcome(view);
     self.title = "DeathPush".into();
     window.set_window_title("DeathPush");
     self.sync_menus(window, cx);
     cx.notify();
+  }
+
+  #[allow(dead_code)]
+  pub fn rescan_welcome(&self, cx: &mut Context<Self>) {
+    if let Screen::Welcome(view) = &self.screen {
+      view.update(cx, |view, cx| view.rescan(cx));
+    }
   }
 
   pub fn open_repository(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
