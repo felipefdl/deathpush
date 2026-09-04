@@ -479,21 +479,12 @@ impl ExplorerView {
     pending: PendingTransfer,
     result: Result<(), String>,
     ui: ConflictUi,
-    on_conflict: Option<&'static str>,
+    _on_conflict: Option<&'static str>,
     window: &mut Window,
     cx: &mut Context<Self>,
   ) {
     match result {
-      Ok(()) => {
-        if let PendingTransfer::Move { source, into } = &pending
-          && on_conflict != Some("keep-both")
-        {
-          let new_path = move_destination(source, into);
-          self
-            .repo
-            .update(cx, |model, cx| model.retarget_open_file(source, &new_path, cx));
-        }
-      }
+      Ok(()) => {}
       Err(message) if ui == ConflictUi::Dialog && is_conflict_error(&message) => {
         self.prompt_replace(pending, window, cx);
       }
@@ -561,15 +552,6 @@ impl ExplorerView {
       }
     })
     .detach();
-  }
-}
-
-fn move_destination(source: &str, into: &str) -> String {
-  let name = source.rsplit_once('/').map(|(_, name)| name).unwrap_or(source);
-  if into.is_empty() {
-    name.to_string()
-  } else {
-    format!("{into}/{name}")
   }
 }
 

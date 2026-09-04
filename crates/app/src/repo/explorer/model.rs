@@ -11,7 +11,7 @@ use deathpush_core::types::{
 use deathpush_core::{Core, SessionId};
 use gpui_kit::*;
 
-use super::super::model::{RepoModel, await_pending_write};
+use super::super::model::RepoModel;
 
 const REFRESH_COALESCE: Duration = Duration::from_secs(1);
 
@@ -314,11 +314,22 @@ impl ExplorerModel {
         let handle = core.runtime_handle().clone();
         let old_path = path.clone();
         let new_name = name.clone();
-        let waiter = repo.read(cx).pending_write_waiter(&path);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        repo.update(cx, |model, cx| {
+          model.with_path_mutation(
+            path.clone(),
+            Some(new_path.clone()),
+            move || handle.spawn_blocking(move || core.rename_entry(session, &old_path, &new_name)),
+            cx,
+            move |result| {
+              let _ = tx.send(result);
+            },
+          );
+        });
         cx.spawn(async move |this, cx| {
-          await_pending_write(waiter).await;
-          let task = handle.spawn_blocking(move || core.rename_entry(session, &old_path, &new_name));
-          let result = join_unit(task.await);
+          let Ok(result) = rx.await else {
+            return;
+          };
           let _ = this.update(cx, |this, cx| match result {
             Ok(()) => {
               this.create_in_flight = false;
@@ -393,26 +404,48 @@ impl ExplorerModel {
     let sources = vec![mark.path.clone()];
     let cut = mark.op == ClipboardOp::Cut;
     let handle = core.runtime_handle().clone();
-    let waiter = if cut {
-      repo.read(cx).pending_write_waiter(&mark.path)
-    } else {
-      None
-    };
-    cx.spawn(async move |this, cx| {
-      await_pending_write(waiter).await;
-      let task = handle.spawn_blocking(move || {
-        if cut {
-          core.move_entries(session, &sources, &dest, on_conflict)
-        } else {
-          core.copy_entries(session, &sources, &dest, on_conflict)
-        }
+    if cut {
+      let name = mark
+        .path
+        .rsplit_once('/')
+        .map(|(_, name)| name)
+        .unwrap_or(&mark.path)
+        .to_string();
+      let new_path = (on_conflict != Some("keep-both")).then(|| join_repo_path(into, &name));
+      let source = mark.path.clone();
+      let (tx, rx) = tokio::sync::oneshot::channel();
+      repo.update(cx, |model, cx| {
+        model.with_path_mutation(
+          source,
+          new_path,
+          move || handle.spawn_blocking(move || core.move_entries(session, &sources, &dest, on_conflict)),
+          cx,
+          move |result| {
+            let _ = tx.send(result);
+          },
+        );
       });
+      cx.spawn(async move |this, cx| {
+        let Ok(result) = rx.await else {
+          return;
+        };
+        let success = result.is_ok();
+        let _ = this.update(cx, |this, cx| {
+          if success {
+            this.clipboard = None;
+            this.reload_tree(cx);
+          }
+        });
+        done(result);
+      })
+      .detach();
+      return;
+    }
+    let task = handle.spawn_blocking(move || core.copy_entries(session, &sources, &dest, on_conflict));
+    cx.spawn(async move |this, cx| {
       let result = join_unit(task.await);
       let success = result.is_ok();
       let _ = this.update(cx, |this, cx| {
-        if success && cut {
-          this.clipboard = None;
-        }
         if success {
           this.reload_tree(cx);
         }
@@ -436,11 +469,24 @@ impl ExplorerModel {
     let dest = into.to_string();
     let sources = vec![source.to_string()];
     let handle = core.runtime_handle().clone();
-    let waiter = repo.read(cx).pending_write_waiter(source);
+    let name = source.rsplit_once('/').map(|(_, name)| name).unwrap_or(source);
+    let new_path = (on_conflict != Some("keep-both")).then(|| join_repo_path(into, name));
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    repo.update(cx, |model, cx| {
+      model.with_path_mutation(
+        source.to_string(),
+        new_path,
+        move || handle.spawn_blocking(move || core.move_entries(session, &sources, &dest, on_conflict)),
+        cx,
+        move |result| {
+          let _ = tx.send(result);
+        },
+      );
+    });
     cx.spawn(async move |this, cx| {
-      await_pending_write(waiter).await;
-      let task = handle.spawn_blocking(move || core.move_entries(session, &sources, &dest, on_conflict));
-      let result = join_unit(task.await);
+      let Ok(result) = rx.await else {
+        return;
+      };
       if result.is_ok() {
         let _ = this.update(cx, |this, cx| this.reload_tree(cx));
       }
@@ -490,17 +536,9 @@ impl ExplorerModel {
 
   pub fn delete(&mut self, path: &str, repo: &Entity<RepoModel>, window: &mut Window, cx: &mut Context<Self>) {
     let path = path.to_string();
-    let waiter = repo.read(cx).pending_write_waiter(&path);
-    let repo = repo.clone();
-    cx.spawn_in(window, async move |this, cx| {
-      await_pending_write(waiter).await;
-      let _ = this.update_in(cx, |_, window, cx| {
-        repo.update(cx, |model, cx| {
-          model.dispatch(Intent::DeleteFile { path, confirmed: false }, window, cx);
-        });
-      });
-    })
-    .detach();
+    repo.update(cx, |model, cx| {
+      model.dispatch(Intent::DeleteFile { path, confirmed: false }, window, cx);
+    });
   }
 
   pub fn open_in_editor(&self, path: &str, cx: &mut Context<Self>) {

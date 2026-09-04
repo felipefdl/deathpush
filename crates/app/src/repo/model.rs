@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -32,6 +33,8 @@ pub struct RepoModel {
   latest_write: Option<(String, u64)>,
   pending_write: Option<PendingWrite>,
   write_gen: u64,
+  reserved: Vec<String>,
+  parked_writes: HashMap<String, ParkedWrite>,
 }
 
 impl EventEmitter<RepoEvent> for RepoModel {}
@@ -112,10 +115,53 @@ pub async fn await_pending_write(waiter: Option<tokio::sync::watch::Receiver<boo
   let _ = rx.changed().await;
 }
 
+/// A write to `write_path` must not start while `reserved_path` (or an ancestor) is mutating.
+pub fn write_blocked_by_reservation(reserved_path: &str, write_path: &str) -> bool {
+  write_path == reserved_path
+    || (!reserved_path.is_empty()
+      && write_path
+        .strip_prefix(reserved_path)
+        .is_some_and(|rest| rest.starts_with('/')))
+}
+
+/// Where a parked write should land after the reservation is released. `None` drops it (delete).
+pub fn parked_write_after_release(parked_path: &str, reserved_path: &str, new_path: Option<&str>) -> Option<String> {
+  if !write_blocked_by_reservation(reserved_path, parked_path) {
+    return Some(parked_path.to_string());
+  }
+  match new_path {
+    None => None,
+    Some(new_path) => retarget_open_path(Some(parked_path), reserved_path, new_path),
+  }
+}
+
+pub fn should_replace_parked(existing: Option<u64>, incoming: u64) -> bool {
+  existing.is_none_or(|generation| incoming > generation)
+}
+
+#[derive(Clone)]
+pub struct Reservation {
+  path: String,
+}
+
 struct PendingWrite {
   id: u64,
   path: String,
   done: tokio::sync::watch::Receiver<bool>,
+}
+
+struct ParkedWrite {
+  content: String,
+  expected_hash: String,
+  generation: u64,
+}
+
+fn join_core_unit(result: Result<deathpush_core::Result<()>, tokio::task::JoinError>) -> Result<(), String> {
+  match result {
+    Ok(Ok(())) => Ok(()),
+    Ok(Err(err)) => Err(err.to_string()),
+    Err(err) => Err(err.to_string()),
+  }
 }
 
 impl RepoModel {
@@ -130,6 +176,8 @@ impl RepoModel {
       latest_write: None,
       pending_write: None,
       write_gen: 0,
+      reserved: Vec::new(),
+      parked_writes: HashMap::new(),
     }
   }
 
@@ -145,6 +193,92 @@ impl RepoModel {
     } else {
       None
     }
+  }
+
+  pub fn reserve_path(&mut self, path: &str) -> Reservation {
+    self.reserved.push(path.to_string());
+    Reservation { path: path.to_string() }
+  }
+
+  fn write_is_reserved(&self, write_path: &str) -> bool {
+    self
+      .reserved
+      .iter()
+      .any(|reserved| write_blocked_by_reservation(reserved, write_path))
+  }
+
+  fn release_reservation(&mut self, reservation: &Reservation) {
+    if let Some(index) = self.reserved.iter().position(|path| path == &reservation.path) {
+      self.reserved.remove(index);
+    }
+  }
+
+  fn park_write(&mut self, path: String, content: String, expected_hash: String, generation: u64) {
+    let existing = self.parked_writes.get(&path).map(|parked| parked.generation);
+    if !should_replace_parked(existing, generation) {
+      return;
+    }
+    self.parked_writes.insert(
+      path,
+      ParkedWrite {
+        content,
+        expected_hash,
+        generation,
+      },
+    );
+  }
+
+  fn finish_path_mutation(
+    &mut self,
+    reservation: &Reservation,
+    new_path: Option<&str>,
+    succeeded: bool,
+    cx: &mut Context<Self>,
+  ) {
+    let old = reservation.path.as_str();
+    if succeeded && let Some(new_path) = new_path {
+      self.retarget_open_file(old, new_path, cx);
+    }
+    let flush_to = if succeeded { new_path } else { Some(old) };
+    self.release_reservation(reservation);
+    self.flush_parked_writes(old, flush_to, cx);
+  }
+
+  fn flush_parked_writes(&mut self, reserved_path: &str, new_path: Option<&str>, cx: &mut Context<Self>) {
+    let keys: Vec<String> = self.parked_writes.keys().cloned().collect();
+    for key in keys {
+      if !write_blocked_by_reservation(reserved_path, &key) {
+        continue;
+      }
+      let Some(parked) = self.parked_writes.remove(&key) else {
+        continue;
+      };
+      let Some(path) = parked_write_after_release(&key, reserved_path, new_path) else {
+        continue;
+      };
+      self.spawn_write(path, parked.content, parked.expected_hash, parked.generation, false, cx);
+    }
+  }
+
+  pub fn with_path_mutation(
+    &mut self,
+    path: String,
+    new_path: Option<String>,
+    op: impl FnOnce() -> tokio::task::JoinHandle<deathpush_core::Result<()>> + 'static,
+    cx: &mut Context<Self>,
+    done: impl FnOnce(Result<(), String>) + 'static,
+  ) {
+    let reservation = self.reserve_path(&path);
+    let waiter = self.pending_write_waiter(&path);
+    cx.spawn(async move |this, cx| {
+      await_pending_write(waiter).await;
+      let result = join_core_unit(op().await);
+      let _ = this.update(cx, |this, cx| {
+        this.finish_path_mutation(&reservation, new_path.as_deref(), result.is_ok(), cx);
+      });
+      done(result);
+    })
+    .detach();
   }
 
   pub fn state(&self) -> &RepoState {
@@ -191,6 +325,10 @@ impl RepoModel {
 
   /// Send an intent to core; the outcome applies on the foreground executor.
   pub fn dispatch(&mut self, intent: Intent, window: &mut Window, cx: &mut Context<Self>) {
+    if matches!(&intent, Intent::DeleteFile { confirmed: true, .. }) {
+      self.dispatch_confirmed_delete(intent, window, cx);
+      return;
+    }
     self.state.mark_commit_intent(&intent);
     let clear_file = matches!(intent, Intent::ClearFile);
     if clear_file {
@@ -207,6 +345,38 @@ impl RepoModel {
       let _ = this.update_in(cx, |this, window, cx| {
         match result {
           Ok(Ok(outcome)) => this.apply_outcome(sent, outcome, root_at_send, clear_file, window, cx),
+          Ok(Err(err)) => this.fail(err.to_string(), cx),
+          Err(err) => this.fail(err.to_string(), cx),
+        }
+        cx.emit(RepoEvent::Changed);
+        cx.notify();
+      });
+    })
+    .detach();
+  }
+
+  fn dispatch_confirmed_delete(&mut self, intent: Intent, window: &mut Window, cx: &mut Context<Self>) {
+    let path = match &intent {
+      Intent::DeleteFile { path, confirmed: true } => path.clone(),
+      _ => return,
+    };
+    let reservation = self.reserve_path(&path);
+    let waiter = self.pending_write_waiter(&path);
+    self.state.mark_commit_intent(&intent);
+    let root_at_send = self.state.root().map(str::to_string);
+    let sent = intent.clone();
+    let core = self.core.clone();
+    let runtime = core.clone();
+    let session = self.session;
+    cx.spawn_in(window, async move |this, cx| {
+      await_pending_write(waiter).await;
+      let task = runtime.spawn(async move { core.session_intent(session, intent).await });
+      let result = task.await;
+      let _ = this.update_in(cx, |this, window, cx| {
+        let ok = matches!(&result, Ok(Ok(_)));
+        this.finish_path_mutation(&reservation, None, ok, cx);
+        match result {
+          Ok(Ok(outcome)) => this.apply_outcome(sent, outcome, root_at_send, false, window, cx),
           Ok(Err(err)) => this.fail(err.to_string(), cx),
           Err(err) => this.fail(err.to_string(), cx),
         }
@@ -455,6 +625,10 @@ impl RepoModel {
       }
       _ => self.latest_write = Some((path.clone(), generation)),
     }
+    if self.write_is_reserved(&path) {
+      self.park_write(path, content, expected_hash, generation);
+      return;
+    }
     self.spawn_write(path, content, expected_hash, generation, false, cx);
   }
 
@@ -483,7 +657,7 @@ impl RepoModel {
     cx.spawn(async move |this, cx| {
       await_pending_write(prev).await;
       let dest = match this.update(cx, |this, _cx| {
-        write_path_still_current(
+        let dest = write_path_still_current(
           this.state.open_file.as_ref().map(|open| open.path.as_str()),
           &path,
           this
@@ -492,7 +666,13 @@ impl RepoModel {
             .map(|(tracked, latest)| (tracked.as_str(), *latest)),
           generation,
         )
-        .map(str::to_string)
+        .map(str::to_string)?;
+        if this.write_is_reserved(&dest) {
+          this.park_write(dest, written.clone(), expected_hash.clone(), generation);
+          this.clear_pending_write(id);
+          return None;
+        }
+        Some(dest)
       }) {
         Ok(Some(dest)) => dest,
         _ => {
@@ -782,5 +962,41 @@ mod tests {
     assert!(!mutation_awaits_pending_write(Some("src/a.rs"), "src2"));
     assert!(!mutation_awaits_pending_write(Some("src/a.rs"), "src/a"));
     assert!(!mutation_awaits_pending_write(None, "src/a.rs"));
+  }
+
+  #[test]
+  fn reservation_blocks_the_path_and_descendants_not_siblings() {
+    assert!(write_blocked_by_reservation("src", "src"));
+    assert!(write_blocked_by_reservation("src", "src/a.rs"));
+    assert!(write_blocked_by_reservation("src/a.rs", "src/a.rs"));
+    assert!(!write_blocked_by_reservation("src", "src2/a.rs"));
+    assert!(!write_blocked_by_reservation("src/a.rs", "src/b.rs"));
+    assert!(!write_blocked_by_reservation("src", "lib/a.rs"));
+  }
+
+  #[test]
+  fn parked_write_re_flushes_to_the_retargeted_path() {
+    assert_eq!(
+      parked_write_after_release("src/a.rs", "src", Some("lib")).as_deref(),
+      Some("lib/a.rs")
+    );
+    assert_eq!(
+      parked_write_after_release("src/a.rs", "src/a.rs", Some("src/b.rs")).as_deref(),
+      Some("src/b.rs")
+    );
+    assert!(should_replace_parked(None, 1));
+    assert!(should_replace_parked(Some(1), 2));
+    assert!(!should_replace_parked(Some(2), 2));
+    assert!(!should_replace_parked(Some(3), 2));
+  }
+
+  #[test]
+  fn delete_drops_parked_writes_for_the_deleted_path() {
+    assert_eq!(parked_write_after_release("src/a.rs", "src/a.rs", None), None);
+    assert_eq!(parked_write_after_release("src/a.rs", "src", None), None);
+    assert_eq!(
+      parked_write_after_release("lib/a.rs", "src", None).as_deref(),
+      Some("lib/a.rs")
+    );
   }
 }
