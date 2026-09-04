@@ -5,24 +5,22 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use super::view::ChangesView;
-use crate::repo::state::RepoState;
+use super::view::{ChangesChrome, ChangesView};
 use crate::theme::{ActivePalette, hsla};
 
-pub fn render_banner(state: &RepoState, cx: &mut Context<ChangesView>) -> Option<impl IntoElement> {
-  let status = state.status.as_ref()?;
-  if status.operation_state == RepoOperationState::None {
+pub fn render_banner(chrome: &ChangesChrome, cx: &mut Context<ChangesView>) -> Option<impl IntoElement> {
+  if chrome.operation_state == RepoOperationState::None {
     return None;
   }
   let palette = cx.global::<ActivePalette>().0;
-  let label = match status.operation_state {
+  let label = match chrome.operation_state {
     RepoOperationState::Merging => "Merge in progress",
     RepoOperationState::Rebasing => "Rebase in progress",
     RepoOperationState::CherryPicking => "Cherry-pick in progress",
     RepoOperationState::Reverting => "Revert in progress",
     RepoOperationState::None => "Operation in progress",
   };
-  let actions = state.actions.as_ref();
+  let actions = chrome.actions.as_ref();
   let show_continue = actions.is_some_and(|actions| actions.operation.continue_op);
   let show_skip = actions.is_some_and(|actions| actions.operation.skip);
   let show_abort = actions.is_some_and(|actions| actions.operation.abort);

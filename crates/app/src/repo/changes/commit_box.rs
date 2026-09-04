@@ -5,10 +5,9 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Disableable, Icon};
 use gpui_kit::*;
 
-use super::view::ChangesView;
+use super::view::{ChangesChrome, ChangesView};
 use crate::actions::{CommitAmendMode, CommitAndPush, CommitAndSync, CommitFromBox};
 use crate::config::AppConfig;
-use crate::repo::state::RepoState;
 use crate::theme::{ActivePalette, hsla};
 
 pub fn commit_tooltip(branch: Option<&str>) -> String {
@@ -28,25 +27,28 @@ pub fn commit_button_tooltip(amend: bool) -> &'static str {
   }
 }
 
+pub fn should_sync_commit_message(field: &str, core: &str, field_focused: bool, pending: bool) -> bool {
+  field != core && !field_focused && !pending
+}
+
 pub fn render_commit_box(
   view: &ChangesView,
-  state: &RepoState,
+  chrome: &ChangesChrome,
   window: &mut Window,
   cx: &mut Context<ChangesView>,
 ) -> impl IntoElement {
   let _ = window;
   let palette = cx.global::<ActivePalette>().0;
   let font = AppConfig::get(cx).settings.editor.font_family.clone();
-  let branch = state.head_branch();
-  let field_tooltip = commit_tooltip(branch);
-  let actions = state.actions.as_ref();
+  let field_tooltip = commit_tooltip(chrome.head_branch.as_deref());
+  let actions = chrome.actions.as_ref();
   let can_commit = actions.is_some_and(|actions| actions.can_commit);
   let label = actions
     .map(|actions| actions.commit_label.clone())
     .unwrap_or_else(|| "Commit".into());
   let committing = view.committing;
   let disabled = !can_commit || committing;
-  let button_tooltip = commit_button_tooltip(state.amend_mode);
+  let button_tooltip = commit_button_tooltip(chrome.amend_mode);
 
   div().px_2().pb_2().child(
     div()
@@ -108,6 +110,15 @@ pub fn render_commit_box(
 mod tests {
   use super::*;
   use core::prelude::v1::test;
+
+  #[test]
+  fn should_sync_skips_when_focused_pending_or_equal() {
+    assert!(should_sync_commit_message("typed", "core", false, false));
+    assert!(!should_sync_commit_message("typed", "core", true, false));
+    assert!(!should_sync_commit_message("typed", "core", false, true));
+    assert!(!should_sync_commit_message("typed", "core", true, true));
+    assert!(!should_sync_commit_message("same", "same", false, false));
+  }
 
   #[test]
   fn tooltips_name_the_branch_and_the_chord() {

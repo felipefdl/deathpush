@@ -4,22 +4,16 @@ use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::{Disableable, Icon, Sizable};
 use gpui_kit::*;
 
-use super::view::ChangesView;
-use crate::repo::state::{NetworkOp, RepoState};
+use super::view::{ChangesChrome, ChangesView};
+use crate::repo::state::NetworkOp;
 
-pub fn render_toolbar(state: &RepoState, cx: &mut Context<ChangesView>) -> impl IntoElement {
-  let actions = state.actions.as_ref();
+pub fn render_toolbar(chrome: &ChangesChrome, cx: &mut Context<ChangesView>) -> impl IntoElement {
+  let actions = chrome.actions.as_ref();
   let can_stage_all = actions.is_some_and(|actions| actions.can_stage_all);
-  let busy = state.network_busy();
-  let (ahead, behind) = state
-    .status
-    .as_ref()
-    .map(|status| (status.ahead, status.behind))
-    .unwrap_or((0, 0));
+  let busy = chrome.network_busy;
+  let (ahead, behind) = (chrome.ahead, chrome.behind);
   let sync = actions.map(|actions| actions.sync.clone());
-  let show_sync = sync
-    .as_ref()
-    .is_some_and(|sync| sync.enabled || matches!(sync.kind, SyncKind::Fetch));
+  let show_sync = sync.as_ref().is_some_and(|sync| sync.enabled);
 
   let tool = |id: &'static str, path: &'static str, tooltip: &'static str| {
     Button::new(id)
@@ -83,7 +77,6 @@ pub fn render_toolbar(state: &RepoState, cx: &mut Context<ChangesView>) -> impl 
         Intent::Sync,
       ),
     };
-    let enabled = sync.enabled;
     row = row.child(
       Button::new("sync")
         .ghost()
@@ -93,7 +86,7 @@ pub fn render_toolbar(state: &RepoState, cx: &mut Context<ChangesView>) -> impl 
         .icon(Icon::empty().path(path))
         .tooltip(tooltip)
         .loading(busy)
-        .disabled(!enabled || busy)
+        .disabled(busy)
         .on_click(cx.listener(move |this, _, window, cx| {
           this
             .model

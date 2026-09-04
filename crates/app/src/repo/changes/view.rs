@@ -1,17 +1,28 @@
-use deathpush_core::session::types::Intent;
+use deathpush_core::session::types::{Intent, SessionActions};
+use deathpush_core::types::RepoOperationState;
 use gpui_kit::component::Sizable;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
 use gpui_kit::*;
 
 use super::banner::render_banner;
-use super::commit_box::render_commit_box;
+use super::commit_box::{self, render_commit_box};
 use super::filter::{self, FILTER_DEBOUNCE_MS};
 use super::toolbar::render_toolbar;
 use crate::actions::*;
 use crate::repo::layout_model::LayoutModel;
 use crate::repo::model::{RepoEvent, RepoModel};
 use crate::theme::{ActivePalette, hsla};
+
+pub(crate) struct ChangesChrome {
+  pub actions: Option<SessionActions>,
+  pub network_busy: bool,
+  pub ahead: usize,
+  pub behind: usize,
+  pub operation_state: RepoOperationState,
+  pub amend_mode: bool,
+  pub head_branch: Option<String>,
+}
 
 pub struct ChangesView {
   pub(crate) model: Entity<RepoModel>,
@@ -55,6 +66,7 @@ impl ChangesView {
           if this.commit_generation != token {
             return;
           }
+          this.commit_generation = 0;
           let message = this.commit.read(cx).value().to_string();
           this.dispatch_intent(Intent::SetCommitMessage { message }, cx);
         });
@@ -80,13 +92,17 @@ impl ChangesView {
       if matches!(event, RepoEvent::Changed) {
         let message = model.read(cx).state().commit_message.clone();
         let current = this.commit.read(cx).value().to_string();
-        if message != current {
-          let handle = this.window_handle;
-          let commit = this.commit.clone();
-          let _ = handle.update(cx, |_, window, cx| {
-            commit.update(cx, |state, cx| state.set_value(message, window, cx));
+        let pending = this.commit_generation != 0;
+        let handle = this.window_handle;
+        let commit = this.commit.clone();
+        let _ = handle.update(cx, |_, window, cx| {
+          commit.update(cx, |state, cx| {
+            let focused = state.focus_handle(cx).is_focused(window);
+            if commit_box::should_sync_commit_message(&current, &message, focused, pending) {
+              state.set_value(message, window, cx);
+            }
           });
-        }
+        });
       }
       cx.notify();
     })
@@ -185,7 +201,26 @@ impl ChangesView {
 
 impl Render for ChangesView {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    let state = self.model.read(cx).state().clone();
+    let (repo_open, has_changes, empty_groups, chrome) = {
+      let state = self.model.read(cx).state();
+      let status = state.status.as_ref();
+      (
+        status.is_some(),
+        state.has_changes(),
+        !state.has_changes() && state.stashes.is_empty() && state.nested_repositories.is_empty(),
+        ChangesChrome {
+          actions: state.actions.clone(),
+          network_busy: state.network_busy(),
+          ahead: status.map(|status| status.ahead).unwrap_or(0),
+          behind: status.map(|status| status.behind).unwrap_or(0),
+          operation_state: status
+            .map(|status| status.operation_state)
+            .unwrap_or(RepoOperationState::None),
+          amend_mode: state.amend_mode,
+          head_branch: state.head_branch().map(str::to_string),
+        },
+      )
+    };
     let mut root = div()
       .size_full()
       .flex()
@@ -197,9 +232,13 @@ impl Render for ChangesView {
         this.send(Intent::SetAmend { enabled: true }, window, cx);
       }))
       .on_action(cx.listener(|this, _: &CommitAndPush, window, cx| {
+        this.committing = true;
+        cx.notify();
         this.send(Intent::CommitAndPush { confirmed: false }, window, cx);
       }))
       .on_action(cx.listener(|this, _: &CommitAndSync, window, cx| {
+        this.committing = true;
+        cx.notify();
         this.send(Intent::CommitAndSync { confirmed: false }, window, cx);
       }))
       .on_action(cx.listener(|this, _: &RefreshStatus, window, cx| {
@@ -219,18 +258,17 @@ impl Render for ChangesView {
         this.focus_commit(window, cx);
       }));
 
-    if state.status.is_none() {
+    if !repo_open {
       return root.child(Self::render_empty_repo(cx));
     }
 
-    root = root.child(render_toolbar(&state, cx));
-    if let Some(banner) = render_banner(&state, cx) {
+    root = root.child(render_toolbar(&chrome, cx));
+    if let Some(banner) = render_banner(&chrome, cx) {
       root = root.child(banner);
     }
-    root = root.child(render_commit_box(self, &state, window, cx));
+    root = root.child(render_commit_box(self, &chrome, window, cx));
 
-    let empty_groups = !state.has_changes() && state.stashes.is_empty() && state.nested_repositories.is_empty();
-    if state.has_changes() {
+    if has_changes {
       let palette = cx.global::<ActivePalette>().0;
       root = root.child(
         div().px_2().pb_2().child(
