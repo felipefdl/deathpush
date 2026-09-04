@@ -2,6 +2,7 @@ pub mod layout;
 pub mod recent_files;
 pub mod recents;
 pub mod settings;
+pub mod settings_ui;
 pub mod store;
 pub mod windows;
 
