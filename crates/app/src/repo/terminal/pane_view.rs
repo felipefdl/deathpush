@@ -3,6 +3,7 @@
 //! Create a wake pair, pass the callback to [`PaneHandle::spawn`], then
 //! [`PaneView::new`] with the receiver.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
@@ -27,6 +28,7 @@ pub struct PaneView {
   blink_on: bool,
   blink_task: Option<Task<()>>,
   copy_consumed_key: Option<String>,
+  sent_keys: HashSet<String>,
 }
 
 /// Producer half of the pane-thread wake. Pass the callback to [`PaneHandle::spawn`].
@@ -93,6 +95,7 @@ impl PaneView {
       blink_on: true,
       blink_task: None,
       copy_consumed_key: None,
+      sent_keys: HashSet::new(),
     }
   }
 
@@ -210,6 +213,14 @@ impl PaneView {
     } else {
       false
     }
+  }
+
+  pub(crate) fn note_sent_key(&mut self, key: String) {
+    self.sent_keys.insert(key);
+  }
+
+  pub(crate) fn take_sent_key(&mut self, key: &str) -> bool {
+    self.sent_keys.remove(key)
   }
 
   pub(crate) fn select_word_at(&mut self, x: u16, y: u16, cx: &mut Context<Self>) {

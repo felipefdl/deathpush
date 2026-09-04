@@ -362,6 +362,12 @@ fn paint_selection(
   }
 }
 
+struct RowRun {
+  start_x: u16,
+  cells: Vec<String>,
+  style: RunStyle,
+}
+
 fn paint_rows(
   snap: &PaneSnapshot,
   settings: &TerminalPaint,
@@ -371,23 +377,86 @@ fn paint_rows(
   cx: &mut App,
 ) {
   let font_size = px(settings.font_size);
+  let spaced = settings.letter_spacing != 0.0;
   for y in 0..snap.rows {
-    for x in 0..snap.cols {
-      let Some(cell_data) = snap.cell(x, y) else {
-        continue;
-      };
-      if cell_data.text.is_empty() {
-        continue;
-      }
-      let style = run_style(cell_data, snap, settings);
-      let run = text_run(cell_data.text.len(), style, settings);
-      let line = window
-        .text_system()
-        .shape_line(cell_data.text.clone().into(), font_size, &[run], None);
-      let pos = point(origin.x + cell.0 * usize::from(x), origin.y + cell.1 * usize::from(y));
-      let _ = line.paint(pos, cell.1, TextAlign::Left, None, window, cx);
+    let y_pos = origin.y + cell.1 * usize::from(y);
+    for run in row_runs(snap, y, settings) {
+      paint_run(
+        run, origin.x, y_pos, cell.0, cell.1, font_size, spaced, settings, window, cx,
+      );
     }
   }
+}
+
+fn row_runs(snap: &PaneSnapshot, y: u16, settings: &TerminalPaint) -> Vec<RowRun> {
+  let mut runs = Vec::new();
+  let mut current: Option<RowRun> = None;
+  for x in 0..snap.cols {
+    let cell = snap.cell(x, y).cloned().unwrap_or_default();
+    let style = run_style(&cell, snap, settings);
+    match current {
+      Some(ref mut run) if run.style == style => run.cells.push(cell.text),
+      Some(run) => {
+        runs.push(run);
+        current = Some(RowRun {
+          start_x: x,
+          cells: vec![cell.text],
+          style,
+        });
+      }
+      None => {
+        current = Some(RowRun {
+          start_x: x,
+          cells: vec![cell.text],
+          style,
+        });
+      }
+    }
+  }
+  if let Some(run) = current {
+    runs.push(run);
+  }
+  runs
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_run(
+  run: RowRun,
+  origin_x: Pixels,
+  y_pos: Pixels,
+  cell_w: Pixels,
+  cell_h: Pixels,
+  font_size: Pixels,
+  spaced: bool,
+  settings: &TerminalPaint,
+  window: &mut Window,
+  cx: &mut App,
+) {
+  if run.cells.iter().all(|text| text.is_empty()) {
+    return;
+  }
+  if spaced {
+    for (index, text) in run.cells.iter().enumerate() {
+      if text.is_empty() {
+        continue;
+      }
+      let shaped = text_run(text.len(), run.style, settings);
+      let line = window
+        .text_system()
+        .shape_line(text.clone().into(), font_size, &[shaped], None);
+      let pos = point(origin_x + cell_w * (usize::from(run.start_x) + index), y_pos);
+      let _ = line.paint(pos, cell_h, TextAlign::Left, None, window, cx);
+    }
+    return;
+  }
+  let text = run.cells.concat();
+  if text.is_empty() {
+    return;
+  }
+  let shaped = text_run(text.len(), run.style, settings);
+  let line = window.text_system().shape_line(text.into(), font_size, &[shaped], None);
+  let pos = point(origin_x + cell_w * usize::from(run.start_x), y_pos);
+  let _ = line.paint(pos, cell_h, TextAlign::Left, None, window, cx);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -487,7 +556,6 @@ fn paint_bar_cursor(bounds: Bounds<Pixels>, width: Pixels, color: Hsla, window: 
 #[derive(Clone, Copy, PartialEq)]
 struct RunStyle {
   fg: Hsla,
-  #[allow(dead_code)]
   bg: Hsla,
   bold: bool,
   italic: bool,
@@ -579,10 +647,10 @@ fn classify_key(keystroke: &Keystroke) -> KeyRoute {
     if !mods.platform {
       return KeyRoute::Send;
     }
-    if key == "v" && !mods.control && !mods.alt && !mods.function {
+    if key == "v" && !mods.shift && !mods.control && !mods.alt && !mods.function {
       return KeyRoute::Paste;
     }
-    if key == "c" && !mods.control && !mods.alt && !mods.function {
+    if key == "c" && !mods.shift && !mods.control && !mods.alt && !mods.function {
       return KeyRoute::CopyOrSend;
     }
     KeyRoute::Ignore
@@ -613,6 +681,8 @@ fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mut App) {
       view.update(cx, |this, _| {
         if copied {
           this.note_copy_consumed(event.keystroke.key.clone());
+        } else {
+          this.note_sent_key(event.keystroke.key.clone());
         }
       });
       if !copied {
@@ -621,6 +691,7 @@ fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mut App) {
       cx.stop_propagation();
     }
     KeyRoute::Send => {
+      view.update(cx, |this, _| this.note_sent_key(event.keystroke.key.clone()));
       send_key(view, &event.keystroke, true, cx);
       cx.stop_propagation();
     }
@@ -628,16 +699,25 @@ fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mut App) {
 }
 
 fn on_key_up(view: &Entity<PaneView>, event: &KeyUpEvent, cx: &mut App) {
-  match classify_key(&event.keystroke) {
-    KeyRoute::Send => send_key(view, &event.keystroke, false, cx),
-    KeyRoute::CopyOrSend => {
-      let suppress = view.update(cx, |this, _| this.take_copy_consumed(&event.keystroke.key));
-      if !suppress {
-        send_key(view, &event.keystroke, false, cx);
-      }
+  let key = event.keystroke.key.as_str();
+  let action = view.update(cx, |this, _| {
+    if this.take_copy_consumed(key) {
+      KeyUpAction::Drop
+    } else if this.take_sent_key(key) {
+      KeyUpAction::Release
+    } else {
+      KeyUpAction::Drop
     }
-    KeyRoute::Ignore | KeyRoute::Paste => {}
+  });
+  if action == KeyUpAction::Release {
+    send_key(view, &event.keystroke, false, cx);
   }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KeyUpAction {
+  Drop,
+  Release,
 }
 
 fn send_key(view: &Entity<PaneView>, keystroke: &Keystroke, press: bool, cx: &mut App) {
