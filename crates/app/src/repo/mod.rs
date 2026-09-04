@@ -1,4 +1,12 @@
 pub mod layout_model;
+pub mod main_panel;
 pub mod model;
 pub mod output_log;
+pub mod sidebar;
 pub mod state;
+pub mod status_bar;
+pub mod terminal_panel;
+pub mod view;
+
+#[allow(unused_imports)]
+pub use view::RepoView;
