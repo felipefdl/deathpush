@@ -152,6 +152,7 @@ impl Shell {
     )
     .detach();
     let view = cx.new(|cx| crate::repo::RepoView::new(model, layout, output, cx));
+    view.update(cx, |view, cx| view.focus(window, cx));
     self.screen = Screen::Repository(view);
     self.sync_menus(window, cx);
     cx.notify();
@@ -178,6 +179,7 @@ impl Shell {
     self.screen = Screen::Welcome(view);
     self.title = "DeathPush".into();
     window.set_window_title("DeathPush");
+    self.focus_handle.focus(window, cx);
     self.sync_menus(window, cx);
     cx.notify();
   }

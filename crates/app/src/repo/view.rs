@@ -61,6 +61,10 @@ impl RepoView {
     &self.output
   }
 
+  pub fn focus(&self, window: &mut Window, cx: &mut App) {
+    self.focus_handle.focus(window, cx);
+  }
+
   fn send(&self, intent: Intent, window: &mut Window, cx: &mut Context<Self>) {
     self.model.update(cx, |model, cx| model.dispatch(intent, window, cx));
   }
@@ -310,7 +314,7 @@ mod tests {
   }
 
   #[gpui_kit::test]
-  fn repo_view_renders_without_panicking(cx: &mut TestAppContext) {
+  fn repo_view_owns_focus_after_focus(cx: &mut TestAppContext) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let resource_dir = tempfile::TempDir::new().unwrap();
     cx.update(|cx| {
@@ -334,6 +338,11 @@ mod tests {
         RepoView::new(model, layout, output, cx)
       }
     });
-    window.update(cx, |_, _, _| {}).unwrap();
+    window
+      .update(cx, |view, window, cx| {
+        view.focus(window, cx);
+        assert_eq!(window.focused(cx).as_ref(), Some(&view.focus_handle));
+      })
+      .unwrap();
   }
 }
