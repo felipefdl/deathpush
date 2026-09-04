@@ -81,10 +81,10 @@ pub fn render_status_bar(state: &RepoState, window: &mut Window, cx: &App) -> im
             .text_color(hsla(palette.status_bar_foreground)),
         )
         .child(branch)
+        .children(badge)
         .tooltip(|window, cx| Tooltip::new("Switch branch").build(window, cx))
         .on_click(|_, window, cx| window.dispatch_action(Box::new(ShowBranchPicker), cx)),
     )
-    .children(badge.map(|text| div().px_2().child(text)))
     .children(blame.map(|text| {
       div()
         .px_2()
