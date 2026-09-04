@@ -13,6 +13,21 @@ use crate::util::async_command_ready;
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024; // 5MB
 const BINARY_CHECK_SIZE: usize = 8192;
 
+/// `New File`, `New File 2`, `New File 3`... skipping names already present (case-sensitive) in `existing`.
+pub fn next_entry_name(existing: &[String], base: &str) -> String {
+  if !existing.iter().any(|name| name == base) {
+    return base.to_string();
+  }
+  let mut n = 2;
+  loop {
+    let candidate = format!("{base} {n}");
+    if !existing.iter().any(|name| name == &candidate) {
+      return candidate;
+    }
+    n += 1;
+  }
+}
+
 fn is_hard_hidden(path: &str) -> bool {
   path
     .split(['/', '\\'])
@@ -390,5 +405,16 @@ mod tests {
     );
 
     fs::remove_dir_all(root).expect("temporary repository should be removed");
+  }
+
+  #[test]
+  fn next_entry_name_numbers_taken_names() {
+    let existing = vec!["New File".to_string(), "New File 2".to_string(), "other".to_string()];
+    assert_eq!(next_entry_name(&existing, "New File"), "New File 3");
+    assert_eq!(next_entry_name(&[], "New Folder"), "New Folder");
+    assert_eq!(
+      next_entry_name(&["New Folder 2".to_string()], "New Folder"),
+      "New Folder"
+    );
   }
 }

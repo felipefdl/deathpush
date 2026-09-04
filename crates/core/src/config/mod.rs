@@ -1,4 +1,5 @@
 pub mod layout;
+pub mod recent_files;
 pub mod recents;
 pub mod settings;
 pub mod store;

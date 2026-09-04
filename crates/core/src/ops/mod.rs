@@ -8,11 +8,15 @@ pub mod terminal;
 
 use std::path::PathBuf;
 
+use chrono::{DateTime, Utc};
+
 use crate::core::Core;
 use crate::error::{Error, Result};
 use crate::git::repository_runtime::RepositoryRuntime;
 use crate::git::status::StatusScope;
+use crate::relative_time::relative_time;
 use crate::session::SessionId;
+use crate::types::FileBlame;
 
 fn repo_name(root: &str) -> String {
   std::path::Path::new(root)
@@ -37,6 +41,20 @@ pub fn in_window_title(root: &str, head_branch: Option<&str>) -> String {
     Some(branch) if !branch.is_empty() => format!("{repo_name} - {branch}"),
     _ => repo_name,
   }
+}
+
+/// `{author}, {relative time} - {summary}` for the blame group covering `line` (1-based), or None on uncommitted lines.
+pub fn blame_status_line(blame: &FileBlame, line: usize, now: DateTime<Utc>) -> Option<String> {
+  let group = blame
+    .line_groups
+    .iter()
+    .find(|group| group.start_line <= line && line <= group.end_line)?;
+  Some(format!(
+    "{}, {} - {}",
+    group.author_name,
+    relative_time(&group.author_date, now),
+    group.summary
+  ))
 }
 
 impl Core {
@@ -79,7 +97,32 @@ impl Core {
 
 #[cfg(test)]
 mod tests {
-  use super::{in_window_title, window_title};
+  use super::{blame_status_line, in_window_title, window_title};
+  use crate::relative_time::relative_time;
+  use crate::types::{BlameLineGroup, FileBlame};
+
+  #[test]
+  fn blame_status_line_formats_the_covering_group() {
+    let blame = FileBlame {
+      path: "a.rs".into(),
+      line_groups: vec![BlameLineGroup {
+        commit_id: "abc".into(),
+        short_id: "abc".into(),
+        author_name: "Ana".into(),
+        author_email: "".into(),
+        author_date: "2026-09-01T00:00:00Z".into(),
+        summary: "fix it".into(),
+        start_line: 3,
+        end_line: 5,
+      }],
+    };
+    let now = chrono::DateTime::parse_from_rfc3339("2026-09-04T00:00:00Z")
+      .unwrap()
+      .with_timezone(&chrono::Utc);
+    let expected = format!("Ana, {} - fix it", relative_time("2026-09-01T00:00:00Z", now));
+    assert_eq!(blame_status_line(&blame, 4, now).as_deref(), Some(expected.as_str()));
+    assert!(blame_status_line(&blame, 6, now).is_none());
+  }
 
   #[test]
   fn title_with_branch() {
