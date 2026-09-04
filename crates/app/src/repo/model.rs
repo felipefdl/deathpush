@@ -906,10 +906,7 @@ impl RepoModel {
             Intent::OpenCommitDiff { commit, path } => {
               self.state.apply_commit_diff_payload(commit, path, payload);
             }
-            _ => {
-              self.state.diff = Some(payload);
-              self.state.diff_load_id = Some(self.state.selected_load_id);
-            }
+            _ => self.state.apply_scm_diff_payload(payload),
           }
         }
       }

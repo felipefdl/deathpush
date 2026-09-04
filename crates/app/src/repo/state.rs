@@ -421,7 +421,16 @@ impl RepoState {
     {
       self.diff = Some(payload);
       self.commit_diff_ready_id = Some(self.commit_diff_load_id);
+      self.diff_load_id = None;
     }
+  }
+
+  /// Apply an SCM diff and drop commit-file readiness so History cannot paint this payload.
+  pub fn apply_scm_diff_payload(&mut self, payload: DiffPayload) {
+    self.diff = Some(payload);
+    self.diff_load_id = Some(self.selected_load_id);
+    self.commit_diff_ready_id = None;
+    self.pending_commit_diff = None;
   }
 
   /// Decide whether a stamped Diff or Blame belongs to the current session, and advance the watermark when it is newer.
@@ -840,6 +849,36 @@ mod tests {
     assert_eq!(
       state.diff.as_ref().map(|payload| payload.content_hash.as_str()),
       Some("bbb")
+    );
+  }
+
+  fn scm_diff_ready(state: &RepoState) -> bool {
+    state.diff_load_id == Some(state.selected_load_id)
+  }
+
+  #[test]
+  fn scm_and_commit_diffs_for_the_same_path_do_not_share_readiness() {
+    let mut state = RepoState::default();
+    state.request_commit_diff("aaa".into(), "foo.rs".into());
+    state.apply_commit_diff_payload("aaa", "foo.rs", commit_diff_payload("foo.rs", "commit"));
+    assert!(state.commit_diff_ready("aaa", "foo.rs"));
+    assert!(!scm_diff_ready(&state));
+
+    state.apply_scm_diff_payload(commit_diff_payload("foo.rs", "scm"));
+    assert!(!state.commit_diff_ready("aaa", "foo.rs"));
+    assert!(scm_diff_ready(&state));
+    assert_eq!(
+      state.diff.as_ref().map(|payload| payload.content_hash.as_str()),
+      Some("scm")
+    );
+
+    state.request_commit_diff("aaa".into(), "foo.rs".into());
+    state.apply_commit_diff_payload("aaa", "foo.rs", commit_diff_payload("foo.rs", "commit"));
+    assert!(state.commit_diff_ready("aaa", "foo.rs"));
+    assert!(!scm_diff_ready(&state));
+    assert_eq!(
+      state.diff.as_ref().map(|payload| payload.content_hash.as_str()),
+      Some("commit")
     );
   }
 }
