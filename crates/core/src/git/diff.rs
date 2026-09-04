@@ -344,7 +344,8 @@ fn detect_language_by_filename(path: &str) -> Option<&'static str> {
 fn detect_language_by_extension(ext: &str) -> Option<&'static str> {
   let lang = match ext {
     "rs" => "rust",
-    "ts" | "tsx" => "typescript",
+    "ts" => "typescript",
+    "tsx" => "tsx",
     "js" | "jsx" | "mjs" | "cjs" => "javascript",
     "json" | "jsonc" => "json",
     "html" | "htm" => "html",
@@ -428,7 +429,7 @@ mod tests {
 
   #[test]
   fn detect_language_tsx() {
-    assert_eq!(detect_language("component.tsx"), Some("typescript".to_string()));
+    assert_eq!(detect_language("component.tsx"), Some("tsx".to_string()));
   }
 
   #[test]

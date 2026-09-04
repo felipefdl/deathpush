@@ -3,7 +3,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use deathpush_core::config::settings::{DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME};
-use deathpush_core::theme::{Rgba, ThemeKind, ThemeSpec, UiPalette, parse_theme};
+use deathpush_core::theme::{Rgba, ThemeKind, ThemeSpec, UiPalette, parse_theme, syntax_styles};
+use gpui_kit::component::highlighter::HighlightThemeStyle;
 use gpui_kit::component::theme::{Theme, ThemeConfig, ThemeConfigColors, ThemeMode, ThemeRegistry, ThemeSet};
 use gpui_kit::*;
 
@@ -145,6 +146,28 @@ pub fn theme_config(spec: &ThemeSpec, palette: &UiPalette, ui_font_family: &str,
   colors.tab_active_foreground = hex(palette.foreground);
   colors.overlay = hex(palette.overlay);
   colors.window_border = hex(palette.border);
+  let mut syntax = serde_json::Map::new();
+  for style in syntax_styles(spec) {
+    let mut entry = serde_json::Map::new();
+    if let Some(color) = style.color
+      && let Some(value) = hex(color)
+    {
+      entry.insert("color".into(), serde_json::Value::String(value.to_string()));
+    }
+    if style.italic {
+      entry.insert("font_style".into(), serde_json::Value::String("italic".into()));
+    }
+    if style.bold {
+      entry.insert("font_weight".into(), serde_json::Value::from(700));
+    }
+    syntax.insert(style.capture.to_string(), serde_json::Value::Object(entry));
+  }
+  let highlight = serde_json::json!({
+    "editor.background": hex(palette.background),
+    "editor.foreground": hex(palette.foreground),
+    "syntax": syntax,
+  });
+  let highlight: Option<HighlightThemeStyle> = serde_json::from_value(highlight).ok();
   ThemeConfig {
     name: spec.name.clone().into(),
     mode: if spec.kind == ThemeKind::Dark {
@@ -155,6 +178,7 @@ pub fn theme_config(spec: &ThemeSpec, palette: &UiPalette, ui_font_family: &str,
     font_family: (!ui_font_family.is_empty()).then(|| ui_font_family.to_string().into()),
     font_size: Some(ui_font_size as f32),
     colors,
+    highlight,
     ..Default::default()
   }
 }
@@ -293,6 +317,18 @@ mod tests {
       ..Default::default()
     };
     serde_json::to_string(&set).unwrap();
+  }
+
+  #[test]
+  fn theme_config_carries_syntax_styles() {
+    let spec = parse_theme(
+      r##"{"name":"t","type":"dark","colors":{},"tokenColors":[{"scope":"keyword","settings":{"foreground":"#569cd6"}}]}"##,
+    )
+    .unwrap();
+    let palette = UiPalette::from_spec(&spec);
+    let config = theme_config(&spec, &palette, "", 13);
+    let highlight = config.highlight.expect("highlight style");
+    assert!(highlight.syntax.style("keyword").and_then(|s| s.color).is_some());
   }
 
   #[gpui_kit::test]

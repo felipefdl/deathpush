@@ -48,6 +48,22 @@ pub struct UiPalette {
   pub overlay: Rgba,
   /// The app mark: white on dark themes, black on light themes.
   pub mark: Rgba,
+  pub git_added: Rgba,
+  pub git_modified: Rgba,
+  pub git_deleted: Rgba,
+  pub git_renamed: Rgba,
+  pub git_untracked: Rgba,
+  pub git_ignored: Rgba,
+  pub git_conflicting: Rgba,
+  pub git_staged_modified: Rgba,
+  pub git_staged_deleted: Rgba,
+  pub diff_inserted_line: Rgba,
+  pub diff_removed_line: Rgba,
+  pub diff_inserted_text: Rgba,
+  pub diff_removed_text: Rgba,
+  pub gutter_added: Rgba,
+  pub gutter_modified: Rgba,
+  pub gutter_deleted: Rgba,
 }
 
 fn first(spec: &ThemeSpec, keys: &[&str]) -> Option<Rgba> {
@@ -100,6 +116,24 @@ impl UiPalette {
     )
     .unwrap_or(Rgba::rgb(241, 76, 76));
     let badge = first(spec, &["badge.background"]).unwrap_or(primary);
+    let muted_foreground = first(spec, &["descriptionForeground"]).unwrap_or(foreground.with_alpha(180));
+    let git_added = first(spec, &["gitDecoration.addedResourceForeground"]).unwrap_or(Rgba::rgb(129, 184, 139));
+    let git_modified = first(spec, &["gitDecoration.modifiedResourceForeground"]).unwrap_or(Rgba::rgb(226, 192, 141));
+    let git_deleted = first(spec, &["gitDecoration.deletedResourceForeground"]).unwrap_or(Rgba::rgb(200, 116, 112));
+    let git_renamed = first(spec, &["gitDecoration.renamedResourceForeground"]).unwrap_or(git_added);
+    let git_untracked = first(spec, &["gitDecoration.untrackedResourceForeground"]).unwrap_or(Rgba::rgb(115, 201, 145));
+    let git_ignored = first(spec, &["gitDecoration.ignoredResourceForeground"]).unwrap_or(muted_foreground);
+    let git_conflicting =
+      first(spec, &["gitDecoration.conflictingResourceForeground"]).unwrap_or(Rgba::rgb(229, 148, 0));
+    let git_staged_modified = first(spec, &["gitDecoration.stageModifiedResourceForeground"]).unwrap_or(git_modified);
+    let git_staged_deleted = first(spec, &["gitDecoration.stageDeletedResourceForeground"]).unwrap_or(git_deleted);
+    let diff_inserted_line = first(spec, &["diffEditor.insertedLineBackground"]).unwrap_or(git_added.with_alpha(38));
+    let diff_removed_line = first(spec, &["diffEditor.removedLineBackground"]).unwrap_or(git_deleted.with_alpha(38));
+    let diff_inserted_text = first(spec, &["diffEditor.insertedTextBackground"]).unwrap_or(git_added.with_alpha(90));
+    let diff_removed_text = first(spec, &["diffEditor.removedTextBackground"]).unwrap_or(git_deleted.with_alpha(90));
+    let gutter_added = first(spec, &["editorGutter.addedBackground"]).unwrap_or(git_added);
+    let gutter_modified = first(spec, &["editorGutter.modifiedBackground"]).unwrap_or(git_modified);
+    let gutter_deleted = first(spec, &["editorGutter.deletedBackground"]).unwrap_or(git_deleted);
     Self {
       kind: spec.kind,
       background,
@@ -119,7 +153,7 @@ impl UiPalette {
       secondary_foreground,
       secondary_hover,
       muted: input,
-      muted_foreground: first(spec, &["descriptionForeground"]).unwrap_or(foreground.with_alpha(180)),
+      muted_foreground,
       accent: list_hover,
       input,
       input_border: first(spec, &["input.border"]).unwrap_or(border),
@@ -155,6 +189,22 @@ impl UiPalette {
       } else {
         Rgba::rgb(0, 0, 0)
       },
+      git_added,
+      git_modified,
+      git_deleted,
+      git_renamed,
+      git_untracked,
+      git_ignored,
+      git_conflicting,
+      git_staged_modified,
+      git_staged_deleted,
+      diff_inserted_line,
+      diff_removed_line,
+      diff_inserted_text,
+      diff_removed_text,
+      gutter_added,
+      gutter_modified,
+      gutter_deleted,
     }
   }
 }
@@ -202,5 +252,60 @@ mod tests {
         assert_ne!(palette.background, palette.foreground, "{}", path.display());
       }
     }
+  }
+
+  #[test]
+  fn git_and_diff_colors_fall_back_when_the_theme_has_no_keys() {
+    let spec = parse_theme(r##"{"name":"t","type":"dark","colors":{"editor.background":"#101010"}}"##).unwrap();
+    let palette = UiPalette::from_spec(&spec);
+    assert_eq!(palette.git_added, Rgba::rgb(129, 184, 139));
+    assert_eq!(palette.git_modified, Rgba::rgb(226, 192, 141));
+    assert_eq!(palette.git_deleted, Rgba::rgb(200, 116, 112));
+    assert_eq!(palette.git_untracked, Rgba::rgb(115, 201, 145));
+    assert_eq!(palette.git_conflicting, Rgba::rgb(229, 148, 0));
+    assert_eq!(palette.git_renamed, palette.git_added);
+    assert_eq!(palette.git_staged_modified, palette.git_modified);
+    assert_eq!(palette.git_staged_deleted, palette.git_deleted);
+    assert_eq!(palette.git_ignored, palette.muted_foreground);
+    assert_eq!(palette.diff_inserted_line, palette.git_added.with_alpha(38));
+    assert_eq!(palette.diff_removed_line, palette.git_deleted.with_alpha(38));
+    assert_eq!(palette.diff_inserted_text, palette.git_added.with_alpha(90));
+    assert_eq!(palette.diff_removed_text, palette.git_deleted.with_alpha(90));
+    assert_eq!(palette.gutter_added, palette.git_added);
+    assert_eq!(palette.gutter_modified, palette.git_modified);
+    assert_eq!(palette.gutter_deleted, palette.git_deleted);
+  }
+
+  #[test]
+  fn git_and_diff_colors_read_the_theme_keys() {
+    let spec = parse_theme(
+      r##"{"name":"t","type":"dark","colors":{
+      "gitDecoration.addedResourceForeground":"#11aa11",
+      "gitDecoration.modifiedResourceForeground":"#aaaa11",
+      "gitDecoration.deletedResourceForeground":"#aa1111",
+      "gitDecoration.renamedResourceForeground":"#1111aa",
+      "gitDecoration.untrackedResourceForeground":"#11aaaa",
+      "gitDecoration.ignoredResourceForeground":"#777777",
+      "gitDecoration.conflictingResourceForeground":"#aa11aa",
+      "gitDecoration.stageModifiedResourceForeground":"#bbbb22",
+      "gitDecoration.stageDeletedResourceForeground":"#bb2222",
+      "diffEditor.insertedLineBackground":"#11aa1122",
+      "diffEditor.removedLineBackground":"#aa111122",
+      "diffEditor.insertedTextBackground":"#11aa1155",
+      "diffEditor.removedTextBackground":"#aa111155",
+      "editorGutter.addedBackground":"#22bb22",
+      "editorGutter.modifiedBackground":"#bbbb22",
+      "editorGutter.deletedBackground":"#bb2222"
+    }}"##,
+    )
+    .unwrap();
+    let palette = UiPalette::from_spec(&spec);
+    assert_eq!(palette.git_added, Rgba::rgb(0x11, 0xaa, 0x11));
+    assert_eq!(palette.git_renamed, Rgba::rgb(0x11, 0x11, 0xaa));
+    assert_eq!(palette.git_ignored, Rgba::rgb(0x77, 0x77, 0x77));
+    assert_eq!(palette.git_staged_deleted, Rgba::rgb(0xbb, 0x22, 0x22));
+    assert_eq!(palette.diff_inserted_line, Rgba::rgb(0x11, 0xaa, 0x11).with_alpha(0x22));
+    assert_eq!(palette.diff_removed_text, Rgba::rgb(0xaa, 0x11, 0x11).with_alpha(0x55));
+    assert_eq!(palette.gutter_deleted, Rgba::rgb(0xbb, 0x22, 0x22));
   }
 }
