@@ -242,3 +242,98 @@ impl Render for RepoView {
       .child(status_bar)
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use core::prelude::v1::test;
+
+  use deathpush_core::Core;
+  use deathpush_core::session::types::{
+    OperationActions, SessionActions, SessionRepo, SessionScm, SessionSelection, SessionSnapshot, SyncAction, SyncKind,
+  };
+  use deathpush_core::types::{RepoOperationState, StatusPhase};
+  use gpui_kit::TestAppContext;
+
+  use crate::config::AppConfig;
+  use crate::repo::layout_model::LayoutModel;
+  use crate::repo::model::RepoModel;
+  use crate::repo::output_log::OutputLog;
+
+  fn snapshot(root: &str) -> SessionSnapshot {
+    SessionSnapshot {
+      session_generation: 1,
+      session_revision: 1,
+      status_generation: 1,
+      status_revision: 1,
+      repo: SessionRepo {
+        root: root.into(),
+        head_branch: Some("main".into()),
+        head_commit: Some("abc".into()),
+        ahead: 0,
+        behind: 0,
+        operation_state: RepoOperationState::None,
+        phase: StatusPhase::Settled,
+      },
+      groups: vec![],
+      selection: SessionSelection::default(),
+      scm: SessionScm::default(),
+      actions: SessionActions {
+        can_commit: false,
+        commit_label: "Commit".into(),
+        commit_destructive: false,
+        can_stage_all: false,
+        can_unstage_all: false,
+        can_discard_all: false,
+        discard_all_destructive: false,
+        sync: SyncAction {
+          enabled: false,
+          kind: SyncKind::Fetch,
+          destructive: false,
+        },
+        operation: OperationActions {
+          continue_op: false,
+          abort: false,
+          skip: false,
+          abort_destructive: false,
+        },
+      },
+      last_commit: None,
+      branches: vec![],
+      stashes: vec![],
+      tags: vec![],
+      commit_log: vec![],
+      commit_detail: None,
+      file_history_path: None,
+      error: None,
+    }
+  }
+
+  #[gpui_kit::test]
+  fn repo_view_renders_without_panicking(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let layout_dir = config_dir.path().to_path_buf();
+    let root = layout_dir.to_string_lossy().into_owned();
+    let window = cx.add_window({
+      let core = core.clone();
+      let snapshot = snapshot(&root);
+      let layout_dir = layout_dir.clone();
+      let root = root.clone();
+      move |_, cx| {
+        let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
+        let output = cx.new(|_| OutputLog::default());
+        RepoView::new(model, layout, output, cx)
+      }
+    });
+    window.update(cx, |_, _, _| {}).unwrap();
+  }
+}

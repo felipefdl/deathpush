@@ -7,7 +7,6 @@ mod menus;
 mod open_requests;
 mod overlays;
 mod repo;
-mod repo_placeholder;
 mod shell;
 mod theme;
 mod title_bar;

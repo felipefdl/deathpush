@@ -28,6 +28,9 @@ pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static st
     (format!("{m}-shift-p"), "ToggleDiffLayout", Some(CONTEXT_REPOSITORY)),
     (format!("{m}-j"), "ToggleTerminal", Some(CONTEXT_REPOSITORY)),
     (format!("{m}-shift-j"), "NewTerminal", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-shift-g"), "ReloadSession", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-s"), "SwallowSave", Some(CONTEXT_REPOSITORY)),
+    ("escape".to_string(), "ClearSelection", Some(CONTEXT_REPOSITORY)),
     (format!("{m}-1"), "FocusRecentFilter", Some(CONTEXT_WELCOME)),
     (format!("{m}-2"), "FocusWorkspaceFilter", Some(CONTEXT_WELCOME)),
     (format!("{m}-="), "ZoomIn", Some(CONTEXT_APP)),
@@ -78,6 +81,9 @@ fn binding_for(keys: &str, name: &str, context: Option<&str>) -> KeyBinding {
     "ToggleDiffLayout" => KeyBinding::new(keys, ToggleDiffLayout, context),
     "ToggleTerminal" => KeyBinding::new(keys, ToggleTerminal, context),
     "NewTerminal" => KeyBinding::new(keys, NewTerminal, context),
+    "ReloadSession" => KeyBinding::new(keys, ReloadSession, context),
+    "SwallowSave" => KeyBinding::new(keys, SwallowSave, context),
+    "ClearSelection" => KeyBinding::new(keys, ClearSelection, context),
     "FocusRecentFilter" => KeyBinding::new(keys, FocusRecentFilter, context),
     "FocusWorkspaceFilter" => KeyBinding::new(keys, FocusWorkspaceFilter, context),
     "WelcomeListUp" => KeyBinding::new(keys, WelcomeListUp, context),
@@ -156,6 +162,15 @@ mod tests {
   fn every_table_row_builds_a_binding() {
     let count = binding_table(cfg!(target_os = "macos")).len();
     assert_eq!(bindings().len(), count);
+  }
+
+  #[test]
+  fn escape_binds_clear_selection_only_in_repository() {
+    let rows = binding_table(true);
+    let clear: Vec<_> = rows.iter().filter(|(_, name, _)| *name == "ClearSelection").collect();
+    assert_eq!(clear.len(), 1);
+    assert_eq!(clear[0].0, "escape");
+    assert_eq!(clear[0].2, Some(CONTEXT_REPOSITORY));
   }
 
   #[test]

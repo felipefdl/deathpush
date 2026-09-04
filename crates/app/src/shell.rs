@@ -12,7 +12,6 @@ use crate::actions::*;
 use crate::config::AppConfig;
 use crate::keymap::{CONTEXT_APP, CONTEXT_REPOSITORY, CONTEXT_WELCOME};
 use crate::menus::{MenuContext, set_menu_context};
-use crate::repo_placeholder::RepoPlaceholder;
 use crate::theme::{ActivePalette, apply_for_appearance, hsla};
 use crate::title_bar::render_title_bar;
 use crate::window::open_shell_window;
@@ -21,7 +20,7 @@ use crate::zoom;
 pub enum Screen {
   Boot,
   Welcome(Entity<crate::welcome::WelcomeView>),
-  Repository(Entity<RepoPlaceholder>),
+  Repository(Entity<crate::repo::RepoView>),
 }
 
 pub enum Overlay {
@@ -94,16 +93,17 @@ impl Shell {
   fn listen(&self, mut events: UnboundedReceiver<CoreEvent>, cx: &mut Context<Self>) {
     cx.spawn(async move |this, cx| {
       while let Some(event) = events.recv().await {
-        let alive = this.update(cx, |this, cx| {
-          if let (CoreEvent::SessionStatus(_), Screen::Repository(view)) = (&event, &this.screen) {
-            view.update(cx, |view, cx| {
-              view.status_events += 1;
-              cx.notify();
-            });
+        let alive = this.update(cx, |this, cx| match (&event, &this.screen) {
+          (CoreEvent::SessionStatus(status), Screen::Repository(view)) => {
+            let model = view.read(cx).model().clone();
+            model.update(cx, |model, cx| model.apply_status_event(status.clone(), cx));
           }
-          if let CoreEvent::WatcherError(message) = &event {
-            this.show_toast(message.clone(), cx);
+          (CoreEvent::GitCommand(command), Screen::Repository(view)) => {
+            let output = view.read(cx).output().clone();
+            output.update(cx, |output, cx| output.push(command.clone(), cx));
           }
+          (CoreEvent::WatcherError(message), _) => this.show_toast(message.clone(), cx),
+          _ => {}
         });
         if alive.is_err() {
           break;
@@ -111,6 +111,56 @@ impl Shell {
       }
     })
     .detach();
+  }
+
+  fn mount_repository(
+    &mut self,
+    snapshot: deathpush_core::session::types::SessionSnapshot,
+    window: &mut Window,
+    cx: &mut Context<Self>,
+  ) {
+    let root = snapshot.repo.root.clone();
+    let branch = snapshot.repo.head_branch.clone();
+    let now = chrono::Utc::now().to_rfc3339();
+    AppConfig::update(cx, {
+      let root = root.clone();
+      let branch = branch.clone();
+      move |config| config.recents.add(&root, branch, &now)
+    });
+    self.apply_titles(&root, branch.as_deref(), window);
+    let model = cx.new(|_| crate::repo::model::RepoModel::new(self.core.clone(), self.session, snapshot));
+    let layout_model = crate::repo::layout_model::LayoutModel::load(&root, cx);
+    let layout = cx.new(|_| layout_model);
+    let output = cx.new(|_| crate::repo::output_log::OutputLog::default());
+    cx.subscribe_in(
+      &model,
+      window,
+      |this, model, event: &crate::repo::model::RepoEvent, window, cx| match event {
+        crate::repo::model::RepoEvent::Error(message) => this.show_toast(message.clone(), cx),
+        crate::repo::model::RepoEvent::Changed => {
+          let state = model.read(cx).state();
+          if let Some(root) = state.root() {
+            let branch = state.head_branch().map(str::to_string);
+            let title = deathpush_core::ops::in_window_title(root, branch.as_deref());
+            if this.title.as_ref() != title {
+              this.apply_titles(root, branch.as_deref(), window);
+              cx.notify();
+            }
+          }
+        }
+      },
+    )
+    .detach();
+    let view = cx.new(|cx| crate::repo::RepoView::new(model, layout, output, cx));
+    self.screen = Screen::Repository(view);
+    self.sync_menus(window, cx);
+    cx.notify();
+    window.refresh();
+  }
+
+  fn apply_titles(&mut self, root: &str, branch: Option<&str>, window: &mut Window) {
+    self.title = deathpush_core::ops::in_window_title(root, branch).into();
+    window.set_window_title(&deathpush_core::ops::window_title(root, branch));
   }
 
   pub fn show_welcome(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -162,20 +212,7 @@ impl Shell {
         }
         match result {
           Ok(Ok(IntentOutcome::Snapshot { snapshot })) => {
-            let os_title = deathpush_core::ops::window_title(&snapshot.repo.root, snapshot.repo.head_branch.as_deref());
-            let title = deathpush_core::ops::in_window_title(&snapshot.repo.root, snapshot.repo.head_branch.as_deref());
-            let now = chrono::Utc::now().to_rfc3339();
-            let root = snapshot.repo.root.clone();
-            let branch = snapshot.repo.head_branch.clone();
-            AppConfig::update(cx, move |config| config.recents.add(&root, branch, &now));
-            this.title = title.clone().into();
-            window.set_window_title(&os_title);
-            let view = cx.new(|_| RepoPlaceholder {
-              title: title.into(),
-              status_events: 0,
-            });
-            this.screen = Screen::Repository(view);
-            this.sync_menus(window, cx);
+            this.mount_repository(*snapshot, window, cx);
           }
           Ok(Ok(_)) => this.show_toast("Unexpected outcome", cx),
           Ok(Err(err)) => {
@@ -188,6 +225,8 @@ impl Shell {
         }
         cx.notify();
       });
+      // update_in takes the window off the map, so notify cannot schedule a frame.
+      cx.refresh();
     })
     .detach();
   }
@@ -291,21 +330,7 @@ impl Shell {
       let _ = this.update_in(cx, |this, window, cx| match result {
         Ok(Ok(IntentOutcome::Snapshot { snapshot })) => {
           this.set_overlay(None, cx);
-          let os_title = deathpush_core::ops::window_title(&snapshot.repo.root, snapshot.repo.head_branch.as_deref());
-          let title = deathpush_core::ops::in_window_title(&snapshot.repo.root, snapshot.repo.head_branch.as_deref());
-          let now = chrono::Utc::now().to_rfc3339();
-          let root = snapshot.repo.root.clone();
-          let branch = snapshot.repo.head_branch.clone();
-          AppConfig::update(cx, move |config| config.recents.add(&root, branch, &now));
-          this.title = title.clone().into();
-          window.set_window_title(&os_title);
-          let view = cx.new(|_| RepoPlaceholder {
-            title: title.into(),
-            status_events: 0,
-          });
-          this.screen = Screen::Repository(view);
-          this.sync_menus(window, cx);
-          cx.notify();
+          this.mount_repository(*snapshot, window, cx);
         }
         Ok(Ok(_)) => {
           dialog.update(cx, |dialog, cx| dialog.set_cloning(false, cx));
@@ -320,6 +345,7 @@ impl Shell {
           this.show_toast(err.to_string(), cx);
         }
       });
+      cx.refresh();
     })
     .detach();
   }
