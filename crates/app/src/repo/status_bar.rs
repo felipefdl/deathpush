@@ -36,7 +36,8 @@ pub fn render_status_bar(state: &RepoState, window: &mut Window, cx: &App) -> im
     .status
     .as_ref()
     .and_then(|status| sync_badge(status.ahead, status.behind));
-  let blame = (AppConfig::get(cx).settings.git.blame)
+  let dirty = state.open_file.as_ref().is_some_and(|open| open.dirty);
+  let blame = (AppConfig::get(cx).settings.git.blame && !dirty)
     .then(|| {
       let line = state.cursor_line?;
       blame_status_line(state.blame.as_ref()?, line, Utc::now())

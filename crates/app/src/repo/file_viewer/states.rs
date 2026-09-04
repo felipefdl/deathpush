@@ -158,6 +158,7 @@ mod tests {
       }),
       pending_line: None,
       load_id: 1,
+      dirty: false,
     }
   }
 
@@ -169,6 +170,7 @@ mod tests {
       content: None,
       pending_line: None,
       load_id: 1,
+      dirty: false,
     };
     assert_eq!(classify(Some(&loading)), ViewerKind::Loading);
     assert_eq!(classify(Some(&file("text", "x"))), ViewerKind::Text);

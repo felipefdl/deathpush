@@ -26,6 +26,17 @@ pub struct RepoModel {
 
 impl EventEmitter<RepoEvent> for RepoModel {}
 
+/// Whether to dispatch `OpenBlame` for the open path.
+pub fn should_request_blame(
+  blame_enabled: bool,
+  dirty: bool,
+  requested_path: Option<&str>,
+  path: &str,
+  has_content: bool,
+) -> bool {
+  blame_enabled && !dirty && has_content && requested_path != Some(path)
+}
+
 impl RepoModel {
   pub fn new(core: Arc<Core>, session: SessionId, snapshot: SessionSnapshot) -> Self {
     let mut state = RepoState::default();
@@ -180,6 +191,7 @@ impl RepoModel {
       content: None,
       pending_line: line,
       load_id,
+      dirty: false,
     });
     self.state.cursor_line = line;
     self.state.blame = None;
@@ -233,18 +245,43 @@ impl RepoModel {
     if line.is_none() {
       return;
     }
-    if !AppConfig::get(cx).settings.git.blame {
-      return;
+    self.maybe_request_blame(window, cx);
+  }
+
+  pub fn mark_open_file_dirty(&mut self, cx: &mut Context<Self>) {
+    if let Some(open) = self.state.open_file.as_mut() {
+      open.dirty = true;
     }
-    let Some(path) = self.state.open_file.as_ref().and_then(|open| {
-      open.content.as_ref()?;
-      Some(open.path.clone())
-    }) else {
+    self.state.blame = None;
+    self.blame_requested = None;
+    cx.emit(RepoEvent::Changed);
+    cx.notify();
+  }
+
+  pub fn mark_open_file_saved(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    if let Some(open) = self.state.open_file.as_mut() {
+      open.dirty = false;
+    }
+    self.blame_requested = None;
+    self.maybe_request_blame(window, cx);
+    cx.emit(RepoEvent::Changed);
+    cx.notify();
+  }
+
+  fn maybe_request_blame(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    let Some(open) = self.state.open_file.as_ref() else {
       return;
     };
-    if self.blame_requested.as_deref() == Some(path.as_str()) {
+    if !should_request_blame(
+      AppConfig::get(cx).settings.git.blame,
+      open.dirty,
+      self.blame_requested.as_deref(),
+      &open.path,
+      open.content.is_some(),
+    ) {
       return;
     }
+    let path = open.path.clone();
     self.blame_requested = Some(path.clone());
     self.dispatch(Intent::OpenBlame { path }, window, cx);
   }
@@ -366,10 +403,12 @@ impl RepoModel {
         session_generation,
         session_revision,
       } => {
-        if self
-          .state
-          .accept_payload(session_generation, session_revision, root_at_send.as_deref())
-          == PayloadVerdict::Accept
+        let dirty = self.state.open_file.as_ref().is_some_and(|open| open.dirty);
+        if !dirty
+          && self
+            .state
+            .accept_payload(session_generation, session_revision, root_at_send.as_deref())
+            == PayloadVerdict::Accept
         {
           self.state.blame = Some(payload);
         }
@@ -424,5 +463,29 @@ impl RepoModel {
     self.state.apply_status_event(event);
     cx.emit(RepoEvent::Changed);
     cx.notify();
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use core::prelude::v1::test;
+
+  #[test]
+  fn requests_blame_again_after_save() {
+    assert!(
+      !should_request_blame(true, true, None, "a.rs", true),
+      "dirty does not request"
+    );
+    assert!(
+      !should_request_blame(true, false, Some("a.rs"), "a.rs", true),
+      "already requested for this path"
+    );
+    assert!(
+      should_request_blame(true, false, None, "a.rs", true),
+      "after save, requested is cleared"
+    );
+    assert!(!should_request_blame(false, false, None, "a.rs", true));
+    assert!(!should_request_blame(true, false, None, "a.rs", false));
   }
 }

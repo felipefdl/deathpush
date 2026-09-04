@@ -51,6 +51,7 @@ pub struct OpenFile {
   pub content: Option<FileContent>,
   pub pending_line: Option<usize>,
   pub load_id: u64,
+  pub dirty: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

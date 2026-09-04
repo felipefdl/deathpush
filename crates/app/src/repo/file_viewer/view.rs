@@ -119,8 +119,12 @@ impl FileViewer {
   fn bind_editor(&mut self, cx: &mut Context<Self>) {
     self.editor_input_sub = Some(cx.subscribe(&self.editor, |this, _, event: &InputEvent, cx| {
       if matches!(event, InputEvent::Change) {
+        let was_clean = !this.save.dirty;
         let generation = this.save.edited();
         this.pending_save_generation = generation;
+        if was_clean {
+          this.repo.update(cx, |model, cx| model.mark_open_file_dirty(cx));
+        }
         cx.notify();
         cx.spawn(async move |this, cx| {
           cx.background_executor().timer(Duration::from_millis(AUTOSAVE_MS)).await;
@@ -270,34 +274,27 @@ impl FileViewer {
       });
       self.reset_save(content.content_hash.clone());
       self.loaded_path = Some(open.path);
-      self.loaded_hash = Some(content.content_hash);
+      self.loaded_hash = Some(content.content_hash.clone());
       self.image = None;
-      if let Some(line) = open.pending_line {
-        self.apply_pending_line(line, window, cx);
-      }
-      return;
-    }
-
-    if self.save.dirty {
+    } else if self.save.dirty {
       self
         .save
         .saved(content.content_hash.clone(), self.pending_save_generation);
       if !self.save.dirty {
-        self.loaded_hash = Some(content.content_hash);
+        self.loaded_hash = Some(content.content_hash.clone());
+        self.repo.update(cx, |model, cx| model.mark_open_file_saved(window, cx));
       }
-      return;
-    }
-
-    if self.save.should_reload_external(&content.content_hash) {
+    } else if self.save.should_reload_external(&content.content_hash) {
       self.rebuild_editor(content.language.as_deref(), window, cx);
       self.editor.update(cx, |state, cx| {
         state.set_value(content.content.clone(), window, cx);
       });
       self.reset_save(content.content_hash.clone());
-      self.loaded_hash = Some(content.content_hash);
-      if let Some(line) = open.pending_line {
-        self.apply_pending_line(line, window, cx);
-      }
+      self.loaded_hash = Some(content.content_hash.clone());
+    }
+
+    if let Some(line) = open.pending_line {
+      self.apply_pending_line(line, window, cx);
     }
   }
 
@@ -478,6 +475,7 @@ mod tests {
             }),
             pending_line: None,
             load_id: 1,
+            dirty: false,
           });
         });
         window.refresh();
