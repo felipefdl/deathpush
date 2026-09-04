@@ -14,6 +14,7 @@ use gpui_kit::*;
 use super::rows::{Highlight, Pane, empty_recent_copy, empty_workspace_copy, recent_indices, step, workspace_rows};
 use crate::actions::*;
 use crate::config::AppConfig;
+use crate::keymap::CONTEXT_WELCOME_LIST;
 use crate::theme::{ActivePalette, hsla};
 
 pub enum WelcomeEvent {
@@ -172,52 +173,6 @@ impl WelcomeView {
   fn remove_recent(&mut self, path: String, cx: &mut Context<Self>) {
     AppConfig::update(cx, move |config| config.recents.remove(&path));
     cx.notify();
-  }
-
-  fn filter_focused(&self, window: &Window, cx: &App) -> bool {
-    self.recent_filter.focus_handle(cx).is_focused(window) || self.workspace_filter.focus_handle(cx).is_focused(window)
-  }
-
-  fn handle_list_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-    let modifiers = &event.keystroke.modifiers;
-    if modifiers.control || modifiers.platform || modifiers.alt {
-      return;
-    }
-    let filter_focused = self.filter_focused(window, cx);
-    let handled = match event.keystroke.key.as_str() {
-      "up" if filter_focused => {
-        self.move_highlight(-1, window, cx);
-        true
-      }
-      "down" if filter_focused => {
-        self.move_highlight(1, window, cx);
-        true
-      }
-      "enter" if filter_focused => {
-        self.confirm_highlight(cx);
-        true
-      }
-      "left" | "right" if filter_focused => {
-        if self.highlight.pane == Some(Pane::Workspace) {
-          self.confirm_highlight(cx);
-        }
-        true
-      }
-      "space" if filter_focused && self.highlight.pane == Some(Pane::Workspace) => {
-        self.confirm_highlight(cx);
-        true
-      }
-      "escape" => {
-        self.highlight = Highlight::default();
-        window.blur(cx);
-        cx.notify();
-        true
-      }
-      _ => false,
-    };
-    if handled {
-      cx.stop_propagation();
-    }
   }
 
   fn render_recent_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -482,10 +437,18 @@ impl Render for WelcomeView {
       )
       .into_any_element();
     div()
+      .key_context(CONTEXT_WELCOME_LIST)
       .size_full()
       .flex()
       .flex_col()
-      .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| this.handle_list_key(event, window, cx)))
+      .on_action(cx.listener(|this, _: &WelcomeListUp, window, cx| this.move_highlight(-1, window, cx)))
+      .on_action(cx.listener(|this, _: &WelcomeListDown, window, cx| this.move_highlight(1, window, cx)))
+      .on_action(cx.listener(|this, _: &WelcomeListConfirm, _, cx| this.confirm_highlight(cx)))
+      .on_action(cx.listener(|this, _: &WelcomeListEscape, window, cx| {
+        this.highlight = Highlight::default();
+        window.blur(cx);
+        cx.notify();
+      }))
       .on_action(cx.listener(|this, _: &FocusRecentFilter, window, cx| this.focus_recent_filter(window, cx)))
       .on_action(cx.listener(|this, _: &FocusWorkspaceFilter, window, cx| this.focus_workspace_filter(window, cx)))
       .child(

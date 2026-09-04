@@ -8,6 +8,8 @@ pub const PRIMARY: &str = if cfg!(target_os = "macos") { "cmd" } else { "ctrl" }
 /// Key contexts the shell sets on its regions.
 pub const CONTEXT_APP: &str = "DeathPush";
 pub const CONTEXT_WELCOME: &str = "Welcome";
+pub const CONTEXT_WELCOME_LIST: &str = "WelcomeList";
+pub const CONTEXT_WELCOME_LIST_INPUT: &str = "WelcomeList > Input";
 pub const CONTEXT_REPOSITORY: &str = "Repository";
 pub const CONTEXT_DIALOG: &str = "Dialog";
 
@@ -36,6 +38,18 @@ pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static st
     (format!("{m}-m"), "Minimize", Some(CONTEXT_APP)),
     ("escape".to_string(), "Cancel", Some(CONTEXT_DIALOG)),
     ("enter".to_string(), "Confirm", Some(CONTEXT_DIALOG)),
+    ("up".to_string(), "WelcomeListUp", Some(CONTEXT_WELCOME_LIST_INPUT)),
+    ("down".to_string(), "WelcomeListDown", Some(CONTEXT_WELCOME_LIST_INPUT)),
+    (
+      "enter".to_string(),
+      "WelcomeListConfirm",
+      Some(CONTEXT_WELCOME_LIST_INPUT),
+    ),
+    (
+      "escape".to_string(),
+      "WelcomeListEscape",
+      Some(CONTEXT_WELCOME_LIST_INPUT),
+    ),
   ];
   if mac {
     rows.push(("cmd-w".to_string(), "CloseWindow", Some(CONTEXT_APP)));
@@ -66,6 +80,10 @@ fn binding_for(keys: &str, name: &str, context: Option<&str>) -> KeyBinding {
     "NewTerminal" => KeyBinding::new(keys, NewTerminal, context),
     "FocusRecentFilter" => KeyBinding::new(keys, FocusRecentFilter, context),
     "FocusWorkspaceFilter" => KeyBinding::new(keys, FocusWorkspaceFilter, context),
+    "WelcomeListUp" => KeyBinding::new(keys, WelcomeListUp, context),
+    "WelcomeListDown" => KeyBinding::new(keys, WelcomeListDown, context),
+    "WelcomeListConfirm" => KeyBinding::new(keys, WelcomeListConfirm, context),
+    "WelcomeListEscape" => KeyBinding::new(keys, WelcomeListEscape, context),
     "ZoomIn" => KeyBinding::new(keys, ZoomIn, context),
     "ZoomOut" => KeyBinding::new(keys, ZoomOut, context),
     "ZoomReset" => KeyBinding::new(keys, ZoomReset, context),
@@ -141,11 +159,21 @@ mod tests {
   }
 
   #[test]
-  fn welcome_list_keys_are_not_keymap_actions() {
+  fn welcome_list_keys_bind_inside_the_input_context() {
     let rows = binding_table(true);
-    assert!(!rows.iter().any(|(_, name, _)| matches!(
-      *name,
-      "ListUp" | "ListDown" | "ListConfirm" | "ListEscape" | "RowToggle"
-    )));
+    let context = Some(CONTEXT_WELCOME_LIST_INPUT);
+    for (key, name) in [
+      ("up", "WelcomeListUp"),
+      ("down", "WelcomeListDown"),
+      ("enter", "WelcomeListConfirm"),
+      ("escape", "WelcomeListEscape"),
+    ] {
+      assert!(
+        rows
+          .iter()
+          .any(|(keys, action, ctx)| keys == key && *action == name && *ctx == context),
+        "{key} -> {name} in WelcomeList > Input"
+      );
+    }
   }
 }

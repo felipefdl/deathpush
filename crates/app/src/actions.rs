@@ -43,6 +43,10 @@ actions!(
     ConfigureWorkspace,
     FocusRecentFilter,
     FocusWorkspaceFilter,
+    WelcomeListUp,
+    WelcomeListDown,
+    WelcomeListConfirm,
+    WelcomeListEscape,
     Cancel,
     Confirm,
   ]
