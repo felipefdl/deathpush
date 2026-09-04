@@ -15,7 +15,7 @@ use super::rows::{RowPaint, render_row};
 use crate::actions::OpenRepository;
 use crate::config::AppConfig;
 use crate::repo::layout_model::LayoutModel;
-use crate::repo::model::{RepoEvent, RepoModel};
+use crate::repo::model::RepoModel;
 use crate::theme::{ActivePalette, hsla};
 
 pub struct ExplorerView {
@@ -24,7 +24,6 @@ pub struct ExplorerView {
   layout: Entity<LayoutModel>,
   tree: Entity<TreeState>,
   filter: Entity<InputState>,
-  focus_handle: FocusHandle,
   tree_focus: FocusHandle,
 }
 
@@ -38,8 +37,7 @@ impl ExplorerView {
   ) -> Self {
     let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter files..."));
     let tree = cx.new(|cx| TreeState::new(cx));
-    tree.update(cx, |tree, cx| tree.focus(window, cx));
-    let tree_focus = window.focused(cx).unwrap_or_else(|| cx.focus_handle());
+    let tree_focus = cx.focus_handle();
 
     cx.subscribe(&filter, |this, input, event: &InputEvent, cx| {
       if matches!(event, InputEvent::Change) {
@@ -59,10 +57,7 @@ impl ExplorerView {
       |this, _, event: &ExplorerEvent, window, cx| match event {
         ExplorerEvent::Changed => this.rebuild_tree(cx),
         ExplorerEvent::OpenFile { path, line } => this.open_file(path, *line, window, cx),
-        ExplorerEvent::Error(message) | ExplorerEvent::Toast(message) => {
-          this.repo.update(cx, |_, cx| cx.emit(RepoEvent::Error(message.clone())));
-        }
-        ExplorerEvent::Renamed { .. } => {}
+        ExplorerEvent::Error(_) | ExplorerEvent::Toast(_) | ExplorerEvent::Renamed { .. } => {}
       },
     )
     .detach();
@@ -76,15 +71,12 @@ impl ExplorerView {
       layout,
       tree,
       filter,
-      focus_handle: cx.focus_handle(),
       tree_focus,
     }
   }
 
   pub fn owns_focus(&self, window: &Window, cx: &App) -> bool {
-    self.filter.read(cx).focus_handle(cx).is_focused(window)
-      || self.tree_focus.is_focused(window)
-      || self.focus_handle.is_focused(window)
+    self.filter.read(cx).focus_handle(cx).is_focused(window) || self.tree_focus.is_focused(window)
   }
 
   pub fn open_file(&mut self, path: &str, line: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
@@ -113,20 +105,22 @@ impl ExplorerView {
     let extend = event.modifiers.secondary();
     let range = event.modifiers.shift;
     self.model.update(cx, |model, cx| model.select(path, extend, range, cx));
-    if is_directory || extend || range {
-      return;
+    if !is_directory && !extend && !range {
+      let already_open = self
+        .repo
+        .read(cx)
+        .state()
+        .open_file
+        .as_ref()
+        .is_some_and(|open| open.path == path);
+      if already_open {
+        self.layout.update(cx, |layout, cx| layout.dock_terminal(cx));
+      } else {
+        self.open_file(path, None, window, cx);
+      }
     }
-    let already_open = self
-      .repo
-      .read(cx)
-      .state()
-      .open_file
-      .as_ref()
-      .is_some_and(|open| open.path == path);
-    if already_open {
-      self.layout.update(cx, |layout, cx| layout.dock_terminal(cx));
-    } else {
-      self.open_file(path, None, window, cx);
+    if let Some(focused) = window.focused(cx) {
+      self.tree_focus = focused;
     }
   }
 
@@ -227,7 +221,7 @@ impl Render for ExplorerView {
     let palette = cx.global::<ActivePalette>().0;
     let density = AppConfig::get(cx).settings.ui.tree_density;
     let kind = IconKind::from(AppConfig::get(cx).settings.ui.tree_icons);
-    let mut root = div().size_full().flex().flex_col().track_focus(&self.focus_handle);
+    let mut root = div().size_full().flex().flex_col();
 
     if !repo_open {
       return root
@@ -240,29 +234,31 @@ impl Render for ExplorerView {
     let rows = Rc::new(self.model.read(cx).visible_rows(status.as_ref()));
     let view = cx.weak_entity();
     root.child(
-      Tree::new(&self.tree)
-        .item(move |_, entry, entry_state, _, _| {
-          let path = entry.item().id.as_str();
-          if is_stub_id(path) {
-            return div().h(px(0.0)).into_any_element();
-          }
-          let Some(row) = rows.iter().find(|row| row.path == path) else {
-            return div().into_any_element();
-          };
-          render_row(
-            row,
-            &RowPaint {
-              kind,
-              density,
-              palette,
-              selected: row.selected || entry_state.is_selected(),
-            },
-            view.clone(),
-          )
-        })
-        .flex_1()
-        .min_h_0()
-        .w_full(),
+      div().flex_1().min_h_0().w_full().track_focus(&self.tree_focus).child(
+        Tree::new(&self.tree)
+          .item(move |_, entry, entry_state, _, _| {
+            let path = entry.item().id.as_str();
+            if is_stub_id(path) {
+              return div().h(px(0.0)).into_any_element();
+            }
+            let Some(row) = rows.iter().find(|row| row.path == path) else {
+              return div().into_any_element();
+            };
+            render_row(
+              row,
+              &RowPaint {
+                kind,
+                density,
+                palette,
+                selected: row.selected || entry_state.is_selected(),
+              },
+              view.clone(),
+            )
+          })
+          .flex_1()
+          .min_h_0()
+          .w_full(),
+      ),
     )
   }
 }
@@ -451,7 +447,10 @@ mod tests {
       .update(cx, |view, window, cx| {
         window.refresh();
         assert!(view.filter.read(cx).value().is_empty());
-        let _ = view.owns_focus(window, cx);
+        assert!(
+          !view.owns_focus(window, cx),
+          "new must not steal tree focus; owns_focus is tree, filter, or edit field"
+        );
       })
       .unwrap();
   }
