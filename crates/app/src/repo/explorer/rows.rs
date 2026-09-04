@@ -103,8 +103,8 @@ pub fn render_row(row: &Row, paint: &RowPaint, view: WeakEntity<ExplorerView>) -
     path: path.clone(),
     is_directory,
   };
-  let can_drop_path = path.clone();
-  let drop_path = path.clone();
+  let drop_into = if is_directory { path.clone() } else { parent_path(&path) };
+  let can_drop_into = drop_into.clone();
   let drop_view = view.clone();
   let mut row_el = div()
     .id(SharedString::from(row.path.clone()))
@@ -132,18 +132,16 @@ pub fn render_row(row: &Row, paint: &RowPaint, view: WeakEntity<ExplorerView>) -
       cx.new(|_| DragPreview(entry.name().to_string()))
     });
   }
-  if is_directory {
-    row_el = row_el
-      .can_drop(move |value, _, _| {
-        value
-          .downcast_ref::<DragEntry>()
-          .is_some_and(|entry| !drop_ignored(&entry.path, entry.is_directory, &can_drop_path))
-      })
-      .drag_over::<DragEntry>(move |style, _, _, _| style.bg(hover))
-      .on_drop::<DragEntry>(move |entry, window, cx| {
-        let _ = drop_view.update(cx, |this, cx| this.drop_entry(entry, &drop_path, window, cx));
-      });
-  }
+  row_el = row_el
+    .can_drop(move |value, _, _| {
+      value
+        .downcast_ref::<DragEntry>()
+        .is_some_and(|entry| !drop_ignored(&entry.path, entry.is_directory, &can_drop_into))
+    })
+    .drag_over::<DragEntry>(move |style, _, _, _| style.bg(hover))
+    .on_drop::<DragEntry>(move |entry, window, cx| {
+      let _ = drop_view.update(cx, |this, cx| this.drop_entry(entry, &drop_into, window, cx));
+    });
   row_el
     .child(
       div()
@@ -214,4 +212,18 @@ pub fn render_row(row: &Row, paint: &RowPaint, view: WeakEntity<ExplorerView>) -
       )
     })
     .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use core::prelude::v1::test;
+
+  #[test]
+  fn drop_onto_a_file_uses_the_parent_and_ignores_siblings() {
+    let into = parent_path("src/b.rs");
+    assert_eq!(into, "src");
+    assert!(drop_ignored("src/a.rs", false, &into));
+    assert!(!drop_ignored("a.rs", false, &into));
+  }
 }

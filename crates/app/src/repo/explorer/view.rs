@@ -343,7 +343,21 @@ impl ExplorerView {
     );
   }
 
+  fn sync_keyboard_selection(&mut self, cx: &mut Context<Self>) {
+    let tree_id = self
+      .tree
+      .read(cx)
+      .selected_entry()
+      .map(|entry| entry.item().id.to_string());
+    let anchor = self.model.read(cx).anchor.clone();
+    let Some(path) = keyboard_path_to_select(tree_id.as_deref(), anchor.as_deref()) else {
+      return;
+    };
+    self.model.update(cx, |model, cx| model.select(&path, false, false, cx));
+  }
+
   fn rename_selected(&mut self, cx: &mut Context<Self>) {
+    self.sync_keyboard_selection(cx);
     let Some(path) = self.model.read(cx).anchor.clone() else {
       return;
     };
@@ -351,6 +365,7 @@ impl ExplorerView {
   }
 
   fn delete_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    self.sync_keyboard_selection(cx);
     let paths = {
       let model = self.model.read(cx);
       if model.selected.is_empty() {
@@ -368,6 +383,7 @@ impl ExplorerView {
   }
 
   fn paste_keyboard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    self.sync_keyboard_selection(cx);
     let Some(into) = self.model.read(cx).paste_target() else {
       return;
     };
@@ -490,6 +506,11 @@ fn is_stub_id(id: &str) -> bool {
   id.ends_with('\u{2060}')
 }
 
+fn keyboard_path_to_select(tree_id: Option<&str>, anchor: Option<&str>) -> Option<String> {
+  let id = tree_id.filter(|id| !is_stub_id(id))?;
+  if anchor == Some(id) { None } else { Some(id.to_string()) }
+}
+
 fn items_from_nodes(nodes: &[Node], expanded: &HashSet<String>, filter: &str) -> Vec<TreeItem> {
   nodes
     .iter()
@@ -556,9 +577,11 @@ impl Render for ExplorerView {
       .on_action(cx.listener(|this, _: &ExplorerRename, _, cx| this.rename_selected(cx)))
       .on_action(cx.listener(|this, _: &ExplorerDelete, window, cx| this.delete_selected(window, cx)))
       .on_action(cx.listener(|this, _: &ExplorerCut, _, cx| {
+        this.sync_keyboard_selection(cx);
         this.model.update(cx, |model, cx| model.mark(ClipboardOp::Cut, cx));
       }))
       .on_action(cx.listener(|this, _: &ExplorerCopy, _, cx| {
+        this.sync_keyboard_selection(cx);
         this.model.update(cx, |model, cx| model.mark(ClipboardOp::Copy, cx));
       }))
       .on_action(cx.listener(|this, _: &ExplorerPaste, window, cx| this.paste_keyboard(window, cx)))
@@ -840,5 +863,16 @@ mod tests {
         );
       })
       .unwrap();
+  }
+
+  #[test]
+  fn keyboard_selection_resyncs_when_the_tree_id_differs_from_the_anchor() {
+    assert_eq!(
+      keyboard_path_to_select(Some("b.rs"), Some("a.rs")).as_deref(),
+      Some("b.rs")
+    );
+    assert_eq!(keyboard_path_to_select(Some("a.rs"), Some("a.rs")), None);
+    assert_eq!(keyboard_path_to_select(None, Some("a.rs")), None);
+    assert_eq!(keyboard_path_to_select(Some("src\u{2060}"), Some("a.rs")), None);
   }
 }
