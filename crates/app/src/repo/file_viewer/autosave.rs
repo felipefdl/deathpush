@@ -31,9 +31,14 @@ impl SaveState {
   }
 }
 
-#[allow(dead_code)]
-pub fn sha256_utf8(text: &str) -> String {
-  deathpush_core::content_hash::sha256_utf8(text)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveToken {
+  pub path: String,
+  pub generation: u64,
+}
+
+pub fn token_still_valid(token: &SaveToken, current_path: Option<&str>, save: &SaveState) -> bool {
+  current_path == Some(token.path.as_str()) && save.should_save(token.generation)
 }
 
 #[cfg(test)]
@@ -58,5 +63,29 @@ mod tests {
     assert!(s.should_reload_external("h3") && !s.should_reload_external("h2"));
     s.edited();
     assert!(!s.should_reload_external("h3"), "no reload while a save is pending");
+  }
+
+  #[test]
+  fn timer_token_for_a_does_not_save_after_switch_to_b() {
+    let token = SaveToken {
+      path: "a.rs".into(),
+      generation: 1,
+    };
+    let mut save = SaveState {
+      saved_hash: "ha".into(),
+      dirty: true,
+      generation: 1,
+    };
+    assert!(token_still_valid(&token, Some("a.rs"), &save));
+    save.dirty = false;
+    save.saved_hash = "hb".into();
+    assert!(
+      !token_still_valid(&token, Some("b.rs"), &save),
+      "path switch drops the token even when generation is unchanged"
+    );
+    let g2 = save.edited();
+    assert_eq!(g2, 2, "generation stays monotonic across files");
+    assert!(!token_still_valid(&token, Some("b.rs"), &save));
+    assert!(!save.should_save(token.generation));
   }
 }

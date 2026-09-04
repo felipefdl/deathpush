@@ -152,6 +152,7 @@ impl Shell {
       window,
       |this, model, event: &crate::repo::model::RepoEvent, window, cx| match event {
         crate::repo::model::RepoEvent::Error(message) => this.show_toast(message.clone(), cx),
+        crate::repo::model::RepoEvent::Saved { .. } => {}
         crate::repo::model::RepoEvent::Changed => {
           let state = model.read(cx).state();
           if let Some(root) = state.root() {

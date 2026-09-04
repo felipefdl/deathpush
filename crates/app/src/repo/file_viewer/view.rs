@@ -5,13 +5,13 @@ use deathpush_core::config::settings::{MONO_FONT_STACK, WordWrap};
 use gpui_kit::component::input::{Editor, EditorState, InputEvent, Position, TabSize};
 use gpui_kit::*;
 
-use super::autosave::{AUTOSAVE_MS, SaveState};
+use super::autosave::{AUTOSAVE_MS, SaveState, SaveToken, token_still_valid};
 use super::header;
 use super::states::{self, ViewerKind, classify};
 use crate::config::AppConfig;
 use crate::repo::diff::highlight::grammar_name;
 use crate::repo::layout_model::LayoutModel;
-use crate::repo::model::RepoModel;
+use crate::repo::model::{RepoEvent, RepoModel};
 use crate::theme::ActivePalette;
 
 pub struct FileViewer {
@@ -24,7 +24,6 @@ pub struct FileViewer {
   loaded_hash: Option<String>,
   loaded_language: Option<String>,
   image: Option<Arc<Image>>,
-  pending_save_generation: u64,
   last_cursor_line: Option<usize>,
   window_handle: AnyWindowHandle,
   focus_handle: FocusHandle,
@@ -39,7 +38,11 @@ impl FileViewer {
     window: &mut Window,
     cx: &mut Context<Self>,
   ) -> Self {
-    cx.observe(&repo, |_, _, cx| cx.notify()).detach();
+    cx.subscribe(&repo, |this, _, event: &RepoEvent, cx| match event {
+      RepoEvent::Saved { path, hash, generation } => this.on_saved(path, hash, *generation, cx),
+      RepoEvent::Changed | RepoEvent::Error(_) => cx.notify(),
+    })
+    .detach();
     cx.observe(&layout, |_, _, cx| cx.notify()).detach();
     cx.observe_global::<AppConfig>(|this, cx| {
       this.apply_editor_settings(cx);
@@ -60,7 +63,6 @@ impl FileViewer {
       loaded_hash: None,
       loaded_language: None,
       image: None,
-      pending_save_generation: 0,
       last_cursor_line: None,
       window_handle: window.window_handle(),
       focus_handle: cx.focus_handle(),
@@ -121,14 +123,19 @@ impl FileViewer {
       if matches!(event, InputEvent::Change) {
         let was_clean = !this.save.dirty;
         let generation = this.save.edited();
-        this.pending_save_generation = generation;
+        let path = this.loaded_path.clone();
         if was_clean {
           this.repo.update(cx, |model, cx| model.mark_open_file_dirty(cx));
         }
         cx.notify();
         cx.spawn(async move |this, cx| {
           cx.background_executor().timer(Duration::from_millis(AUTOSAVE_MS)).await;
-          let _ = this.update(cx, |this, cx| this.flush_save(generation, cx));
+          let _ = this.update(cx, |this, cx| {
+            let Some(path) = path else {
+              return;
+            };
+            this.flush_save(&path, generation, cx);
+          });
         })
         .detach();
       }
@@ -169,15 +176,37 @@ impl FileViewer {
     });
   }
 
-  fn flush_save(&mut self, generation: u64, cx: &mut Context<Self>) {
-    if !self.save.should_save(generation) {
+  fn flush_save(&mut self, path: &str, generation: u64, cx: &mut Context<Self>) {
+    let token = SaveToken {
+      path: path.to_string(),
+      generation,
+    };
+    if !token_still_valid(&token, self.loaded_path.as_deref(), &self.save) {
       return;
     }
     let content = self.editor.read(cx).value().to_string();
     let expected = self.save.saved_hash.clone();
-    self
-      .repo
-      .update(cx, |model, cx| model.write_open_file(content, expected, cx));
+    self.repo.update(cx, |model, cx| {
+      model.write_open_file(token.path, content, expected, generation, cx)
+    });
+  }
+
+  fn on_saved(&mut self, path: &str, hash: &str, generation: u64, cx: &mut Context<Self>) {
+    if self.loaded_path.as_deref() != Some(path) {
+      return;
+    }
+    self.save.saved(hash.to_string(), generation);
+    if self.save.dirty {
+      cx.notify();
+      return;
+    }
+    self.loaded_hash = Some(hash.to_string());
+    let repo = self.repo.clone();
+    let handle = self.window_handle;
+    let _ = handle.update(cx, |_, window, cx| {
+      repo.update(cx, |model, cx| model.mark_open_file_saved(window, cx));
+    });
+    cx.notify();
   }
 
   fn rebuild_editor(&mut self, language: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
@@ -214,87 +243,109 @@ impl FileViewer {
   }
 
   fn reset_save(&mut self, hash: String) {
-    self.save = SaveState {
-      saved_hash: hash,
-      dirty: false,
-      generation: 0,
-    };
-    self.pending_save_generation = 0;
+    self.save.saved_hash = hash;
+    self.save.dirty = false;
   }
 
   fn sync_open_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-    let open = self.repo.read(cx).state().open_file.clone();
-    let kind = classify(open.as_ref());
-    let Some(open) = open else {
-      if self.loaded_path.is_some() {
-        self.loaded_path = None;
-        self.loaded_hash = None;
-        self.loaded_language = None;
-        self.image = None;
-        self.reset_save(String::new());
-        self.last_cursor_line = None;
+    struct Snap {
+      kind: ViewerKind,
+      path: String,
+      pending_line: Option<usize>,
+      new_path: bool,
+      hash: String,
+      language: Option<String>,
+      body: Option<String>,
+    }
+
+    enum Prep {
+      Empty,
+      Loading { path: String, new_path: bool },
+      Ready(Snap),
+    }
+
+    let prep = {
+      let state = self.repo.read(cx).state();
+      match state.open_file.as_ref() {
+        None => Prep::Empty,
+        Some(open) if open.content.is_none() => Prep::Loading {
+          path: open.path.clone(),
+          new_path: self.loaded_path.as_deref() != Some(open.path.as_str()),
+        },
+        Some(open) => {
+          let content = open.content.as_ref().expect("checked");
+          let kind = classify(Some(open));
+          let new_path = self.loaded_path.as_deref() != Some(open.path.as_str());
+          let apply_image = kind == ViewerKind::Image
+            && (new_path || self.loaded_hash.as_deref() != Some(content.content_hash.as_str()));
+          let apply_text = kind == ViewerKind::Text
+            && (new_path || (!self.save.dirty && self.save.should_reload_external(&content.content_hash)));
+          Prep::Ready(Snap {
+            kind,
+            path: open.path.clone(),
+            pending_line: open.pending_line,
+            new_path,
+            hash: content.content_hash.clone(),
+            language: content.language.clone(),
+            body: (apply_image || apply_text).then(|| content.content.clone()),
+          })
+        }
       }
-      return;
     };
-    let new_path = self.loaded_path.as_deref() != Some(open.path.as_str());
-    let Some(content) = open.content.clone() else {
-      if new_path {
-        self.loaded_path = Some(open.path);
-        self.loaded_hash = None;
-        self.image = None;
-        self.reset_save(String::new());
-      }
-      return;
-    };
 
-    if kind == ViewerKind::Image {
-      if new_path || self.loaded_hash.as_deref() != Some(content.content_hash.as_str()) {
-        self.image = states::decode_image(&content.content);
-        self.loaded_path = Some(open.path);
-        self.loaded_hash = Some(content.content_hash.clone());
-        self.reset_save(content.content_hash);
+    match prep {
+      Prep::Empty => {
+        if self.loaded_path.is_some() {
+          self.loaded_path = None;
+          self.loaded_hash = None;
+          self.loaded_language = None;
+          self.image = None;
+          self.reset_save(String::new());
+          self.last_cursor_line = None;
+        }
       }
-      return;
-    }
-
-    if kind != ViewerKind::Text {
-      if new_path {
-        self.loaded_path = Some(open.path);
-        self.loaded_hash = Some(content.content_hash.clone());
-        self.image = None;
-        self.reset_save(content.content_hash);
+      Prep::Loading { path, new_path } => {
+        if new_path {
+          self.loaded_path = Some(path);
+          self.loaded_hash = None;
+          self.image = None;
+          self.reset_save(String::new());
+        }
       }
-      return;
-    }
-
-    if new_path {
-      self.rebuild_editor(content.language.as_deref(), window, cx);
-      self.editor.update(cx, |state, cx| {
-        state.set_value(content.content.clone(), window, cx);
-      });
-      self.reset_save(content.content_hash.clone());
-      self.loaded_path = Some(open.path);
-      self.loaded_hash = Some(content.content_hash.clone());
-      self.image = None;
-    } else if self.save.dirty {
-      self
-        .save
-        .saved(content.content_hash.clone(), self.pending_save_generation);
-      if !self.save.dirty {
-        self.loaded_hash = Some(content.content_hash.clone());
-        self.repo.update(cx, |model, cx| model.mark_open_file_saved(window, cx));
-      }
-    } else if self.save.should_reload_external(&content.content_hash) {
-      self.rebuild_editor(content.language.as_deref(), window, cx);
-      self.editor.update(cx, |state, cx| {
-        state.set_value(content.content.clone(), window, cx);
-      });
-      self.reset_save(content.content_hash.clone());
-      self.loaded_hash = Some(content.content_hash.clone());
-    }
-
-    if let Some(line) = open.pending_line {
-      self.apply_pending_line(line, window, cx);
+      Prep::Ready(snap) => match snap.kind {
+        ViewerKind::Empty | ViewerKind::Loading => {}
+        ViewerKind::Image => {
+          if let Some(uri) = snap.body {
+            self.image = states::decode_image(&uri);
+            self.loaded_path = Some(snap.path);
+            self.loaded_hash = Some(snap.hash.clone());
+            self.reset_save(snap.hash);
+          }
+        }
+        ViewerKind::Binary | ViewerKind::Large => {
+          if snap.new_path {
+            self.loaded_path = Some(snap.path);
+            self.loaded_hash = Some(snap.hash.clone());
+            self.image = None;
+            self.reset_save(snap.hash);
+          }
+        }
+        ViewerKind::Text => {
+          if let Some(body) = snap.body {
+            self.rebuild_editor(snap.language.as_deref(), window, cx);
+            self.editor.update(cx, |state, cx| {
+              state.set_value(body, window, cx);
+            });
+            self.reset_save(snap.hash.clone());
+            self.loaded_path = Some(snap.path);
+            self.loaded_hash = Some(snap.hash);
+            self.image = None;
+          }
+          if let Some(line) = snap.pending_line {
+            self.apply_pending_line(line, window, cx);
+          }
+        }
+      },
     }
   }
 
@@ -325,9 +376,13 @@ impl Render for FileViewer {
     let font_family = Self::editor_font(&settings.editor.font_family);
     let font_size = settings.editor.font_size as f32;
     let line_height = settings.editor.line_height as f32;
-    let open = self.repo.read(cx).state().open_file.clone();
-    let kind = classify(open.as_ref());
-    let path = open.as_ref().map(|open| open.path.clone()).unwrap_or_default();
+    let (kind, path) = {
+      let open = self.repo.read(cx).state().open_file.as_ref();
+      (
+        classify(open),
+        open.map(|open| open.path.as_str()).unwrap_or("").to_string(),
+      )
+    };
     let weak = cx.weak_entity();
     let mut root = div()
       .track_focus(&self.focus_handle)

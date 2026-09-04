@@ -14,6 +14,12 @@ pub enum RepoEvent {
   Changed,
   /// A failed intent; the shell shows the toast.
   Error(String),
+  /// A file write finished; the viewer completes `SaveState` from this, not from sync.
+  Saved {
+    path: String,
+    hash: String,
+    generation: u64,
+  },
 }
 
 /// One window's repository session: applies core outcomes and events to `RepoState` and sends intents.
@@ -286,11 +292,14 @@ impl RepoModel {
     self.dispatch(Intent::OpenBlame { path }, window, cx);
   }
 
-  pub fn write_open_file(&mut self, content: String, expected_hash: String, cx: &mut Context<Self>) {
-    let Some(open) = self.state.open_file.as_ref() else {
-      return;
-    };
-    let path = open.path.clone();
+  pub fn write_open_file(
+    &mut self,
+    path: String,
+    content: String,
+    expected_hash: String,
+    generation: u64,
+    cx: &mut Context<Self>,
+  ) {
     let core = self.core.clone();
     let session = self.session;
     let handle = core.runtime_handle().clone();
@@ -301,15 +310,16 @@ impl RepoModel {
       let result = task.await;
       let _ = this.update(cx, |this, cx| match result {
         Ok(Ok(result)) => {
+          let hash = result.content_hash;
           if let Some(open) = this.state.open_file.as_mut()
             && open.path == path
             && let Some(file) = open.content.as_mut()
             && file.content_hash == expected_hash
           {
-            file.content_hash = result.content_hash;
+            file.content_hash = hash.clone();
             file.content = written;
           }
-          cx.emit(RepoEvent::Changed);
+          cx.emit(RepoEvent::Saved { path, hash, generation });
           cx.notify();
         }
         Ok(Err(err)) => this.fail(err.to_string(), cx),
@@ -330,6 +340,9 @@ impl RepoModel {
     }
     match result {
       Ok(Ok(content)) => {
+        if self.state.open_file.as_ref().is_some_and(|open| open.dirty) {
+          return;
+        }
         if let Some(open) = self.state.open_file.as_mut() {
           open.content = Some(content);
         }
