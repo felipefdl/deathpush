@@ -282,9 +282,10 @@ impl DiffPanel {
     self.dragging = false;
   }
 
-  fn begin_selection(&mut self, anchor: Anchor, cx: &mut Context<Self>) {
+  fn begin_selection(&mut self, anchor: Anchor, window: &mut Window, cx: &mut Context<Self>) {
     self.selection = Some(Selection { anchor, head: anchor });
     self.dragging = true;
+    self.focus_handle.focus(window, cx);
     cx.notify();
   }
 
@@ -506,10 +507,11 @@ impl Render for DiffPanel {
             staged: self.staged,
             merge: self.merge,
             show_hunk_actions,
+            side_by_side: matches!(rows.as_ref(), DiffRows::SideBySide(_)),
             on_mouse_down: Rc::new({
               let view = weak.clone();
-              move |anchor, _, cx| {
-                let _ = view.update(cx, |this, cx| this.begin_selection(anchor, cx));
+              move |anchor, window, cx| {
+                let _ = view.update(cx, |this, cx| this.begin_selection(anchor, window, cx));
               }
             }),
             on_hunk: Rc::new({
@@ -727,9 +729,18 @@ mod tests {
       .unwrap();
     cx.run_until_parked();
     window
-      .update(cx, |panel, _, cx| {
+      .update(cx, |panel, window, cx| {
         assert_eq!(panel.rows().map(|rows| rows.len()), Some(expected));
-        let _ = cx;
+        panel.begin_selection(
+          Anchor {
+            row: 0,
+            side: Side::New,
+            byte: 0,
+          },
+          window,
+          cx,
+        );
+        assert_eq!(window.focused(cx).as_ref(), Some(&panel.focus_handle));
       })
       .unwrap();
   }

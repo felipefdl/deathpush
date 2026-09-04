@@ -206,10 +206,22 @@ pub fn linux_rows(ctx: &MenuContext) -> Vec<LinuxRow> {
     row("Pull", None, Box::new(GitPull), repo, true),
     row("Push", None, Box::new(GitPush), repo, false),
     row("Fetch", None, Box::new(GitFetch), repo, false),
+    row("Sync", None, Box::new(GitSync), repo, false),
+    row("Pull (Rebase)", None, Box::new(GitPullRebase), repo, false),
+    row("Push (Force)", None, Box::new(GitPushForce), repo, false),
     row("Stage All", None, Box::new(GitStageAll), repo, false),
     row("Unstage All", None, Box::new(GitUnstageAll), repo, false),
+    row("Discard All Changes", None, Box::new(GitDiscardAll), repo, false),
     row("Stash...", None, Box::new(GitStash), repo, false),
     row("Stash Pop", None, Box::new(GitStashPop), repo, false),
+    row(
+      "Stash (Include Untracked)",
+      None,
+      Box::new(GitStashIncludeUntracked),
+      repo,
+      false,
+    ),
+    row("Stash Staged Only", None, Box::new(GitStashStagedOnly), repo, false),
     row("Undo Last Commit", None, Box::new(GitUndoCommit), repo, false),
     row("New Terminal", Some("Ctrl+Shift+J"), Box::new(NewTerminal), repo, true),
     row("Kill Terminal", None, Box::new(KillTerminal), repo, false),
@@ -306,9 +318,15 @@ mod tests {
   #[test]
   fn linux_rows_match_the_spec_table() {
     let rows = linux_rows(&MenuContext::default());
-    assert_eq!(rows.len(), 23);
+    assert_eq!(rows.len(), 29);
     assert_eq!(rows[0].label, "New Window");
-    assert_eq!(rows[22].label, "Quit");
+    assert_eq!(rows[28].label, "Quit");
+    assert_eq!(rows[13].label, "Sync");
+    assert_eq!(rows[14].label, "Pull (Rebase)");
+    assert_eq!(rows[15].label, "Push (Force)");
+    assert_eq!(rows[18].label, "Discard All Changes");
+    assert_eq!(rows[21].label, "Stash (Include Untracked)");
+    assert_eq!(rows[22].label, "Stash Staged Only");
     assert!(rows.iter().find(|r| r.label == "Changes").unwrap().disabled);
     assert!(!rows.iter().find(|r| r.label == "Settings...").unwrap().disabled);
     assert_eq!(rows.iter().filter(|r| r.separator_before).count(), 5);

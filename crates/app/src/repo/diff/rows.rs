@@ -36,6 +36,7 @@ pub struct RowInteract {
   pub staged: bool,
   pub merge: bool,
   pub show_hunk_actions: bool,
+  pub side_by_side: bool,
   pub on_mouse_down: SelectFn,
   pub on_hunk: HunkFn,
 }
@@ -350,7 +351,7 @@ fn selection_quad(
   layout: Option<&TextLayout>,
 ) -> Option<Div> {
   let sel = interact.selection.as_ref().filter(|sel| !sel.is_empty())?;
-  let range = sel.range_in(index, side, row.text.len())?;
+  let range = sel.range_in(index, side, row.text.len(), interact.side_by_side)?;
   let layout = layout?;
   let (x0, x1) = selection_xs(layout, range)?;
   let width = (x1 - x0).max(1.0);

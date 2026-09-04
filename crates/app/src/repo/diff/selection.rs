@@ -31,7 +31,8 @@ impl Selection {
   }
 
   /// Byte range selected inside `row` on `side`, if any.
-  pub fn range_in(&self, row: usize, side: Side, len: usize) -> Option<Range<usize>> {
+  /// Side-by-side rows only select on the anchor side; inline rows accept either side.
+  pub fn range_in(&self, row: usize, side: Side, len: usize, side_by_side: bool) -> Option<Range<usize>> {
     if self.is_empty() {
       return None;
     }
@@ -39,7 +40,7 @@ impl Selection {
     if row < start.row || row > end.row {
       return None;
     }
-    if start.row == end.row && side != start.side {
+    if side_by_side && side != self.anchor.side {
       return None;
     }
     let range = if start.row == end.row {
@@ -72,7 +73,7 @@ impl Selection {
           if skip_row(row) {
             continue;
           }
-          if let Some(range) = self.range_in(i, start.side, row.text.len())
+          if let Some(range) = self.range_in(i, start.side, row.text.len(), false)
             && let Some(slice) = row.text.get(range)
           {
             parts.push(slice);
@@ -92,7 +93,7 @@ impl Selection {
           if skip_row(row) {
             continue;
           }
-          if let Some(range) = self.range_in(i, side, row.text.len())
+          if let Some(range) = self.range_in(i, side, row.text.len(), true)
             && let Some(slice) = row.text.get(range)
           {
             parts.push(slice);
@@ -176,14 +177,14 @@ mod tests {
       },
     };
     assert_eq!(sel.text(&rows()), "alpha\nbeta\nga");
-    assert_eq!(sel.range_in(1, Side::New, 5), Some(0..5));
-    assert_eq!(sel.range_in(3, Side::New, 5), Some(0..2));
+    assert_eq!(sel.range_in(1, Side::New, 5, false), Some(0..5));
+    assert_eq!(sel.range_in(3, Side::New, 5, false), Some(0..2));
     assert_eq!(
-      sel.range_in(2, Side::Old, 4),
+      sel.range_in(2, Side::Old, 4, false),
       Some(0..4),
       "inline rows accept either side"
     );
-    assert!(sel.range_in(4, Side::New, 1).is_none());
+    assert!(sel.range_in(4, Side::New, 1, false).is_none());
   }
 
   #[test]
@@ -200,7 +201,7 @@ mod tests {
         byte: 4,
       },
     };
-    assert_eq!(sel.range_in(1, Side::New, 5), Some(1..4));
+    assert_eq!(sel.range_in(1, Side::New, 5, false), Some(1..4));
     assert_eq!(sel.text(&rows()), "lph");
     let empty = Selection {
       anchor: sel.anchor,
@@ -209,26 +210,29 @@ mod tests {
     assert!(empty.is_empty());
   }
 
+  fn side_row(kind: RowKind, text: &str, old: Option<usize>, new: Option<usize>) -> DiffRow {
+    DiffRow {
+      kind,
+      hunk: 0,
+      old_line: old,
+      new_line: new,
+      text: text.into(),
+      changed: vec![],
+    }
+  }
+
   #[test]
   fn side_by_side_copies_the_anchor_side_only() {
-    let rows = DiffRows::SideBySide(vec![SideRow {
-      left: DiffRow {
-        kind: RowKind::Remove,
-        hunk: 0,
-        old_line: Some(1),
-        new_line: None,
-        text: "old".into(),
-        changed: vec![],
+    let rows = DiffRows::SideBySide(vec![
+      SideRow {
+        left: side_row(RowKind::Remove, "old", Some(1), None),
+        right: side_row(RowKind::Add, "new", None, Some(1)),
       },
-      right: DiffRow {
-        kind: RowKind::Add,
-        hunk: 0,
-        old_line: None,
-        new_line: Some(1),
-        text: "new".into(),
-        changed: vec![],
+      SideRow {
+        left: side_row(RowKind::Remove, "foo", Some(2), None),
+        right: side_row(RowKind::Add, "bar", None, Some(2)),
       },
-    }]);
+    ]);
     let sel = Selection {
       anchor: Anchor {
         row: 0,
@@ -236,12 +240,15 @@ mod tests {
         byte: 0,
       },
       head: Anchor {
-        row: 0,
+        row: 1,
         side: Side::Old,
         byte: 3,
       },
     };
-    assert_eq!(sel.text(&rows), "old");
-    assert!(sel.range_in(0, Side::New, 3).is_none());
+    assert_eq!(sel.text(&rows), "old\nfoo");
+    assert!(sel.range_in(0, Side::New, 3, true).is_none());
+    assert!(sel.range_in(1, Side::New, 3, true).is_none());
+    assert_eq!(sel.range_in(0, Side::Old, 3, true), Some(0..3));
+    assert_eq!(sel.range_in(1, Side::Old, 3, true), Some(0..3));
   }
 }
