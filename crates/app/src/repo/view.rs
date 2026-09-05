@@ -1,4 +1,4 @@
-use deathpush_core::config::layout::{MainView, PanelTab, SidebarView};
+use deathpush_core::config::layout::{MainView, PanelTab, ProjectLayout, SidebarView};
 use deathpush_core::config::settings::{DiffLayout, SidebarPosition};
 use deathpush_core::session::types::Intent;
 use gpui_kit::base::{ResizableState, h_resizable, resizable_panel, v_resizable};
@@ -43,7 +43,33 @@ pub struct RepoView {
   body_state: Entity<ResizableState>,
   main_state: Entity<ResizableState>,
   pub(crate) focus_handle: FocusHandle,
-  settings_restore: Option<WeakFocusHandle>,
+  settings_restore: Option<SettingsRestore>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SettingsOpener {
+  Changes,
+  Explorer,
+  File,
+  History,
+  Terminal,
+  Repo,
+}
+
+struct SettingsRestore {
+  handle: WeakFocusHandle,
+  opener: SettingsOpener,
+}
+
+fn opener_is_shown(layout: &ProjectLayout, opener: SettingsOpener) -> bool {
+  match opener {
+    SettingsOpener::Changes => layout.sidebar_view == SidebarView::Scm,
+    SettingsOpener::Explorer => layout.sidebar_view == SidebarView::Explorer,
+    SettingsOpener::File => layout.main_view == MainView::File,
+    SettingsOpener::History => layout.main_view == MainView::History,
+    SettingsOpener::Terminal => layout.terminal_visible && layout.panel_tab == PanelTab::Terminal,
+    SettingsOpener::Repo => true,
+  }
 }
 
 impl RepoView {
@@ -178,6 +204,7 @@ impl RepoView {
   }
 
   fn toggle_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    let opener = self.settings_opener(window, cx);
     let next = self.layout.update(cx, |layout, cx| {
       let next = if layout.layout().main_view == MainView::Settings {
         MainView::Changes
@@ -191,15 +218,41 @@ impl RepoView {
       next
     });
     if next == MainView::Settings {
-      self.settings_restore = window.focused(cx).map(|handle| handle.downgrade());
+      self.settings_restore = window.focused(cx).map(|handle| SettingsRestore {
+        handle: handle.downgrade(),
+        opener,
+      });
       self.settings.update(cx, |settings, cx| {
         settings.focus(window, cx);
         settings.on_show(window, cx);
       });
-    } else if let Some(handle) = self.settings_restore.take().and_then(|handle| handle.upgrade()) {
-      handle.focus(window, cx);
+    } else if let Some(restore) = self.settings_restore.take() {
+      let shown = opener_is_shown(self.layout.read(cx).layout(), restore.opener);
+      if shown && let Some(handle) = restore.handle.upgrade() {
+        handle.focus(window, cx);
+      } else {
+        self.focus(window, cx);
+      }
     } else {
       self.focus(window, cx);
+    }
+  }
+
+  fn settings_opener(&self, window: &Window, cx: &App) -> SettingsOpener {
+    if self.terminal.read(cx).owns_focus(window, cx) {
+      return SettingsOpener::Terminal;
+    }
+    if self.explorer.read(cx).owns_focus(window, cx) {
+      return SettingsOpener::Explorer;
+    }
+    if self.changes.read(cx).owns_focus(window, cx) {
+      return SettingsOpener::Changes;
+    }
+    match self.layout.read(cx).layout().main_view {
+      MainView::File => SettingsOpener::File,
+      MainView::History => SettingsOpener::History,
+      MainView::Changes => SettingsOpener::Changes,
+      MainView::Settings => SettingsOpener::Repo,
     }
   }
 
@@ -870,6 +923,53 @@ mod tests {
         view.toggle_settings(window, cx);
         assert_eq!(view.layout().read(cx).layout().main_view, MainView::Changes);
         assert_eq!(window.focused(cx).as_ref(), Some(&commit_handle));
+      })
+      .unwrap();
+    cx.run_until_parked();
+  }
+
+  #[gpui_kit::test]
+  fn closing_settings_from_explorer_focuses_the_repo(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let layout_dir = config_dir.path().to_path_buf();
+    let root = layout_dir.to_string_lossy().into_owned();
+    let window = cx.add_window({
+      let core = core.clone();
+      let snapshot = snapshot(&root);
+      let layout_dir = layout_dir.clone();
+      let root = root.clone();
+      move |window, cx| {
+        let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
+        let output = cx.new(|_| OutputLog::default());
+        RepoView::new(model, layout, output, window, cx)
+      }
+    });
+    window
+      .update(cx, |view, window, cx| {
+        view.settings.update(cx, |settings, _cx| {
+          settings.stub_identity(String::new(), String::new());
+        });
+        view.layout().update(cx, |layout, cx| {
+          layout.select_sidebar_view(SidebarView::Explorer, cx);
+        });
+        view.explorer().update(cx, |explorer, cx| explorer.focus(window, cx));
+        assert!(view.explorer().read(cx).owns_focus(window, cx));
+        view.toggle_settings(window, cx);
+        assert_eq!(view.layout().read(cx).layout().sidebar_view, SidebarView::Scm);
+        assert_eq!(view.layout().read(cx).layout().main_view, MainView::Settings);
+        view.toggle_settings(window, cx);
+        assert_eq!(view.layout().read(cx).layout().sidebar_view, SidebarView::Scm);
+        assert_eq!(view.layout().read(cx).layout().main_view, MainView::Changes);
+        assert_eq!(window.focused(cx).as_ref(), Some(&view.focus_handle));
       })
       .unwrap();
     cx.run_until_parked();

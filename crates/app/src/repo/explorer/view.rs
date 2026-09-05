@@ -123,6 +123,11 @@ impl ExplorerView {
         .is_some_and(|field| field.read(cx).focus_handle(cx).is_focused(window))
   }
 
+  #[cfg(test)]
+  pub(crate) fn focus(&self, window: &mut Window, cx: &mut App) {
+    self.tree_focus.focus(window, cx);
+  }
+
   pub fn open_file(&mut self, path: &str, line: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
     let _ = window;
     self.model.update(cx, |model, cx| model.select(path, false, false, cx));

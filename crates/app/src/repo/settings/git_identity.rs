@@ -50,6 +50,11 @@ pub(crate) fn should_apply_loaded(pending: bool, focused: bool) -> bool {
   !pending && !focused
 }
 
+/// Drop a load result when the field changed after the load started, or a save was already pending.
+pub(crate) fn should_apply_identity_load(started_gen: u64, current_gen: u64, started_pending: bool) -> bool {
+  current_gen == started_gen && !started_pending
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -70,5 +75,13 @@ mod tests {
     assert!(!should_apply_loaded(true, false));
     assert!(!should_apply_loaded(false, true));
     assert!(!should_apply_loaded(true, true));
+  }
+
+  #[test]
+  fn identity_load_skips_a_field_that_was_pending_at_start() {
+    assert!(should_apply_identity_load(1, 1, false));
+    assert!(!should_apply_identity_load(1, 2, false));
+    assert!(!should_apply_identity_load(1, 1, true));
+    assert!(!should_apply_identity_load(1, 2, true));
   }
 }

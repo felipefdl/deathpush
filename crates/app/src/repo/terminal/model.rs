@@ -486,6 +486,13 @@ impl TerminalModel {
     }
   }
 
+  pub(crate) fn owns_focus(&self, window: &Window, cx: &App) -> bool {
+    self
+      .panes
+      .values()
+      .any(|info| window.focused(cx).as_ref() == Some(info.view.read(cx).focus_handle()))
+  }
+
   fn pane_owns_focus(&self, pane: u64, window: &Window, cx: &App) -> bool {
     let Some(info) = self.panes.get(&pane) else {
       return false;

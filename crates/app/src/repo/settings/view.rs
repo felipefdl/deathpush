@@ -11,7 +11,9 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 
-use super::git_identity::{GitIdentity, IDENTITY_DEBOUNCE_MS, should_apply_loaded, should_save};
+use super::git_identity::{
+  GitIdentity, IDENTITY_DEBOUNCE_MS, should_apply_identity_load, should_apply_loaded, should_save,
+};
 use super::sections;
 use crate::config::AppConfig;
 use crate::keymap::CONTEXT_SETTINGS;
@@ -23,6 +25,15 @@ use crate::theme::{ActivePalette, ThemeCatalog, hsla};
 /// Replace app settings with defaults. Git identity is not an app setting.
 pub(crate) fn reset_decision(_settings: Settings, name: String, email: String) -> (Settings, String, String) {
   (Settings::default(), name, email)
+}
+
+#[derive(Clone, Copy)]
+struct IdentityLoadRequest {
+  token: u64,
+  name_gen: u64,
+  email_gen: u64,
+  name_pending: bool,
+  email_pending: bool,
 }
 
 /// App settings in the repository main panel.
@@ -227,9 +238,13 @@ impl SettingsView {
 
   fn load_identity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     self.identity_load_token += 1;
-    let token = self.identity_load_token;
-    let name_gen = self.identity.name_gen;
-    let email_gen = self.identity.email_gen;
+    let request = IdentityLoadRequest {
+      token: self.identity_load_token,
+      name_gen: self.identity.name_gen,
+      email_gen: self.identity.email_gen,
+      name_pending: self.identity.name_pending(),
+      email_pending: self.identity.email_pending(),
+    };
     #[cfg(test)]
     if let Some(load) = self.identity_load.clone() {
       let delay = self.load_delay;
@@ -239,7 +254,7 @@ impl SettingsView {
           cx.background_executor().timer(delay).await;
         }
         let _ = this.update_in(cx, |this, window, cx| {
-          this.finish_identity_load((token, name_gen, email_gen), name, email, window, cx);
+          this.finish_identity_load(request, name, email, window, cx);
         });
       })
       .detach();
@@ -256,7 +271,7 @@ impl SettingsView {
         return;
       };
       let _ = this.update_in(cx, |this, window, cx| {
-        this.finish_identity_load((token, name_gen, email_gen), name, email, window, cx);
+        this.finish_identity_load(request, name, email, window, cx);
       });
     })
     .detach();
@@ -264,20 +279,19 @@ impl SettingsView {
 
   fn finish_identity_load(
     &mut self,
-    request: (u64, u64, u64),
+    request: IdentityLoadRequest,
     name: String,
     email: String,
     window: &mut Window,
     cx: &mut Context<Self>,
   ) {
-    let (token, started_name_gen, started_email_gen) = request;
-    if token != self.identity_load_token {
+    if request.token != self.identity_load_token {
       return;
     }
-    if self.identity.name_gen == started_name_gen {
+    if should_apply_identity_load(request.name_gen, self.identity.name_gen, request.name_pending) {
       self.apply_loaded_name(name, window, cx);
     }
-    if self.identity.email_gen == started_email_gen {
+    if should_apply_identity_load(request.email_gen, self.identity.email_gen, request.email_pending) {
       self.apply_loaded_email(email, window, cx);
     }
   }
@@ -969,6 +983,50 @@ mod tests {
         assert_eq!(view.identity.name, "Grace");
         assert_eq!(view.name_input.read(cx).value().as_ref(), "Grace");
         assert_eq!(view.email_input.read(cx).value().as_ref(), "stale@x");
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn delayed_identity_load_does_not_clobber_a_save_started_before_on_show(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let window = open_settings(cx, &config_dir, &resource_dir);
+    window
+      .update(cx, |view, window, cx| {
+        view.stub_identity("Ada".into(), "ada@x".into());
+        view.apply_identity_values("Ada".into(), "ada@x".into(), window, cx);
+        view.save_delay = Duration::from_millis(2000);
+        view.load_delay = Duration::from_millis(3000);
+        view
+          .name_input
+          .update(cx, |state, cx| state.replace_all("Grace", window, cx));
+      })
+      .unwrap();
+    cx.executor().advance_clock(Duration::from_millis(IDENTITY_DEBOUNCE_MS));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, window, cx| {
+        assert_eq!(view.identity.name_inflight, Some(1));
+        view.set_stub_identity("Stale".into(), "stale@x".into());
+        view.on_show(window, cx);
+      })
+      .unwrap();
+    cx.executor().advance_clock(Duration::from_millis(2000));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, _, cx| {
+        assert_eq!(view.identity.name, "Grace");
+        assert_eq!(view.name_input.read(cx).value().as_ref(), "Grace");
+        assert!(view.identity.name_inflight.is_none());
+      })
+      .unwrap();
+    cx.executor().advance_clock(Duration::from_millis(1000));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, _, cx| {
+        assert_eq!(view.identity.name, "Grace");
+        assert_eq!(view.name_input.read(cx).value().as_ref(), "Grace");
       })
       .unwrap();
   }

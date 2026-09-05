@@ -148,6 +148,12 @@ impl ChangesView {
     self.commit.update(cx, |state, cx| state.focus(window, cx));
   }
 
+  pub(crate) fn owns_focus(&self, window: &Window, cx: &App) -> bool {
+    self.focus_handle.is_focused(window)
+      || self.commit.read(cx).focus_handle(cx).is_focused(window)
+      || self.filter.read(cx).focus_handle(cx).is_focused(window)
+  }
+
   pub fn commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     self.send(Intent::Commit { confirmed: false }, window, cx);
   }
