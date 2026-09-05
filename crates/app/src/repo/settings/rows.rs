@@ -45,7 +45,7 @@ pub(crate) fn section_title(text: impl Into<SharedString>, cx: &App) -> impl Int
 pub(crate) fn toggle_row(
   label: impl Into<SharedString>,
   value: bool,
-  on_change: impl Fn(bool, &mut App) + 'static,
+  on_change: impl Fn(bool, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
   let label: SharedString = label.into();
   labeled_row(
@@ -53,7 +53,7 @@ pub(crate) fn toggle_row(
     Switch::new(label)
       .small()
       .checked(value)
-      .on_click(move |checked, _, cx| on_change(*checked, cx)),
+      .on_click(move |checked, window, cx| on_change(*checked, window, cx)),
   )
 }
 

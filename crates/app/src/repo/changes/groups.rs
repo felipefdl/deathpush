@@ -10,9 +10,10 @@ use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::*;
 
 use super::filter::matches_filter;
-use super::rows::{render_file_row, render_nested_row, render_stash_row};
+use super::rows::{FileRowPaint, render_file_row, render_nested_row, render_stash_row};
 use super::view::ChangesView;
 use crate::config::AppConfig;
+use crate::repo::explorer::icons::IconKind;
 use crate::repo::state::RepoState;
 use crate::theme::{ActivePalette, hsla};
 
@@ -145,6 +146,7 @@ pub fn render_groups(
   let _ = window;
   let palette = cx.global::<ActivePalette>().0;
   let density = AppConfig::get(cx).settings.ui.tree_density;
+  let icons = IconKind::from(AppConfig::get(cx).settings.ui.tree_icons);
   let (expanded, collapsed_groups) = {
     let layout = view.layout.read(cx);
     let expanded: Vec<Group> = groups
@@ -168,7 +170,7 @@ pub fn render_groups(
       panels = panels.child(
         resizable_panel()
           .size_range(px(44.0)..Pixels::MAX)
-          .child(render_expanded_group(group, view, &weak, density, &palette, cx)),
+          .child(render_expanded_group(group, view, &weak, density, icons, &palette, cx)),
       );
     }
     root = root.child(panels);
@@ -184,6 +186,7 @@ fn render_expanded_group(
   view: &ChangesView,
   weak: &WeakEntity<ChangesView>,
   density: deathpush_core::config::settings::TreeDensity,
+  icons: IconKind,
   palette: &UiPalette,
   cx: &mut Context<ChangesView>,
 ) -> impl IntoElement {
@@ -197,7 +200,7 @@ fn render_expanded_group(
       div()
         .flex_1()
         .min_h_0()
-        .child(render_group_body(group, view, weak, density, palette)),
+        .child(render_group_body(group, view, weak, density, icons, palette)),
     )
 }
 
@@ -320,6 +323,7 @@ fn render_group_body(
   view: &ChangesView,
   weak: &WeakEntity<ChangesView>,
   density: deathpush_core::config::settings::TreeDensity,
+  icons: IconKind,
   palette: &UiPalette,
 ) -> AnyElement {
   match &group.body {
@@ -338,7 +342,16 @@ fn render_group_body(
               let row = rows.get(index)?;
               let is_selected = selected.contains(&(row.group_kind, row.path.clone()));
               Some(
-                render_file_row(row, is_selected, density, group_id, index, weak.clone(), &palette).into_any_element(),
+                render_file_row(
+                  row,
+                  is_selected,
+                  FileRowPaint { density, icons },
+                  group_id,
+                  index,
+                  weak.clone(),
+                  &palette,
+                )
+                .into_any_element(),
               )
             })
             .collect()
@@ -355,7 +368,15 @@ fn render_group_body(
       .flex_col()
       .children(rows.iter().enumerate().map(|(index, row)| {
         let selected = view.selected.contains(&(row.group_kind, row.path.clone()));
-        render_file_row(row, selected, density, group.id, index, weak.clone(), palette)
+        render_file_row(
+          row,
+          selected,
+          FileRowPaint { density, icons },
+          group.id,
+          index,
+          weak.clone(),
+          palette,
+        )
       }))
       .into_any_element(),
     GroupBody::Stashes(stashes) => div()

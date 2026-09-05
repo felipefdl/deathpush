@@ -14,6 +14,7 @@ use gpui_kit::*;
 use super::git_identity::{GitIdentity, IDENTITY_DEBOUNCE_MS, should_apply_loaded, should_save};
 use super::sections;
 use crate::config::AppConfig;
+use crate::keymap::CONTEXT_SETTINGS;
 use crate::repo::changes::filter::debounce;
 use crate::repo::layout_model::LayoutModel;
 use crate::repo::model::RepoModel;
@@ -26,10 +27,7 @@ pub(crate) fn reset_decision(_settings: Settings, name: String, email: String) -
 
 /// App settings in the repository main panel.
 pub struct SettingsView {
-  #[allow(dead_code)]
   repo: Entity<RepoModel>,
-  #[allow(dead_code)]
-  layout: Entity<LayoutModel>,
   identity: GitIdentity,
   name_input: Entity<InputState>,
   email_input: Entity<InputState>,
@@ -40,8 +38,11 @@ pub struct SettingsView {
   pub(crate) shell_custom: bool,
   focus_handle: FocusHandle,
   core: Arc<Core>,
+  identity_load_token: u64,
   #[cfg(test)]
   identity_load: Option<Arc<std::sync::Mutex<(String, String)>>>,
+  #[cfg(test)]
+  load_delay: Duration,
   #[cfg(test)]
   save_delay: Duration,
   #[cfg(test)]
@@ -144,7 +145,6 @@ impl SettingsView {
 
     Self {
       repo,
-      layout,
       identity: GitIdentity::new(),
       name_input,
       email_input,
@@ -155,8 +155,11 @@ impl SettingsView {
       shell_custom,
       focus_handle: cx.focus_handle(),
       core: core.clone(),
+      identity_load_token: 0,
       #[cfg(test)]
       identity_load: None,
+      #[cfg(test)]
+      load_delay: Duration::ZERO,
       #[cfg(test)]
       save_delay: Duration::ZERO,
       #[cfg(test)]
@@ -214,13 +217,29 @@ impl SettingsView {
     cx.notify();
   }
 
-  fn load_identity(&self, window: &mut Window, cx: &mut Context<Self>) {
+  pub(crate) fn set_git_blame(&mut self, enabled: bool, window: &mut Window, cx: &mut Context<Self>) {
+    AppConfig::update(cx, |c| c.settings.git.blame = enabled);
+    if enabled {
+      self.repo.update(cx, |model, cx| model.maybe_request_blame(window, cx));
+    }
+    cx.notify();
+  }
+
+  fn load_identity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    self.identity_load_token += 1;
+    let token = self.identity_load_token;
+    let name_gen = self.identity.name_gen;
+    let email_gen = self.identity.email_gen;
     #[cfg(test)]
     if let Some(load) = self.identity_load.clone() {
+      let delay = self.load_delay;
+      let (name, email) = load.lock().expect("identity load").clone();
       cx.spawn_in(window, async move |this, cx| {
-        let (name, email) = load.lock().expect("identity load").clone();
+        if !delay.is_zero() {
+          cx.background_executor().timer(delay).await;
+        }
         let _ = this.update_in(cx, |this, window, cx| {
-          this.apply_identity_values(name, email, window, cx);
+          this.finish_identity_load((token, name_gen, email_gen), name, email, window, cx);
         });
       })
       .detach();
@@ -237,19 +256,33 @@ impl SettingsView {
         return;
       };
       let _ = this.update_in(cx, |this, window, cx| {
-        this.apply_identity_values(name, email, window, cx);
+        this.finish_identity_load((token, name_gen, email_gen), name, email, window, cx);
       });
     })
     .detach();
   }
 
-  pub(crate) fn apply_identity_values(
+  fn finish_identity_load(
     &mut self,
+    request: (u64, u64, u64),
     name: String,
     email: String,
     window: &mut Window,
     cx: &mut Context<Self>,
   ) {
+    let (token, started_name_gen, started_email_gen) = request;
+    if token != self.identity_load_token {
+      return;
+    }
+    if self.identity.name_gen == started_name_gen {
+      self.apply_loaded_name(name, window, cx);
+    }
+    if self.identity.email_gen == started_email_gen {
+      self.apply_loaded_email(email, window, cx);
+    }
+  }
+
+  fn apply_loaded_name(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
     let name_focused = self.name_input.read(cx).focus_handle(cx).is_focused(window);
     if should_apply_loaded(self.identity.name_pending(), name_focused) {
       self.identity.name = name.clone();
@@ -258,6 +291,9 @@ impl SettingsView {
         .update(cx, |state, cx| state.set_value(name, window, cx));
       self.identity.name_done_gen = self.identity.name_gen;
     }
+  }
+
+  fn apply_loaded_email(&mut self, email: String, window: &mut Window, cx: &mut Context<Self>) {
     let email_focused = self.email_input.read(cx).focus_handle(cx).is_focused(window);
     if should_apply_loaded(self.identity.email_pending(), email_focused) {
       self.identity.email = email.clone();
@@ -266,6 +302,18 @@ impl SettingsView {
         .update(cx, |state, cx| state.set_value(email, window, cx));
       self.identity.email_done_gen = self.identity.email_gen;
     }
+  }
+
+  #[cfg(test)]
+  pub(crate) fn apply_identity_values(
+    &mut self,
+    name: String,
+    email: String,
+    window: &mut Window,
+    cx: &mut Context<Self>,
+  ) {
+    self.apply_loaded_name(name, window, cx);
+    self.apply_loaded_email(email, window, cx);
   }
 
   fn save_git_config(&mut self, key: &'static str, value: String, is_name: bool, token: u64, cx: &mut Context<Self>) {
@@ -401,6 +449,7 @@ impl Render for SettingsView {
     let catalog = ThemeCatalog::get(cx).entries.clone();
     let view = cx.weak_entity();
     div()
+      .key_context(CONTEXT_SETTINGS)
       .track_focus(&self.focus_handle)
       .size_full()
       .flex()
@@ -485,7 +534,7 @@ mod tests {
     OperationActions, SessionActions, SessionRepo, SessionScm, SessionSelection, SessionSnapshot, SyncAction, SyncKind,
   };
   use deathpush_core::types::{RepoOperationState, StatusPhase};
-  use gpui_kit::{TestAppContext, WindowHandle};
+  use gpui_kit::{AnyWindowHandle, Keystroke, TestAppContext, WindowHandle};
 
   fn snapshot(root: &str) -> SessionSnapshot {
     SessionSnapshot {
@@ -880,5 +929,147 @@ mod tests {
         );
       })
       .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn delayed_identity_load_does_not_clobber_a_newer_edit(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let window = open_settings(cx, &config_dir, &resource_dir);
+    window
+      .update(cx, |view, window, cx| {
+        view.stub_identity("Ada".into(), "ada@x".into());
+        view.on_show(window, cx);
+      })
+      .unwrap();
+    cx.run_until_parked();
+    window
+      .update(cx, |view, window, cx| {
+        assert_eq!(view.name_input.read(cx).value().as_ref(), "Ada");
+        view.load_delay = Duration::from_millis(2000);
+        view.set_stub_identity("Stale".into(), "stale@x".into());
+        view.on_show(window, cx);
+        view
+          .name_input
+          .update(cx, |state, cx| state.replace_all("Grace", window, cx));
+      })
+      .unwrap();
+    cx.executor().advance_clock(Duration::from_millis(IDENTITY_DEBOUNCE_MS));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, _, cx| {
+        assert_eq!(view.identity.name, "Grace");
+        assert_eq!(view.name_input.read(cx).value().as_ref(), "Grace");
+      })
+      .unwrap();
+    cx.executor().advance_clock(Duration::from_millis(2000));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, _, cx| {
+        assert_eq!(view.identity.name, "Grace");
+        assert_eq!(view.name_input.read(cx).value().as_ref(), "Grace");
+        assert_eq!(view.email_input.read(cx).value().as_ref(), "stale@x");
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn enabling_git_blame_requests_the_open_file(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let window = open_settings(cx, &config_dir, &resource_dir);
+    window
+      .update(cx, |view, window, cx| {
+        AppConfig::update(cx, |c| c.settings.git.blame = false);
+        view.repo.update(cx, |model, cx| {
+          model.state_mut().open_file = Some(crate::repo::state::OpenFile {
+            path: "src/main.rs".into(),
+            content: Some(deathpush_core::types::FileContent {
+              path: "src/main.rs".into(),
+              content: "fn main() {}".into(),
+              language: Some("rust".into()),
+              file_type: "text".into(),
+              content_hash: "h".into(),
+            }),
+            pending_line: None,
+            load_id: 1,
+            dirty: false,
+          });
+          model.maybe_request_blame(window, cx);
+          assert!(model.blame_requested().is_none());
+        });
+        view.set_git_blame(true, window, cx);
+        assert!(AppConfig::get(cx).settings.git.blame);
+        assert_eq!(view.repo.read(cx).blame_requested(), Some("src/main.rs"));
+      })
+      .unwrap();
+  }
+
+  struct SettingsHost {
+    settings: Entity<SettingsView>,
+    clear_fired: std::rc::Rc<std::cell::Cell<bool>>,
+  }
+
+  impl Render for SettingsHost {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+      let fired = std::rc::Rc::clone(&self.clear_fired);
+      div()
+        .key_context(crate::keymap::CONTEXT_REPOSITORY)
+        .size_full()
+        .on_action(move |_: &crate::actions::ClearSelection, _, _| {
+          fired.set(true);
+        })
+        .child(self.settings.clone())
+    }
+  }
+
+  #[gpui_kit::test]
+  fn escape_on_settings_does_not_clear_selection(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+      cx.bind_keys(crate::keymap::bindings());
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let layout_dir = config_dir.path().to_path_buf();
+    let root = layout_dir.to_string_lossy().into_owned();
+    let clear_fired = std::rc::Rc::new(std::cell::Cell::new(false));
+    let window = cx.add_window({
+      let core = core.clone();
+      let snapshot = snapshot(&root);
+      let layout_dir = layout_dir.clone();
+      let root = root.clone();
+      let clear_fired = std::rc::Rc::clone(&clear_fired);
+      move |window, cx| {
+        let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
+        let settings = cx.new(|cx| SettingsView::new(model, layout, core, window, cx));
+        SettingsHost { settings, clear_fired }
+      }
+    });
+    window
+      .update(cx, |host, window, cx| {
+        host.settings.update(cx, |settings, _cx| {
+          settings.stub_identity(String::new(), String::new());
+        });
+        host.settings.update(cx, |settings, cx| settings.focus(window, cx));
+        window.refresh();
+      })
+      .unwrap();
+    AnyWindowHandle::from(window)
+      .update(cx, |_, window, cx| {
+        let _ = window.draw(cx);
+      })
+      .unwrap();
+    cx.dispatch_keystroke(window.into(), Keystroke::parse("escape").unwrap());
+    cx.run_until_parked();
+    assert!(
+      !clear_fired.get(),
+      "ClearSelection must not fire while Settings is focused"
+    );
   }
 }

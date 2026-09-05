@@ -11,6 +11,7 @@ use gpui_kit::*;
 
 use super::groups::{FileRow, GroupId};
 use super::view::ChangesView;
+use crate::repo::explorer::icons::{IconKind, icon_for};
 use crate::theme::hsla;
 
 pub fn status_letter(status: FileStatus) -> &'static str {
@@ -60,10 +61,21 @@ fn split_name_dir(path: &str) -> (&str, Option<&str>) {
   }
 }
 
+pub fn file_icon(kind: IconKind, path: &str) -> Option<&'static str> {
+  let (name, _) = split_name_dir(path);
+  icon_for(kind, name, false, false)
+}
+
+#[derive(Clone, Copy)]
+pub struct FileRowPaint {
+  pub density: TreeDensity,
+  pub icons: IconKind,
+}
+
 pub fn render_file_row(
   row: &FileRow,
   selected: bool,
-  density: TreeDensity,
+  paint: FileRowPaint,
   group_id: GroupId,
   index: usize,
   view: WeakEntity<ChangesView>,
@@ -81,7 +93,7 @@ pub fn render_file_row(
       "scm-file-{}-{}-{index}",
       row.group_kind as u8, row.path
     )))
-    .h(px(row_height(density)))
+    .h(px(row_height(paint.density)))
     .flex_shrink_0()
     .flex()
     .items_center()
@@ -96,12 +108,14 @@ pub fn render_file_row(
         this.on_file_click(click_row.clone(), group_id, index, event, window, cx);
       });
     })
-    .child(
-      svg()
-        .path("icons/file.svg")
-        .size(px(16.0))
-        .text_color(hsla(palette.muted_foreground)),
-    )
+    .when_some(file_icon(paint.icons, &row.path), |el, path| {
+      el.child(
+        svg()
+          .path(path)
+          .size(px(16.0))
+          .text_color(hsla(palette.muted_foreground)),
+      )
+    })
     .child(
       div()
         .flex_1()
@@ -303,6 +317,20 @@ mod tests {
   use core::prelude::v1::test;
   use deathpush_core::theme::UiPalette;
   use deathpush_core::types::FileStatus;
+
+  #[test]
+  fn scm_file_icon_follows_tree_icons() {
+    assert_eq!(file_icon(IconKind::None, "src/main.rs"), None);
+    assert_eq!(
+      file_icon(IconKind::Standard, "src/main.rs"),
+      Some("icons/file-code.svg")
+    );
+    assert_eq!(
+      file_icon(IconKind::Complete, "src/main.rs"),
+      Some("file-icons/file_type_rust.svg")
+    );
+    assert_eq!(file_icon(IconKind::Standard, "shot.png"), Some("icons/file-media.svg"));
+  }
 
   #[test]
   fn status_letters_follow_the_spec() {

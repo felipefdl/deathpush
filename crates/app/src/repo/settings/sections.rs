@@ -20,7 +20,7 @@ use crate::overlays::theme_picker::theme_label;
 use crate::theme::{ThemeCatalog, ThemeEntry};
 use crate::zoom;
 
-const CLASSIC_INDICATORS: &str = "Classic (+\u{2212})";
+const CLASSIC_INDICATORS: &str = "Classic (+/\u{2212})";
 
 pub(crate) fn themes_of_kind(entries: &[ThemeEntry], kind: ThemeKind) -> Vec<(SharedString, String)> {
   entries
@@ -107,7 +107,7 @@ pub(crate) fn appearance(
     .child(toggle_row(
       "Always Open Terminal on Start",
       ui.always_open_terminal_on_start,
-      persist(view, |value, cx| {
+      persist_click(view, |value, cx| {
         AppConfig::update(cx, |c| c.settings.ui.always_open_terminal_on_start = value);
       }),
     ))
@@ -185,14 +185,14 @@ pub(crate) fn diff_viewer(diff: &DiffSettings, view: WeakEntity<SettingsView>, c
     .child(toggle_row(
       "Inline Hunk Actions",
       diff.show_inline_hunk_actions,
-      persist(view.clone(), |value, cx| {
+      persist_click(view.clone(), |value, cx| {
         AppConfig::update(cx, |c| c.settings.diff.show_inline_hunk_actions = value);
       }),
     ))
     .child(toggle_row(
       "Line Numbers",
       diff.show_line_numbers,
-      persist(view.clone(), |value, cx| {
+      persist_click(view.clone(), |value, cx| {
         AppConfig::update(cx, |c| c.settings.diff.show_line_numbers = value);
       }),
     ))
@@ -215,7 +215,7 @@ pub(crate) fn diff_viewer(diff: &DiffSettings, view: WeakEntity<SettingsView>, c
     .child(toggle_row(
       "Background Highlighting",
       diff.show_background,
-      persist(view.clone(), |value, cx| {
+      persist_click(view.clone(), |value, cx| {
         AppConfig::update(cx, |c| c.settings.diff.show_background = value);
       }),
     ))
@@ -241,13 +241,9 @@ pub(crate) fn git(
     .flex_col()
     .gap_1()
     .child(section_title("Git", cx))
-    .child(toggle_row(
-      "Git Blame",
-      git.blame,
-      persist(view, |value, cx| {
-        AppConfig::update(cx, |c| c.settings.git.blame = value);
-      }),
-    ))
+    .child(toggle_row("Git Blame", git.blame, move |value, window, cx| {
+      let _ = view.update(cx, |this, cx| this.set_git_blame(value, window, cx));
+    }))
     .child(text_row("User Name", name_input))
     .child(text_row("User Email", email_input))
 }
@@ -350,7 +346,7 @@ pub(crate) fn terminal(
     .child(toggle_row(
       "Cursor Blink",
       terminal.cursor_blink,
-      persist(view.clone(), |value, cx| {
+      persist_click(view.clone(), |value, cx| {
         AppConfig::update(cx, |c| c.settings.terminal.cursor_blink = value);
       }),
     ))
@@ -390,21 +386,21 @@ pub(crate) fn terminal(
     .child(toggle_row(
       "Copy on Select",
       terminal.copy_on_select,
-      persist(view.clone(), |value, cx| {
+      persist_click(view.clone(), |value, cx| {
         AppConfig::update(cx, |c| c.settings.terminal.copy_on_select = value);
       }),
     ))
     .child(toggle_row(
       "Right Click Selects Word",
       terminal.right_click_selects_word,
-      persist(view.clone(), |value, cx| {
+      persist_click(view.clone(), |value, cx| {
         AppConfig::update(cx, |c| c.settings.terminal.right_click_selects_word = value);
       }),
     ))
     .child(toggle_row(
       "macOS Option Click Forces Selection",
       terminal.mac_option_click_forces_selection,
-      persist(view.clone(), |value, cx| {
+      persist_click(view.clone(), |value, cx| {
         AppConfig::update(cx, |c| c.settings.terminal.mac_option_click_forces_selection = value);
       }),
     ))
@@ -481,6 +477,14 @@ fn persist<T: 'static>(
     mutate(value, cx);
     let _ = view.update(cx, |_, cx| cx.notify());
   }
+}
+
+fn persist_click(
+  view: WeakEntity<SettingsView>,
+  mutate: impl Fn(bool, &mut App) + 'static,
+) -> impl Fn(bool, &mut Window, &mut App) + 'static {
+  let inner = persist(view, mutate);
+  move |value, _, cx| inner(value, cx)
 }
 
 fn set_preferred(kind: ThemeKind, id: String, cx: &mut App) {
@@ -621,6 +625,13 @@ mod tests {
     assert!(!custom_shell_visible(&ShellPreset::Default));
     assert!(!custom_shell_visible(&ShellPreset::Path("/bin/zsh".into())));
     assert!(custom_shell_visible(&ShellPreset::Custom));
+  }
+
+  #[test]
+  fn classic_indicators_use_slash_and_minus_sign() {
+    assert_eq!(CLASSIC_INDICATORS, "Classic (+/\u{2212})");
+    assert!(CLASSIC_INDICATORS.contains('/'));
+    assert!(CLASSIC_INDICATORS.contains('\u{2212}'));
   }
 
   #[test]

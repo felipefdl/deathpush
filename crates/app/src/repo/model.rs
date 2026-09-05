@@ -678,7 +678,7 @@ impl RepoModel {
     cx.notify();
   }
 
-  fn maybe_request_blame(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+  pub(crate) fn maybe_request_blame(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     let Some(open) = self.state.open_file.as_ref() else {
       return;
     };
@@ -694,6 +694,11 @@ impl RepoModel {
     let path = open.path.clone();
     self.blame_requested = Some(path.clone());
     self.dispatch(Intent::OpenBlame { path }, window, cx);
+  }
+
+  #[cfg(test)]
+  pub(crate) fn blame_requested(&self) -> Option<&str> {
+    self.blame_requested.as_deref()
   }
 
   pub fn write_open_file(

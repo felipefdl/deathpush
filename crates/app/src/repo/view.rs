@@ -43,6 +43,7 @@ pub struct RepoView {
   body_state: Entity<ResizableState>,
   main_state: Entity<ResizableState>,
   pub(crate) focus_handle: FocusHandle,
+  settings_restore: Option<WeakFocusHandle>,
 }
 
 impl RepoView {
@@ -109,6 +110,7 @@ impl RepoView {
       body_state: cx.new(|_| ResizableState::default()),
       main_state: cx.new(|_| ResizableState::default()),
       focus_handle: cx.focus_handle(),
+      settings_restore: None,
     }
   }
 
@@ -189,10 +191,15 @@ impl RepoView {
       next
     });
     if next == MainView::Settings {
+      self.settings_restore = window.focused(cx).map(|handle| handle.downgrade());
       self.settings.update(cx, |settings, cx| {
         settings.focus(window, cx);
         settings.on_show(window, cx);
       });
+    } else if let Some(handle) = self.settings_restore.take().and_then(|handle| handle.upgrade()) {
+      handle.focus(window, cx);
+    } else {
+      self.focus(window, cx);
     }
   }
 
@@ -818,6 +825,51 @@ mod tests {
         view.toggle_settings(window, cx);
         assert_eq!(view.layout().read(cx).layout().sidebar_view, SidebarView::Scm);
         assert_eq!(view.layout().read(cx).layout().main_view, MainView::Settings);
+      })
+      .unwrap();
+    cx.run_until_parked();
+  }
+
+  #[gpui_kit::test]
+  fn closing_settings_restores_the_opener_focus(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let layout_dir = config_dir.path().to_path_buf();
+    let root = layout_dir.to_string_lossy().into_owned();
+    let window = cx.add_window({
+      let core = core.clone();
+      let snapshot = snapshot(&root);
+      let layout_dir = layout_dir.clone();
+      let root = root.clone();
+      move |window, cx| {
+        let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
+        let output = cx.new(|_| OutputLog::default());
+        RepoView::new(model, layout, output, window, cx)
+      }
+    });
+    window
+      .update(cx, |view, window, cx| {
+        view.settings.update(cx, |settings, _cx| {
+          settings.stub_identity(String::new(), String::new());
+        });
+        let commit = view.changes().read(cx).commit.clone();
+        commit.update(cx, |state, cx| state.focus(window, cx));
+        let commit_handle = commit.read(cx).focus_handle(cx).clone();
+        assert_eq!(window.focused(cx).as_ref(), Some(&commit_handle));
+        view.toggle_settings(window, cx);
+        assert_eq!(view.layout().read(cx).layout().main_view, MainView::Settings);
+        assert_ne!(window.focused(cx).as_ref(), Some(&commit_handle));
+        view.toggle_settings(window, cx);
+        assert_eq!(view.layout().read(cx).layout().main_view, MainView::Changes);
+        assert_eq!(window.focused(cx).as_ref(), Some(&commit_handle));
       })
       .unwrap();
     cx.run_until_parked();

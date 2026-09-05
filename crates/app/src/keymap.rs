@@ -11,7 +11,8 @@ pub const CONTEXT_WELCOME: &str = "Welcome";
 pub const CONTEXT_WELCOME_LIST: &str = "WelcomeList";
 pub const CONTEXT_WELCOME_LIST_INPUT: &str = "WelcomeList > Input";
 pub const CONTEXT_REPOSITORY: &str = "Repository";
-pub const CONTEXT_REPOSITORY_KEYS: &str = "Repository && !Terminal";
+pub const CONTEXT_REPOSITORY_KEYS: &str = "Repository && !Terminal && !Settings";
+pub const CONTEXT_SETTINGS: &str = "Settings";
 pub const CONTEXT_DIALOG: &str = "Dialog";
 #[allow(dead_code)]
 pub const CONTEXT_CHANGES: &str = "Changes";
@@ -231,7 +232,8 @@ mod tests {
     let clear: Vec<_> = rows.iter().filter(|(_, name, _)| *name == "ClearSelection").collect();
     assert_eq!(clear.len(), 1);
     assert_eq!(clear[0].0, "escape");
-    assert_eq!(clear[0].2, Some(CONTEXT_REPOSITORY_KEYS));
+    assert_eq!(clear[0].2, Some("Repository && !Terminal && !Settings"));
+    assert_eq!(CONTEXT_SETTINGS, "Settings");
   }
 
   #[test]
