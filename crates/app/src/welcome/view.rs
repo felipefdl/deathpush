@@ -16,6 +16,7 @@ use crate::actions::*;
 use crate::config::AppConfig;
 use crate::keymap::CONTEXT_WELCOME_LIST;
 use crate::theme::{ActivePalette, hsla};
+use crate::updater::UpdaterState;
 
 pub enum WelcomeEvent {
   Open(PathBuf),
@@ -24,9 +25,12 @@ pub enum WelcomeEvent {
   InstallUpdate,
 }
 
+/// Footer button shown when an update exists.
 #[derive(Clone)]
 pub struct UpdateFooter {
+  /// `Update to v{version}` or `Updating {n}%`.
   pub label: SharedString,
+  /// True while the bundle is downloading.
   pub disabled: bool,
 }
 
@@ -37,7 +41,6 @@ pub struct WelcomeView {
   expanded: HashSet<String>,
   highlight: Highlight,
   scan_generation: u64,
-  update: Option<UpdateFooter>,
 }
 
 impl EventEmitter<WelcomeEvent> for WelcomeView {}
@@ -66,7 +69,6 @@ impl WelcomeView {
       expanded: HashSet::new(),
       highlight: Highlight::default(),
       scan_generation: 0,
-      update: None,
     };
     view.rescan(cx);
     view
@@ -104,11 +106,6 @@ impl WelcomeView {
       });
     })
     .detach();
-  }
-
-  pub fn set_update_footer(&mut self, footer: Option<UpdateFooter>, cx: &mut Context<Self>) {
-    self.update = footer;
-    cx.notify();
   }
 
   pub fn focus_recent_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -438,6 +435,13 @@ impl WelcomeView {
 impl Render for WelcomeView {
   fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let version = format!("Version {} ({})", env!("CARGO_PKG_VERSION"), env!("DEATHPUSH_GIT_HASH"));
+    let update = cx
+      .try_global::<UpdaterState>()
+      .and_then(UpdaterState::button)
+      .map(|(label, disabled)| UpdateFooter {
+        label: label.into(),
+        disabled,
+      });
     let recent_body = self.render_recent_list(cx).into_any_element();
     let workspace_body = self.render_workspace_list(cx).into_any_element();
     let configure = div()
@@ -528,12 +532,12 @@ impl Render for WelcomeView {
           .py_2()
           .text_size(px(11.0))
           .text_color(cx.theme().muted_foreground)
-          .children(self.update.as_ref().map(|footer| {
+          .children(update.map(|footer| {
             let disabled = footer.disabled;
             Button::new("install-update")
               .outline()
               .xsmall()
-              .label(footer.label.clone())
+              .label(footer.label)
               .disabled(disabled)
               .on_click(cx.listener(|_, _, _, cx| cx.emit(WelcomeEvent::InstallUpdate)))
           }))

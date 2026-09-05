@@ -1,11 +1,12 @@
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use deathpush_core::config::windows::SavedWindow;
 use deathpush_core::session::types::{Intent, IntentOutcome};
 use deathpush_core::types::PathChangeKind;
 use deathpush_core::{Core, CoreEvent, SessionId};
+use futures::StreamExt;
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::*;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -16,8 +17,7 @@ use crate::keymap::{CONTEXT_APP, CONTEXT_REPOSITORY, CONTEXT_WELCOME};
 use crate::menus::{MenuContext, set_menu_context};
 use crate::theme::{ActivePalette, apply_for_appearance, hsla};
 use crate::title_bar::render_title_bar;
-use crate::updater::{UpdateCheck, should_check_on_launch, update_button_label, updating_button_label};
-use crate::welcome::UpdateFooter;
+use crate::updater::{CHECK_DELAY, UpdateCheck, UpdaterState, should_check_on_launch, take_ops};
 use crate::window::open_shell_window;
 use crate::zoom;
 
@@ -41,13 +41,19 @@ pub enum Overlay {
   ThemePicker(Entity<crate::overlays::theme_picker::ThemePicker>),
 }
 
-enum UpdateStatus {
-  Idle,
-  Available(Box<cargo_packager_updater::Update>),
-  Downloading {
-    update: Box<cargo_packager_updater::Update>,
-    percent: u8,
-  },
+async fn watch_install<T>(
+  task: impl Future<Output = T>,
+  mut rx: futures::channel::mpsc::UnboundedReceiver<u8>,
+  mut on_percent: impl FnMut(u8),
+) -> T {
+  let mut task = std::pin::pin!(task);
+  loop {
+    match futures::future::select(rx.next(), task.as_mut()).await {
+      futures::future::Either::Left((Some(percent), _)) => on_percent(percent),
+      futures::future::Either::Left((None, rest)) => return rest.await,
+      futures::future::Either::Right((result, _)) => return result,
+    }
+  }
 }
 
 pub struct Shell {
@@ -65,8 +71,6 @@ pub struct Shell {
   opening_generation: u64,
   close_prompt_pending: bool,
   close_confirmed: bool,
-  update_status: UpdateStatus,
-  update_check_started: bool,
 }
 
 impl Shell {
@@ -97,8 +101,6 @@ impl Shell {
       opening_generation: 0,
       close_prompt_pending: false,
       close_confirmed: false,
-      update_status: UpdateStatus::Idle,
-      update_check_started: false,
     };
     shell.listen(events, window, cx);
     zoom::apply_zoom_to_window(zoom::current_level(cx), window);
@@ -311,7 +313,7 @@ impl Shell {
     window.set_window_title("DeathPush");
     self.focus_handle.focus(window, cx);
     self.sync_menus(window, cx);
-    self.apply_update_footer(cx);
+    self.refresh_update_footer(cx);
     self.schedule_update_check(cx);
     cx.notify();
   }
@@ -322,102 +324,75 @@ impl Shell {
     }
   }
 
-  fn apply_update_footer(&self, cx: &mut Context<Self>) {
-    let Screen::Welcome(view) = &self.screen else {
-      return;
-    };
-    let footer = match &self.update_status {
-      UpdateStatus::Idle => None,
-      UpdateStatus::Available(update) => Some(UpdateFooter {
-        label: update_button_label(&update.version).into(),
-        disabled: false,
-      }),
-      UpdateStatus::Downloading { percent, .. } => Some(UpdateFooter {
-        label: updating_button_label(*percent).into(),
-        disabled: true,
-      }),
-    };
-    view.update(cx, |view, cx| view.set_update_footer(footer, cx));
+  fn refresh_update_footer(&self, cx: &mut Context<Self>) {
+    if let Screen::Welcome(view) = &self.screen {
+      view.update(cx, |_, cx| cx.notify());
+    }
   }
 
   fn schedule_update_check(&mut self, cx: &mut Context<Self>) {
-    if self.update_check_started || !should_check_on_launch(cfg!(debug_assertions)) {
+    if !should_check_on_launch(cfg!(debug_assertions)) {
+      self.refresh_update_footer(cx);
       return;
     }
-    self.update_check_started = true;
+    self.start_update_check(cx);
+  }
+
+  pub(crate) fn start_update_check(&mut self, cx: &mut Context<Self>) {
+    if !cx.default_global::<UpdaterState>().begin_check() {
+      self.refresh_update_footer(cx);
+      return;
+    }
     let current = env!("CARGO_PKG_VERSION").to_string();
-    let runtime = self.core.clone();
-    let task = runtime.spawn(async move {
-      tokio::time::sleep(Duration::from_secs(2)).await;
-      crate::updater::check(&current).await
-    });
+    let ops = take_ops(cx);
     cx.spawn(async move |this, cx| {
-      let result = match task.await {
-        Ok(result) => result,
-        Err(err) => UpdateCheck::Failed(err.to_string()),
-      };
+      cx.background_executor().timer(CHECK_DELAY).await;
+      let result = cx.background_spawn(async move { ops.check(&current) }).await;
+      let _ = this.update(cx, |this, cx| this.apply_check_result(result, cx));
+    })
+    .detach();
+  }
+
+  fn apply_check_result(&mut self, result: UpdateCheck, cx: &mut Context<Self>) {
+    if let Some(message) = cx.default_global::<UpdaterState>().apply_check(result) {
+      self.show_toast(message, cx);
+    }
+    self.refresh_update_footer(cx);
+    cx.notify();
+  }
+
+  fn install_available_update(&mut self, cx: &mut Context<Self>) {
+    let Some(update) = cx.default_global::<UpdaterState>().begin_install() else {
+      return;
+    };
+    self.refresh_update_footer(cx);
+    cx.notify();
+    let ops = take_ops(cx);
+    let (tx, rx) = futures::channel::mpsc::unbounded();
+    cx.spawn(async move |this, cx| {
+      let task = cx.background_spawn(async move {
+        let on_progress = move |percent: u8| {
+          let _ = tx.unbounded_send(percent);
+        };
+        ops.install(update, &on_progress)
+      });
+      let result = watch_install(task, rx, |percent| {
+        let _ = this.update(cx, |this, cx| {
+          cx.default_global::<UpdaterState>().set_percent(percent);
+          this.refresh_update_footer(cx);
+          cx.notify();
+        });
+      })
+      .await;
       let _ = this.update(cx, |this, cx| {
-        match result {
-          UpdateCheck::Available(update) => {
-            this.update_status = UpdateStatus::Available(update);
-            this.apply_update_footer(cx);
-          }
-          UpdateCheck::UpToDate => {}
-          UpdateCheck::Failed(err) => this.show_toast(err, cx),
+        if let Some(err) = cx.default_global::<UpdaterState>().finish_install(result) {
+          this.show_toast(err, cx);
         }
+        this.refresh_update_footer(cx);
         cx.notify();
       });
     })
     .detach();
-  }
-
-  fn install_available_update(&mut self, cx: &mut Context<Self>) {
-    let UpdateStatus::Available(update) = &self.update_status else {
-      return;
-    };
-    let update = update.as_ref().clone();
-    self.update_status = UpdateStatus::Downloading {
-      update: Box::new(update.clone()),
-      percent: 0,
-    };
-    self.apply_update_footer(cx);
-    cx.notify();
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let runtime = self.core.clone();
-    let task = runtime.spawn(async move { crate::updater::install(update, tx).await });
-    cx.spawn(async move |this, cx| {
-      let mut task = task;
-      loop {
-        tokio::select! {
-          Some(percent) = rx.recv() => {
-            let _ = this.update(cx, |this, cx| {
-              if let UpdateStatus::Downloading { percent: slot, .. } = &mut this.update_status {
-                *slot = percent;
-              }
-              this.apply_update_footer(cx);
-              cx.notify();
-            });
-          }
-          result = &mut task => {
-            let _ = this.update(cx, |this, cx| match result {
-              Ok(Ok(())) => {}
-              Ok(Err(err)) => this.fail_install(err, cx),
-              Err(err) => this.fail_install(err.to_string(), cx),
-            });
-            break;
-          }
-        }
-      }
-    })
-    .detach();
-  }
-
-  fn fail_install(&mut self, err: String, cx: &mut Context<Self>) {
-    if let UpdateStatus::Downloading { update, .. } = std::mem::replace(&mut self.update_status, UpdateStatus::Idle) {
-      self.update_status = UpdateStatus::Available(update);
-    }
-    self.apply_update_footer(cx);
-    self.show_toast(err, cx);
   }
 
   pub fn open_repository(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
@@ -873,6 +848,7 @@ mod tests {
 
   use crate::actions::CloseWindow;
   use crate::theme::preview_theme;
+  use crate::updater::{CHECK_DELAY, FakeOps, UpdateCheck, UpdaterState};
 
   fn snapshot(root: &str) -> SessionSnapshot {
     SessionSnapshot {
@@ -1195,5 +1171,120 @@ mod tests {
         drop(blocked);
       })
       .unwrap();
+  }
+
+  fn boot_updater_shell(
+    cx: &mut TestAppContext,
+    ops: FakeOps,
+  ) -> (tempfile::TempDir, tempfile::TempDir, WindowHandle<Shell>) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let ops = Arc::new(ops);
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+      cx.default_global::<UpdaterState>().set_ops(ops);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    (config_dir, resource_dir, window)
+  }
+
+  fn run_check(cx: &mut TestAppContext) {
+    cx.executor().advance_clock(CHECK_DELAY);
+    cx.run_until_parked();
+  }
+
+  #[gpui_kit::test]
+  fn updater_available_shows_footer_button(cx: &mut TestAppContext) {
+    let (_config, _resource, window) = boot_updater_shell(cx, FakeOps::available());
+    window.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
+    run_check(cx);
+    window
+      .update(cx, |_, _, cx| {
+        assert_eq!(
+          cx.global::<UpdaterState>().button(),
+          Some(("Update to v0.5.0".into(), false))
+        );
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn updater_failure_toasts(cx: &mut TestAppContext) {
+    let mut ops = FakeOps::available();
+    ops.check = UpdateCheck::Failed("operation timed out".into());
+    let (_config, _resource, window) = boot_updater_shell(cx, ops);
+    window.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
+    run_check(cx);
+    window
+      .update(cx, |shell, _, cx| {
+        assert_eq!(shell.toast.as_deref(), Some("operation timed out"));
+        assert!(cx.global::<UpdaterState>().button().is_none());
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn updater_download_progress_and_timeout_recovery(cx: &mut TestAppContext) {
+    let mut ops = FakeOps::available();
+    ops.percents = vec![40, 80];
+    ops.install = Err("operation timed out".into());
+    let (_config, _resource, window) = boot_updater_shell(cx, ops);
+    window.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
+    run_check(cx);
+    window
+      .update(cx, |shell, _, cx| shell.install_available_update(cx))
+      .unwrap();
+    cx.run_until_parked();
+    window
+      .update(cx, |shell, _, cx| {
+        assert_eq!(shell.toast.as_deref(), Some("operation timed out"));
+        assert_eq!(
+          cx.global::<UpdaterState>().button(),
+          Some(("Update to v0.5.0".into(), false))
+        );
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn updater_second_window_does_not_start_another_check(cx: &mut TestAppContext) {
+    let ops = Arc::new(FakeOps::available());
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+      cx.default_global::<UpdaterState>().set_ops(ops.clone());
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let first = cx.add_window({
+      let core = core.clone();
+      move |window, cx| Shell::new(core, 0, None, window, cx)
+    });
+    let second = cx.add_window(|window, cx| Shell::new(core, 1, None, window, cx));
+    first.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
+    second.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
+    run_check(cx);
+    assert_eq!(ops.checks.load(std::sync::atomic::Ordering::SeqCst), 1);
+    second
+      .update(cx, |_, _, cx| {
+        assert_eq!(
+          cx.global::<UpdaterState>().button(),
+          Some(("Update to v0.5.0".into(), false))
+        );
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn updater_window_closing_mid_check_does_not_panic(cx: &mut TestAppContext) {
+    let (_config, _resource, window) = boot_updater_shell(cx, FakeOps::available());
+    window.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
+    cx.dispatch_action(*window, CloseWindow);
+    run_check(cx);
   }
 }
