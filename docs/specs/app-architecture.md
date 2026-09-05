@@ -20,7 +20,7 @@ justfile            dev, build, lint, fmt, check, test, package, release
 website/            the marketing site, with its own Astro toolchain
 ```
 
-The repository has no JavaScript toolchain outside `website/`. The app version has one source, the app crate's `Cargo.toml`, and `just release` bumps it.
+The repository has no JavaScript toolchain outside `website/`. The app version has one source, the workspace `version` in the root `Cargo.toml`, and `just release` bumps it.
 
 ## Core crate
 
@@ -45,7 +45,7 @@ Every former emit becomes a `CoreEvent` on an async channel per session:
 
 ### Terminal module
 
-A pane is a PTY from `portable-pty` plus a `libghostty-vt` terminal on a dedicated thread, because those types are not `Send`. Key and mouse events are encoded on that thread with the `libghostty-vt` encoders and written to the PTY. Each VT update publishes a snapshot of styled cells, cursor, selection, and viewport for the renderer. Foreground-process polling, the shell name, and the exit signal work as they do today. Scrollback size, cursor, and font settings come from the settings store.
+A pane is a PTY from `portable-pty` plus a `libghostty-vt` terminal on a dedicated thread, because those types are not `Send`. Key and mouse events are encoded on that thread with the `libghostty-vt` encoders and written to the PTY. Each VT update publishes a snapshot of styled cells, cursor, selection, and viewport for the renderer. Foreground-process polling names the pane on Unix. Windows has no process discovery, so the pane name stays the shell name. Scrollback size, cursor, and font settings come from the settings store.
 
 ### Diff rows module
 
@@ -141,7 +141,9 @@ Writes go to a temp file and rename, debounced 500 ms. Git identity stays in Git
 
 cargo-packager is configured in the app crate's `Cargo.toml`. Formats: dmg per architecture, deb, AppImage, and nsis. rpm is not built. The `dp` launchers ship as packager resources. The `deathpush://` scheme is registered on macOS by cargo-packager; the Windows registry entry and the Linux desktop entry are verified during the shell spike. Signing and notarization use the existing secrets.
 
-cargo-packager-updater verifies the existing minisign key. CI writes `latest.json` in the updater's manifest shape at the same GitHub releases URL. The app checks on launch and from the menu, as today.
+cargo-packager-updater verifies the existing minisign key. CI writes `latest.json` at `https://github.com/felipefdl/deathpush/releases/latest/download/latest.json`. The manifest carries `version`, `notes`, `pub_date`, and `platforms` keyed `macos-aarch64`, `macos-x86_64`, `linux-x86_64`, `windows-x86_64`, and optionally `windows-aarch64`. Each platform entry has `signature`, `url`, and `format` (`app` / `appimage` / `nsis`). dmg and deb signatures are release assets only.
+
+A packaged app checks for updates 2 s after the welcome screen appears. Debug builds skip the check. When an update exists, the welcome footer shows `Update to v{version}`; clicking it downloads and installs. Failures toast. There is no menu item.
 
 ## CI
 
@@ -155,10 +157,16 @@ cargo-packager-updater verifies the existing minisign key. CI writes `latest.jso
 
 ## Contract changes
 
-This design changes two surface contracts, and those specs are updated when the cutover lands:
+This design changes these surface contracts:
 
 - [SCM Changes](scm-changes.md): the working-tree diff is read-only. Editing happens in the Explorer file viewer. The merge view offers per-conflict accept choices instead of free-form editing.
 - Distribution: rpm packages are not built.
+- Diff rows render unwrapped. Word Wrap applies to the [file viewer](explorer.md), not the diff.
+- The terminal Sound bell is a visual flash (same as Visual and Both). There is no platform beep.
+- gpui-component's command palette owns Escape in [Quick Open](quick-open.md) and the [theme picker](theme-picker.md): the first Escape clears a non-empty query; Escape on an empty query closes.
+- Windows has no foreground-process discovery. Pane names stay the shell name; closing a window does not ask about a running process.
+- The [Explorer](explorer.md) context menu has no Show File History item. SCM file rows and the diff header still offer it.
+- Updates check and install from the [welcome](welcome-screen.md) footer. [Native menus](native-menus.md) have no Check for Updates item.
 
 ## Cutover
 

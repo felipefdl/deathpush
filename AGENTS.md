@@ -26,7 +26,7 @@ DeathPush is a standalone desktop Git client built on GPUI (Rust) that replicate
 ## Layout
 
 - `crates/core/` -- `deathpush-core`. No UI dependency. `Core` (runtime, registries, event hub), `ops/` (every operation as a `Core` method, explorer naming and blame status helpers), `ops/history.rs` (initials, avatar hue, changed-files tree, commit menu labels), `session/` (intent apply, registry, types, `SessionId`), `git/` (git2 reads, CLI writes, status coordinator, watcher, repository runtime, invalidation), `diff_view/` (pure rows for the diff: inline and side-by-side alignment, word ranges, separator labels), `terminal/` (VT screen), `terminal/pane.rs` (pane thread, key/mouse mapping), `terminal/snapshot.rs` (snapshots), `pty.rs`, `events.rs` (`CoreEvent`, `EventHub`), `shell_env.rs`, `types.rs`, `error.rs`, `relative_time.rs`, `config/` (settings, `settings_ui.rs`, recents, window bounds, `layout.rs` per-project layout, `recent_files.rs` per-repository recent files), `theme/` (tm-themes parsing, `UiPalette`), `theme/syntax.rs` (tokenColors scopes mapped to tree-sitter captures), `workspace.rs`, `deep_link.rs`.
-- `crates/app/` -- `deathpush`, the gpui binary. `assets.rs` (embedded assets, gpui-kit fallback), `config.rs` (`AppConfig` global, debounced save), `theme.rs` (catalog, `apply_theme`, `ActivePalette`), `zoom.rs`, `actions.rs`, `keymap.rs` (binding table per OS, key contexts), `menus.rs` (native menus, Linux rows), `window.rs` (window options, registry), `shell.rs` (`Shell` root: screens, overlays, toast), `title_bar.rs`, `welcome/`, `overlays/`, `overlays/quick_open.rs` (the Quick Open palette), `overlays/branch_picker.rs` (branch and tag overlay), `overlays/theme_picker.rs` (color theme palette with preview), `repo/` (`state.rs` (pure session guards), `model.rs` (`RepoModel`, intents, `NeedsConfirmation` prompt), `layout_model.rs`, `output_log.rs`, `view.rs` (chrome), `sidebar.rs`, `explorer/` (the Explorer sidebar: model, tree view, rows and icons, menus, inline edit, conflicts), `changes/` (the SCM sidebar body: toolbar, banner, commit box, filter, groups, rows, overflow menu, branch list), `history/` (History panel: commit list, detail, commit diff mode), `main_panel.rs`, `file_viewer/` (the file viewer: editor with autosave, states, header, blame line), `diff/` (the diff panel: header, states, rows, highlighter cache, selection), `terminal/` (model, element, pane view, panel, names, bell), `settings/` (the Settings page: sections, rows, Git identity), `status_bar.rs`), `cli_install.rs`, `open_requests.rs`.
+- `crates/app/` -- `deathpush`, the gpui binary. `assets.rs` (embedded assets, gpui-kit fallback), `config.rs` (`AppConfig` global, debounced save), `theme.rs` (catalog, `apply_theme`, `ActivePalette`), `zoom.rs`, `actions.rs`, `keymap.rs` (binding table per OS, key contexts), `menus.rs` (native menus, Linux rows), `window.rs` (window options, registry), `shell.rs` (`Shell` root: screens, overlays, toast), `updater.rs` (welcome-footer check and install), `title_bar.rs`, `welcome/`, `overlays/`, `overlays/quick_open.rs` (the Quick Open palette), `overlays/branch_picker.rs` (branch and tag overlay), `overlays/theme_picker.rs` (color theme palette with preview), `repo/` (`state.rs` (pure session guards), `model.rs` (`RepoModel`, intents, `NeedsConfirmation` prompt), `layout_model.rs`, `output_log.rs`, `view.rs` (chrome), `sidebar.rs`, `explorer/` (the Explorer sidebar: model, tree view, rows and icons, menus, inline edit, conflicts), `changes/` (the SCM sidebar body: toolbar, banner, commit box, filter, groups, rows, overflow menu, branch list), `history/` (History panel: commit list, detail, commit diff mode), `main_panel.rs`, `file_viewer/` (the file viewer: editor with autosave, states, header, blame line), `diff/` (the diff panel: header, states, rows, highlighter cache, selection), `terminal/` (model, element, pane view, panel, names, bell), `settings/` (the Settings page: sections, rows, Git identity), `status_bar.rs`), `cli_install.rs`, `open_requests.rs`.
 - `assets/` -- `bin/` (dp launchers), `app-icons/`, `brand/`, `fonts/`, `file-icons/` (vscode-icons subset), `metainfo/`.
 - `docs/specs/` -- surface specs and the architecture spec. `docs/adr/` -- decision records.
 
@@ -74,12 +74,21 @@ DeathPush is a standalone desktop Git client built on GPUI (Rust) that replicate
 ## Development
 
 ```sh
-just dev [path]   # cargo run -p deathpush -- [path]
-just build        # release build
-just lint         # clippy, warnings denied
-just fmt          # rustfmt
-just check        # cargo check, all targets
-just test         # cargo test --workspace
+just dev [path]          # cargo run -p deathpush -- [path]
+just build               # release build
+just lint                # clippy, warnings denied
+just fmt                 # rustfmt
+just check               # cargo check, all targets
+just test                # cargo test --workspace
+just package             # cargo packager --release
+just release <version>   # bump workspace version, commit, tag; does not push
 ```
 
 Zig 0.16.0 must be on PATH for the first build (libghostty-vt).
+
+## Packaging and release
+
+- Packager config: `[package.metadata.packager]` in `crates/app/Cargo.toml`. Formats from the CLI (`dmg`, `deb`, `appimage`, `nsis`). rpm is not built. `just package` is `cargo packager --release`.
+- Updater: `crates/app/src/updater.rs`. `UpdaterState` is an app global. The check starts 2 s after welcome appears and is skipped when `cfg!(debug_assertions)`. Install is the welcome footer button. Endpoint `https://github.com/felipefdl/deathpush/releases/latest/download/latest.json`. Manifest keys: `macos-aarch64`, `macos-x86_64`, `linux-x86_64`, `windows-x86_64`, optional `windows-aarch64`. Each platform has `signature`, `url`, and `format` (`app` / `appimage` / `nsis`).
+- Publish: `.github/workflows/publish.yml` on `v*` tags. Native runners, cargo-packager 0.11.8, Apple signing and notarization, minisign via `TAURI_SIGNING_PRIVATE_KEY` mapped to `CARGO_PACKAGER_SIGN_PRIVATE_KEY`. Uploads a draft GitHub release plus `latest.json`.
+- Release procedure: `just release <version>` bumps `[workspace.package].version` in the root `Cargo.toml`, commits `chore(release): v<version>`, tags `v<version>`, and prints the push command. Push the tag (`git push origin HEAD --tags`). Review the draft release, then publish it.
