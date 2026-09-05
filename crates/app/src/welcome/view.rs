@@ -41,6 +41,7 @@ pub struct WelcomeView {
   expanded: HashSet<String>,
   highlight: Highlight,
   scan_generation: u64,
+  update: Option<UpdateFooter>,
 }
 
 impl EventEmitter<WelcomeEvent> for WelcomeView {}
@@ -69,9 +70,31 @@ impl WelcomeView {
       expanded: HashSet::new(),
       highlight: Highlight::default(),
       scan_generation: 0,
+      update: None,
     };
+    view.sync_update_footer(cx);
+    cx.observe_global::<UpdaterState>(|this, cx| {
+      this.sync_update_footer(cx);
+      cx.notify();
+    })
+    .detach();
     view.rescan(cx);
     view
+  }
+
+  fn sync_update_footer(&mut self, cx: &App) {
+    self.update = cx
+      .try_global::<UpdaterState>()
+      .and_then(UpdaterState::button)
+      .map(|(label, disabled)| UpdateFooter {
+        label: label.into(),
+        disabled,
+      });
+  }
+
+  #[cfg(test)]
+  pub(crate) fn update_footer(&self) -> Option<&UpdateFooter> {
+    self.update.as_ref()
   }
 
   fn workspaces(cx: &App) -> Vec<WorkspaceEntry> {
@@ -435,13 +458,7 @@ impl WelcomeView {
 impl Render for WelcomeView {
   fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let version = format!("Version {} ({})", env!("CARGO_PKG_VERSION"), env!("DEATHPUSH_GIT_HASH"));
-    let update = cx
-      .try_global::<UpdaterState>()
-      .and_then(UpdaterState::button)
-      .map(|(label, disabled)| UpdateFooter {
-        label: label.into(),
-        disabled,
-      });
+    let update = self.update.clone();
     let recent_body = self.render_recent_list(cx).into_any_element();
     let workspace_body = self.render_workspace_list(cx).into_any_element();
     let configure = div()

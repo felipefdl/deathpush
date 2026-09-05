@@ -18,10 +18,7 @@ pub(crate) const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 #[derive(Clone)]
 pub(crate) enum UpdateCheck {
   UpToDate,
-  Available {
-    version: String,
-    update: Option<Box<Update>>,
-  },
+  Available { version: String, update: Box<Update> },
   Failed(String),
 }
 
@@ -29,19 +26,22 @@ enum UpdateStatus {
   Idle,
   Available {
     version: String,
-    update: Option<Box<Update>>,
+    update: Box<Update>,
   },
   Downloading {
     version: String,
     percent: u8,
-    update: Option<Box<Update>>,
+    update: Box<Update>,
   },
 }
 
 /// Check and install operations. Tests replace this with a fake.
 pub(crate) trait UpdaterOps: Send + Sync {
+  fn blocking(&self) -> bool {
+    true
+  }
   fn check(&self, current: &str) -> UpdateCheck;
-  fn install(&self, update: Option<Box<Update>>, on_progress: &(dyn Fn(u8) + Send + Sync)) -> Result<(), String>;
+  fn install(&self, update: Box<Update>, on_progress: &(dyn Fn(u8) + Send + Sync)) -> Result<(), String>;
 }
 
 struct LiveOps;
@@ -51,8 +51,8 @@ impl UpdaterOps for LiveOps {
     check_sync(current)
   }
 
-  fn install(&self, update: Option<Box<Update>>, on_progress: &(dyn Fn(u8) + Send + Sync)) -> Result<(), String> {
-    install_sync(update, on_progress)
+  fn install(&self, update: Box<Update>, on_progress: &(dyn Fn(u8) + Send + Sync)) -> Result<(), String> {
+    install_sync(*update, on_progress)
   }
 }
 
@@ -100,7 +100,7 @@ impl UpdaterState {
     }
   }
 
-  pub(crate) fn begin_install(&mut self) -> Option<Option<Box<Update>>> {
+  pub(crate) fn begin_install(&mut self) -> Option<Box<Update>> {
     match &self.status {
       UpdateStatus::Available { version, update } => {
         let version = version.clone();
@@ -194,7 +194,7 @@ fn check_sync(current: &str) -> UpdateCheck {
     Ok(updater) => match updater.check() {
       Ok(Some(update)) => UpdateCheck::Available {
         version: update.version.clone(),
-        update: Some(Box::new(update)),
+        update: Box::new(update),
       },
       Ok(None) => UpdateCheck::UpToDate,
       Err(err) => UpdateCheck::Failed(err.to_string()),
@@ -227,10 +227,7 @@ fn relaunch(update: &Update) -> Result<(), String> {
   }
 }
 
-fn install_sync(update: Option<Box<Update>>, on_progress: &(dyn Fn(u8) + Send + Sync)) -> Result<(), String> {
-  let Some(mut update) = update.map(|update| *update) else {
-    return Err("No update to install".into());
-  };
+fn install_sync(mut update: Update, on_progress: &(dyn Fn(u8) + Send + Sync)) -> Result<(), String> {
   update.timeout = Some(DOWNLOAD_TIMEOUT);
   let received = AtomicU64::new(0);
   update
@@ -258,12 +255,34 @@ pub(crate) struct FakeOps {
 }
 
 #[cfg(test)]
+pub(crate) fn dummy_update(version: &str) -> Box<Update> {
+  Box::new(Update {
+    config: Config {
+      endpoints: Vec::new(),
+      pubkey: String::new(),
+      windows: None,
+    },
+    body: None,
+    current_version: "0.4.0".into(),
+    version: version.into(),
+    date: None,
+    target: "macos".into(),
+    extract_path: std::path::PathBuf::new(),
+    download_url: "https://example.com/DeathPush.app.tar.gz".parse().expect("url"),
+    signature: String::new(),
+    timeout: None,
+    headers: cargo_packager_updater::http::HeaderMap::new(),
+    format: cargo_packager_updater::UpdateFormat::App,
+  })
+}
+
+#[cfg(test)]
 impl FakeOps {
   pub fn available() -> Self {
     Self {
       check: UpdateCheck::Available {
         version: "0.5.0".into(),
-        update: None,
+        update: dummy_update("0.5.0"),
       },
       percents: vec![40],
       install: Ok(()),
@@ -274,12 +293,16 @@ impl FakeOps {
 
 #[cfg(test)]
 impl UpdaterOps for FakeOps {
+  fn blocking(&self) -> bool {
+    false
+  }
+
   fn check(&self, _current: &str) -> UpdateCheck {
     self.checks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     self.check.clone()
   }
 
-  fn install(&self, _update: Option<Box<Update>>, on_progress: &(dyn Fn(u8) + Send + Sync)) -> Result<(), String> {
+  fn install(&self, _update: Box<Update>, on_progress: &(dyn Fn(u8) + Send + Sync)) -> Result<(), String> {
     for percent in &self.percents {
       on_progress(*percent);
     }
@@ -333,7 +356,7 @@ mod tests {
     let mut state = UpdaterState::default();
     state.apply_check(UpdateCheck::Available {
       version: "0.5.0".into(),
-      update: None,
+      update: dummy_update("0.5.0"),
     });
     assert!(state.begin_install().is_some());
     state.set_percent(40);

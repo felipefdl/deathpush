@@ -17,7 +17,7 @@ use crate::keymap::{CONTEXT_APP, CONTEXT_REPOSITORY, CONTEXT_WELCOME};
 use crate::menus::{MenuContext, set_menu_context};
 use crate::theme::{ActivePalette, apply_for_appearance, hsla};
 use crate::title_bar::render_title_bar;
-use crate::updater::{CHECK_DELAY, UpdateCheck, UpdaterState, should_check_on_launch, take_ops};
+use crate::updater::{CHECK_DELAY, UpdateCheck, UpdaterOps, UpdaterState, should_check_on_launch, take_ops};
 use crate::window::open_shell_window;
 use crate::zoom;
 
@@ -53,6 +53,42 @@ async fn watch_install<T>(
       futures::future::Either::Left((None, rest)) => return rest.await,
       futures::future::Either::Right((result, _)) => return result,
     }
+  }
+}
+
+async fn run_updater_check(ops: Arc<dyn UpdaterOps>, current: String, core: Arc<Core>) -> UpdateCheck {
+  if ops.blocking() {
+    let (tx, rx) = futures::channel::oneshot::channel();
+    core.runtime_handle().spawn_blocking(move || {
+      let _ = tx.send(ops.check(&current));
+    });
+    rx.await
+      .unwrap_or_else(|_| UpdateCheck::Failed("updater check cancelled".into()))
+  } else {
+    ops.check(&current)
+  }
+}
+
+async fn run_updater_install(
+  ops: Arc<dyn UpdaterOps>,
+  update: Box<cargo_packager_updater::Update>,
+  core: Arc<Core>,
+  progress_tx: futures::channel::mpsc::UnboundedSender<u8>,
+) -> Result<(), String> {
+  if ops.blocking() {
+    let (tx, rx) = futures::channel::oneshot::channel();
+    core.runtime_handle().spawn_blocking(move || {
+      let on_progress = move |percent: u8| {
+        let _ = progress_tx.unbounded_send(percent);
+      };
+      let _ = tx.send(ops.install(update, &on_progress));
+    });
+    rx.await.unwrap_or_else(|_| Err("updater install cancelled".into()))
+  } else {
+    let on_progress = move |percent: u8| {
+      let _ = progress_tx.unbounded_send(percent);
+    };
+    ops.install(update, &on_progress)
   }
 }
 
@@ -313,7 +349,6 @@ impl Shell {
     window.set_window_title("DeathPush");
     self.focus_handle.focus(window, cx);
     self.sync_menus(window, cx);
-    self.refresh_update_footer(cx);
     self.schedule_update_check(cx);
     cx.notify();
   }
@@ -324,72 +359,52 @@ impl Shell {
     }
   }
 
-  fn refresh_update_footer(&self, cx: &mut Context<Self>) {
-    if let Screen::Welcome(view) = &self.screen {
-      view.update(cx, |_, cx| cx.notify());
-    }
-  }
-
   fn schedule_update_check(&mut self, cx: &mut Context<Self>) {
     if !should_check_on_launch(cfg!(debug_assertions)) {
-      self.refresh_update_footer(cx);
       return;
     }
     self.start_update_check(cx);
   }
 
   pub(crate) fn start_update_check(&mut self, cx: &mut Context<Self>) {
-    if !cx.default_global::<UpdaterState>().begin_check() {
-      self.refresh_update_footer(cx);
+    if !cx.update_global::<UpdaterState, _>(|state, _| state.begin_check()) {
       return;
     }
     let current = env!("CARGO_PKG_VERSION").to_string();
     let ops = take_ops(cx);
+    let core = self.core.clone();
     cx.spawn(async move |this, cx| {
       cx.background_executor().timer(CHECK_DELAY).await;
-      let result = cx.background_spawn(async move { ops.check(&current) }).await;
-      let _ = this.update(cx, |this, cx| this.apply_check_result(result, cx));
+      let result = run_updater_check(ops, current, core).await;
+      cx.update(|cx| {
+        let toast = cx.update_global::<UpdaterState, _>(|state, _| state.apply_check(result));
+        if let Some(message) = toast {
+          let _ = this.update(cx, |this, cx| this.show_toast(message, cx));
+        }
+      });
     })
     .detach();
   }
 
-  fn apply_check_result(&mut self, result: UpdateCheck, cx: &mut Context<Self>) {
-    if let Some(message) = cx.default_global::<UpdaterState>().apply_check(result) {
-      self.show_toast(message, cx);
-    }
-    self.refresh_update_footer(cx);
-    cx.notify();
-  }
-
   fn install_available_update(&mut self, cx: &mut Context<Self>) {
-    let Some(update) = cx.default_global::<UpdaterState>().begin_install() else {
+    let Some(update) = cx.update_global::<UpdaterState, _>(|state, _| state.begin_install()) else {
       return;
     };
-    self.refresh_update_footer(cx);
-    cx.notify();
     let ops = take_ops(cx);
-    let (tx, rx) = futures::channel::mpsc::unbounded();
+    let core = self.core.clone();
+    let (progress_tx, progress_rx) = futures::channel::mpsc::unbounded();
     cx.spawn(async move |this, cx| {
-      let task = cx.background_spawn(async move {
-        let on_progress = move |percent: u8| {
-          let _ = tx.unbounded_send(percent);
-        };
-        ops.install(update, &on_progress)
-      });
-      let result = watch_install(task, rx, |percent| {
-        let _ = this.update(cx, |this, cx| {
-          cx.default_global::<UpdaterState>().set_percent(percent);
-          this.refresh_update_footer(cx);
-          cx.notify();
-        });
+      let task = run_updater_install(ops, update, core, progress_tx);
+      let progress_cx = cx.clone();
+      let result = watch_install(task, progress_rx, move |percent| {
+        progress_cx.update_global::<UpdaterState, _>(|state, _| state.set_percent(percent));
       })
       .await;
-      let _ = this.update(cx, |this, cx| {
-        if let Some(err) = cx.default_global::<UpdaterState>().finish_install(result) {
-          this.show_toast(err, cx);
+      cx.update(|cx| {
+        let toast = cx.update_global::<UpdaterState, _>(|state, _| state.finish_install(result));
+        if let Some(err) = toast {
+          let _ = this.update(cx, |this, cx| this.show_toast(err, cx));
         }
-        this.refresh_update_footer(cx);
-        cx.notify();
       });
     })
     .detach();
@@ -1202,11 +1217,8 @@ mod tests {
     window.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
     run_check(cx);
     window
-      .update(cx, |_, _, cx| {
-        assert_eq!(
-          cx.global::<UpdaterState>().button(),
-          Some(("Update to v0.5.0".into(), false))
-        );
+      .update(cx, |shell, _, cx| {
+        assert_eq!(welcome_footer_label(shell, cx).as_deref(), Some("Update to v0.5.0"));
       })
       .unwrap();
   }
@@ -1271,20 +1283,31 @@ mod tests {
     run_check(cx);
     assert_eq!(ops.checks.load(std::sync::atomic::Ordering::SeqCst), 1);
     second
-      .update(cx, |_, _, cx| {
-        assert_eq!(
-          cx.global::<UpdaterState>().button(),
-          Some(("Update to v0.5.0".into(), false))
-        );
+      .update(cx, |shell, _, cx| {
+        assert_eq!(welcome_footer_label(shell, cx).as_deref(), Some("Update to v0.5.0"));
       })
       .unwrap();
   }
 
+  fn welcome_footer_label(shell: &Shell, cx: &App) -> Option<String> {
+    let Screen::Welcome(view) = &shell.screen else {
+      panic!("expected welcome screen");
+    };
+    view.read(cx).update_footer().map(|footer| footer.label.to_string())
+  }
+
   #[gpui_kit::test]
   fn updater_window_closing_mid_check_does_not_panic(cx: &mut TestAppContext) {
-    let (_config, _resource, window) = boot_updater_shell(cx, FakeOps::available());
+    let (_config, resource, window) = boot_updater_shell(cx, FakeOps::available());
     window.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
     cx.dispatch_action(*window, CloseWindow);
     run_check(cx);
+    let core = Core::new(resource.path().to_path_buf()).unwrap();
+    let later = cx.add_window(|window, cx| Shell::new(core, 1, None, window, cx));
+    later
+      .update(cx, |shell, _, cx| {
+        assert_eq!(welcome_footer_label(shell, cx).as_deref(), Some("Update to v0.5.0"));
+      })
+      .unwrap();
   }
 }
