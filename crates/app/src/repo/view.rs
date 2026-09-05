@@ -812,14 +812,14 @@ mod tests {
         });
         assert_eq!(view.layout().read(cx).layout().sidebar_view, SidebarView::Explorer);
         assert_eq!(view.layout().read(cx).layout().main_view, MainView::File);
-        view.layout().update(cx, |layout, cx| {
-          layout.select_main_view(MainView::Settings, cx);
-          layout.select_sidebar_view(SidebarView::Scm, cx);
+        view.settings.update(cx, |settings, _cx| {
+          settings.stub_identity(String::new(), String::new());
         });
+        view.toggle_settings(window, cx);
         assert_eq!(view.layout().read(cx).layout().sidebar_view, SidebarView::Scm);
         assert_eq!(view.layout().read(cx).layout().main_view, MainView::Settings);
-        let _ = window;
       })
       .unwrap();
+    cx.run_until_parked();
   }
 }

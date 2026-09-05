@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+#[cfg(test)]
+use std::time::Duration;
+
 use deathpush_core::Core;
 use gpui_kit::component::Sizable;
 use gpui_kit::component::button::Button;
@@ -27,6 +30,12 @@ pub struct SettingsView {
   editor_font_input: Entity<InputState>,
   focus_handle: FocusHandle,
   core: Arc<Core>,
+  #[cfg(test)]
+  identity_load: Option<Arc<std::sync::Mutex<(String, String)>>>,
+  #[cfg(test)]
+  save_delay: Duration,
+  #[cfg(test)]
+  saves: Arc<std::sync::Mutex<Vec<(String, String)>>>,
 }
 
 impl SettingsView {
@@ -76,9 +85,11 @@ impl SettingsView {
             }
             let current = this.name_input.read(cx).value().to_string();
             if should_save(&this.identity.name, &current) {
-              this.save_git_config("user.name", current, true, cx);
+              if this.identity.name_inflight.is_none() {
+                this.save_git_config("user.name", current, true, token, cx);
+              }
             } else {
-              this.identity.name_gen = 0;
+              this.identity.name_done_gen = token;
             }
           },
         );
@@ -98,9 +109,11 @@ impl SettingsView {
             }
             let current = this.email_input.read(cx).value().to_string();
             if should_save(&this.identity.email, &current) {
-              this.save_git_config("user.email", current, false, cx);
+              if this.identity.email_inflight.is_none() {
+                this.save_git_config("user.email", current, false, token, cx);
+              }
             } else {
-              this.identity.email_gen = 0;
+              this.identity.email_done_gen = token;
             }
           },
         );
@@ -118,6 +131,12 @@ impl SettingsView {
       editor_font_input,
       focus_handle: cx.focus_handle(),
       core: core.clone(),
+      #[cfg(test)]
+      identity_load: None,
+      #[cfg(test)]
+      save_delay: Duration::ZERO,
+      #[cfg(test)]
+      saves: Arc::new(std::sync::Mutex::new(Vec::new())),
     }
   }
 
@@ -132,6 +151,17 @@ impl SettingsView {
   }
 
   fn load_identity(&self, window: &mut Window, cx: &mut Context<Self>) {
+    #[cfg(test)]
+    if let Some(load) = self.identity_load.clone() {
+      cx.spawn_in(window, async move |this, cx| {
+        let (name, email) = load.lock().expect("identity load").clone();
+        let _ = this.update_in(cx, |this, window, cx| {
+          this.apply_identity_values(name, email, window, cx);
+        });
+      })
+      .detach();
+      return;
+    }
     let core = self.core.clone();
     let task = core.clone().spawn(async move {
       let name = core.get_git_config("user.name").await.unwrap_or_default();
@@ -157,24 +187,50 @@ impl SettingsView {
     cx: &mut Context<Self>,
   ) {
     let name_focused = self.name_input.read(cx).focus_handle(cx).is_focused(window);
-    if should_apply_loaded(self.identity.name_gen != 0, name_focused) {
+    if should_apply_loaded(self.identity.name_pending(), name_focused) {
       self.identity.name = name.clone();
       self
         .name_input
         .update(cx, |state, cx| state.set_value(name, window, cx));
-      self.identity.name_gen = 0;
+      self.identity.name_done_gen = self.identity.name_gen;
     }
     let email_focused = self.email_input.read(cx).focus_handle(cx).is_focused(window);
-    if should_apply_loaded(self.identity.email_gen != 0, email_focused) {
+    if should_apply_loaded(self.identity.email_pending(), email_focused) {
       self.identity.email = email.clone();
       self
         .email_input
         .update(cx, |state, cx| state.set_value(email, window, cx));
-      self.identity.email_gen = 0;
+      self.identity.email_done_gen = self.identity.email_gen;
     }
   }
 
-  fn save_git_config(&mut self, key: &'static str, value: String, is_name: bool, cx: &mut Context<Self>) {
+  fn save_git_config(&mut self, key: &'static str, value: String, is_name: bool, token: u64, cx: &mut Context<Self>) {
+    if is_name {
+      self.identity.name_inflight = Some(token);
+    } else {
+      self.identity.email_inflight = Some(token);
+    }
+    #[cfg(test)]
+    if self.identity_load.is_some() {
+      let delay = self.save_delay;
+      let saved = value.clone();
+      let recorded_key = key.to_string();
+      let saves = self.saves.clone();
+      cx.spawn(async move |this, cx| {
+        if !delay.is_zero() {
+          cx.background_executor().timer(delay).await;
+        }
+        saves
+          .lock()
+          .expect("identity saves")
+          .push((recorded_key, saved.clone()));
+        let _ = this.update(cx, |this, cx| {
+          this.complete_identity_save(is_name, token, saved, true, cx);
+        });
+      })
+      .detach();
+      return;
+    }
     let core = self.core.clone();
     let saved = value.clone();
     let task = core
@@ -182,26 +238,69 @@ impl SettingsView {
       .spawn(async move { core.set_git_config(key, &value).await });
     cx.spawn(async move |this, cx| {
       let result = task.await;
-      let _ = this.update(cx, |this, _| {
-        if is_name {
-          this.identity.name_gen = 0;
-        } else {
-          this.identity.email_gen = 0;
-        }
-        match &result {
-          Ok(Ok(())) => {
-            if is_name {
-              this.identity.name = saved;
-            } else {
-              this.identity.email = saved;
-            }
-          }
-          Ok(Err(err)) => tracing::warn!("git config {key}: {err}"),
-          Err(err) => tracing::warn!("git config {key}: {err}"),
-        }
+      let ok = matches!(&result, Ok(Ok(())));
+      match result {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => tracing::warn!("git config {key}: {err}"),
+        Err(err) => tracing::warn!("git config {key}: {err}"),
+      }
+      let _ = this.update(cx, |this, cx| {
+        this.complete_identity_save(is_name, token, saved, ok, cx);
       });
     })
     .detach();
+  }
+
+  fn complete_identity_save(&mut self, is_name: bool, token: u64, saved: String, ok: bool, cx: &mut Context<Self>) {
+    if is_name {
+      if self.identity.name_inflight == Some(token) {
+        self.identity.name_inflight = None;
+      }
+      if self.identity.name_gen != token {
+        let current = self.name_input.read(cx).value().to_string();
+        if should_save(&self.identity.name, &current) && self.identity.name_inflight.is_none() {
+          self.save_git_config("user.name", current, true, self.identity.name_gen, cx);
+        } else if self.identity.name_inflight.is_none() {
+          self.identity.name_done_gen = self.identity.name_gen;
+        }
+        return;
+      }
+      if ok {
+        self.identity.name = saved;
+      }
+      self.identity.name_done_gen = token;
+      return;
+    }
+    if self.identity.email_inflight == Some(token) {
+      self.identity.email_inflight = None;
+    }
+    if self.identity.email_gen != token {
+      let current = self.email_input.read(cx).value().to_string();
+      if should_save(&self.identity.email, &current) && self.identity.email_inflight.is_none() {
+        self.save_git_config("user.email", current, false, self.identity.email_gen, cx);
+      } else if self.identity.email_inflight.is_none() {
+        self.identity.email_done_gen = self.identity.email_gen;
+      }
+      return;
+    }
+    if ok {
+      self.identity.email = saved;
+    }
+    self.identity.email_done_gen = token;
+  }
+
+  #[cfg(test)]
+  pub(crate) fn stub_identity(&mut self, name: String, email: String) {
+    self.identity_load = Some(Arc::new(std::sync::Mutex::new((name, email))));
+  }
+
+  #[cfg(test)]
+  pub(crate) fn set_stub_identity(&mut self, name: String, email: String) {
+    if let Some(load) = &self.identity_load {
+      *load.lock().expect("identity load") = (name, email);
+    } else {
+      self.stub_identity(name, email);
+    }
   }
 }
 
@@ -287,7 +386,7 @@ mod tests {
     OperationActions, SessionActions, SessionRepo, SessionScm, SessionSelection, SessionSnapshot, SyncAction, SyncKind,
   };
   use deathpush_core::types::{RepoOperationState, StatusPhase};
-  use gpui_kit::TestAppContext;
+  use gpui_kit::{TestAppContext, WindowHandle};
 
   fn snapshot(root: &str) -> SessionSnapshot {
     SessionSnapshot {
@@ -382,10 +481,11 @@ mod tests {
       .unwrap();
   }
 
-  #[gpui_kit::test]
-  fn identity_reapplies_on_show_unless_editing(cx: &mut TestAppContext) {
-    let config_dir = tempfile::TempDir::new().unwrap();
-    let resource_dir = tempfile::TempDir::new().unwrap();
+  fn open_settings(
+    cx: &mut TestAppContext,
+    config_dir: &tempfile::TempDir,
+    resource_dir: &tempfile::TempDir,
+  ) -> WindowHandle<SettingsView> {
     cx.update(|cx| {
       gpui_kit::init(cx);
       AppConfig::init_at(config_dir.path().to_path_buf(), cx);
@@ -395,7 +495,7 @@ mod tests {
     let (session, _events) = core.open_session();
     let layout_dir = config_dir.path().to_path_buf();
     let root = layout_dir.to_string_lossy().into_owned();
-    let window = cx.add_window({
+    cx.add_window({
       let core = core.clone();
       let snapshot = snapshot(&root);
       let layout_dir = layout_dir.clone();
@@ -405,24 +505,115 @@ mod tests {
         let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
         SettingsView::new(model, layout, core, window, cx)
       }
-    });
+    })
+  }
+
+  #[gpui_kit::test]
+  fn identity_reapplies_on_show_unless_editing(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let window = open_settings(cx, &config_dir, &resource_dir);
     window
       .update(cx, |view, window, cx| {
-        view.apply_identity_values("Ada".into(), "ada@x".into(), window, cx);
+        view.stub_identity("Ada".into(), "ada@x".into());
+        view.on_show(window, cx);
+      })
+      .unwrap();
+    cx.run_until_parked();
+    window
+      .update(cx, |view, window, cx| {
         assert_eq!(view.name_input.read(cx).value().as_ref(), "Ada");
         assert_eq!(view.email_input.read(cx).value().as_ref(), "ada@x");
-        view.apply_identity_values("Grace".into(), "grace@x".into(), window, cx);
+        view.set_stub_identity("Grace".into(), "grace@x".into());
+        view.on_show(window, cx);
+      })
+      .unwrap();
+    cx.run_until_parked();
+    window
+      .update(cx, |view, window, cx| {
         assert_eq!(view.name_input.read(cx).value().as_ref(), "Grace");
         assert_eq!(view.email_input.read(cx).value().as_ref(), "grace@x");
         view.name_input.update(cx, |state, cx| state.focus(window, cx));
-        view.apply_identity_values("Other".into(), "other@x".into(), window, cx);
+        view.set_stub_identity("Other".into(), "other@x".into());
+        view.on_show(window, cx);
+      })
+      .unwrap();
+    cx.run_until_parked();
+    window
+      .update(cx, |view, window, cx| {
         assert_eq!(view.name_input.read(cx).value().as_ref(), "Grace");
         assert_eq!(view.email_input.read(cx).value().as_ref(), "other@x");
         view.focus(window, cx);
-        view.identity.name_gen = 1;
-        view.apply_identity_values("Pending".into(), "p@x".into(), window, cx);
+        view.identity.name_gen += 1;
+        view.set_stub_identity("Pending".into(), "p@x".into());
+        view.on_show(window, cx);
+      })
+      .unwrap();
+    cx.run_until_parked();
+    window
+      .update(cx, |view, _, cx| {
         assert_eq!(view.name_input.read(cx).value().as_ref(), "Grace");
         assert_eq!(view.email_input.read(cx).value().as_ref(), "p@x");
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn identity_save_does_not_reset_a_newer_generation(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let window = open_settings(cx, &config_dir, &resource_dir);
+    window
+      .update(cx, |view, window, cx| {
+        view.stub_identity(String::new(), String::new());
+        view.save_delay = Duration::from_millis(2000);
+        view
+          .name_input
+          .update(cx, |state, cx| state.replace_all("Ada", window, cx));
+      })
+      .unwrap();
+    cx.executor().advance_clock(Duration::from_millis(IDENTITY_DEBOUNCE_MS));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, window, cx| {
+        assert_eq!(view.identity.name_inflight, Some(1));
+        assert_eq!(view.identity.name_gen, 1);
+        view
+          .name_input
+          .update(cx, |state, cx| state.replace_all("Grace", window, cx));
+      })
+      .unwrap();
+    cx.run_until_parked();
+    window
+      .update(cx, |view, _, _| {
+        assert_eq!(view.identity.name_gen, 2);
+        assert_eq!(view.identity.name_inflight, Some(1));
+      })
+      .unwrap();
+    cx.executor().advance_clock(Duration::from_millis(2000));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, _, _| {
+        assert_eq!(view.identity.name_gen, 2);
+        assert_eq!(view.identity.name_inflight, Some(2));
+        assert_eq!(
+          view.saves.lock().expect("identity saves").clone(),
+          vec![("user.name".into(), "Ada".into())]
+        );
+      })
+      .unwrap();
+    cx.executor().advance_clock(Duration::from_millis(2000));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, _, _| {
+        assert_eq!(view.identity.name, "Grace");
+        assert_eq!(view.identity.name_gen, 2);
+        assert_eq!(view.identity.name_done_gen, 2);
+        assert!(view.identity.name_inflight.is_none());
+        assert_eq!(
+          view.saves.lock().expect("identity saves").clone(),
+          vec![("user.name".into(), "Ada".into()), ("user.name".into(), "Grace".into()),]
+        );
       })
       .unwrap();
   }

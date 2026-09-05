@@ -4,6 +4,10 @@ pub(crate) struct GitIdentity {
   pub email: String,
   pub(crate) name_gen: u64,
   pub(crate) email_gen: u64,
+  pub(crate) name_done_gen: u64,
+  pub(crate) email_done_gen: u64,
+  pub(crate) name_inflight: Option<u64>,
+  pub(crate) email_inflight: Option<u64>,
 }
 
 /// Quiet period before writing a Git identity field.
@@ -16,7 +20,19 @@ impl GitIdentity {
       email: String::new(),
       name_gen: 0,
       email_gen: 0,
+      name_done_gen: 0,
+      email_done_gen: 0,
+      name_inflight: None,
+      email_inflight: None,
     }
+  }
+
+  pub(crate) fn name_pending(&self) -> bool {
+    self.name_inflight.is_some() || self.name_done_gen < self.name_gen
+  }
+
+  pub(crate) fn email_pending(&self) -> bool {
+    self.email_inflight.is_some() || self.email_done_gen < self.email_gen
   }
 }
 
