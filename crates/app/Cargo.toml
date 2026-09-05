@@ -37,3 +37,41 @@ serde_json.workspace = true
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
+
+[package.metadata.packager]
+before-packaging-command = "cargo build --release -p deathpush"
+product-name = "DeathPush"
+identifier = "com.deathpush.app"
+category = "DeveloperTool"
+out-dir = "../../target/release"
+icons = [
+  "../../assets/app-icons/icon.icns",
+  "../../assets/app-icons/icon.ico",
+  "../../assets/app-icons/128x128@2x.png",
+  "../../assets/app-icons/128x128.png",
+  "../../assets/app-icons/32x32.png",
+]
+resources = ["../../assets/bin/dp", "../../assets/bin/dp.cmd"]
+deep-link-protocols = [{ schemes = ["deathpush"], name = "DeathPush", role = "viewer" }]
+
+[package.metadata.packager.macos]
+minimum-system-version = "12.0"
+
+[package.metadata.packager.deb]
+depends = [
+  "libx11-6",
+  "libx11-xcb1",
+  "libxcb1",
+  "libxkbcommon0",
+  "libxkbcommon-x11-0",
+  "libwayland-client0",
+  "libwayland-cursor0",
+  "libwayland-egl1",
+  "libfontconfig1",
+]
+files = { "../../assets/metainfo/com.deathpush.app.metainfo.xml" = "usr/share/metainfo/com.deathpush.app.metainfo.xml", "../../assets/bin/dp-linux" = "usr/bin/dp" }
+
+[package.metadata.packager.appimage]
+
+[package.metadata.packager.nsis]
+installMode = "currentUser"

@@ -28,9 +28,13 @@ perf-boot:
 perf-storm:
   TZ=UTC cargo test -p deathpush-core storm
 
+package:
+  cargo packager --release
+
 release version:
   sed -i '' 's/^version = "[^"]*"/version = "{{version}}"/' Cargo.toml
-  cargo update --workspace
-  git add -A && git commit -m "release: v{{version}}"
+  cargo update -w -p deathpush
+  git add Cargo.toml Cargo.lock
+  git commit -m "chore(release): v{{version}}"
   git tag "v{{version}}"
-  git push origin main --tags
+  @echo "Push with: git push origin HEAD --tags"
