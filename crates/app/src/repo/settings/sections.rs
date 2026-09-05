@@ -19,7 +19,7 @@ use crate::zoom;
 
 const CLASSIC_INDICATORS: &str = "Classic (+\u{2212})";
 
-pub fn themes_of_kind(entries: &[ThemeEntry], kind: ThemeKind) -> Vec<(SharedString, String)> {
+pub(crate) fn themes_of_kind(entries: &[ThemeEntry], kind: ThemeKind) -> Vec<(SharedString, String)> {
   entries
     .iter()
     .filter(|entry| entry.kind == kind)
@@ -27,7 +27,7 @@ pub fn themes_of_kind(entries: &[ThemeEntry], kind: ThemeKind) -> Vec<(SharedStr
     .collect()
 }
 
-pub fn appearance(
+pub(crate) fn appearance(
   settings: &Settings,
   catalog: &[ThemeEntry],
   ui_font: &Entity<InputState>,
@@ -91,6 +91,7 @@ pub fn appearance(
       1.0,
       persist(view.clone(), |value: f64, cx| {
         AppConfig::update(cx, |c| c.settings.ui.font_size = value.round() as u32);
+        crate::theme::refresh_ui_font(None, cx);
       }),
     ))
     .child(select_row(
@@ -108,7 +109,7 @@ pub fn appearance(
     ))
 }
 
-pub fn editor(
+pub(crate) fn editor(
   editor: &EditorSettings,
   font_input: &Entity<InputState>,
   view: WeakEntity<SettingsView>,
@@ -160,7 +161,7 @@ pub fn editor(
     ))
 }
 
-pub fn diff_viewer(diff: &DiffSettings, view: WeakEntity<SettingsView>, cx: &App) -> impl IntoElement {
+pub(crate) fn diff_viewer(diff: &DiffSettings, view: WeakEntity<SettingsView>, cx: &App) -> impl IntoElement {
   div()
     .flex()
     .flex_col()
@@ -221,7 +222,7 @@ pub fn diff_viewer(diff: &DiffSettings, view: WeakEntity<SettingsView>, cx: &App
     ))
 }
 
-pub fn git(
+pub(crate) fn git(
   git: &GitSettings,
   name_input: &Entity<InputState>,
   email_input: &Entity<InputState>,
@@ -244,7 +245,7 @@ pub fn git(
     .child(text_row("User Email", email_input))
 }
 
-pub fn projects(settings: &Settings, cx: &App) -> impl IntoElement {
+pub(crate) fn projects(settings: &Settings, cx: &App) -> impl IntoElement {
   let summary = workspace_summary(&settings.projects.workspaces).unwrap_or_else(|| "Not configured".into());
   div()
     .flex()

@@ -37,7 +37,6 @@ impl ThemeCatalog {
     self.palettes.get(id).copied()
   }
 
-  #[allow(dead_code)]
   pub fn spec(&self, id: &str) -> Option<Arc<ThemeSpec>> {
     self.specs.get(id).cloned()
   }
@@ -240,15 +239,19 @@ fn resolve_id(catalog: &ThemeCatalog, id: &str, wanted: ThemeKind) -> String {
 }
 
 fn apply_visual(id: &str, wanted: ThemeKind, window: Option<&mut Window>, cx: &mut App) -> String {
-  let catalog = ThemeCatalog::get(cx);
-  let id = resolve_id(catalog, id, wanted);
-  let kind = catalog.kind(&id).unwrap_or(ThemeKind::Dark);
-  let palette = catalog.palette(&id).expect("catalog has the id");
-  let config: Rc<ThemeConfig> = ThemeRegistry::global(cx)
-    .themes()
-    .get(&SharedString::from(id.clone()))
-    .cloned()
-    .expect("registry has the theme");
+  let (id, kind, palette, spec) = {
+    let catalog = ThemeCatalog::get(cx);
+    let id = resolve_id(catalog, id, wanted);
+    let kind = catalog.kind(&id).unwrap_or(ThemeKind::Dark);
+    let palette = catalog.palette(&id).expect("catalog has the id");
+    let spec = catalog.spec(&id).expect("catalog has the spec");
+    (id, kind, palette, spec)
+  };
+  let (font_family, font_size) = {
+    let ui = &AppConfig::get(cx).settings.ui;
+    (ui.font_family.clone(), ui.font_size)
+  };
+  let config = Rc::new(theme_config(&spec, &palette, &font_family, font_size));
   {
     let theme = Theme::global_mut(cx);
     if kind == ThemeKind::Dark {
@@ -268,6 +271,13 @@ fn apply_visual(id: &str, wanted: ThemeKind, window: Option<&mut Window>, cx: &m
   );
   cx.set_global(ActivePalette(palette));
   id
+}
+
+/// Rebuild the current theme's config from the catalog and the saved UI font, then apply it.
+pub fn refresh_ui_font(window: Option<&mut Window>, cx: &mut App) {
+  let current = AppConfig::get(cx).settings.theme.current.clone();
+  let wanted = ThemeCatalog::get(cx).kind(&current).unwrap_or(ThemeKind::Dark);
+  apply_visual(&current, wanted, window, cx);
 }
 
 /// Switch gpui-component and our palette to `id`. Unknown ids fall back to the default of their kind.
@@ -371,6 +381,25 @@ mod tests {
       apply_theme("ayu-light", ThemeKind::Light, None, cx);
       assert_eq!(Theme::global(cx).mode, ThemeMode::Light);
       assert_eq!(cx.global::<ActivePalette>().0.kind, ThemeKind::Light);
+    });
+  }
+
+  #[gpui_kit::test]
+  fn refresh_ui_font_updates_the_active_theme_without_reload(cx: &mut TestAppContext) {
+    let dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(dir.path().to_path_buf(), cx);
+      init(cx);
+      assert_eq!(Theme::global(cx).font_size, px(13.));
+      AppConfig::update(cx, |c| {
+        c.settings.ui.font_family = "Test Sans".into();
+        c.settings.ui.font_size = 16;
+      });
+      assert_eq!(Theme::global(cx).font_size, px(13.));
+      refresh_ui_font(None, cx);
+      assert_eq!(Theme::global(cx).font_family.as_ref(), "Test Sans");
+      assert_eq!(Theme::global(cx).font_size, px(16.));
     });
   }
 

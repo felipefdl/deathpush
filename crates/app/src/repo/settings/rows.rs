@@ -14,14 +14,15 @@ use crate::theme::{ActivePalette, hsla};
 
 type NumberChange = Rc<dyn Fn(f64, &mut App)>;
 
-pub fn zoom_select_options() -> Vec<(SharedString, i32)> {
+/// Zoom select options as `(label, level)` from core `zoom_options`.
+pub(crate) fn zoom_select_options() -> Vec<(SharedString, i32)> {
   zoom_options()
     .into_iter()
     .map(|(level, label)| (SharedString::from(label), level))
     .collect()
 }
 
-pub fn color_theme_hint() -> &'static str {
+pub(crate) fn color_theme_hint() -> &'static str {
   if cfg!(target_os = "macos") {
     "Cmd+K Cmd+T"
   } else {
@@ -29,7 +30,8 @@ pub fn color_theme_hint() -> &'static str {
   }
 }
 
-pub fn section_title(text: impl Into<SharedString>, cx: &App) -> impl IntoElement {
+/// 11px bold uppercase muted section heading.
+pub(crate) fn section_title(text: impl Into<SharedString>, cx: &App) -> impl IntoElement {
   div()
     .pt_2()
     .pb_1()
@@ -39,7 +41,8 @@ pub fn section_title(text: impl Into<SharedString>, cx: &App) -> impl IntoElemen
     .child(text.into().to_string().to_uppercase())
 }
 
-pub fn toggle_row(
+/// Label on the left, pill `Switch` on the right.
+pub(crate) fn toggle_row(
   label: impl Into<SharedString>,
   value: bool,
   on_change: impl Fn(bool, &mut App) + 'static,
@@ -54,7 +57,8 @@ pub fn toggle_row(
   )
 }
 
-pub fn select_row<T: Clone + PartialEq + 'static>(
+/// Label on the left, filled dropdown of `options` on the right.
+pub(crate) fn select_row<T: Clone + PartialEq + 'static>(
   label: impl Into<SharedString>,
   options: Vec<(SharedString, T)>,
   value: T,
@@ -89,7 +93,8 @@ pub fn select_row<T: Clone + PartialEq + 'static>(
   )
 }
 
-pub fn number_row(
+/// Label on the left, `NumberInput` with steppers on the right.
+pub(crate) fn number_row(
   label: impl Into<SharedString>,
   value: f64,
   min: f64,
@@ -107,11 +112,16 @@ pub fn number_row(
   }
 }
 
-pub fn text_row(label: impl Into<SharedString>, input: &Entity<InputState>) -> impl IntoElement {
+/// Label on the left, text `Input` bound to `input` on the right.
+pub(crate) fn text_row(label: impl Into<SharedString>, input: &Entity<InputState>) -> impl IntoElement {
   labeled_row(label, Input::new(input).small().w(px(200.0)))
 }
 
-pub fn color_theme_button(label: impl Into<SharedString>, hint: impl Into<SharedString>, cx: &App) -> impl IntoElement {
+pub(crate) fn color_theme_button(
+  label: impl Into<SharedString>,
+  hint: impl Into<SharedString>,
+  cx: &App,
+) -> impl IntoElement {
   Button::new("color-theme")
     .outline()
     .small()
@@ -134,7 +144,7 @@ pub fn color_theme_button(label: impl Into<SharedString>, hint: impl Into<Shared
     )
 }
 
-pub fn projects_row(summary: &str, cx: &App) -> impl IntoElement {
+pub(crate) fn projects_row(summary: &str, cx: &App) -> impl IntoElement {
   let palette = cx.global::<ActivePalette>().0;
   let empty = summary == "Not configured";
   labeled_row(

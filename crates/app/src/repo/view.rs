@@ -175,6 +175,27 @@ impl RepoView {
     self.focus_handle.focus(window, cx);
   }
 
+  fn toggle_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    let next = self.layout.update(cx, |layout, cx| {
+      let next = if layout.layout().main_view == MainView::Settings {
+        MainView::Changes
+      } else {
+        MainView::Settings
+      };
+      layout.select_main_view(next, cx);
+      if next == MainView::Settings {
+        layout.select_sidebar_view(SidebarView::Scm, cx);
+      }
+      next
+    });
+    if next == MainView::Settings {
+      self.settings.update(cx, |settings, cx| {
+        settings.focus(window, cx);
+        settings.on_show(window, cx);
+      });
+    }
+  }
+
   fn send(&self, intent: Intent, window: &mut Window, cx: &mut Context<Self>) {
     self.model.update(cx, |model, cx| model.dispatch(intent, window, cx));
   }
@@ -286,18 +307,7 @@ impl Render for RepoView {
           .update(cx, |layout, cx| layout.select_main_view(MainView::History, cx));
       }))
       .on_action(cx.listener(|this, _: &ShowSettings, window, cx| {
-        let next = this.layout.update(cx, |layout, cx| {
-          let next = if layout.layout().main_view == MainView::Settings {
-            MainView::Changes
-          } else {
-            MainView::Settings
-          };
-          layout.select_main_view(next, cx);
-          next
-        });
-        if next == MainView::Settings {
-          this.settings.update(cx, |settings, cx| settings.focus(window, cx));
-        }
+        this.toggle_settings(window, cx);
       }))
       .on_action(cx.listener(|_, _: &ToggleDiffLayout, _, cx| {
         AppConfig::update(cx, |config| {
@@ -766,6 +776,49 @@ mod tests {
           .update(cx, |layout, cx| layout.set_panel_tab(PanelTab::GitOutput, cx));
         view.split_terminal(Axis::Horizontal, window, cx);
         assert_eq!(view.layout().read(cx).layout().panel_tab, PanelTab::Terminal);
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn explorer_to_settings_selects_changes(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let layout_dir = config_dir.path().to_path_buf();
+    let root = layout_dir.to_string_lossy().into_owned();
+    let window = cx.add_window({
+      let core = core.clone();
+      let snapshot = snapshot(&root);
+      let layout_dir = layout_dir.clone();
+      let root = root.clone();
+      move |window, cx| {
+        let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
+        let output = cx.new(|_| OutputLog::default());
+        RepoView::new(model, layout, output, window, cx)
+      }
+    });
+    window
+      .update(cx, |view, window, cx| {
+        view.layout().update(cx, |layout, cx| {
+          layout.select_sidebar_view(SidebarView::Explorer, cx);
+        });
+        assert_eq!(view.layout().read(cx).layout().sidebar_view, SidebarView::Explorer);
+        assert_eq!(view.layout().read(cx).layout().main_view, MainView::File);
+        view.layout().update(cx, |layout, cx| {
+          layout.select_main_view(MainView::Settings, cx);
+          layout.select_sidebar_view(SidebarView::Scm, cx);
+        });
+        assert_eq!(view.layout().read(cx).layout().sidebar_view, SidebarView::Scm);
+        assert_eq!(view.layout().read(cx).layout().main_view, MainView::Settings);
+        let _ = window;
       })
       .unwrap();
   }

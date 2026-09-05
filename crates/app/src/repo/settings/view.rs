@@ -6,7 +6,7 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 
-use super::git_identity::{GitIdentity, IDENTITY_DEBOUNCE_MS, should_save};
+use super::git_identity::{GitIdentity, IDENTITY_DEBOUNCE_MS, should_apply_loaded, should_save};
 use super::sections;
 use crate::config::AppConfig;
 use crate::repo::changes::filter::debounce;
@@ -14,6 +14,7 @@ use crate::repo::layout_model::LayoutModel;
 use crate::repo::model::RepoModel;
 use crate::theme::{ActivePalette, ThemeCatalog, hsla};
 
+/// App settings in the repository main panel.
 pub struct SettingsView {
   #[allow(dead_code)]
   repo: Entity<RepoModel>,
@@ -29,6 +30,7 @@ pub struct SettingsView {
 }
 
 impl SettingsView {
+  /// Build the page. Git identity is loaded when the page is shown.
   pub fn new(
     repo: Entity<RepoModel>,
     layout: Entity<LayoutModel>,
@@ -48,6 +50,7 @@ impl SettingsView {
       if matches!(event, InputEvent::Change) {
         let value = input.read(cx).value().to_string();
         AppConfig::update(cx, |c| c.settings.ui.font_family = value);
+        crate::theme::refresh_ui_font(None, cx);
         cx.notify();
       }
     })
@@ -74,6 +77,8 @@ impl SettingsView {
             let current = this.name_input.read(cx).value().to_string();
             if should_save(&this.identity.name, &current) {
               this.save_git_config("user.name", current, true, cx);
+            } else {
+              this.identity.name_gen = 0;
             }
           },
         );
@@ -94,6 +99,8 @@ impl SettingsView {
             let current = this.email_input.read(cx).value().to_string();
             if should_save(&this.identity.email, &current) {
               this.save_git_config("user.email", current, false, cx);
+            } else {
+              this.identity.email_gen = 0;
             }
           },
         );
@@ -101,7 +108,7 @@ impl SettingsView {
     })
     .detach();
 
-    let view = Self {
+    Self {
       repo,
       layout,
       identity: GitIdentity::new(),
@@ -111,13 +118,17 @@ impl SettingsView {
       editor_font_input,
       focus_handle: cx.focus_handle(),
       core: core.clone(),
-    };
-    view.load_identity(window, cx);
-    view
+    }
   }
 
+  /// Move focus to the settings page.
   pub fn focus(&self, window: &mut Window, cx: &mut App) {
     self.focus_handle.focus(window, cx);
+  }
+
+  /// Reload Git identity from config. Skips a field that is focused or has a save in flight.
+  pub fn on_show(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    self.load_identity(window, cx);
   }
 
   fn load_identity(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -132,21 +143,35 @@ impl SettingsView {
         return;
       };
       let _ = this.update_in(cx, |this, window, cx| {
-        if this.identity.name_gen == 0 {
-          this.identity.name = name.clone();
-          this
-            .name_input
-            .update(cx, |state, cx| state.set_value(name, window, cx));
-        }
-        if this.identity.email_gen == 0 {
-          this.identity.email = email.clone();
-          this
-            .email_input
-            .update(cx, |state, cx| state.set_value(email, window, cx));
-        }
+        this.apply_identity_values(name, email, window, cx);
       });
     })
     .detach();
+  }
+
+  pub(crate) fn apply_identity_values(
+    &mut self,
+    name: String,
+    email: String,
+    window: &mut Window,
+    cx: &mut Context<Self>,
+  ) {
+    let name_focused = self.name_input.read(cx).focus_handle(cx).is_focused(window);
+    if should_apply_loaded(self.identity.name_gen != 0, name_focused) {
+      self.identity.name = name.clone();
+      self
+        .name_input
+        .update(cx, |state, cx| state.set_value(name, window, cx));
+      self.identity.name_gen = 0;
+    }
+    let email_focused = self.email_input.read(cx).focus_handle(cx).is_focused(window);
+    if should_apply_loaded(self.identity.email_gen != 0, email_focused) {
+      self.identity.email = email.clone();
+      self
+        .email_input
+        .update(cx, |state, cx| state.set_value(email, window, cx));
+      self.identity.email_gen = 0;
+    }
   }
 
   fn save_git_config(&mut self, key: &'static str, value: String, is_name: bool, cx: &mut Context<Self>) {
@@ -155,18 +180,26 @@ impl SettingsView {
     let task = core
       .clone()
       .spawn(async move { core.set_git_config(key, &value).await });
-    cx.spawn(async move |this, cx| match task.await {
-      Ok(Ok(())) => {
-        let _ = this.update(cx, |this, _| {
-          if is_name {
-            this.identity.name = saved;
-          } else {
-            this.identity.email = saved;
+    cx.spawn(async move |this, cx| {
+      let result = task.await;
+      let _ = this.update(cx, |this, _| {
+        if is_name {
+          this.identity.name_gen = 0;
+        } else {
+          this.identity.email_gen = 0;
+        }
+        match &result {
+          Ok(Ok(())) => {
+            if is_name {
+              this.identity.name = saved;
+            } else {
+              this.identity.email = saved;
+            }
           }
-        });
-      }
-      Ok(Err(err)) => tracing::warn!("git config {key}: {err}"),
-      Err(err) => tracing::warn!("git config {key}: {err}"),
+          Ok(Err(err)) => tracing::warn!("git config {key}: {err}"),
+          Err(err) => tracing::warn!("git config {key}: {err}"),
+        }
+      });
     })
     .detach();
   }
@@ -345,6 +378,51 @@ mod tests {
             .as_deref(),
           Some("/src:2")
         );
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn identity_reapplies_on_show_unless_editing(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let layout_dir = config_dir.path().to_path_buf();
+    let root = layout_dir.to_string_lossy().into_owned();
+    let window = cx.add_window({
+      let core = core.clone();
+      let snapshot = snapshot(&root);
+      let layout_dir = layout_dir.clone();
+      let root = root.clone();
+      move |window, cx| {
+        let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
+        SettingsView::new(model, layout, core, window, cx)
+      }
+    });
+    window
+      .update(cx, |view, window, cx| {
+        view.apply_identity_values("Ada".into(), "ada@x".into(), window, cx);
+        assert_eq!(view.name_input.read(cx).value().as_ref(), "Ada");
+        assert_eq!(view.email_input.read(cx).value().as_ref(), "ada@x");
+        view.apply_identity_values("Grace".into(), "grace@x".into(), window, cx);
+        assert_eq!(view.name_input.read(cx).value().as_ref(), "Grace");
+        assert_eq!(view.email_input.read(cx).value().as_ref(), "grace@x");
+        view.name_input.update(cx, |state, cx| state.focus(window, cx));
+        view.apply_identity_values("Other".into(), "other@x".into(), window, cx);
+        assert_eq!(view.name_input.read(cx).value().as_ref(), "Grace");
+        assert_eq!(view.email_input.read(cx).value().as_ref(), "other@x");
+        view.focus(window, cx);
+        view.identity.name_gen = 1;
+        view.apply_identity_values("Pending".into(), "p@x".into(), window, cx);
+        assert_eq!(view.name_input.read(cx).value().as_ref(), "Grace");
+        assert_eq!(view.email_input.read(cx).value().as_ref(), "p@x");
       })
       .unwrap();
   }
