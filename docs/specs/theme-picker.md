@@ -27,7 +27,7 @@ Clicking outside the panel cancels and restores the theme that was active when t
 |---|---|---|---|
 | Search | placeholder `Select Color Theme` | Filter themes by label substring | none |
 | Row | theme label | Apply that theme and close | Enter on the active row |
-| Backdrop | none | Cancel and restore the original theme | Escape |
+| Backdrop | none | Cancel and restore the original theme | click |
 | Settings Color Theme | current label plus `Cmd+K Cmd+T` | Open this picker | Cmd/Ctrl+K then Cmd/Ctrl+T |
 | View menu Color Theme... | `Color Theme...` | Open this picker | none |
 
@@ -52,7 +52,7 @@ Panel 500 wide, up to 440 tall, on the sidebar background with a subtle border, 
 
 **Confirm.** Enter or click closes the picker, applies the theme, and records it as the preferred dark or light theme according to its kind.
 
-**Cancel.** Escape or a backdrop click restores the original theme.
+**Cancel.** Escape on an empty query restores the original theme. A backdrop click cancels and restores in one step.
 
 **Empty filter.** No rows; Enter does nothing.
 
@@ -69,7 +69,7 @@ Panel 500 wide, up to 440 tall, on the sidebar background with a subtle border, 
 - Cmd/Ctrl+K then Cmd/Ctrl+T: open
 - Up / Down: move and preview
 - Enter: confirm
-- Escape: cancel
+- Escape: clear a non-empty query; on an empty query, cancel and restore the original theme
 
 ## Persistence
 
