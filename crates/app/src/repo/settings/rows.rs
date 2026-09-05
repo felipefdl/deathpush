@@ -95,6 +95,7 @@ pub(crate) fn select_row<T: Clone + PartialEq + 'static>(
 
 /// Label on the left, `NumberInput` with steppers on the right.
 pub(crate) fn number_row(
+  id: &'static str,
   label: impl Into<SharedString>,
   value: f64,
   min: f64,
@@ -103,6 +104,7 @@ pub(crate) fn number_row(
   on_change: impl Fn(f64, &mut App) + 'static,
 ) -> impl IntoElement {
   NumberRow {
+    id: SharedString::from(id),
     label: label.into(),
     value,
     min,
@@ -184,15 +186,17 @@ fn labeled_row(label: impl Into<SharedString>, control: impl IntoElement) -> imp
 }
 
 fn format_number(value: f64, step: f64) -> String {
-  if step >= 1.0 && value.fract().abs() < f64::EPSILON {
-    format!("{}", value as i64)
+  if step >= 1.0 {
+    format!("{}", value.round() as i64)
   } else {
-    format!("{value}")
+    let places = (-step.log10()).ceil().clamp(0.0, 8.0) as usize;
+    format!("{value:.places$}")
   }
 }
 
 #[derive(IntoElement)]
 struct NumberRow {
+  id: SharedString,
   label: SharedString,
   value: f64,
   min: f64,
@@ -210,6 +214,7 @@ struct NumberState {
 impl RenderOnce for NumberRow {
   fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
     let NumberRow {
+      id,
       label,
       value,
       min,
@@ -217,7 +222,7 @@ impl RenderOnce for NumberRow {
       step,
       on_change,
     } = self;
-    let id = SharedString::from(format!("settings-number-{label}"));
+    let id = SharedString::from(format!("settings-number-{id}"));
     let state = window.use_keyed_state(id, cx, {
       let on_change = on_change.clone();
       move |window, cx| {

@@ -1,10 +1,13 @@
+use std::path::Path;
+
 use deathpush_core::config::settings::{
-  DiffIndicators, DiffLayout, DiffSettings, EditorSettings, GitSettings, HunkSeparators, LineDiffType, Settings,
-  SidebarPosition, TreeDensity, TreeIcons, WordWrap,
+  BellStyle, CursorInactiveStyle, CursorStyle, DiffIndicators, DiffLayout, DiffSettings, EditorSettings, GitSettings,
+  HunkSeparators, LineDiffType, Settings, SidebarPosition, TerminalSettings, TreeDensity, TreeIcons, WordWrap,
 };
-use deathpush_core::config::settings_ui::workspace_summary;
+use deathpush_core::config::settings_ui::{FONT_WEIGHTS, ShellPreset, preset_for, shell_presets, workspace_summary};
 use deathpush_core::theme::ThemeKind;
 use gpui_kit::component::input::InputState;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use super::rows::{
@@ -84,6 +87,7 @@ pub(crate) fn appearance(
     ))
     .child(text_row("UI Font Family", ui_font))
     .child(number_row(
+      "ui-font-size",
       "UI Font Size",
       ui.font_size as f64,
       10.0,
@@ -121,6 +125,7 @@ pub(crate) fn editor(
     .gap_1()
     .child(section_title("Editor", cx))
     .child(number_row(
+      "editor-font-size",
       "Font Size",
       editor.font_size as f64,
       8.0,
@@ -132,6 +137,7 @@ pub(crate) fn editor(
     ))
     .child(text_row("Font Family", font_input))
     .child(number_row(
+      "editor-line-height",
       "Line Height",
       editor.line_height as f64,
       10.0,
@@ -142,6 +148,7 @@ pub(crate) fn editor(
       }),
     ))
     .child(number_row(
+      "editor-tab-size",
       "Tab Size",
       editor.tab_size as f64,
       1.0,
@@ -255,6 +262,206 @@ pub(crate) fn projects(settings: &Settings, cx: &App) -> impl IntoElement {
     .child(projects_row(&summary, cx))
 }
 
+pub(crate) fn terminal(
+  terminal: &TerminalSettings,
+  font_input: &Entity<InputState>,
+  shell_path_input: &Entity<InputState>,
+  custom_selected: bool,
+  view: WeakEntity<SettingsView>,
+  cx: &App,
+) -> impl IntoElement {
+  let presets = shell_presets(&|path| Path::new(path).exists());
+  let stored = preset_for(&terminal.shell_path, &presets);
+  let current = if custom_selected || custom_shell_visible(&stored) {
+    ShellPreset::Custom
+  } else {
+    stored
+  };
+  let show_custom = custom_shell_visible(&current);
+  let shell_input = shell_path_input.clone();
+  let shell_view = view.clone();
+  div()
+    .flex()
+    .flex_col()
+    .gap_1()
+    .child(section_title("Terminal", cx))
+    .child(section_title("Text & Font", cx))
+    .child(number_row(
+      "terminal-font-size",
+      "Font Size",
+      terminal.font_size as f64,
+      8.0,
+      32.0,
+      1.0,
+      persist(view.clone(), |value: f64, cx| {
+        AppConfig::update(cx, |c| c.settings.terminal.font_size = value.round() as u32);
+      }),
+    ))
+    .child(text_row("Font Family", font_input))
+    .child(number_row(
+      "terminal-line-height",
+      "Line Height",
+      terminal.line_height as f64,
+      0.8,
+      3.0,
+      0.1,
+      persist(view.clone(), |value: f64, cx| {
+        AppConfig::update(cx, |c| {
+          c.settings.terminal.line_height = ((value * 10.0).round() / 10.0) as f32;
+        });
+      }),
+    ))
+    .child(select_row(
+      "Font Weight",
+      font_weight_options(),
+      terminal.font_weight.clone(),
+      persist(view.clone(), |value, cx| {
+        AppConfig::update(cx, |c| c.settings.terminal.font_weight = value);
+      }),
+    ))
+    .child(select_row(
+      "Font Weight Bold",
+      font_weight_options(),
+      terminal.font_weight_bold.clone(),
+      persist(view.clone(), |value, cx| {
+        AppConfig::update(cx, |c| c.settings.terminal.font_weight_bold = value);
+      }),
+    ))
+    .child(number_row(
+      "terminal-letter-spacing",
+      "Letter Spacing",
+      terminal.letter_spacing as f64,
+      -5.0,
+      10.0,
+      1.0,
+      persist(view.clone(), |value: f64, cx| {
+        AppConfig::update(cx, |c| c.settings.terminal.letter_spacing = value.round() as f32);
+      }),
+    ))
+    .child(section_title("Cursor", cx))
+    .child(select_row(
+      "Cursor Style",
+      cursor_style_options(),
+      terminal.cursor_style,
+      persist(view.clone(), |value, cx| {
+        AppConfig::update(cx, |c| c.settings.terminal.cursor_style = value);
+      }),
+    ))
+    .child(toggle_row(
+      "Cursor Blink",
+      terminal.cursor_blink,
+      persist(view.clone(), |value, cx| {
+        AppConfig::update(cx, |c| c.settings.terminal.cursor_blink = value);
+      }),
+    ))
+    .child(number_row(
+      "terminal-cursor-width",
+      "Cursor Width",
+      terminal.cursor_width as f64,
+      1.0,
+      5.0,
+      1.0,
+      persist(view.clone(), |value: f64, cx| {
+        AppConfig::update(cx, |c| c.settings.terminal.cursor_width = value.round() as u32);
+      }),
+    ))
+    .child(select_row(
+      "Cursor Inactive Style",
+      cursor_inactive_options(),
+      terminal.cursor_inactive_style,
+      persist(view.clone(), |value, cx| {
+        AppConfig::update(cx, |c| c.settings.terminal.cursor_inactive_style = value);
+      }),
+    ))
+    .child(section_title("Scrolling", cx))
+    .child(number_row(
+      "terminal-scrollback",
+      "Scrollback for New Terminals (KiB)",
+      terminal.scrollback as f64,
+      500.0,
+      100_000.0,
+      500.0,
+      persist(view.clone(), |value: f64, cx| {
+        let n = ((value / 500.0).round() * 500.0) as u32;
+        AppConfig::update(cx, |c| c.settings.terminal.scrollback = n.clamp(500, 100_000));
+      }),
+    ))
+    .child(section_title("Behavior", cx))
+    .child(toggle_row(
+      "Copy on Select",
+      terminal.copy_on_select,
+      persist(view.clone(), |value, cx| {
+        AppConfig::update(cx, |c| c.settings.terminal.copy_on_select = value);
+      }),
+    ))
+    .child(toggle_row(
+      "Right Click Selects Word",
+      terminal.right_click_selects_word,
+      persist(view.clone(), |value, cx| {
+        AppConfig::update(cx, |c| c.settings.terminal.right_click_selects_word = value);
+      }),
+    ))
+    .child(toggle_row(
+      "macOS Option Click Forces Selection",
+      terminal.mac_option_click_forces_selection,
+      persist(view.clone(), |value, cx| {
+        AppConfig::update(cx, |c| c.settings.terminal.mac_option_click_forces_selection = value);
+      }),
+    ))
+    .child(section_title("Rendering", cx))
+    .child(number_row(
+      "terminal-color-saturation",
+      "Color Saturation",
+      terminal.color_saturation as f64,
+      0.5,
+      2.0,
+      0.01,
+      persist(view.clone(), |value: f64, cx| {
+        AppConfig::update(cx, |c| {
+          c.settings.terminal.color_saturation = ((value * 100.0).round() / 100.0) as f32;
+        });
+      }),
+    ))
+    .child(section_title("Shell", cx))
+    .child(select_row(
+      "Shell Path",
+      shell_preset_options(&presets),
+      current,
+      persist(view.clone(), move |preset, cx| {
+        let custom = shell_input.read(cx).value().to_string();
+        let _ = shell_view.update(cx, |this, _| {
+          this.shell_custom = matches!(preset, ShellPreset::Custom);
+        });
+        AppConfig::update(cx, |c| {
+          c.settings.terminal.shell_path = stored_shell_path(&preset, &custom);
+        });
+      }),
+    ))
+    .when(show_custom, |el| el.child(text_row("", shell_path_input)))
+    .child(select_row(
+      "Bell Style",
+      bell_style_options(),
+      terminal.bell_style,
+      persist(view, |value, cx| {
+        AppConfig::update(cx, |c| c.settings.terminal.bell_style = value);
+      }),
+    ))
+}
+
+/// Stored `shell_path` for a selected preset. Custom keeps the typed path.
+pub(crate) fn stored_shell_path(preset: &ShellPreset, custom: &str) -> String {
+  match preset {
+    ShellPreset::Default => String::new(),
+    ShellPreset::Path(path) => path.clone(),
+    ShellPreset::Custom => custom.to_string(),
+  }
+}
+
+/// The custom path field shows only when the selected preset is Custom.
+pub(crate) fn custom_shell_visible(preset: &ShellPreset) -> bool {
+  matches!(preset, ShellPreset::Custom)
+}
+
 fn persist<T: 'static>(
   view: WeakEntity<SettingsView>,
   mutate: impl Fn(T, &mut App) + 'static,
@@ -338,6 +545,47 @@ fn hunk_separators_options() -> Vec<(SharedString, HunkSeparators)> {
   ]
 }
 
+fn font_weight_options() -> Vec<(SharedString, String)> {
+  FONT_WEIGHTS
+    .iter()
+    .map(|(label, value)| ((*label).into(), (*value).to_string()))
+    .collect()
+}
+
+fn cursor_style_options() -> Vec<(SharedString, CursorStyle)> {
+  vec![
+    ("Block".into(), CursorStyle::Block),
+    ("Underline".into(), CursorStyle::Underline),
+    ("Bar".into(), CursorStyle::Bar),
+  ]
+}
+
+fn cursor_inactive_options() -> Vec<(SharedString, CursorInactiveStyle)> {
+  vec![
+    ("Outline".into(), CursorInactiveStyle::Outline),
+    ("Block".into(), CursorInactiveStyle::Block),
+    ("Bar".into(), CursorInactiveStyle::Bar),
+    ("Underline".into(), CursorInactiveStyle::Underline),
+    ("None".into(), CursorInactiveStyle::None),
+  ]
+}
+
+fn bell_style_options() -> Vec<(SharedString, BellStyle)> {
+  vec![
+    ("Off".into(), BellStyle::Off),
+    ("Sound".into(), BellStyle::Sound),
+    ("Visual".into(), BellStyle::Visual),
+    ("Both".into(), BellStyle::Both),
+  ]
+}
+
+fn shell_preset_options(presets: &[ShellPreset]) -> Vec<(SharedString, ShellPreset)> {
+  presets
+    .iter()
+    .map(|preset| (SharedString::from(preset.label()), preset.clone()))
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -349,6 +597,19 @@ mod tests {
       label: label.into(),
       kind,
     }
+  }
+
+  #[test]
+  fn shell_preset_maps_to_stored_path() {
+    assert_eq!(stored_shell_path(&ShellPreset::Default, "/custom"), "");
+    assert_eq!(
+      stored_shell_path(&ShellPreset::Path("/bin/zsh".into()), "/custom"),
+      "/bin/zsh"
+    );
+    assert_eq!(stored_shell_path(&ShellPreset::Custom, "/custom"), "/custom");
+    assert!(!custom_shell_visible(&ShellPreset::Default));
+    assert!(!custom_shell_visible(&ShellPreset::Path("/bin/zsh".into())));
+    assert!(custom_shell_visible(&ShellPreset::Custom));
   }
 
   #[test]

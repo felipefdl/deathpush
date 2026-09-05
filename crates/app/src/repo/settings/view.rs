@@ -1,9 +1,12 @@
+use std::path::Path;
 use std::sync::Arc;
 
 #[cfg(test)]
 use std::time::Duration;
 
 use deathpush_core::Core;
+use deathpush_core::config::settings::Settings;
+use deathpush_core::config::settings_ui::{RESET_MESSAGE, RESET_TITLE, ShellPreset, preset_for, shell_presets};
 use gpui_kit::component::Sizable;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -17,6 +20,11 @@ use crate::repo::layout_model::LayoutModel;
 use crate::repo::model::RepoModel;
 use crate::theme::{ActivePalette, ThemeCatalog, hsla};
 
+/// Replace app settings with defaults. Git identity is not an app setting.
+pub(crate) fn reset_decision(_settings: Settings, name: String, email: String) -> (Settings, String, String) {
+  (Settings::default(), name, email)
+}
+
 /// App settings in the repository main panel.
 pub struct SettingsView {
   #[allow(dead_code)]
@@ -28,6 +36,9 @@ pub struct SettingsView {
   email_input: Entity<InputState>,
   ui_font_input: Entity<InputState>,
   editor_font_input: Entity<InputState>,
+  terminal_font_input: Entity<InputState>,
+  shell_path_input: Entity<InputState>,
+  pub(crate) shell_custom: bool,
   focus_handle: FocusHandle,
   core: Arc<Core>,
   #[cfg(test)]
@@ -50,8 +61,15 @@ impl SettingsView {
     cx.observe(&layout, |_, _, cx| cx.notify()).detach();
     let ui_font = AppConfig::get(cx).settings.ui.font_family.clone();
     let editor_font = AppConfig::get(cx).settings.editor.font_family.clone();
+    let terminal_font = AppConfig::get(cx).settings.terminal.font_family.clone();
+    let shell_path = AppConfig::get(cx).settings.terminal.shell_path.clone();
+    let presets = shell_presets(&|path| Path::new(path).exists());
+    let shell_custom = matches!(preset_for(&shell_path, &presets), ShellPreset::Custom);
+    let custom_value = if shell_custom { shell_path } else { String::new() };
     let ui_font_input = cx.new(|cx| InputState::new(window, cx).default_value(ui_font));
     let editor_font_input = cx.new(|cx| InputState::new(window, cx).default_value(editor_font));
+    let terminal_font_input = cx.new(|cx| InputState::new(window, cx).default_value(terminal_font));
+    let shell_path_input = cx.new(|cx| InputState::new(window, cx).default_value(custom_value));
     let name_input = cx.new(|cx| InputState::new(window, cx));
     let email_input = cx.new(|cx| InputState::new(window, cx));
 
@@ -68,6 +86,22 @@ impl SettingsView {
       if matches!(event, InputEvent::Change) {
         let value = input.read(cx).value().to_string();
         AppConfig::update(cx, |c| c.settings.editor.font_family = value);
+        cx.notify();
+      }
+    })
+    .detach();
+    cx.subscribe(&terminal_font_input, |_, input, event: &InputEvent, cx| {
+      if matches!(event, InputEvent::Change) {
+        let value = input.read(cx).value().to_string();
+        AppConfig::update(cx, |c| c.settings.terminal.font_family = value);
+        cx.notify();
+      }
+    })
+    .detach();
+    cx.subscribe(&shell_path_input, |this, input, event: &InputEvent, cx| {
+      if matches!(event, InputEvent::Change) && this.shell_custom {
+        let value = input.read(cx).value().to_string();
+        AppConfig::update(cx, |c| c.settings.terminal.shell_path = value);
         cx.notify();
       }
     })
@@ -117,6 +151,9 @@ impl SettingsView {
       email_input,
       ui_font_input,
       editor_font_input,
+      terminal_font_input,
+      shell_path_input,
+      shell_custom,
       focus_handle: cx.focus_handle(),
       core: core.clone(),
       #[cfg(test)]
@@ -136,6 +173,46 @@ impl SettingsView {
   /// Reload Git identity from config. Skips a field that is focused or has a save in flight.
   pub fn on_show(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     self.load_identity(window, cx);
+  }
+
+  fn confirm_reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    let answer = window.prompt(
+      PromptLevel::Warning,
+      RESET_TITLE,
+      Some(RESET_MESSAGE),
+      &["Reset", "Cancel"],
+      cx,
+    );
+    cx.spawn_in(window, async move |this, cx| {
+      if !matches!(answer.await, Ok(0)) {
+        return;
+      }
+      let _ = this.update_in(cx, |this, window, cx| this.apply_reset(window, cx));
+    })
+    .detach();
+  }
+
+  fn apply_reset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    let current = AppConfig::get(cx).settings.clone();
+    let (settings, _, _) = reset_decision(current, self.identity.name.clone(), self.identity.email.clone());
+    AppConfig::update(cx, |c| c.settings = settings);
+    crate::theme::apply_for_appearance(cx.window_appearance(), Some(window), cx);
+    crate::zoom::set_zoom_level(0, cx);
+    self.shell_custom = false;
+    let defaults = Settings::default();
+    self.ui_font_input.update(cx, |state, cx| {
+      state.set_value(defaults.ui.font_family.clone(), window, cx);
+    });
+    self.editor_font_input.update(cx, |state, cx| {
+      state.set_value(defaults.editor.font_family.clone(), window, cx);
+    });
+    self.terminal_font_input.update(cx, |state, cx| {
+      state.set_value(defaults.terminal.font_family.clone(), window, cx);
+    });
+    self.shell_path_input.update(cx, |state, cx| {
+      state.set_value(defaults.terminal.shell_path.clone(), window, cx);
+    });
+    cx.notify();
   }
 
   fn load_identity(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -350,7 +427,8 @@ impl Render for SettingsView {
             Button::new("reset-to-defaults")
               .outline()
               .small()
-              .label("Reset to Defaults"),
+              .label("Reset to Defaults")
+              .on_click(cx.listener(|this, _, window, cx| this.confirm_reset(window, cx))),
           ),
       )
       .child(
@@ -382,10 +460,18 @@ impl Render for SettingsView {
             &settings.git,
             &self.name_input,
             &self.email_input,
-            view,
+            view.clone(),
             cx,
           ))
-          .child(sections::projects(&settings, cx)),
+          .child(sections::projects(&settings, cx))
+          .child(sections::terminal(
+            &settings.terminal,
+            &self.terminal_font_input,
+            &self.shell_path_input,
+            self.shell_custom,
+            view,
+            cx,
+          )),
       )
   }
 }
@@ -451,6 +537,19 @@ mod tests {
     }
   }
 
+  #[test]
+  fn reset_keeps_git_identity() {
+    let mut settings = Settings::default();
+    settings.git.blame = false;
+    settings.ui.font_size = 20;
+    settings.terminal.scrollback = 1000;
+    let (reset, name, email) = reset_decision(settings, "Ada".into(), "ada@example.com".into());
+    assert_eq!(reset, Settings::default());
+    assert!(reset.git.blame);
+    assert_eq!(name, "Ada");
+    assert_eq!(email, "ada@example.com");
+  }
+
   #[gpui_kit::test]
   fn settings_view_renders(cx: &mut TestAppContext) {
     let config_dir = tempfile::TempDir::new().unwrap();
@@ -461,6 +560,7 @@ mod tests {
       crate::theme::init(cx);
       AppConfig::update(cx, |c| {
         c.settings.editor.font_family = "Test Mono".into();
+        c.settings.terminal.font_family = "Term Mono".into();
         c.settings.projects.workspaces = vec![WorkspaceEntry {
           directory: "/src".into(),
           scan_depth: 2,
@@ -486,10 +586,43 @@ mod tests {
       .update(cx, |view, window, cx| {
         window.refresh();
         assert_eq!(view.editor_font_input.read(cx).value().as_ref(), "Test Mono");
+        assert_eq!(view.terminal_font_input.read(cx).value().as_ref(), "Term Mono");
         assert_eq!(
           deathpush_core::config::settings_ui::workspace_summary(&AppConfig::get(cx).settings.projects.workspaces)
             .as_deref(),
           Some("/src:2")
+        );
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn reset_replaces_settings_without_touching_identity_fields(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let window = open_settings(cx, &config_dir, &resource_dir);
+    window
+      .update(cx, |view, window, cx| {
+        view.apply_identity_values("Ada".into(), "ada@example.com".into(), window, cx);
+        AppConfig::update(cx, |c| {
+          c.settings.ui.font_size = 20;
+          c.settings.git.blame = false;
+          c.settings.terminal.scrollback = 1000;
+          c.settings.editor.font_family = "Test Mono".into();
+        });
+        view.apply_reset(window, cx);
+        let settings = AppConfig::get(cx).settings.clone();
+        assert_eq!(settings.ui.font_size, Settings::default().ui.font_size);
+        assert_eq!(settings.git, Settings::default().git);
+        assert_eq!(settings.terminal.scrollback, Settings::default().terminal.scrollback);
+        assert_eq!(settings.editor.font_family, Settings::default().editor.font_family);
+        assert_eq!(view.identity.name, "Ada");
+        assert_eq!(view.identity.email, "ada@example.com");
+        assert_eq!(view.name_input.read(cx).value().as_ref(), "Ada");
+        assert_eq!(view.email_input.read(cx).value().as_ref(), "ada@example.com");
+        assert_eq!(
+          view.editor_font_input.read(cx).value().as_ref(),
+          Settings::default().editor.font_family
         );
       })
       .unwrap();
