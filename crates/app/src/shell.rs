@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use deathpush_core::config::windows::SavedWindow;
 use deathpush_core::session::types::{Intent, IntentOutcome};
@@ -15,6 +16,8 @@ use crate::keymap::{CONTEXT_APP, CONTEXT_REPOSITORY, CONTEXT_WELCOME};
 use crate::menus::{MenuContext, set_menu_context};
 use crate::theme::{ActivePalette, apply_for_appearance, hsla};
 use crate::title_bar::render_title_bar;
+use crate::updater::{UpdateCheck, should_check_on_launch, update_button_label, updating_button_label};
+use crate::welcome::UpdateFooter;
 use crate::window::open_shell_window;
 use crate::zoom;
 
@@ -38,6 +41,15 @@ pub enum Overlay {
   ThemePicker(Entity<crate::overlays::theme_picker::ThemePicker>),
 }
 
+enum UpdateStatus {
+  Idle,
+  Available(Box<cargo_packager_updater::Update>),
+  Downloading {
+    update: Box<cargo_packager_updater::Update>,
+    percent: u8,
+  },
+}
+
 pub struct Shell {
   pub core: Arc<Core>,
   pub session: SessionId,
@@ -53,6 +65,8 @@ pub struct Shell {
   opening_generation: u64,
   close_prompt_pending: bool,
   close_confirmed: bool,
+  update_status: UpdateStatus,
+  update_check_started: bool,
 }
 
 impl Shell {
@@ -83,6 +97,8 @@ impl Shell {
       opening_generation: 0,
       close_prompt_pending: false,
       close_confirmed: false,
+      update_status: UpdateStatus::Idle,
+      update_check_started: false,
     };
     shell.listen(events, window, cx);
     zoom::apply_zoom_to_window(zoom::current_level(cx), window);
@@ -285,6 +301,7 @@ impl Shell {
         crate::welcome::WelcomeEvent::Open(path) => this.open_repository(path.clone(), window, cx),
         crate::welcome::WelcomeEvent::Clone => this.open_clone_dialog(window, cx),
         crate::welcome::WelcomeEvent::ConfigureWorkspace => this.open_workspace_settings(window, cx),
+        crate::welcome::WelcomeEvent::InstallUpdate => this.install_available_update(cx),
       },
     )
     .detach();
@@ -294,6 +311,8 @@ impl Shell {
     window.set_window_title("DeathPush");
     self.focus_handle.focus(window, cx);
     self.sync_menus(window, cx);
+    self.apply_update_footer(cx);
+    self.schedule_update_check(cx);
     cx.notify();
   }
 
@@ -301,6 +320,104 @@ impl Shell {
     if let Screen::Welcome(view) = &self.screen {
       view.update(cx, |view, cx| view.rescan(cx));
     }
+  }
+
+  fn apply_update_footer(&self, cx: &mut Context<Self>) {
+    let Screen::Welcome(view) = &self.screen else {
+      return;
+    };
+    let footer = match &self.update_status {
+      UpdateStatus::Idle => None,
+      UpdateStatus::Available(update) => Some(UpdateFooter {
+        label: update_button_label(&update.version).into(),
+        disabled: false,
+      }),
+      UpdateStatus::Downloading { percent, .. } => Some(UpdateFooter {
+        label: updating_button_label(*percent).into(),
+        disabled: true,
+      }),
+    };
+    view.update(cx, |view, cx| view.set_update_footer(footer, cx));
+  }
+
+  fn schedule_update_check(&mut self, cx: &mut Context<Self>) {
+    if self.update_check_started || !should_check_on_launch(cfg!(debug_assertions)) {
+      return;
+    }
+    self.update_check_started = true;
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let runtime = self.core.clone();
+    let task = runtime.spawn(async move {
+      tokio::time::sleep(Duration::from_secs(2)).await;
+      crate::updater::check(&current).await
+    });
+    cx.spawn(async move |this, cx| {
+      let result = match task.await {
+        Ok(result) => result,
+        Err(err) => UpdateCheck::Failed(err.to_string()),
+      };
+      let _ = this.update(cx, |this, cx| {
+        match result {
+          UpdateCheck::Available(update) => {
+            this.update_status = UpdateStatus::Available(update);
+            this.apply_update_footer(cx);
+          }
+          UpdateCheck::UpToDate => {}
+          UpdateCheck::Failed(err) => this.show_toast(err, cx),
+        }
+        cx.notify();
+      });
+    })
+    .detach();
+  }
+
+  fn install_available_update(&mut self, cx: &mut Context<Self>) {
+    let UpdateStatus::Available(update) = &self.update_status else {
+      return;
+    };
+    let update = update.as_ref().clone();
+    self.update_status = UpdateStatus::Downloading {
+      update: Box::new(update.clone()),
+      percent: 0,
+    };
+    self.apply_update_footer(cx);
+    cx.notify();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let runtime = self.core.clone();
+    let task = runtime.spawn(async move { crate::updater::install(update, tx).await });
+    cx.spawn(async move |this, cx| {
+      let mut task = task;
+      loop {
+        tokio::select! {
+          Some(percent) = rx.recv() => {
+            let _ = this.update(cx, |this, cx| {
+              if let UpdateStatus::Downloading { percent: slot, .. } = &mut this.update_status {
+                *slot = percent;
+              }
+              this.apply_update_footer(cx);
+              cx.notify();
+            });
+          }
+          result = &mut task => {
+            let _ = this.update(cx, |this, cx| match result {
+              Ok(Ok(())) => {}
+              Ok(Err(err)) => this.fail_install(err, cx),
+              Err(err) => this.fail_install(err.to_string(), cx),
+            });
+            break;
+          }
+        }
+      }
+    })
+    .detach();
+  }
+
+  fn fail_install(&mut self, err: String, cx: &mut Context<Self>) {
+    if let UpdateStatus::Downloading { update, .. } = std::mem::replace(&mut self.update_status, UpdateStatus::Idle) {
+      self.update_status = UpdateStatus::Available(update);
+    }
+    self.apply_update_footer(cx);
+    self.show_toast(err, cx);
   }
 
   pub fn open_repository(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {

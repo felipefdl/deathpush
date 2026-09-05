@@ -7,7 +7,7 @@ use deathpush_core::types::ProjectInfo;
 use deathpush_core::workspace::WorkspaceRow;
 use gpui_kit::component::button::*;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::{ActiveTheme, Icon, Sizable};
+use gpui_kit::component::{ActiveTheme, Disableable, Icon, Sizable};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
@@ -21,6 +21,13 @@ pub enum WelcomeEvent {
   Open(PathBuf),
   Clone,
   ConfigureWorkspace,
+  InstallUpdate,
+}
+
+#[derive(Clone)]
+pub struct UpdateFooter {
+  pub label: SharedString,
+  pub disabled: bool,
 }
 
 pub struct WelcomeView {
@@ -30,6 +37,7 @@ pub struct WelcomeView {
   expanded: HashSet<String>,
   highlight: Highlight,
   scan_generation: u64,
+  update: Option<UpdateFooter>,
 }
 
 impl EventEmitter<WelcomeEvent> for WelcomeView {}
@@ -58,6 +66,7 @@ impl WelcomeView {
       expanded: HashSet::new(),
       highlight: Highlight::default(),
       scan_generation: 0,
+      update: None,
     };
     view.rescan(cx);
     view
@@ -95,6 +104,11 @@ impl WelcomeView {
       });
     })
     .detach();
+  }
+
+  pub fn set_update_footer(&mut self, footer: Option<UpdateFooter>, cx: &mut Context<Self>) {
+    self.update = footer;
+    cx.notify();
   }
 
   pub fn focus_recent_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -508,10 +522,21 @@ impl Render for WelcomeView {
       .child(
         div()
           .flex()
+          .items_center()
           .justify_center()
+          .gap_2()
           .py_2()
           .text_size(px(11.0))
           .text_color(cx.theme().muted_foreground)
+          .children(self.update.as_ref().map(|footer| {
+            let disabled = footer.disabled;
+            Button::new("install-update")
+              .outline()
+              .xsmall()
+              .label(footer.label.clone())
+              .disabled(disabled)
+              .on_click(cx.listener(|_, _, _, cx| cx.emit(WelcomeEvent::InstallUpdate)))
+          }))
           .child(version),
       )
   }

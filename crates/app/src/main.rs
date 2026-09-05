@@ -10,6 +10,7 @@ mod repo;
 mod shell;
 mod theme;
 mod title_bar;
+mod updater;
 mod welcome;
 mod window;
 mod zoom;
