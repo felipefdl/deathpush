@@ -86,14 +86,35 @@ jobs:
         if: runner.os == 'macOS'
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
         run: |
           set -euo pipefail
+          missing=0
+          if [[ -z "${APPLE_API_KEY}" ]]; then
+            echo "APPLE_API_KEY is empty" >&2
+            missing=1
+          fi
+          if [[ -z "${APPLE_API_ISSUER}" ]]; then
+            echo "APPLE_API_ISSUER is empty" >&2
+            missing=1
+          fi
+          if [[ -z "${APPLE_API_KEY_CONTENT}" ]]; then
+            echo "APPLE_API_KEY_CONTENT is empty" >&2
+            missing=1
+          fi
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
           key_dir="${HOME}/private_keys"
           mkdir -p "$key_dir"
           umask 077
           key_path="${key_dir}/AuthKey_${APPLE_API_KEY}.p8"
           printf '%s\n' "$APPLE_API_KEY_CONTENT" > "$key_path"
+          if [[ ! -s "$key_path" ]] || ! grep -q '[^[:space:]]' "$key_path"; then
+            echo "Apple API key file is empty" >&2
+            exit 1
+          fi
           echo "APPLE_API_KEY_PATH=${key_path}" >> "$GITHUB_ENV"
 
       - name: Inject macOS signing identity
@@ -177,7 +198,7 @@ jobs:
 
       - name: Create draft release and latest.json
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
