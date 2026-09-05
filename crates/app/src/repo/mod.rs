@@ -7,6 +7,7 @@ pub mod layout_model;
 pub mod main_panel;
 pub mod model;
 pub mod output_log;
+pub mod settings;
 pub mod sidebar;
 pub mod state;
 pub mod status_bar;

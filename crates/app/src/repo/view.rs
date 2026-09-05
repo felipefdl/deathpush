@@ -16,6 +16,7 @@ use super::layout_model::LayoutModel;
 use super::main_panel::render_main_panel;
 use super::model::RepoModel;
 use super::output_log::OutputLog;
+use super::settings::SettingsView;
 use super::sidebar::render_sidebar;
 use super::state::NetworkOp;
 use super::status_bar::render_status_bar;
@@ -34,6 +35,7 @@ pub struct RepoView {
   diff: Entity<DiffPanel>,
   file: Entity<FileViewer>,
   history: Entity<HistoryView>,
+  settings: Entity<SettingsView>,
   explorer_model: Entity<ExplorerModel>,
   explorer: Entity<ExplorerView>,
   terminal: Entity<TerminalModel>,
@@ -78,6 +80,8 @@ impl RepoView {
     let file = cx.new(|cx| FileViewer::new(model.clone(), layout.clone(), window, cx));
     let history_diff = cx.new(|cx| DiffPanel::new(model.clone(), layout.clone(), cx));
     let history = cx.new(|cx| HistoryView::new(model.clone(), layout.clone(), history_diff, cx));
+    let settings = cx.new(|cx| SettingsView::new(model.clone(), layout.clone(), core.clone(), window, cx));
+    cx.observe(&settings, |_, _, cx| cx.notify()).detach();
     let terminal = cx.new({
       let core = core.clone();
       move |cx| TerminalModel::new(core, session, cx)
@@ -97,6 +101,7 @@ impl RepoView {
       diff,
       file,
       history,
+      settings,
       explorer_model,
       explorer,
       terminal,
@@ -194,7 +199,15 @@ impl RepoView {
       self.explorer().clone().into_any_element()
     };
     let sidebar = render_sidebar(layout.sidebar_view, select, sidebar_body, cx).into_any_element();
-    let main_panel = render_main_panel(layout.main_view, &self.diff, &self.file, &self.history, cx).into_any_element();
+    let main_panel = render_main_panel(
+      layout.main_view,
+      &self.diff,
+      &self.file,
+      &self.history,
+      &self.settings,
+      cx,
+    )
+    .into_any_element();
     let terminal = self.terminal_panel.clone().into_any_element();
     let main_area: AnyElement = match (layout.terminal_visible, layout.terminal_maximized) {
       (false, _) => main_panel,
@@ -272,15 +285,19 @@ impl Render for RepoView {
           .layout
           .update(cx, |layout, cx| layout.select_main_view(MainView::History, cx));
       }))
-      .on_action(cx.listener(|this, _: &ShowSettings, _, cx| {
-        this.layout.update(cx, |layout, cx| {
+      .on_action(cx.listener(|this, _: &ShowSettings, window, cx| {
+        let next = this.layout.update(cx, |layout, cx| {
           let next = if layout.layout().main_view == MainView::Settings {
             MainView::Changes
           } else {
             MainView::Settings
           };
           layout.select_main_view(next, cx);
+          next
         });
+        if next == MainView::Settings {
+          this.settings.update(cx, |settings, cx| settings.focus(window, cx));
+        }
       }))
       .on_action(cx.listener(|_, _: &ToggleDiffLayout, _, cx| {
         AppConfig::update(cx, |config| {
