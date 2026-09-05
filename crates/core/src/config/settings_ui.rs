@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use super::settings::{WorkspaceEntry, ZOOM_MAX, ZOOM_MIN, zoom_scale};
 
 const UNIX_SHELLS: &[&str] = &[
@@ -59,6 +61,39 @@ impl ShellPreset {
       Self::Custom => "Custom...".to_string(),
     }
   }
+}
+
+/// Whether a shell path exists. Absolute and relative paths check the filesystem. Bare names search `env_path` (PATH), appending each `path_ext` suffix (PATHEXT) when given.
+pub fn shell_exists(path: &str, env_path: Option<&str>, path_ext: Option<&str>) -> bool {
+  let file = Path::new(path);
+  if file.is_absolute() || path.contains('/') || path.contains('\\') {
+    return file.exists();
+  }
+  let Some(env_path) = env_path else {
+    return false;
+  };
+  let sep = if cfg!(windows) { ';' } else { ':' };
+  let suffixes: Vec<&str> = path_ext.unwrap_or("").split(';').filter(|s| !s.is_empty()).collect();
+  for dir in env_path.split(sep).filter(|dir| !dir.is_empty()) {
+    if Path::new(dir).join(path).exists() {
+      return true;
+    }
+    for suffix in &suffixes {
+      if has_ascii_suffix(path, suffix) {
+        continue;
+      }
+      if Path::new(dir).join(format!("{path}{suffix}")).exists() {
+        return true;
+      }
+    }
+  }
+  false
+}
+
+fn has_ascii_suffix(name: &str, suffix: &str) -> bool {
+  let name = name.as_bytes();
+  let suffix = suffix.as_bytes();
+  name.len() >= suffix.len() && name[name.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
 }
 
 /// Default, then the platform shells that exist (`exists` decides, injected for tests), then Custom.
@@ -141,6 +176,20 @@ mod tests {
     assert_eq!(label(0), "100%");
     assert_eq!(label(1), "120%");
     assert_eq!(label(-1), "83%");
+  }
+
+  #[test]
+  fn shell_exists_finds_bare_name_on_path() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let exe = dir.path().join("powershell.exe");
+    std::fs::write(&exe, b"").unwrap();
+    std::fs::write(dir.path().join("cmd.exe"), b"").unwrap();
+    let env_path = dir.path().to_str().expect("utf-8 temp path");
+    assert!(shell_exists("powershell.exe", Some(env_path), Some(".EXE;.exe")));
+    assert!(shell_exists("cmd", Some(env_path), Some(".EXE;.exe")));
+    assert!(!shell_exists("pwsh.exe", Some(env_path), Some(".EXE;.exe")));
+    assert!(!shell_exists("powershell.exe", Some("/does/not/exist"), Some(".exe")));
+    assert!(shell_exists(exe.to_str().unwrap(), Some("/does/not/exist"), None));
   }
 
   #[test]

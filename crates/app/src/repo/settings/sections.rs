@@ -1,10 +1,10 @@
-use std::path::Path;
-
 use deathpush_core::config::settings::{
   BellStyle, CursorInactiveStyle, CursorStyle, DiffIndicators, DiffLayout, DiffSettings, EditorSettings, GitSettings,
   HunkSeparators, LineDiffType, Settings, SidebarPosition, TerminalSettings, TreeDensity, TreeIcons, WordWrap,
 };
-use deathpush_core::config::settings_ui::{FONT_WEIGHTS, ShellPreset, preset_for, shell_presets, workspace_summary};
+use deathpush_core::config::settings_ui::{
+  FONT_WEIGHTS, ShellPreset, preset_for, shell_exists, shell_presets, workspace_summary,
+};
 use deathpush_core::theme::ThemeKind;
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
@@ -270,7 +270,7 @@ pub(crate) fn terminal(
   view: WeakEntity<SettingsView>,
   cx: &App,
 ) -> impl IntoElement {
-  let presets = shell_presets(&|path| Path::new(path).exists());
+  let presets = shell_presets(&|path| env_shell_exists(path));
   let stored = preset_for(&terminal.shell_path, &presets);
   let current = if custom_selected || custom_shell_visible(&stored) {
     ShellPreset::Custom
@@ -446,6 +446,17 @@ pub(crate) fn terminal(
         AppConfig::update(cx, |c| c.settings.terminal.bell_style = value);
       }),
     ))
+}
+
+/// `shell_exists` using this process `PATH` and, on Windows, `PATHEXT`.
+pub(crate) fn env_shell_exists(path: &str) -> bool {
+  let env_path = std::env::var("PATH").ok();
+  let path_ext = if cfg!(windows) {
+    std::env::var("PATHEXT").ok()
+  } else {
+    None
+  };
+  shell_exists(path, env_path.as_deref(), path_ext.as_deref())
 }
 
 /// Stored `shell_path` for a selected preset. Custom keeps the typed path.

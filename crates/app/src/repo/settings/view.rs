@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -63,7 +62,7 @@ impl SettingsView {
     let editor_font = AppConfig::get(cx).settings.editor.font_family.clone();
     let terminal_font = AppConfig::get(cx).settings.terminal.font_family.clone();
     let shell_path = AppConfig::get(cx).settings.terminal.shell_path.clone();
-    let presets = shell_presets(&|path| Path::new(path).exists());
+    let presets = shell_presets(&|path| sections::env_shell_exists(path));
     let shell_custom = matches!(preset_for(&shell_path, &presets), ShellPreset::Custom);
     let custom_value = if shell_custom { shell_path } else { String::new() };
     let ui_font_input = cx.new(|cx| InputState::new(window, cx).default_value(ui_font));
