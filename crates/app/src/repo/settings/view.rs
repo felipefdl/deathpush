@@ -83,14 +83,8 @@ impl SettingsView {
             if this.identity.name_gen != token {
               return;
             }
-            let current = this.name_input.read(cx).value().to_string();
-            if should_save(&this.identity.name, &current) {
-              if this.identity.name_inflight.is_none() {
-                this.save_git_config("user.name", current, true, token, cx);
-              }
-            } else {
-              this.identity.name_done_gen = token;
-            }
+            this.identity.name_ready_gen = token;
+            this.maybe_save_name(cx);
           },
         );
       }
@@ -107,14 +101,8 @@ impl SettingsView {
             if this.identity.email_gen != token {
               return;
             }
-            let current = this.email_input.read(cx).value().to_string();
-            if should_save(&this.identity.email, &current) {
-              if this.identity.email_inflight.is_none() {
-                this.save_git_config("user.email", current, false, token, cx);
-              }
-            } else {
-              this.identity.email_done_gen = token;
-            }
+            this.identity.email_ready_gen = token;
+            this.maybe_save_email(cx);
           },
         );
       }
@@ -251,22 +239,46 @@ impl SettingsView {
     .detach();
   }
 
+  fn maybe_save_name(&mut self, cx: &mut Context<Self>) {
+    let current = self.name_input.read(cx).value().to_string();
+    if should_save(&self.identity.name, &current) {
+      if self.identity.name_inflight.is_none() {
+        self.save_git_config("user.name", current, true, self.identity.name_gen, cx);
+      }
+    } else if self.identity.name_inflight.is_none() {
+      self.identity.name_done_gen = self.identity.name_gen;
+    }
+  }
+
+  fn maybe_save_email(&mut self, cx: &mut Context<Self>) {
+    let current = self.email_input.read(cx).value().to_string();
+    if should_save(&self.identity.email, &current) {
+      if self.identity.email_inflight.is_none() {
+        self.save_git_config("user.email", current, false, self.identity.email_gen, cx);
+      }
+    } else if self.identity.email_inflight.is_none() {
+      self.identity.email_done_gen = self.identity.email_gen;
+    }
+  }
+
   fn complete_identity_save(&mut self, is_name: bool, token: u64, saved: String, ok: bool, cx: &mut Context<Self>) {
     if is_name {
       if self.identity.name_inflight == Some(token) {
         self.identity.name_inflight = None;
       }
-      if self.identity.name_gen != token {
-        let current = self.name_input.read(cx).value().to_string();
-        if should_save(&self.identity.name, &current) && self.identity.name_inflight.is_none() {
-          self.save_git_config("user.name", current, true, self.identity.name_gen, cx);
-        } else if self.identity.name_inflight.is_none() {
-          self.identity.name_done_gen = self.identity.name_gen;
-        }
-        return;
-      }
       if ok {
         self.identity.name = saved;
+      }
+      if self.identity.name_gen != token {
+        if self.identity.name_ready_gen == self.identity.name_gen {
+          self.maybe_save_name(cx);
+        } else if self.identity.name_inflight.is_none() {
+          let current = self.name_input.read(cx).value().to_string();
+          if !should_save(&self.identity.name, &current) {
+            self.identity.name_done_gen = self.identity.name_gen;
+          }
+        }
+        return;
       }
       self.identity.name_done_gen = token;
       return;
@@ -274,17 +286,19 @@ impl SettingsView {
     if self.identity.email_inflight == Some(token) {
       self.identity.email_inflight = None;
     }
-    if self.identity.email_gen != token {
-      let current = self.email_input.read(cx).value().to_string();
-      if should_save(&self.identity.email, &current) && self.identity.email_inflight.is_none() {
-        self.save_git_config("user.email", current, false, self.identity.email_gen, cx);
-      } else if self.identity.email_inflight.is_none() {
-        self.identity.email_done_gen = self.identity.email_gen;
-      }
-      return;
-    }
     if ok {
       self.identity.email = saved;
+    }
+    if self.identity.email_gen != token {
+      if self.identity.email_ready_gen == self.identity.email_gen {
+        self.maybe_save_email(cx);
+      } else if self.identity.email_inflight.is_none() {
+        let current = self.email_input.read(cx).value().to_string();
+        if !should_save(&self.identity.email, &current) {
+          self.identity.email_done_gen = self.identity.email_gen;
+        }
+      }
+      return;
     }
     self.identity.email_done_gen = token;
   }
@@ -613,6 +627,124 @@ mod tests {
         assert_eq!(
           view.saves.lock().expect("identity saves").clone(),
           vec![("user.name".into(), "Ada".into()), ("user.name".into(), "Grace".into()),]
+        );
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn identity_reversion_after_inflight_save_writes_the_baseline(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let window = open_settings(cx, &config_dir, &resource_dir);
+    window
+      .update(cx, |view, window, cx| {
+        view.stub_identity(String::new(), String::new());
+        view.save_delay = Duration::from_millis(2000);
+        view.apply_identity_values("Ada".into(), String::new(), window, cx);
+        view
+          .name_input
+          .update(cx, |state, cx| state.replace_all("Grace", window, cx));
+      })
+      .unwrap();
+    cx.executor().advance_clock(Duration::from_millis(IDENTITY_DEBOUNCE_MS));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, window, cx| {
+        assert_eq!(view.identity.name_inflight, Some(1));
+        view
+          .name_input
+          .update(cx, |state, cx| state.replace_all("Ada", window, cx));
+      })
+      .unwrap();
+    cx.run_until_parked();
+    cx.executor().advance_clock(Duration::from_millis(2000));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, _, _| {
+        assert_eq!(view.identity.name_gen, 2);
+        assert_eq!(view.identity.name_inflight, Some(2));
+        assert_eq!(
+          view.saves.lock().expect("identity saves").clone(),
+          vec![("user.name".into(), "Grace".into())]
+        );
+      })
+      .unwrap();
+    cx.executor().advance_clock(Duration::from_millis(2000));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, _, _| {
+        assert_eq!(view.identity.name, "Ada");
+        assert_eq!(view.identity.name_done_gen, 2);
+        assert!(view.identity.name_inflight.is_none());
+        assert_eq!(
+          view.saves.lock().expect("identity saves").clone(),
+          vec![("user.name".into(), "Grace".into()), ("user.name".into(), "Ada".into()),]
+        );
+      })
+      .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn identity_coalesced_save_waits_for_debounce(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let window = open_settings(cx, &config_dir, &resource_dir);
+    window
+      .update(cx, |view, window, cx| {
+        view.stub_identity(String::new(), String::new());
+        view.save_delay = Duration::from_millis(100);
+        view.apply_identity_values("Ada".into(), String::new(), window, cx);
+        view
+          .name_input
+          .update(cx, |state, cx| state.replace_all("Grace", window, cx));
+      })
+      .unwrap();
+    cx.executor().advance_clock(Duration::from_millis(IDENTITY_DEBOUNCE_MS));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, window, cx| {
+        assert_eq!(view.identity.name_inflight, Some(1));
+        view
+          .name_input
+          .update(cx, |state, cx| state.replace_all("Ada", window, cx));
+      })
+      .unwrap();
+    cx.run_until_parked();
+    cx.executor().advance_clock(Duration::from_millis(100));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, _, _| {
+        assert_eq!(view.identity.name, "Grace");
+        assert_eq!(view.identity.name_gen, 2);
+        assert!(view.identity.name_inflight.is_none());
+        assert_eq!(
+          view.saves.lock().expect("identity saves").clone(),
+          vec![("user.name".into(), "Grace".into())]
+        );
+      })
+      .unwrap();
+    cx.executor()
+      .advance_clock(Duration::from_millis(IDENTITY_DEBOUNCE_MS - 100));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, _, _| {
+        assert_eq!(view.identity.name_inflight, Some(2));
+        assert_eq!(
+          view.saves.lock().expect("identity saves").clone(),
+          vec![("user.name".into(), "Grace".into())]
+        );
+      })
+      .unwrap();
+    cx.executor().advance_clock(Duration::from_millis(100));
+    cx.run_until_parked();
+    window
+      .update(cx, |view, _, _| {
+        assert_eq!(view.identity.name, "Ada");
+        assert!(view.identity.name_inflight.is_none());
+        assert_eq!(
+          view.saves.lock().expect("identity saves").clone(),
+          vec![("user.name".into(), "Grace".into()), ("user.name".into(), "Ada".into()),]
         );
       })
       .unwrap();

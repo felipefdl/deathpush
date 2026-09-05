@@ -8,6 +8,8 @@ pub(crate) struct GitIdentity {
   pub(crate) email_done_gen: u64,
   pub(crate) name_inflight: Option<u64>,
   pub(crate) email_inflight: Option<u64>,
+  pub(crate) name_ready_gen: u64,
+  pub(crate) email_ready_gen: u64,
 }
 
 /// Quiet period before writing a Git identity field.
@@ -24,6 +26,8 @@ impl GitIdentity {
       email_done_gen: 0,
       name_inflight: None,
       email_inflight: None,
+      name_ready_gen: 0,
+      email_ready_gen: 0,
     }
   }
 
