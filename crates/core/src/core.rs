@@ -3,6 +3,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
@@ -18,7 +19,7 @@ use crate::shell_env::ShellEnvResolver;
 
 /// The one object the app talks to. Owns the tokio runtime and every registry.
 pub struct Core {
-  runtime: tokio::runtime::Runtime,
+  runtime: Mutex<Option<tokio::runtime::Runtime>>,
   pub(crate) hub: Arc<EventHub>,
   pub(crate) sessions: Arc<SessionRegistry>,
   pub(crate) runtimes: Arc<RepositoryRuntimeRegistry>,
@@ -42,7 +43,7 @@ impl Core {
       sink_hub.broadcast(CoreEvent::GitCommand(event));
     }));
     Ok(Arc::new(Self {
-      runtime,
+      runtime: Mutex::new(Some(runtime)),
       hub,
       sessions: Arc::new(SessionRegistry::default()),
       runtimes: Arc::new(RepositoryRuntimeRegistry::default()),
@@ -51,6 +52,17 @@ impl Core {
       resource_dir,
       next_session: AtomicU64::new(1),
     }))
+  }
+
+  /// Takes the tokio runtime and waits up to 2 seconds for workers to finish.
+  pub fn shutdown(&self) {
+    if let Some(runtime) = self.take_runtime() {
+      runtime.shutdown_timeout(Duration::from_secs(2));
+    }
+  }
+
+  fn take_runtime(&self) -> Option<tokio::runtime::Runtime> {
+    self.runtime.lock().unwrap_or_else(|err| err.into_inner()).take()
   }
 
   pub fn open_session(&self) -> (SessionId, UnboundedReceiver<CoreEvent>) {
@@ -94,15 +106,30 @@ impl Core {
     F: Future + Send + 'static,
     F::Output: Send + 'static,
   {
-    self.runtime.spawn(future)
+    self.runtime_handle().spawn(future)
   }
 
   pub fn runtime_handle(&self) -> tokio::runtime::Handle {
-    self.runtime.handle().clone()
+    self
+      .runtime
+      .lock()
+      .unwrap_or_else(|err| err.into_inner())
+      .as_ref()
+      .expect("core runtime has been shut down")
+      .handle()
+      .clone()
   }
 
   pub(crate) fn lock_repos(&self) -> std::sync::MutexGuard<'_, HashMap<SessionId, RepoState>> {
     self.repos.lock().unwrap_or_else(|err| err.into_inner())
+  }
+}
+
+impl Drop for Core {
+  fn drop(&mut self) {
+    if let Some(runtime) = self.runtime.get_mut().unwrap_or_else(|err| err.into_inner()).take() {
+      runtime.shutdown_background();
+    }
   }
 }
 

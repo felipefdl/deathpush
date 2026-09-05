@@ -52,7 +52,10 @@ icons = [
   "../../assets/app-icons/128x128.png",
   "../../assets/app-icons/32x32.png",
 ]
-resources = ["../../assets/bin/dp", "../../assets/bin/dp.cmd"]
+resources = [
+  { src = "../../assets/bin/dp", target = "bin/dp" },
+  { src = "../../assets/bin/dp.cmd", target = "bin/dp.cmd" },
+]
 deep-link-protocols = [{ schemes = ["deathpush"], name = "DeathPush", role = "viewer" }]
 
 [package.metadata.packager.macos]

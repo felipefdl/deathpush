@@ -629,5 +629,7 @@ mod tests {
         assert_eq!(viewer.editor_value(cx), body);
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 }

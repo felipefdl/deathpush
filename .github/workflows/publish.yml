@@ -352,7 +352,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if is_draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [[ "$is_draft" != "true" ]]; then
+              echo "release ${TAG} is published; refusing to replace assets in place" >&2
+              exit 1
+            fi
+          else
             gh release create "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --draft \

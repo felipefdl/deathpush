@@ -724,7 +724,7 @@ mod tests {
       let core = core.clone();
       move |_, cx| {
         let model = cx.new(|cx| {
-          let mut model = TerminalModel::new(core, session, cx);
+          let mut model = TerminalModel::new(core.clone(), session, cx);
           let pane = cx.new(|cx| PaneView::new_unthreaded(1, cx));
           model.insert_test_pane(pane, cx);
           model
@@ -744,6 +744,8 @@ mod tests {
         });
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -756,7 +758,7 @@ mod tests {
       let core = core.clone();
       move |_, cx| {
         let model = cx.new(|cx| {
-          let mut model = TerminalModel::new(core, session, cx);
+          let mut model = TerminalModel::new(core.clone(), session, cx);
           let pane = cx.new(|cx| PaneView::new_unthreaded(1, cx));
           model.insert_test_pane(pane, cx);
           model
@@ -778,6 +780,8 @@ mod tests {
         });
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -787,7 +791,7 @@ mod tests {
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
     let (session, _events) = core.open_session();
     let model = cx.new(|cx| {
-      let mut model = TerminalModel::new(core, session, cx);
+      let mut model = TerminalModel::new(core.clone(), session, cx);
       let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
       let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
       model.insert_test_pane(first, cx);
@@ -806,6 +810,8 @@ mod tests {
       assert!(!model.activate_group(0, cx));
       assert_eq!(model.active_group, Some(first));
     });
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -815,7 +821,7 @@ mod tests {
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
     let (session, _events) = core.open_session();
     let model = cx.new(|cx| {
-      let mut model = TerminalModel::new(core, session, cx);
+      let mut model = TerminalModel::new(core.clone(), session, cx);
       let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
       let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
       let third = cx.new(|cx| PaneView::new_unthreaded(3, cx));
@@ -836,6 +842,8 @@ mod tests {
       assert_eq!(model.groups[1].id, background);
       assert_eq!(model.groups[1].tree, SplitTree::Leaf(2));
     });
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -845,7 +853,7 @@ mod tests {
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
     let (session, _events) = core.open_session();
     let model = cx.new(|cx| {
-      let mut model = TerminalModel::new(core, session, cx);
+      let mut model = TerminalModel::new(core.clone(), session, cx);
       let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
       let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
       let third = cx.new(|cx| PaneView::new_unthreaded(3, cx));
@@ -865,6 +873,8 @@ mod tests {
       );
       assert_eq!(model.groups[0].tree.panes(), vec![1, 3]);
     });
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -874,7 +884,7 @@ mod tests {
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
     let (session, _events) = core.open_session();
     let model = cx.new(|cx| {
-      let mut model = TerminalModel::new(core, session, cx);
+      let mut model = TerminalModel::new(core.clone(), session, cx);
       let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
       let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
       model.insert_test_pane(first, cx);
@@ -888,6 +898,8 @@ mod tests {
       assert!(model.panes[&1].view.read(cx).active());
       assert!(!model.panes[&2].view.read(cx).active());
     });
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   fn first_split_id(tree: &SplitTree) -> u64 {
@@ -904,7 +916,7 @@ mod tests {
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
     let (session, _events) = core.open_session();
     let model = cx.new(|cx| {
-      let mut model = TerminalModel::new(core, session, cx);
+      let mut model = TerminalModel::new(core.clone(), session, cx);
       let a = cx.new(|cx| PaneView::new_unthreaded(1, cx));
       let a2 = cx.new(|cx| PaneView::new_unthreaded(3, cx));
       let b = cx.new(|cx| PaneView::new_unthreaded(2, cx));
@@ -923,6 +935,8 @@ mod tests {
         "groups must not share a split id (panel keys ResizableState by it)"
       );
     });
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -932,7 +946,7 @@ mod tests {
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
     let (session, _events) = core.open_session();
     let model = cx.new(|cx| {
-      let mut model = TerminalModel::new(core, session, cx);
+      let mut model = TerminalModel::new(core.clone(), session, cx);
       let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
       let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
       model.insert_test_pane(first, cx);
@@ -946,6 +960,8 @@ mod tests {
       assert!(model.panes.is_empty());
       assert_eq!(model.active_group, None);
     });
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -958,7 +974,7 @@ mod tests {
       let core = core.clone();
       move |_, cx| {
         let model = cx.new(|cx| {
-          let mut model = TerminalModel::new(core, session, cx);
+          let mut model = TerminalModel::new(core.clone(), session, cx);
           let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
           let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
           model.insert_test_pane(first, cx);
@@ -982,6 +998,8 @@ mod tests {
         });
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -994,7 +1012,7 @@ mod tests {
       let core = core.clone();
       move |_, cx| {
         let model = cx.new(|cx| {
-          let mut model = TerminalModel::new(core, session, cx);
+          let mut model = TerminalModel::new(core.clone(), session, cx);
           let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
           let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
           model.insert_test_pane(first, cx);
@@ -1018,6 +1036,8 @@ mod tests {
         });
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -1030,7 +1050,7 @@ mod tests {
       let core = core.clone();
       move |_, cx| {
         let model = cx.new(|cx| {
-          let mut model = TerminalModel::new(core, session, cx);
+          let mut model = TerminalModel::new(core.clone(), session, cx);
           let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
           let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
           model.insert_test_pane(first, cx);
@@ -1056,6 +1076,8 @@ mod tests {
         });
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -1068,7 +1090,7 @@ mod tests {
       let core = core.clone();
       move |_, cx| {
         let model = cx.new(|cx| {
-          let mut model = TerminalModel::new(core, session, cx);
+          let mut model = TerminalModel::new(core.clone(), session, cx);
           let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
           let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
           model.insert_test_pane(first, cx);
@@ -1092,6 +1114,8 @@ mod tests {
         });
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -1104,7 +1128,7 @@ mod tests {
       let core = core.clone();
       move |_, cx| {
         let model = cx.new(|cx| {
-          let mut model = TerminalModel::new(core, session, cx);
+          let mut model = TerminalModel::new(core.clone(), session, cx);
           let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
           let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
           model.insert_test_pane(first, cx);
@@ -1136,6 +1160,8 @@ mod tests {
         );
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -1148,7 +1174,7 @@ mod tests {
       let core = core.clone();
       move |_, cx| {
         let model = cx.new(|cx| {
-          let mut model = TerminalModel::new(core, session, cx);
+          let mut model = TerminalModel::new(core.clone(), session, cx);
           let first = cx.new(|cx| PaneView::new_unthreaded(1, cx));
           let second = cx.new(|cx| PaneView::new_unthreaded(2, cx));
           model.insert_test_pane(first, cx);
@@ -1179,6 +1205,8 @@ mod tests {
         );
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   fn blocked_pane(
@@ -1209,7 +1237,7 @@ mod tests {
     let resource_dir = tempfile::TempDir::new().unwrap();
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
     let (session, _events) = core.open_session();
-    let model = cx.new(|cx| TerminalModel::new(core, session, cx));
+    let model = cx.new(|cx| TerminalModel::new(core.clone(), session, cx));
     let blocked = model.update(cx, |model, cx| {
       let (view, handle, blocked) = blocked_pane(1, cx);
       model.insert_test_pane_with_handle(view, handle, cx);
@@ -1219,6 +1247,8 @@ mod tests {
     model.update(cx, |model, cx| model.kill_pane(1, None, cx));
     assert_returns_quickly(start);
     drop(blocked);
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -1227,7 +1257,7 @@ mod tests {
     let resource_dir = tempfile::TempDir::new().unwrap();
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
     let (session, _events) = core.open_session();
-    let model = cx.new(|cx| TerminalModel::new(core, session, cx));
+    let model = cx.new(|cx| TerminalModel::new(core.clone(), session, cx));
     let (group, blocked) = model.update(cx, |model, cx| {
       let (view, handle, blocked) = blocked_pane(1, cx);
       let group = model.insert_test_pane_with_handle(view, handle, cx);
@@ -1237,6 +1267,8 @@ mod tests {
     model.update(cx, |model, cx| model.kill_group(group, None, cx));
     assert_returns_quickly(start);
     drop(blocked);
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -1245,7 +1277,7 @@ mod tests {
     let resource_dir = tempfile::TempDir::new().unwrap();
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
     let (session, _events) = core.open_session();
-    let model = cx.new(|cx| TerminalModel::new(core, session, cx));
+    let model = cx.new(|cx| TerminalModel::new(core.clone(), session, cx));
     let blocked = model.update(cx, |model, cx| {
       let (view, handle, blocked) = blocked_pane(1, cx);
       model.insert_test_pane_with_handle(view, handle, cx);
@@ -1255,5 +1287,7 @@ mod tests {
     model.update(cx, |model, cx| model.shutdown(cx));
     assert_returns_quickly(start);
     drop(blocked);
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 }

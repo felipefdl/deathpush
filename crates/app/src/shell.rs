@@ -924,12 +924,16 @@ mod tests {
       crate::theme::init(cx);
     });
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
-    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    let window = cx.add_window({
+      let core = core.clone();
+      move |window, cx| Shell::new(core, 0, None, window, cx)
+    });
     window
       .update(cx, |shell, window, cx| {
         assert_eq!(window.focused(cx).as_ref(), Some(&shell.focus_handle));
       })
       .unwrap();
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -942,7 +946,10 @@ mod tests {
       crate::theme::init(cx);
     });
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
-    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    let window = cx.add_window({
+      let core = core.clone();
+      move |window, cx| Shell::new(core, 0, None, window, cx)
+    });
     window
       .update(cx, |shell, window, cx| {
         shell.mount_repository(snapshot(config_dir.path().to_str().unwrap()), window, cx);
@@ -957,6 +964,7 @@ mod tests {
         assert_eq!(window.focused(cx).as_ref(), Some(&repo_handle));
       })
       .unwrap();
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -969,7 +977,10 @@ mod tests {
       crate::theme::init(cx);
     });
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
-    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    let window = cx.add_window({
+      let core = core.clone();
+      move |window, cx| Shell::new(core, 0, None, window, cx)
+    });
     window
       .update(cx, |shell, window, cx| {
         shell.open_quick_open(window, cx);
@@ -979,6 +990,7 @@ mod tests {
         assert!(matches!(shell.overlay, Some(Overlay::QuickOpen(_))));
       })
       .unwrap();
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -991,7 +1003,10 @@ mod tests {
       crate::theme::init(cx);
     });
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
-    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    let window = cx.add_window({
+      let core = core.clone();
+      move |window, cx| Shell::new(core, 0, None, window, cx)
+    });
     window
       .update(cx, |shell, window, cx| {
         shell.open_branch_picker(window, cx);
@@ -1001,6 +1016,7 @@ mod tests {
         assert!(matches!(shell.overlay, Some(Overlay::BranchPicker(_))));
       })
       .unwrap();
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -1013,7 +1029,10 @@ mod tests {
       crate::theme::init(cx);
     });
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
-    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    let window = cx.add_window({
+      let core = core.clone();
+      move |window, cx| Shell::new(core, 0, None, window, cx)
+    });
     window
       .update(cx, |shell, window, cx| {
         shell.open_theme_picker(window, cx);
@@ -1026,6 +1045,7 @@ mod tests {
         assert!(matches!(shell.overlay, Some(Overlay::ThemePicker(_))));
       })
       .unwrap();
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -1038,7 +1058,10 @@ mod tests {
       crate::theme::init(cx);
     });
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
-    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    let window = cx.add_window({
+      let core = core.clone();
+      move |window, cx| Shell::new(core, 0, None, window, cx)
+    });
     window
       .update(cx, |shell, window, cx| {
         let original_kind = cx.global::<ActivePalette>().0.kind;
@@ -1053,6 +1076,7 @@ mod tests {
         assert_eq!(cx.global::<ActivePalette>().0.kind, original_kind);
       })
       .unwrap();
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -1065,7 +1089,10 @@ mod tests {
       crate::theme::init(cx);
     });
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
-    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    let window = cx.add_window({
+      let core = core.clone();
+      move |window, cx| Shell::new(core, 0, None, window, cx)
+    });
     let original_kind = window
       .update(cx, |shell, window, cx| {
         let original_kind = cx.global::<ActivePalette>().0.kind;
@@ -1082,6 +1109,7 @@ mod tests {
     cx.update(|cx| {
       assert_eq!(cx.global::<ActivePalette>().0.kind, original_kind);
     });
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -1094,7 +1122,10 @@ mod tests {
       crate::theme::init(cx);
     });
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
-    let (shell, cx) = cx.add_window_view(|window, cx| Shell::new(core, 0, None, window, cx));
+    let (shell, cx) = cx.add_window_view({
+      let core = core.clone();
+      move |window, cx| Shell::new(core, 0, None, window, cx)
+    });
     let original_kind = cx.update(|window, cx| {
       let original_kind = cx.global::<ActivePalette>().0.kind;
       shell.update(cx, |shell, cx| shell.open_theme_picker(window, cx));
@@ -1109,6 +1140,7 @@ mod tests {
     cx.update(|_, cx| {
       assert_eq!(cx.global::<ActivePalette>().0.kind, original_kind);
     });
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[test]
@@ -1152,7 +1184,10 @@ mod tests {
       crate::theme::init(cx);
     });
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
-    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    let window = cx.add_window({
+      let core = core.clone();
+      move |window, cx| Shell::new(core, 0, None, window, cx)
+    });
     window
       .update(cx, |shell, window, cx| {
         shell.mount_repository(snapshot(config_dir.path().to_str().unwrap()), window, cx);
@@ -1163,6 +1198,7 @@ mod tests {
         drop(blocked);
       })
       .unwrap();
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -1175,7 +1211,10 @@ mod tests {
       crate::theme::init(cx);
     });
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
-    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
+    let window = cx.add_window({
+      let core = core.clone();
+      move |window, cx| Shell::new(core, 0, None, window, cx)
+    });
     window
       .update(cx, |shell, window, cx| {
         shell.mount_repository(snapshot(config_dir.path().to_str().unwrap()), window, cx);
@@ -1186,12 +1225,13 @@ mod tests {
         drop(blocked);
       })
       .unwrap();
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   fn boot_updater_shell(
     cx: &mut TestAppContext,
     ops: FakeOps,
-  ) -> (tempfile::TempDir, tempfile::TempDir, WindowHandle<Shell>) {
+  ) -> (tempfile::TempDir, tempfile::TempDir, WindowHandle<Shell>, Arc<Core>) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let resource_dir = tempfile::TempDir::new().unwrap();
     let ops = Arc::new(ops);
@@ -1202,8 +1242,11 @@ mod tests {
       cx.default_global::<UpdaterState>().set_ops(ops);
     });
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
-    let window = cx.add_window(|window, cx| Shell::new(core, 0, None, window, cx));
-    (config_dir, resource_dir, window)
+    let window = cx.add_window({
+      let core = core.clone();
+      move |window, cx| Shell::new(core, 0, None, window, cx)
+    });
+    (config_dir, resource_dir, window, core)
   }
 
   fn run_check(cx: &mut TestAppContext) {
@@ -1213,7 +1256,7 @@ mod tests {
 
   #[gpui_kit::test]
   fn updater_available_shows_footer_button(cx: &mut TestAppContext) {
-    let (_config, _resource, window) = boot_updater_shell(cx, FakeOps::available());
+    let (_config, _resource, window, core) = boot_updater_shell(cx, FakeOps::available());
     window.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
     run_check(cx);
     window
@@ -1221,13 +1264,14 @@ mod tests {
         assert_eq!(welcome_footer_label(shell, cx).as_deref(), Some("Update to v0.5.0"));
       })
       .unwrap();
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
   fn updater_failure_toasts(cx: &mut TestAppContext) {
     let mut ops = FakeOps::available();
     ops.check = UpdateCheck::Failed("operation timed out".into());
-    let (_config, _resource, window) = boot_updater_shell(cx, ops);
+    let (_config, _resource, window, core) = boot_updater_shell(cx, ops);
     window.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
     run_check(cx);
     window
@@ -1236,6 +1280,7 @@ mod tests {
         assert!(cx.global::<UpdaterState>().button().is_none());
       })
       .unwrap();
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -1243,7 +1288,7 @@ mod tests {
     let mut ops = FakeOps::available();
     ops.percents = vec![40, 80];
     ops.install = Err("operation timed out".into());
-    let (_config, _resource, window) = boot_updater_shell(cx, ops);
+    let (_config, _resource, window, core) = boot_updater_shell(cx, ops);
     window.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
     run_check(cx);
     window
@@ -1259,6 +1304,7 @@ mod tests {
         );
       })
       .unwrap();
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -1277,7 +1323,10 @@ mod tests {
       let core = core.clone();
       move |window, cx| Shell::new(core, 0, None, window, cx)
     });
-    let second = cx.add_window(|window, cx| Shell::new(core, 1, None, window, cx));
+    let second = cx.add_window({
+      let core = core.clone();
+      move |window, cx| Shell::new(core, 1, None, window, cx)
+    });
     first.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
     second.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
     run_check(cx);
@@ -1287,6 +1336,7 @@ mod tests {
         assert_eq!(welcome_footer_label(shell, cx).as_deref(), Some("Update to v0.5.0"));
       })
       .unwrap();
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   fn welcome_footer_label(shell: &Shell, cx: &App) -> Option<String> {
@@ -1298,16 +1348,21 @@ mod tests {
 
   #[gpui_kit::test]
   fn updater_window_closing_mid_check_does_not_panic(cx: &mut TestAppContext) {
-    let (_config, resource, window) = boot_updater_shell(cx, FakeOps::available());
+    let (_config, resource, window, core) = boot_updater_shell(cx, FakeOps::available());
     window.update(cx, |shell, _, cx| shell.start_update_check(cx)).unwrap();
     cx.dispatch_action(*window, CloseWindow);
     run_check(cx);
-    let core = Core::new(resource.path().to_path_buf()).unwrap();
-    let later = cx.add_window(|window, cx| Shell::new(core, 1, None, window, cx));
+    let later_core = Core::new(resource.path().to_path_buf()).unwrap();
+    let later = cx.add_window({
+      let later_core = later_core.clone();
+      move |window, cx| Shell::new(later_core, 1, None, window, cx)
+    });
     later
       .update(cx, |shell, _, cx| {
         assert_eq!(welcome_footer_label(shell, cx).as_deref(), Some("Update to v0.5.0"));
       })
       .unwrap();
+    crate::test_core::park_and_shutdown(cx, &core);
+    later_core.shutdown();
   }
 }

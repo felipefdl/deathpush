@@ -7,6 +7,7 @@ mod menus;
 mod open_requests;
 mod overlays;
 mod repo;
+mod resource_dir;
 mod shell;
 mod theme;
 mod title_bar;
@@ -15,6 +16,9 @@ mod welcome;
 mod window;
 mod zoom;
 
+#[cfg(test)]
+mod test_core;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -22,11 +26,8 @@ use deathpush_core::Core;
 use gpui_kit::*;
 
 use crate::open_requests::{OpenRequest, OpenRequests};
+use crate::resource_dir::assets_dir;
 use crate::window::{WindowRegistry, on_window_closed, open_shell_window};
-
-fn assets_dir() -> PathBuf {
-  PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets")
-}
 
 fn main() {
   tracing_subscriber::fmt::init();

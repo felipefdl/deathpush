@@ -461,7 +461,7 @@ mod tests {
       let layout_dir = layout_dir.clone();
       move |_, cx| {
         let model = cx.new(|cx| {
-          let mut model = TerminalModel::new(core, session, cx);
+          let mut model = TerminalModel::new(core.clone(), session, cx);
           let pane = cx.new(|cx| PaneView::new_unthreaded(1, cx));
           pane.update(cx, |view, _| view.set_snapshot(snapshot.clone()));
           model.insert_test_pane(pane, cx);
@@ -488,6 +488,8 @@ mod tests {
         assert_eq!(panel.model().read(cx).panes.len(), 1);
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -507,7 +509,7 @@ mod tests {
       let layout_dir = layout_dir.clone();
       move |_, cx| {
         let model = cx.new(|cx| {
-          let mut model = TerminalModel::new(core, session, cx);
+          let mut model = TerminalModel::new(core.clone(), session, cx);
           let a = cx.new(|cx| PaneView::new_unthreaded(1, cx));
           let a2 = cx.new(|cx| PaneView::new_unthreaded(3, cx));
           let b = cx.new(|cx| PaneView::new_unthreaded(2, cx));
@@ -559,5 +561,7 @@ mod tests {
         assert_eq!(panel.split_state_ids().len(), 1);
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 }

@@ -1381,7 +1381,7 @@ mod tests {
     let (session, _events) = core.open_session();
     cx.update(|cx| {
       let model = cx.new(|_| {
-        let mut model = ExplorerModel::new(core, session, "/repo".into());
+        let mut model = ExplorerModel::new(core.clone(), session, "/repo".into());
         model.roots = vec![Node {
           path: "a.rs".into(),
           name: "a.rs".into(),
@@ -1422,5 +1422,7 @@ mod tests {
         ));
       });
     });
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 }

@@ -95,7 +95,7 @@ impl RepoView {
       let core = core.clone();
       let root = root.clone();
       move |cx| {
-        let mut explorer = ExplorerModel::new(core, session, root);
+        let mut explorer = ExplorerModel::new(core.clone(), session, root);
         explorer.load(cx);
         explorer
       }
@@ -111,7 +111,7 @@ impl RepoView {
     cx.observe(&settings, |_, _, cx| cx.notify()).detach();
     let terminal = cx.new({
       let core = core.clone();
-      move |cx| TerminalModel::new(core, session, cx)
+      move |cx| TerminalModel::new(core.clone(), session, cx)
     });
     cx.observe(&terminal, |_, _, cx| cx.notify()).detach();
     if layout.read(cx).layout().terminal_visible {
@@ -658,6 +658,8 @@ mod tests {
         assert_eq!(window.focused(cx).as_ref(), Some(&view.focus_handle));
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   fn populated_snapshot(root: &str) -> SessionSnapshot {
@@ -720,6 +722,8 @@ mod tests {
         assert!(view.model().read(cx).state().has_changes());
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -758,6 +762,8 @@ mod tests {
         );
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -795,6 +801,8 @@ mod tests {
         assert!(!view.layout().read(cx).layout().terminal_visible);
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -838,6 +846,8 @@ mod tests {
         assert_eq!(view.layout().read(cx).layout().panel_tab, PanelTab::Terminal);
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -881,6 +891,8 @@ mod tests {
       })
       .unwrap();
     cx.run_until_parked();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -926,6 +938,8 @@ mod tests {
       })
       .unwrap();
     cx.run_until_parked();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
@@ -973,5 +987,7 @@ mod tests {
       })
       .unwrap();
     cx.run_until_parked();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 }

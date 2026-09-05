@@ -852,5 +852,7 @@ mod tests {
         assert_eq!(window.focused(cx).as_ref(), Some(&panel.focus_handle));
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 }

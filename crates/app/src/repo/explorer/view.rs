@@ -930,6 +930,8 @@ mod tests {
         );
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[test]

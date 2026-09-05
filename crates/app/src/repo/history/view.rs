@@ -279,6 +279,8 @@ mod tests {
   use super::*;
   use core::prelude::v1::test;
 
+  use std::sync::Arc;
+
   use deathpush_core::Core;
   use deathpush_core::session::types::{
     OperationActions, SessionActions, SessionRepo, SessionScm, SessionSelection, SessionSnapshot, SyncAction, SyncKind,
@@ -352,7 +354,7 @@ mod tests {
     }
   }
 
-  fn open_history(cx: &mut TestAppContext, log: Vec<CommitEntry>) -> WindowHandle<HistoryView> {
+  fn open_history(cx: &mut TestAppContext, log: Vec<CommitEntry>) -> (WindowHandle<HistoryView>, Arc<Core>) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let resource_dir = tempfile::TempDir::new().unwrap();
     cx.update(|cx| {
@@ -364,7 +366,7 @@ mod tests {
     let (session, _events) = core.open_session();
     let layout_dir = config_dir.path().to_path_buf();
     let root = layout_dir.to_string_lossy().into_owned();
-    cx.add_window({
+    let window = cx.add_window({
       let core = core.clone();
       let snapshot = snapshot(&root, log);
       let layout_dir = layout_dir.clone();
@@ -375,12 +377,13 @@ mod tests {
         let diff = cx.new(|cx| DiffPanel::new(model.clone(), layout.clone(), cx));
         HistoryView::new(model, layout, diff, cx)
       }
-    })
+    });
+    (window, core)
   }
 
   #[gpui_kit::test]
   fn files_toggle_flips(cx: &mut TestAppContext) {
-    let window = open_history(cx, vec![commit()]);
+    let (window, core) = open_history(cx, vec![commit()]);
     window
       .update(cx, |view, window, cx| {
         window.refresh();
@@ -391,11 +394,13 @@ mod tests {
         assert!(!view.files_as_tree);
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
   fn history_view_renders_with_a_log(cx: &mut TestAppContext) {
-    let window = open_history(cx, vec![commit()]);
+    let (window, core) = open_history(cx, vec![commit()]);
     window
       .update(cx, |view, window, cx| {
         view.repo.update(cx, |model, _| {
@@ -406,5 +411,7 @@ mod tests {
         assert_eq!(view.repo.read(cx).state().commit_log[0].short_id, "0123456");
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 }

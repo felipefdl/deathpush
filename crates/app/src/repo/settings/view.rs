@@ -656,13 +656,15 @@ mod tests {
         );
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
   fn reset_replaces_settings_without_touching_identity_fields(cx: &mut TestAppContext) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let resource_dir = tempfile::TempDir::new().unwrap();
-    let window = open_settings(cx, &config_dir, &resource_dir);
+    let (window, core) = open_settings(cx, &config_dir, &resource_dir);
     window
       .update(cx, |view, window, cx| {
         view.apply_identity_values("Ada".into(), "ada@example.com".into(), window, cx);
@@ -688,13 +690,15 @@ mod tests {
         );
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   fn open_settings(
     cx: &mut TestAppContext,
     config_dir: &tempfile::TempDir,
     resource_dir: &tempfile::TempDir,
-  ) -> WindowHandle<SettingsView> {
+  ) -> (WindowHandle<SettingsView>, Arc<Core>) {
     cx.update(|cx| {
       gpui_kit::init(cx);
       AppConfig::init_at(config_dir.path().to_path_buf(), cx);
@@ -704,7 +708,7 @@ mod tests {
     let (session, _events) = core.open_session();
     let layout_dir = config_dir.path().to_path_buf();
     let root = layout_dir.to_string_lossy().into_owned();
-    cx.add_window({
+    let window = cx.add_window({
       let core = core.clone();
       let snapshot = snapshot(&root);
       let layout_dir = layout_dir.clone();
@@ -714,14 +718,15 @@ mod tests {
         let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
         SettingsView::new(model, layout, core, window, cx)
       }
-    })
+    });
+    (window, core)
   }
 
   #[gpui_kit::test]
   fn identity_reapplies_on_show_unless_editing(cx: &mut TestAppContext) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let resource_dir = tempfile::TempDir::new().unwrap();
-    let window = open_settings(cx, &config_dir, &resource_dir);
+    let (window, core) = open_settings(cx, &config_dir, &resource_dir);
     window
       .update(cx, |view, window, cx| {
         view.stub_identity("Ada".into(), "ada@x".into());
@@ -765,13 +770,15 @@ mod tests {
         assert_eq!(view.email_input.read(cx).value().as_ref(), "p@x");
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
   fn identity_save_does_not_reset_a_newer_generation(cx: &mut TestAppContext) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let resource_dir = tempfile::TempDir::new().unwrap();
-    let window = open_settings(cx, &config_dir, &resource_dir);
+    let (window, core) = open_settings(cx, &config_dir, &resource_dir);
     window
       .update(cx, |view, window, cx| {
         view.stub_identity(String::new(), String::new());
@@ -825,13 +832,15 @@ mod tests {
         );
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
   fn identity_reversion_after_inflight_save_writes_the_baseline(cx: &mut TestAppContext) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let resource_dir = tempfile::TempDir::new().unwrap();
-    let window = open_settings(cx, &config_dir, &resource_dir);
+    let (window, core) = open_settings(cx, &config_dir, &resource_dir);
     window
       .update(cx, |view, window, cx| {
         view.stub_identity(String::new(), String::new());
@@ -878,13 +887,15 @@ mod tests {
         );
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
   fn identity_coalesced_save_waits_for_debounce(cx: &mut TestAppContext) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let resource_dir = tempfile::TempDir::new().unwrap();
-    let window = open_settings(cx, &config_dir, &resource_dir);
+    let (window, core) = open_settings(cx, &config_dir, &resource_dir);
     window
       .update(cx, |view, window, cx| {
         view.stub_identity(String::new(), String::new());
@@ -943,13 +954,15 @@ mod tests {
         );
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
   fn delayed_identity_load_does_not_clobber_a_newer_edit(cx: &mut TestAppContext) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let resource_dir = tempfile::TempDir::new().unwrap();
-    let window = open_settings(cx, &config_dir, &resource_dir);
+    let (window, core) = open_settings(cx, &config_dir, &resource_dir);
     window
       .update(cx, |view, window, cx| {
         view.stub_identity("Ada".into(), "ada@x".into());
@@ -985,13 +998,15 @@ mod tests {
         assert_eq!(view.email_input.read(cx).value().as_ref(), "stale@x");
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
   fn delayed_identity_load_does_not_clobber_a_save_started_before_on_show(cx: &mut TestAppContext) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let resource_dir = tempfile::TempDir::new().unwrap();
-    let window = open_settings(cx, &config_dir, &resource_dir);
+    let (window, core) = open_settings(cx, &config_dir, &resource_dir);
     window
       .update(cx, |view, window, cx| {
         view.stub_identity("Ada".into(), "ada@x".into());
@@ -1029,13 +1044,15 @@ mod tests {
         assert_eq!(view.name_input.read(cx).value().as_ref(), "Grace");
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   #[gpui_kit::test]
   fn enabling_git_blame_requests_the_open_file(cx: &mut TestAppContext) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let resource_dir = tempfile::TempDir::new().unwrap();
-    let window = open_settings(cx, &config_dir, &resource_dir);
+    let (window, core) = open_settings(cx, &config_dir, &resource_dir);
     window
       .update(cx, |view, window, cx| {
         AppConfig::update(cx, |c| c.settings.git.blame = false);
@@ -1061,6 +1078,8 @@ mod tests {
         assert_eq!(view.repo.read(cx).blame_requested(), Some("src/main.rs"));
       })
       .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 
   struct SettingsHost {
@@ -1129,5 +1148,7 @@ mod tests {
       !clear_fired.get(),
       "ClearSelection must not fire while Settings is focused"
     );
+
+    crate::test_core::park_and_shutdown(cx, &core);
   }
 }
