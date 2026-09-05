@@ -1,0 +1,277 @@
+name: Publish Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    # macos-13 is retired. macos-15-intel is the standard x86_64 runner (macos-15-large is a paid larger runner).
+    # windows-11-arm may fail on Zig / libghostty-vt; it does not block the release.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-aarch64
+            os: macos-14
+            target: aarch64-apple-darwin
+            formats: app,dmg
+            allow-failure: false
+          - name: macos-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            formats: app,dmg
+            allow-failure: false
+          - name: linux-x86_64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            formats: deb,appimage
+            allow-failure: false
+          - name: windows-x86_64
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+            formats: nsis
+            allow-failure: false
+          - name: windows-aarch64
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            formats: nsis
+            allow-failure: true
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.allow-failure }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Install Linux deps
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libfontconfig-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev \
+            libvulkan1 libssl-dev libzstd-dev libfuse2 patchelf
+
+      - name: Import Apple Developer Certificate
+        if: runner.os == 'macOS'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Verify codesigning identity
+        if: runner.os == 'macOS'
+        run: |
+          security find-identity -v -p codesigning
+          security find-identity -p codesigning
+
+      - name: Write Apple API key for notarization
+        if: runner.os == 'macOS'
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          set -euo pipefail
+          key_dir="${HOME}/private_keys"
+          mkdir -p "$key_dir"
+          umask 077
+          key_path="${key_dir}/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s\n' "$APPLE_API_KEY_CONTENT" > "$key_path"
+          echo "APPLE_API_KEY_PATH=${key_path}" >> "$GITHUB_ENV"
+
+      - name: Inject macOS signing identity
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("crates/app/Cargo.toml")
+          text = path.read_text()
+          marker = "[package.metadata.packager.macos]\n"
+          if marker not in text:
+              raise SystemExit("missing [package.metadata.packager.macos]")
+          macos_table = text.split(marker, 1)[1].split("\n[", 1)[0]
+          if "signing-identity" in macos_table or "signingIdentity" in macos_table:
+              raise SystemExit("signing-identity already present")
+          identity = os.environ.get("APPLE_SIGNING_IDENTITY", "").strip()
+          if not identity:
+              raise SystemExit("APPLE_SIGNING_IDENTITY is empty")
+          insertion = marker + f"signing-identity = {json.dumps(identity)}\n"
+          path.write_text(text.replace(marker, insertion, 1), newline="\n")
+          PY
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Package
+        env:
+          CARGO_PACKAGER_SIGN_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: cargo packager --release -p deathpush --formats ${{ matrix.formats }}
+
+      - name: Name the macOS updater bundle by architecture
+        if: runner.os == 'macOS'
+        env:
+          UPDATER_ARCH: ${{ matrix.name == 'macos-aarch64' && 'aarch64' || 'x86_64' }}
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("Cargo.toml").read_text())["workspace"]["package"]["version"])')"
+          src="target/release/DeathPush.app.tar.gz"
+          dest="target/release/DeathPush_${VERSION}_${UPDATER_ARCH}.app.tar.gz"
+          test -f "$src"
+          mv "$src" "$dest"
+          mv "${src}.sig" "${dest}.sig"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            target/release/*.dmg
+            target/release/*.dmg.sig
+            target/release/*.app.tar.gz
+            target/release/*.app.tar.gz.sig
+            target/release/*.deb
+            target/release/*.deb.sig
+            target/release/*.AppImage
+            target/release/*.AppImage.sig
+            target/release/*-setup.exe
+            target/release/*-setup.exe.sig
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create draft release and latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+          else
+            VERSION="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("Cargo.toml").read_text())["workspace"]["package"]["version"])')"
+            TAG="v${VERSION}"
+          fi
+
+          export TAG VERSION
+
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft \
+              --title "DeathPush v${VERSION}" \
+              --notes "" \
+              --target "${GITHUB_SHA}"
+          fi
+
+          mapfile -t files < <(find artifacts -type f | sort)
+          if [[ "${#files[@]}" -eq 0 ]]; then
+            echo "no artifacts to upload" >&2
+            exit 1
+          fi
+          gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          tag = os.environ["TAG"]
+          version = os.environ["VERSION"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          base = f"https://github.com/{repo}/releases/download/{tag}"
+          artifacts = Path("artifacts")
+
+          # cargo-packager-updater 0.2.3 keys are macos-/linux-/windows-{arch}, not darwin-*.
+          # format is required on each platform (app / appimage / nsis).
+          selectors = {
+              "macos-aarch64": ("app.tar.gz", "app"),
+              "macos-x86_64": ("app.tar.gz", "app"),
+              "linux-x86_64": (".appimage", "appimage"),
+              "windows-x86_64": ("-setup.exe", "nsis"),
+              "windows-aarch64": ("-setup.exe", "nsis"),
+          }
+          required = ("macos-aarch64", "macos-x86_64", "linux-x86_64", "windows-x86_64")
+
+          platforms = {}
+          for platform, (suffix, fmt) in selectors.items():
+              folder = artifacts / platform
+              if not folder.is_dir():
+                  continue
+              matches = [
+                  path
+                  for path in folder.glob("*.sig")
+                  if path.name[: -len(".sig")].lower().endswith(suffix.lower())
+              ]
+              if not matches:
+                  continue
+              if len(matches) != 1:
+                  names = ", ".join(path.name for path in matches)
+                  raise SystemExit(f"{platform}: expected one updater .sig, found: {names}")
+              sig_path = matches[0]
+              asset_name = sig_path.name[: -len(".sig")]
+              signature = sig_path.read_text().strip()
+              if not signature:
+                  raise SystemExit(f"{sig_path} is empty")
+              platforms[platform] = {
+                  "signature": signature,
+                  "url": f"{base}/{asset_name}",
+                  "format": fmt,
+              }
+
+          missing = [name for name in required if name not in platforms]
+          if missing:
+              raise SystemExit("missing required updater platforms: " + ", ".join(missing))
+
+          ordered = {name: platforms[name] for name in selectors if name in platforms}
+          manifest = {
+              "version": version,
+              "notes": "",
+              "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": ordered,
+          }
+          Path("latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          print("latest.json platforms:", ", ".join(ordered))
+          PY
+
+          gh release upload "$TAG" latest.json --repo "$GITHUB_REPOSITORY" --clobber
+          echo "draft release ${TAG}"
+          jq -r '.platforms | keys[]' latest.json
