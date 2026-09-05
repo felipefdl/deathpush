@@ -39,14 +39,19 @@ pub fn zoom_options() -> Vec<(i32, String)> {
     .collect()
 }
 
+/// A shell path choice for the Settings Shell Path control.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShellPreset {
+  /// Use `$SHELL` (empty stored path).
   Default,
+  /// A platform shell that exists on disk.
   Path(String),
+  /// A user-entered path not in the platform list.
   Custom,
 }
 
 impl ShellPreset {
+  /// Select label: `Default ($SHELL)`, the path, or `Custom...`.
   pub fn label(&self) -> String {
     match self {
       Self::Default => "Default ($SHELL)".to_string(),
@@ -81,6 +86,7 @@ pub fn preset_for(shell_path: &str, presets: &[ShellPreset]) -> ShellPreset {
     .unwrap_or(ShellPreset::Custom)
 }
 
+/// Font-weight options as `(display label, stored value)` pairs.
 pub const FONT_WEIGHTS: [(&str, &str); 9] = [
   ("Thin", "thin"),
   ("Extra Light", "extra-light"),
@@ -92,7 +98,9 @@ pub const FONT_WEIGHTS: [(&str, &str); 9] = [
   ("Extra Bold", "extra-bold"),
   ("Black", "black"),
 ];
+/// Confirmation dialog title for Reset to Defaults.
 pub const RESET_TITLE: &str = "Reset to Defaults";
+/// Confirmation dialog message for Reset to Defaults.
 pub const RESET_MESSAGE: &str = "Reset all settings to defaults? This cannot be undone.";
 
 #[cfg(test)]
