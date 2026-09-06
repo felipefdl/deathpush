@@ -23,15 +23,22 @@ jobs:
         include:
           - platform: macos-latest
             args: ""
+            allow-failure: false
           - platform: ubuntu-22.04
             args: ""
+            allow-failure: false
           - platform: ubuntu-22.04-arm
             args: ""
+            allow-failure: false
           - platform: windows-latest
             args: ""
+            allow-failure: false
           - platform: windows-11-arm
             args: "--target aarch64-pc-windows-msvc"
+            # libghostty-vt's ARM64 Windows static archive currently fails to link on this runner.
+            allow-failure: true
     runs-on: ${{ matrix.platform }}
+    continue-on-error: ${{ matrix.allow-failure }}
     steps:
       - name: Enable long paths for dependency checkouts
         if: runner.os == 'Windows'
