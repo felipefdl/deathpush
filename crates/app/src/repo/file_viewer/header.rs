@@ -69,14 +69,14 @@ pub fn render_header(
         .when(show_reveal, |el| {
           let view = view.clone();
           el.child(
-            tool("file-reveal", "icons/folder-opened.svg", "Reveal in Finder").on_click(move |_, _, cx| {
+            tool("file-reveal", "icons/folder-open.svg", "Reveal in Finder").on_click(move |_, _, cx| {
               let _ = view.update(cx, |this, cx| this.reveal(cx));
             }),
           )
         })
         .child({
           let view = view.clone();
-          tool("file-open-editor", "icons/link-external.svg", "Open in Editor").on_click(move |_, _, cx| {
+          tool("file-open-editor", "icons/external-link.svg", "Open in Editor").on_click(move |_, _, cx| {
             let _ = view.update(cx, |this, cx| this.open_external(cx));
           })
         }),

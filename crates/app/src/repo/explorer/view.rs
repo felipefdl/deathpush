@@ -635,7 +635,7 @@ impl Render for ExplorerView {
     let repo_open = self.repo.read(cx).state().root().is_some();
     let palette = cx.global::<ActivePalette>().0;
     let density = AppConfig::get(cx).settings.ui.tree_density;
-    let kind = IconKind::from(AppConfig::get(cx).settings.ui.tree_icons);
+    let kind = IconKind::new(AppConfig::get(cx).settings.ui.tree_icons, palette.kind);
     let mut root = div()
       .size_full()
       .flex()
@@ -773,15 +773,15 @@ impl ExplorerView {
         ),
       )
       .child(
-        tool("explorer-new-file", "icons/new-file.svg", "New File")
+        tool("explorer-new-file", "icons/file-plus.svg", "New File")
           .on_click(cx.listener(|this, _, window, cx| this.create_entry(false, window, cx))),
       )
       .child(
-        tool("explorer-new-folder", "icons/new-folder.svg", "New Folder")
+        tool("explorer-new-folder", "icons/folder-plus.svg", "New Folder")
           .on_click(cx.listener(|this, _, window, cx| this.create_entry(true, window, cx))),
       )
       .child(
-        tool("explorer-refresh", "icons/refresh.svg", "Refresh Explorer").on_click(cx.listener(|this, _, _, cx| {
+        tool("explorer-refresh", "icons/refresh-cw.svg", "Refresh Explorer").on_click(cx.listener(|this, _, _, cx| {
           this.model.update(cx, |model, cx| model.load(cx));
         })),
       )

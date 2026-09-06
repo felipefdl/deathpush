@@ -85,7 +85,7 @@ fn render_chip(path: &str, view: WeakEntity<HistoryView>, palette: UiPalette) ->
     .border_color(hsla(palette.border))
     .child(
       svg()
-        .path("icons/history.svg")
+        .path("icons/rotate-ccw-clock.svg")
         .size(px(14.0))
         .flex_shrink_0()
         .text_color(hsla(palette.muted_foreground)),
@@ -105,7 +105,7 @@ fn render_chip(path: &str, view: WeakEntity<HistoryView>, palette: UiPalette) ->
         .xsmall()
         .w(px(22.0))
         .h(px(22.0))
-        .icon(Icon::empty().path("icons/close.svg"))
+        .icon(Icon::empty().path("icons/x.svg"))
         .tooltip("Show full history")
         .on_click(move |_, window, cx| {
           let _ = view.update(cx, |this, cx| this.clear_file_history(window, cx));

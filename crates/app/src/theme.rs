@@ -1,9 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
 use deathpush_core::config::settings::{DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME};
-use deathpush_core::theme::{Rgba, ThemeKind, ThemeSpec, UiPalette, parse_theme, syntax_styles};
+use deathpush_core::config::store::config_dir;
+use deathpush_core::theme::{Rgba, ThemeKind, ThemeSpec, ThemeStyle, UiPalette, parse_theme_family, syntax_styles};
 use gpui_kit::component::highlighter::HighlightThemeStyle;
 use gpui_kit::component::theme::{Theme, ThemeConfig, ThemeConfigColors, ThemeMode, ThemeRegistry, ThemeSet};
 use gpui_kit::*;
@@ -18,12 +21,14 @@ pub struct ThemeEntry {
   pub kind: ThemeKind,
 }
 
-/// Every bundled theme, parsed once.
+/// Every bundled and user theme, parsed when the catalog is built.
 pub struct ThemeCatalog {
-  /// Bundled themes, sorted by label.
+  /// Themes sorted by label.
   pub(crate) entries: Vec<ThemeEntry>,
   specs: HashMap<String, Arc<ThemeSpec>>,
   palettes: HashMap<String, UiPalette>,
+  dark_base: Arc<ThemeStyle>,
+  light_base: Arc<ThemeStyle>,
 }
 
 impl Global for ThemeCatalog {}
@@ -43,6 +48,14 @@ impl ThemeCatalog {
 
   pub fn kind(&self, id: &str) -> Option<ThemeKind> {
     self.specs.get(id).map(|spec| spec.kind)
+  }
+
+  /// The base style behind every theme of `kind`, shared rather than copied.
+  fn base(&self, kind: ThemeKind) -> Arc<ThemeStyle> {
+    match kind {
+      ThemeKind::Dark => Arc::clone(&self.dark_base),
+      ThemeKind::Light => Arc::clone(&self.light_base),
+    }
   }
 }
 
@@ -86,7 +99,13 @@ fn hex(color: Rgba) -> Option<SharedString> {
 }
 
 /// gpui-component's theme config for one of our themes.
-pub fn theme_config(spec: &ThemeSpec, palette: &UiPalette, ui_font_family: &str, ui_font_size: u32) -> ThemeConfig {
+pub fn theme_config(
+  spec: &ThemeSpec,
+  palette: &UiPalette,
+  base: &ThemeStyle,
+  ui_font_family: &str,
+  ui_font_size: u32,
+) -> ThemeConfig {
   // Base.* fields on ThemeConfigColors are private, so struct update from outside the crate does not compile.
   let mut colors = ThemeConfigColors::default();
   colors.background = hex(palette.background);
@@ -146,7 +165,7 @@ pub fn theme_config(spec: &ThemeSpec, palette: &UiPalette, ui_font_family: &str,
   colors.overlay = hex(palette.overlay);
   colors.window_border = hex(palette.border);
   let mut syntax = serde_json::Map::new();
-  for style in syntax_styles(spec) {
+  for style in syntax_styles(spec, base) {
     let mut entry = serde_json::Map::new();
     if let Some(color) = style.color
       && let Some(value) = hex(color)
@@ -168,7 +187,7 @@ pub fn theme_config(spec: &ThemeSpec, palette: &UiPalette, ui_font_family: &str,
   });
   let highlight: Option<HighlightThemeStyle> = serde_json::from_value(highlight).ok();
   ThemeConfig {
-    name: spec.name.clone().into(),
+    name: spec.label().into(),
     mode: if spec.kind == ThemeKind::Dark {
       ThemeMode::Dark
     } else {
@@ -182,26 +201,45 @@ pub fn theme_config(spec: &ThemeSpec, palette: &UiPalette, ui_font_family: &str,
   }
 }
 
-/// Parse every bundled theme, register them with gpui-component, and apply the saved theme.
-pub fn init(cx: &mut App) {
-  let mut entries = Vec::new();
-  let mut specs = HashMap::new();
-  let mut palettes = HashMap::new();
+/// Build the catalog from bundled assets and the current user theme directory.
+fn load_catalog(cx: &App) -> (ThemeCatalog, ThemeSet) {
+  let mut bundled = Vec::new();
+  for (file_name, json) in assets::theme_files() {
+    match parse_theme_family(&json) {
+      Ok(family) => bundled.extend(family.themes),
+      Err(err) => tracing::warn!("skipping bundled theme family {file_name}: {err}"),
+    }
+  }
+
+  let dark_base = base_style(&bundled, ThemeKind::Dark, "One Dark");
+  let light_base = base_style(&bundled, ThemeKind::Light, "One Light");
+  let taken: HashSet<String> = bundled.iter().map(ThemeSpec::id).collect();
+  let mut all_specs = bundled;
+  load_user_specs(&mut all_specs, taken);
+
   let (font_family, font_size) = {
     let ui = &AppConfig::get(cx).settings.ui;
     (ui.font_family.clone(), ui.font_size)
   };
+  let dark_base = Arc::new(dark_base);
+  let light_base = Arc::new(light_base);
+  let mut entries = Vec::new();
+  let mut specs = HashMap::new();
+  let mut palettes = HashMap::new();
   let mut configs = Vec::new();
-  for (id, json) in assets::theme_files() {
-    let spec = match parse_theme(&json) {
-      Ok(spec) => spec,
-      Err(err) => {
-        tracing::warn!("skipping theme {id}: {err}");
-        continue;
-      }
+
+  for spec in all_specs {
+    let id = spec.id();
+    if specs.contains_key(&id) {
+      tracing::warn!("skipping duplicate theme id {id}");
+      continue;
+    }
+    let base = match spec.kind {
+      ThemeKind::Dark => dark_base.as_ref(),
+      ThemeKind::Light => light_base.as_ref(),
     };
-    let palette = UiPalette::from_spec(&spec);
-    configs.push(theme_config(&spec, &palette, &font_family, font_size));
+    let palette = UiPalette::resolve(&spec, base);
+    configs.push(theme_config(&spec, &palette, base, &font_family, font_size));
     entries.push(ThemeEntry {
       id: id.clone(),
       label: spec.label(),
@@ -210,24 +248,100 @@ pub fn init(cx: &mut App) {
     palettes.insert(id.clone(), palette);
     specs.insert(id, Arc::new(spec));
   }
-  entries.sort_by_key(|a| a.label.to_lowercase());
+  entries.sort_by_key(|entry| entry.label.to_lowercase());
+
+  let catalog = ThemeCatalog {
+    entries,
+    specs,
+    palettes,
+    dark_base,
+    light_base,
+  };
   let set = ThemeSet {
     name: "DeathPush".into(),
     themes: configs,
     ..Default::default()
   };
+  (catalog, set)
+}
+
+fn base_style(specs: &[ThemeSpec], kind: ThemeKind, preferred_name: &str) -> ThemeStyle {
+  specs
+    .iter()
+    .find(|spec| spec.kind == kind && spec.name == preferred_name)
+    .or_else(|| specs.iter().find(|spec| spec.kind == kind))
+    .unwrap_or_else(|| panic!("bundled themes do not contain a {kind:?} theme"))
+    .style
+    .clone()
+}
+/// User themes from `<config>/deathpush/themes/*.json`. A bundled id always wins.
+fn load_user_specs(specs: &mut Vec<ThemeSpec>, mut taken: HashSet<String>) {
+  let themes_dir = config_dir().join("themes");
+  let mut paths: Vec<PathBuf> = match fs::read_dir(&themes_dir) {
+    Ok(entries) => entries
+      .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+      .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
+      .collect(),
+    Err(err) if err.kind() == std::io::ErrorKind::NotFound => return,
+    Err(err) => {
+      tracing::warn!("could not scan user themes directory {}: {err}", themes_dir.display());
+      return;
+    }
+  };
+  paths.sort();
+
+  for path in paths {
+    let json = match fs::read_to_string(&path) {
+      Ok(json) => json,
+      Err(err) => {
+        tracing::warn!("skipping user theme file {}: {err}", path.display());
+        continue;
+      }
+    };
+    let family = match parse_theme_family(&json) {
+      Ok(family) => family,
+      Err(err) => {
+        tracing::warn!("skipping user theme file {}: {err}", path.display());
+        continue;
+      }
+    };
+    for spec in family.themes {
+      let id = spec.id();
+      if !taken.insert(id.clone()) {
+        tracing::warn!("skipping user theme {id} from {}: the id is taken", path.display());
+        continue;
+      }
+      specs.push(spec);
+    }
+  }
+}
+
+fn register_catalog(catalog: ThemeCatalog, set: ThemeSet, cx: &mut App) {
   let json = serde_json::to_string(&set).expect("theme set serializes");
   ThemeRegistry::global_mut(cx)
     .load_themes_from_str(&json)
     .expect("theme set registers");
-  cx.set_global(ThemeCatalog {
-    entries,
-    specs,
-    palettes,
-  });
+  cx.set_global(catalog);
+}
+
+fn apply_current(window: Option<&mut Window>, cx: &mut App) {
   let current = AppConfig::get(cx).settings.theme.current.clone();
   let wanted = ThemeCatalog::get(cx).kind(&current).unwrap_or(ThemeKind::Dark);
-  apply_theme(&current, wanted, None, cx);
+  apply_visual(&current, wanted, window, cx);
+}
+
+/// Parse bundled and user themes, register them with gpui-component, and apply the saved theme.
+pub fn init(cx: &mut App) {
+  let (catalog, set) = load_catalog(cx);
+  register_catalog(catalog, set, cx);
+  apply_current(None, cx);
+}
+
+/// Rescan user themes, replace the catalog, and keep the configured theme applied.
+pub fn reload_user_themes(window: Option<&mut Window>, cx: &mut App) {
+  let (catalog, set) = load_catalog(cx);
+  register_catalog(catalog, set, cx);
+  apply_current(window, cx);
 }
 
 fn resolve_id(catalog: &ThemeCatalog, id: &str, wanted: ThemeKind) -> String {
@@ -239,19 +353,20 @@ fn resolve_id(catalog: &ThemeCatalog, id: &str, wanted: ThemeKind) -> String {
 }
 
 fn apply_visual(id: &str, wanted: ThemeKind, window: Option<&mut Window>, cx: &mut App) -> String {
-  let (id, kind, palette, spec) = {
+  let (id, kind, palette, spec, base) = {
     let catalog = ThemeCatalog::get(cx);
     let id = resolve_id(catalog, id, wanted);
     let kind = catalog.kind(&id).unwrap_or(ThemeKind::Dark);
     let palette = catalog.palette(&id).expect("catalog has the id");
     let spec = catalog.spec(&id).expect("catalog has the spec");
-    (id, kind, palette, spec)
+    let base = catalog.base(kind);
+    (id, kind, palette, spec, base)
   };
   let (font_family, font_size) = {
     let ui = &AppConfig::get(cx).settings.ui;
     (ui.font_family.clone(), ui.font_size)
   };
-  let config = Rc::new(theme_config(&spec, &palette, &font_family, font_size));
+  let config = Rc::new(theme_config(&spec, &palette, &base, &font_family, font_size));
   {
     let theme = Theme::global_mut(cx);
     if kind == ThemeKind::Dark {
@@ -340,9 +455,10 @@ mod tests {
 
   #[test]
   fn config_carries_the_palette_and_mode() {
-    let spec = parse_theme(include_str!("../../../assets/themes/ayu-light.json")).unwrap();
-    let palette = UiPalette::from_spec(&spec);
-    let config = theme_config(&spec, &palette, "", 13);
+    let family = parse_theme_family(include_str!("../../../assets/themes/one.json")).unwrap();
+    let spec = family.themes.iter().find(|spec| spec.name == "One Light").unwrap();
+    let palette = UiPalette::resolve(spec, &spec.style);
+    let config = theme_config(spec, &palette, &spec.style, "", 13);
     assert_eq!(config.mode, ThemeMode::Light);
     assert_eq!(
       config.colors.background.as_deref(),
@@ -359,12 +475,13 @@ mod tests {
 
   #[test]
   fn theme_config_carries_syntax_styles() {
-    let spec = parse_theme(
-      r##"{"name":"t","type":"dark","colors":{},"tokenColors":[{"scope":"keyword","settings":{"foreground":"#569cd6"}}]}"##,
+    let family = parse_theme_family(
+      r##"{"name":"t","themes":[{"name":"t","appearance":"dark","style":{"syntax":{"keyword":{"color":"#569cd6"}}}}]}"##,
     )
     .unwrap();
-    let palette = UiPalette::from_spec(&spec);
-    let config = theme_config(&spec, &palette, "", 13);
+    let spec = &family.themes[0];
+    let palette = UiPalette::resolve(spec, &spec.style);
+    let config = theme_config(spec, &palette, &spec.style, "", 13);
     let highlight = config.highlight.expect("highlight style");
     assert!(highlight.syntax.style("keyword").and_then(|s| s.color).is_some());
   }
@@ -376,7 +493,7 @@ mod tests {
       gpui_kit::init(cx);
       AppConfig::init_at(dir.path().to_path_buf(), cx);
       init(cx);
-      assert_eq!(ThemeCatalog::get(cx).entries.len(), 65);
+      assert_eq!(ThemeCatalog::get(cx).entries.len(), 13);
       assert_eq!(Theme::global(cx).mode, ThemeMode::Dark);
       apply_theme("ayu-light", ThemeKind::Light, None, cx);
       assert_eq!(Theme::global(cx).mode, ThemeMode::Light);

@@ -6,13 +6,13 @@ use rust_embed::RustEmbed;
 #[derive(RustEmbed)]
 #[folder = "../../assets/"]
 #[include = "icons/*.svg"]
-#[include = "file-icons/*.svg"]
+#[include = "material-icons/*.svg"]
 #[include = "themes/*.json"]
 #[include = "fonts/nerd-font/*.ttf"]
 #[include = "brand/*"]
 struct Embedded;
 
-/// Our embedded assets first, gpui-kit's icon set second.
+/// Our embedded assets first, gpui-kit's Lucide set second.
 pub struct AppAssets;
 
 impl AssetSource for AppAssets {
@@ -61,10 +61,11 @@ mod tests {
 
   #[test]
   fn embeds_themes_icons_fonts_and_brand() {
-    assert!(Embedded::get("themes/vesper.json").is_some());
-    assert!(Embedded::get("themes/ayu-light.json").is_some());
+    assert!(Embedded::get("themes/warm-burnout.json").is_some());
+    assert!(Embedded::get("themes/one.json").is_some());
     assert!(Embedded::get("icons/folder.svg").is_some());
-    assert!(Embedded::get("file-icons/default_file.svg").is_some());
+    assert!(Embedded::get("material-icons/folder.svg").is_some());
+    assert!(Embedded::get("material-icons/rust.svg").is_some());
     assert!(Embedded::get("brand/deathpush.svg").is_some());
     assert_eq!(font_files().len(), 4);
   }
@@ -78,7 +79,7 @@ mod tests {
   #[test]
   fn lists_every_bundled_theme() {
     let files = theme_files();
-    assert_eq!(files.len(), 65);
-    assert!(files.iter().any(|(id, _)| id == "vesper"));
+    assert_eq!(files.len(), 4);
+    assert!(files.iter().any(|(id, _)| id == "warm-burnout"));
   }
 }

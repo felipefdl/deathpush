@@ -28,6 +28,15 @@ perf-boot:
 perf-storm:
   TZ=UTC cargo test -p deathpush-core storm
 
+# Re-vendor the Lucide chrome icons and the Material tree icons, then regenerate the lookup tables.
+icons:
+  ./scripts/vendor-icons.py
+  cargo fmt --all
+
+# Re-vendor the bundled Zed theme families.
+themes:
+  ./scripts/vendor-themes.py
+
 package:
   cargo packager --release
 

@@ -267,11 +267,16 @@ pub fn dispatch_item(model: &Entity<RepoModel>, item: OverflowItem, window: &mut
 mod tests {
   use super::*;
   use core::prelude::v1::test;
-  use deathpush_core::theme::{UiPalette, parse_theme};
+  use deathpush_core::theme::{ThemeKind, ThemeSpec, ThemeStyle, UiPalette};
   use deathpush_core::types::BranchEntry;
 
   fn palette() -> UiPalette {
-    UiPalette::from_spec(&parse_theme(r##"{"name":"t","type":"dark","colors":{}}"##).unwrap())
+    let spec = ThemeSpec {
+      name: "test".into(),
+      kind: ThemeKind::Dark,
+      style: ThemeStyle::default(),
+    };
+    UiPalette::resolve(&spec, &ThemeStyle::default())
   }
 
   fn branch(name: &str, is_remote: bool) -> BranchEntry {

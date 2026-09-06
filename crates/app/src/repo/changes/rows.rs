@@ -343,7 +343,7 @@ pub fn render_nested_row(
     })
     .child(
       svg()
-        .path("icons/repo.svg")
+        .path("icons/folder-git-2.svg")
         .size(px(16.0))
         .text_color(hsla(palette.muted_foreground)),
     )
@@ -379,15 +379,12 @@ mod tests {
   #[test]
   fn scm_file_icon_follows_tree_icons() {
     assert_eq!(file_icon(IconKind::None, "src/main.rs"), None);
+    assert_eq!(file_icon(IconKind::Lucide, "src/main.rs"), Some("icons/file-code.svg"));
     assert_eq!(
-      file_icon(IconKind::Standard, "src/main.rs"),
-      Some("icons/file-code.svg")
+      file_icon(IconKind::Material { light: false }, "src/main.rs"),
+      Some("material-icons/rust.svg")
     );
-    assert_eq!(
-      file_icon(IconKind::Complete, "src/main.rs"),
-      Some("file-icons/file_type_rust.svg")
-    );
-    assert_eq!(file_icon(IconKind::Standard, "shot.png"), Some("icons/file-media.svg"));
+    assert_eq!(file_icon(IconKind::Lucide, "shot.png"), Some("icons/file-image.svg"));
   }
 
   #[test]
@@ -413,8 +410,12 @@ mod tests {
 
   #[test]
   fn status_colors_pick_the_palette_slot() {
-    let spec = deathpush_core::theme::parse_theme(r##"{"name":"t","type":"dark","colors":{}}"##).unwrap();
-    let p = UiPalette::from_spec(&spec);
+    let spec = deathpush_core::theme::ThemeSpec {
+      name: "test".into(),
+      kind: deathpush_core::theme::ThemeKind::Dark,
+      style: deathpush_core::theme::ThemeStyle::default(),
+    };
+    let p = UiPalette::resolve(&spec, &deathpush_core::theme::ThemeStyle::default());
     assert_eq!(status_color(FileStatus::Modified, &p), p.git_modified);
     assert_eq!(status_color(FileStatus::IndexModified, &p), p.git_staged_modified);
     assert_eq!(status_color(FileStatus::IndexDeleted, &p), p.git_staged_deleted);

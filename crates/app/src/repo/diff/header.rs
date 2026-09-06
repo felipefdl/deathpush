@@ -34,8 +34,8 @@ pub fn render_header(
 ) -> impl IntoElement {
   let path = selection.path.clone();
   let (layout_icon, layout_tooltip) = match layout {
-    DiffLayout::Inline => ("icons/split-horizontal.svg", "Switch to side by side"),
-    DiffLayout::SideBySide => ("icons/list-flat.svg", "Switch to inline"),
+    DiffLayout::Inline => ("icons/columns-2.svg", "Switch to side by side"),
+    DiffLayout::SideBySide => ("icons/list.svg", "Switch to inline"),
   };
   div()
     .h(px(28.0))
@@ -78,7 +78,7 @@ pub fn render_header(
             .with_size(Size::Medium)
             .w(px(22.0))
             .h(px(22.0))
-            .icon(Icon::empty().path("icons/history.svg"))
+            .icon(Icon::empty().path("icons/rotate-ccw-clock.svg"))
             .tooltip("Show File History")
             .on_click({
               let view = view.clone();
@@ -105,8 +105,8 @@ pub fn render_commit_header(
   let letter = status_letter(status.clone());
   let color = status_color(status, &palette);
   let (layout_icon, layout_tooltip) = match layout {
-    DiffLayout::Inline => ("icons/split-horizontal.svg", "Switch to side by side"),
-    DiffLayout::SideBySide => ("icons/list-flat.svg", "Switch to inline"),
+    DiffLayout::Inline => ("icons/columns-2.svg", "Switch to side by side"),
+    DiffLayout::SideBySide => ("icons/list.svg", "Switch to inline"),
   };
   div()
     .h(px(28.0))

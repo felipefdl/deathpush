@@ -168,7 +168,7 @@ impl Render for WorkspaceSettingsDialog {
               Button::new(SharedString::from(format!("remove-{index}")))
                 .ghost()
                 .xsmall()
-                .icon(Icon::empty().path("icons/close.svg"))
+                .icon(Icon::empty().path("icons/x.svg"))
                 .tooltip("Remove")
                 .on_click(cx.listener(move |this, _, _, cx| {
                   this.rows.remove(index);
@@ -193,7 +193,7 @@ impl Render for WorkspaceSettingsDialog {
             Button::new("add-directory")
               .link()
               .small()
-              .icon(Icon::empty().path("icons/add.svg"))
+              .icon(Icon::empty().path("icons/plus.svg"))
               .label("Add Directory")
               .on_click(cx.listener(|this, _, window, cx| this.add_row(window, cx))),
           )

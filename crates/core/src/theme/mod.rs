@@ -3,5 +3,5 @@ pub mod spec;
 pub mod syntax;
 
 pub use palette::UiPalette;
-pub use spec::{Rgba, Scope, ThemeKind, ThemeSpec, TokenColor, TokenSettings, parse_theme};
+pub use spec::{Player, Rgba, SyntaxToken, ThemeFamily, ThemeKind, ThemeSpec, ThemeStyle, parse_theme_family};
 pub use syntax::{SyntaxStyle, syntax_styles};

@@ -26,7 +26,7 @@ pub fn render_sidebar(
       .cursor_pointer()
       .border_b_2()
       .border_color(if is_active {
-        hsla(palette.ring)
+        hsla(palette.primary)
       } else {
         hsla(palette.border.with_alpha(0))
       })

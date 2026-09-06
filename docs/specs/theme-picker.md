@@ -5,7 +5,7 @@ Date: 2026-09-02
 
 ## Purpose
 
-A command-palette overlay for choosing the color theme. A theme colors the whole app: chrome, editors, diffs, trees, and the terminal. Themes come from a catalog of editor color themes, each tagged dark or light and carrying a display label. Defaults: Vesper for dark, Ayu Light for light.
+A command-palette overlay for choosing the color theme. A theme colors the whole app: chrome, editors, diffs, trees, and the terminal. The bundled catalog contains 13 themes across the One, Ayu, Gruvbox, and Warm Burnout families, each tagged dark or light and carrying an authored label. User themes come from `<config_dir>/deathpush/themes/*.json` and are picked up when the picker opens. Defaults: Warm Burnout Dark for dark, Warm Burnout Light for light.
 
 ## Layout
 
@@ -36,7 +36,7 @@ Clicking outside the panel cancels and restores the theme that was active when t
 - `Select Color Theme`
 - `dark themes`
 - `light themes`
-- Theme labels: the theme's display name, or its identifier title-cased when it has none
+- Theme labels: the authored theme name
 
 ## Visual
 
@@ -59,6 +59,8 @@ Panel 500 wide, up to 440 tall, on the sidebar background with a subtle border, 
 ## Interactions
 
 **Open.** Cmd/Ctrl+K then Cmd/Ctrl+T (the chord expires after 1.5 s), the Settings Color Theme button, View > Color Theme..., or the Linux menu.
+
+**Catalog refresh.** Opening the picker rescans the user themes folder. Bundled theme ids win collisions with user theme ids.
 
 **Preferred themes.** Settings holds a preferred dark theme and a preferred light theme. When the OS color scheme flips, the app switches to the matching preferred theme. Picking a theme here also updates the preferred theme of that kind.
 

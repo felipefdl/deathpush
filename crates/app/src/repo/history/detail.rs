@@ -31,7 +31,7 @@ pub fn render_empty(palette: UiPalette) -> impl IntoElement {
     .gap_2()
     .child(
       svg()
-        .path("icons/history.svg")
+        .path("icons/rotate-ccw-clock.svg")
         .size(px(48.0))
         .text_color(hsla(palette.muted_foreground))
         .opacity(0.4),
@@ -152,7 +152,7 @@ pub fn render_files(
 ) -> impl IntoElement {
   let n = files.len();
   let (icon, tooltip) = if as_tree {
-    ("icons/list-flat.svg", "Show as list")
+    ("icons/list.svg", "Show as list")
   } else {
     ("icons/list-tree.svg", "Show as tree")
   };
@@ -243,7 +243,7 @@ fn render_tree_row(
   if let Some(file) = &node.file {
     render_file_row(file, depth, selected_path, commit, view, palette)
   } else {
-    let icon = icon_for(IconKind::Standard, &node.name, true, true);
+    let icon = icon_for(IconKind::Lucide, &node.name, true, true);
     div()
       .id(SharedString::from(format!("history-folder-{}", node.path)))
       .h(px(22.0))
@@ -286,7 +286,7 @@ fn render_file_row(
   let selected = selected_path == Some(file.path.as_str());
   let label = file_label(file);
   let name = file.path.rsplit('/').next().unwrap_or(&file.path);
-  let icon = icon_for(IconKind::Standard, name, false, false);
+  let icon = icon_for(IconKind::Lucide, name, false, false);
   let letter = status_letter(file.status.clone());
   let color = status_color(file.status.clone(), &palette);
   let commit = commit.to_string();

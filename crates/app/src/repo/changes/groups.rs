@@ -218,7 +218,7 @@ pub fn render_groups(
   let _ = window;
   let palette = cx.global::<ActivePalette>().0;
   let density = AppConfig::get(cx).settings.ui.tree_density;
-  let icons = IconKind::from(AppConfig::get(cx).settings.ui.tree_icons);
+  let icons = IconKind::new(AppConfig::get(cx).settings.ui.tree_icons, palette.kind);
   let (expanded, collapsed_groups) = {
     let layout = view.layout.read(cx);
     let expanded: Vec<Group> = groups
@@ -334,7 +334,7 @@ fn render_header(
         Button::new("scm-unstage-all")
           .ghost()
           .xsmall()
-          .icon(Icon::empty().path("icons/remove.svg"))
+          .icon(Icon::empty().path("icons/minus.svg"))
           .tooltip("Unstage All")
           .invisible()
           .group_hover(hover_group, |style| style.visible())
@@ -355,7 +355,7 @@ fn render_header(
           Button::new("scm-discard-all")
             .ghost()
             .xsmall()
-            .icon(Icon::empty().path("icons/clear-all.svg"))
+            .icon(Icon::empty().path("icons/undo-2.svg"))
             .tooltip("Discard All Changes")
             .invisible()
             .group_hover(hover_group.clone(), |style| style.visible())
@@ -375,7 +375,7 @@ fn render_header(
           Button::new("scm-stage-all")
             .ghost()
             .xsmall()
-            .icon(Icon::empty().path("icons/add.svg"))
+            .icon(Icon::empty().path("icons/plus.svg"))
             .tooltip("Stage All Changes")
             .invisible()
             .group_hover(hover_group, |style| style.visible())

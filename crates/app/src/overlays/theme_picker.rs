@@ -104,6 +104,7 @@ impl ThemePicker {
       cx.window_appearance(),
       WindowAppearance::Dark | WindowAppearance::VibrantDark
     );
+    crate::theme::reload_user_themes(Some(window), cx);
     let entries = ThemeCatalog::get(cx).entries.clone();
     let original_id = AppConfig::get(cx).settings.theme.current.clone();
     let state = cx.new(|cx| CommandState::new(window, cx));
@@ -287,7 +288,7 @@ impl Render for ThemePicker {
           .occlude()
           .mt(px(60.))
           .w(px(500.))
-          .max_h(px(440.))
+          .overflow_hidden()
           .bg(hsla(palette.sidebar))
           .border_1()
           .border_color(hsla(palette.border))
@@ -320,25 +321,33 @@ mod tests {
 
   #[test]
   fn theme_label_fallback() {
-    assert_eq!(theme_label(&entry("vesper", "Vesper", ThemeKind::Dark)), "Vesper");
-    assert_eq!(theme_label(&entry("ayu-light", "", ThemeKind::Light)), "Ayu Light");
+    assert_eq!(
+      theme_label(&entry("warm-burnout-dark", "Warm Burnout Dark", ThemeKind::Dark)),
+      "Warm Burnout Dark"
+    );
+    assert_eq!(
+      theme_label(&entry("warm-burnout-light", "", ThemeKind::Light)),
+      "Warm Burnout Light"
+    );
   }
 
   #[test]
   fn grouped_follows_os_scheme_and_filters() {
     let entries = vec![
-      entry("vesper", "Vesper", ThemeKind::Dark),
+      entry("warm-burnout-dark", "Warm Burnout Dark", ThemeKind::Dark),
+      entry("warm-burnout-light", "Warm Burnout Light", ThemeKind::Light),
       entry("ayu-light", "Ayu Light", ThemeKind::Light),
       entry("one-dark", "One Dark", ThemeKind::Dark),
+      entry("gruvbox-dark", "Gruvbox Dark", ThemeKind::Dark),
     ];
 
     let (first, second) = grouped(&entries, "", true);
-    assert_eq!(ids(&first), ["vesper", "one-dark"]);
-    assert_eq!(ids(&second), ["ayu-light"]);
+    assert_eq!(ids(&first), ["warm-burnout-dark", "one-dark", "gruvbox-dark"]);
+    assert_eq!(ids(&second), ["warm-burnout-light", "ayu-light"]);
 
     let (first, second) = grouped(&entries, "", false);
-    assert_eq!(ids(&first), ["ayu-light"]);
-    assert_eq!(ids(&second), ["vesper", "one-dark"]);
+    assert_eq!(ids(&first), ["warm-burnout-light", "ayu-light"]);
+    assert_eq!(ids(&second), ["warm-burnout-dark", "one-dark", "gruvbox-dark"]);
 
     let (first, second) = grouped(&entries, "ay", true);
     assert!(first.is_empty());
@@ -346,24 +355,24 @@ mod tests {
 
     let (first, second) = grouped(&entries, "DARK", false);
     assert!(first.is_empty());
-    assert_eq!(ids(&second), ["one-dark"]);
+    assert_eq!(ids(&second), ["warm-burnout-dark", "one-dark", "gruvbox-dark"]);
   }
 
   #[test]
   fn preferred_update_sets_kind() {
     let mut settings = ThemeSettings {
-      current: "vesper".into(),
-      preferred_dark: "vesper".into(),
-      preferred_light: "ayu-light".into(),
+      current: "warm-burnout-dark".into(),
+      preferred_dark: "warm-burnout-dark".into(),
+      preferred_light: "warm-burnout-light".into(),
     };
-    preferred_update(ThemeKind::Light, "github-light", &mut settings);
-    assert_eq!(settings.current, "github-light");
-    assert_eq!(settings.preferred_light, "github-light");
-    assert_eq!(settings.preferred_dark, "vesper");
+    preferred_update(ThemeKind::Light, "ayu-light", &mut settings);
+    assert_eq!(settings.current, "ayu-light");
+    assert_eq!(settings.preferred_light, "ayu-light");
+    assert_eq!(settings.preferred_dark, "warm-burnout-dark");
     preferred_update(ThemeKind::Dark, "one-dark", &mut settings);
     assert_eq!(settings.current, "one-dark");
     assert_eq!(settings.preferred_dark, "one-dark");
-    assert_eq!(settings.preferred_light, "github-light");
+    assert_eq!(settings.preferred_light, "ayu-light");
   }
 
   fn boot_picker(cx: &mut gpui_kit::TestAppContext) -> gpui_kit::WindowHandle<ThemePicker> {

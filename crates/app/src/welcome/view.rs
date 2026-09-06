@@ -253,7 +253,7 @@ impl WelcomeView {
           .on_click(cx.listener(move |_, _, _, cx| cx.emit(WelcomeEvent::Open(PathBuf::from(&path)))))
           .child(
             svg()
-              .path("icons/repo.svg")
+              .path("icons/folder-git-2.svg")
               .size(px(16.0))
               .text_color(hsla(palette.muted_foreground)),
           )
@@ -282,7 +282,7 @@ impl WelcomeView {
                 Button::new(SharedString::from(format!("remove-{position}")))
                   .ghost()
                   .xsmall()
-                  .icon(Icon::empty().path("icons/close.svg"))
+                  .icon(Icon::empty().path("icons/x.svg"))
                   .on_click(cx.listener(move |this, _, _, cx| {
                     cx.stop_propagation();
                     this.remove_recent(remove_path.clone(), cx);
@@ -370,7 +370,7 @@ impl WelcomeView {
               .on_click(cx.listener(move |_, _, _, cx| cx.emit(WelcomeEvent::Open(PathBuf::from(&open_path)))))
               .child(
                 svg()
-                  .path("icons/repo.svg")
+                  .path("icons/folder-git-2.svg")
                   .size(px(16.0))
                   .text_color(hsla(palette.muted_foreground)),
               )

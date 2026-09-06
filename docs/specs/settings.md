@@ -36,9 +36,9 @@ Each row is a label on the left and its control on the right. Section and subsec
 | Control | Copy | Type | Default |
 |---|---|---|---|
 | Reset to Defaults | `Reset to Defaults` | Button, then confirmation | n/a |
-| Color Theme | current theme label plus the hint `Cmd+K Cmd+T` | Full-width button; opens the [theme picker](theme-picker.md) | Vesper |
-| Preferred Dark Theme | `Preferred Dark Theme` | Select of dark themes | Vesper |
-| Preferred Light Theme | `Preferred Light Theme` | Select of light themes | Ayu Light |
+| Color Theme | current theme label plus the hint `Cmd+K Cmd+T` | Full-width button; opens the [theme picker](theme-picker.md) | Warm Burnout Dark |
+| Preferred Dark Theme | `Preferred Dark Theme` | Select of dark themes | Warm Burnout Dark |
+| Preferred Light Theme | `Preferred Light Theme` | Select of light themes | Warm Burnout Light |
 | Tree Density | `Tree Density` | Select: Compact / Default / Relaxed | Compact |
 | Tree Icons | `Tree Icons` | Select: Minimal / Standard / Complete | Complete |
 | Sidebar Position | `Sidebar Position` | Select: Left / Right | Left |

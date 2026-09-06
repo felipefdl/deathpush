@@ -36,12 +36,12 @@ pub fn render_toolbar(chrome: &ChangesChrome, cx: &mut Context<ChangesView>) -> 
     .gap_1()
     .px_2()
     .child(
-      tool("stage-all", "icons/add.svg", "Stage All Changes")
+      tool("stage-all", "icons/plus.svg", "Stage All Changes")
         .disabled(!can_stage_all)
         .on_click(cx.listener(|this, _, window, cx| this.send(Intent::StageAll, window, cx))),
     )
     .child(
-      tool("refresh", "icons/refresh.svg", "Refresh").on_click(cx.listener(|this, _, window, cx| {
+      tool("refresh", "icons/refresh-cw.svg", "Refresh").on_click(cx.listener(|this, _, window, cx| {
         this.model.update(cx, |model, cx| {
           model.dispatch(Intent::RefreshStatus, window, cx);
           model.refresh_nested_repositories(cx);
@@ -58,13 +58,13 @@ pub fn render_toolbar(chrome: &ChangesChrome, cx: &mut Context<ChangesView>) -> 
         Intent::Fetch { prune: true },
       ),
       SyncKind::Pull => (
-        "icons/sync.svg",
+        "icons/arrow-down-up.svg",
         format!("Sync: {behind}↓ {ahead}↑"),
         NetworkOp::Pull,
         Intent::Pull { rebase: false },
       ),
       SyncKind::Push => (
-        "icons/sync.svg",
+        "icons/arrow-down-up.svg",
         format!("Sync: {behind}↓ {ahead}↑"),
         NetworkOp::Push,
         Intent::Push {
@@ -73,7 +73,7 @@ pub fn render_toolbar(chrome: &ChangesChrome, cx: &mut Context<ChangesView>) -> 
         },
       ),
       SyncKind::PullThenPush => (
-        "icons/sync.svg",
+        "icons/arrow-down-up.svg",
         format!("Sync: {behind}↓ {ahead}↑"),
         NetworkOp::Sync,
         Intent::Sync,

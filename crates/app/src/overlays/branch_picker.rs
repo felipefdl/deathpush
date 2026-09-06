@@ -193,9 +193,9 @@ fn menu_icon(item: &str) -> &'static str {
   match item {
     "Checkout" => "icons/git-branch.svg",
     "Copy Branch Name" => "icons/copy.svg",
-    "Merge into Current Branch" => "icons/git-commit.svg",
-    "Rebase onto {name}" => "icons/arrow-swap.svg",
-    "Rename Branch..." => "icons/edit.svg",
+    "Merge into Current Branch" => "icons/git-commit-horizontal.svg",
+    "Rebase onto {name}" => "icons/arrow-left-right.svg",
+    "Rename Branch..." => "icons/pencil.svg",
     "Delete Branch" => "icons/trash.svg",
     "Delete Remote Branch" => "icons/cloud.svg",
     _ => "icons/git-branch.svg",
@@ -667,7 +667,7 @@ fn render_branch_row(
     .hover(|el| el.bg(hsla(palette.list_hover)))
     .child(
       svg()
-        .path(if editing { "icons/edit.svg" } else { icon })
+        .path(if editing { "icons/pencil.svg" } else { icon })
         .size(px(14.0))
         .text_color(hsla(palette.muted_foreground)),
     );
@@ -762,7 +762,7 @@ fn render_create_row(
     })
     .child(
       svg()
-        .path("icons/add.svg")
+        .path("icons/plus.svg")
         .size(px(14.0))
         .text_color(hsla(palette.git_added)),
     )

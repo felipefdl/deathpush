@@ -86,18 +86,13 @@ pub fn render_image(image: Option<Arc<Image>>) -> impl IntoElement {
 }
 
 pub fn render_binary(view: WeakEntity<FileViewer>, palette: UiPalette) -> impl IntoElement {
-  message_with_open(
-    "Binary file cannot be displayed",
-    "icons/file-binary.svg",
-    view,
-    palette,
-  )
+  message_with_open("Binary file cannot be displayed", "icons/binary.svg", view, palette)
 }
 
 pub fn render_large(view: WeakEntity<FileViewer>, palette: UiPalette) -> impl IntoElement {
   message_with_open(
     "File is too large to display (over 5 MB)",
-    "icons/warning.svg",
+    "icons/triangle-alert.svg",
     view,
     palette,
   )

@@ -1,104 +1,116 @@
 use std::collections::BTreeMap;
 
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::error::{Error, Result};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeKind {
   Dark,
   Light,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum Scope {
-  One(String),
-  Many(Vec<String>),
-}
-
-impl Scope {
-  pub fn iter(&self) -> Box<dyn Iterator<Item = &str> + '_> {
-    match self {
-      Scope::One(scope) => Box::new(scope.split(',').map(str::trim)),
-      Scope::Many(scopes) => Box::new(scopes.iter().map(String::as_str)),
-    }
+impl ThemeKind {
+  pub fn is_dark(self) -> bool {
+    self == Self::Dark
   }
 }
 
+/// One `syntax` entry. The key is already a tree-sitter capture name.
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct TokenSettings {
-  pub foreground: Option<String>,
-  pub background: Option<String>,
-  #[serde(rename = "fontStyle")]
+pub struct SyntaxToken {
+  pub color: Option<String>,
   pub font_style: Option<String>,
+  pub font_weight: Option<u16>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct TokenColor {
-  pub name: Option<String>,
-  pub scope: Option<Scope>,
+/// One cursor slot. Zed authors the caret and the selection wash here.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Player {
+  pub cursor: Option<String>,
+  pub background: Option<String>,
+  pub selection: Option<String>,
+}
+
+/// A theme's `style`: the flat color keys, plus syntax and players.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ThemeStyle {
   #[serde(default)]
-  pub settings: TokenSettings,
+  pub syntax: BTreeMap<String, SyntaxToken>,
+  #[serde(default)]
+  pub players: Vec<Player>,
+  /// Every other `style` key. Values are usually hex strings, sometimes null.
+  #[serde(flatten)]
+  pub colors: BTreeMap<String, Value>,
 }
 
-/// One VS Code style theme as shipped by tm-themes.
+impl ThemeStyle {
+  /// The color at `key`, when the theme declares one and it parses.
+  pub fn color(&self, key: &str) -> Option<Rgba> {
+    Rgba::parse(self.colors.get(key)?.as_str()?)
+  }
+
+  /// The first cursor slot's caret color.
+  pub fn cursor(&self) -> Option<Rgba> {
+    Rgba::parse(self.players.first()?.cursor.as_deref()?)
+  }
+
+  /// The first cursor slot's selection wash.
+  pub fn selection(&self) -> Option<Rgba> {
+    Rgba::parse(self.players.first()?.selection.as_deref()?)
+  }
+}
+
+/// One theme inside a family.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ThemeSpec {
   pub name: String,
-  #[serde(rename = "displayName")]
-  pub display_name: Option<String>,
-  #[serde(rename = "type")]
+  #[serde(rename = "appearance")]
   pub kind: ThemeKind,
-  #[serde(default, deserialize_with = "deserialize_colors")]
-  pub colors: BTreeMap<String, String>,
-  #[serde(default, rename = "tokenColors")]
-  pub token_colors: Vec<TokenColor>,
-}
-
-fn deserialize_colors<'de, D>(deserializer: D) -> std::result::Result<BTreeMap<String, String>, D::Error>
-where
-  D: serde::Deserializer<'de>,
-{
-  let raw = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
-  Ok(
-    raw
-      .into_iter()
-      .filter_map(|(key, value)| match value {
-        serde_json::Value::String(text) => Some((key, text)),
-        _ => None,
-      })
-      .collect(),
-  )
-}
-
-pub fn parse_theme(json: &str) -> Result<ThemeSpec> {
-  serde_json::from_str(json).map_err(|err| Error::Other(format!("theme parse: {err}")))
+  #[serde(default)]
+  pub style: ThemeStyle,
 }
 
 impl ThemeSpec {
-  /// The display name, or the id title-cased on hyphens.
-  pub fn label(&self) -> String {
-    self.display_name.clone().unwrap_or_else(|| {
-      self
-        .name
-        .split('-')
-        .map(|part| {
-          let mut chars = part.chars();
-          match chars.next() {
-            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            None => String::new(),
-          }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-    })
+  /// The catalog id: the name lowercased, with runs of other characters collapsed to `-`.
+  pub fn id(&self) -> String {
+    let mut id = String::with_capacity(self.name.len());
+    for ch in self.name.chars() {
+      if ch.is_ascii_alphanumeric() {
+        id.push(ch.to_ascii_lowercase());
+      } else if !id.ends_with('-') {
+        id.push('-');
+      }
+    }
+    let end = id.trim_end_matches('-').len();
+    id.truncate(end);
+    id
   }
 
-  pub fn color(&self, key: &str) -> Option<Rgba> {
-    self.colors.get(key).and_then(|value| Rgba::parse(value))
+  /// The name as authored, for the picker and the settings row.
+  pub fn label(&self) -> String {
+    self.name.clone()
   }
+}
+
+/// One theme file: several themes sharing a name and an author.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ThemeFamily {
+  pub name: String,
+  #[serde(default)]
+  pub author: Option<String>,
+  pub themes: Vec<ThemeSpec>,
+}
+
+/// Parse a Zed theme family. Empty families are rejected: they would register nothing.
+pub fn parse_theme_family(json: &str) -> Result<ThemeFamily> {
+  let family: ThemeFamily = serde_json::from_str(json).map_err(|err| Error::Other(format!("theme parse: {err}")))?;
+  if family.themes.is_empty() {
+    return Err(Error::Other(format!("theme parse: {} declares no themes", family.name)));
+  }
+  Ok(family)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,82 +194,96 @@ impl Rgba {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use core::prelude::v1::test;
 
-  const VESPER: &str = include_str!("../../../../assets/themes/vesper.json");
-  const AYU_LIGHT: &str = include_str!("../../../../assets/themes/ayu-light.json");
+  const FAMILY: &str = r##"{
+    "name": "Test Family",
+    "author": "Nobody",
+    "themes": [
+      {
+        "name": "Test Dark",
+        "appearance": "dark",
+        "style": {
+          "background": "#101010",
+          "text": "#eeeeee",
+          "border.transparent": "#00000000",
+          "missing": null,
+          "players": [{ "cursor": "#ff0000", "selection": "#ff000033" }],
+          "syntax": { "keyword": { "color": "#b477cf", "font_style": "italic", "font_weight": null } }
+        }
+      },
+      { "name": "Test Light", "appearance": "light", "style": {} }
+    ]
+  }"##;
 
   #[test]
-  fn parses_the_default_themes() {
-    let vesper = parse_theme(VESPER).unwrap();
-    assert_eq!(vesper.name, "vesper");
-    assert_eq!(vesper.kind, ThemeKind::Dark);
-    assert!(vesper.color("editor.background").is_some());
-    assert!(!vesper.token_colors.is_empty());
-    let ayu = parse_theme(AYU_LIGHT).unwrap();
-    assert_eq!(ayu.kind, ThemeKind::Light);
+  fn parses_every_theme_in_a_family() {
+    let family = parse_theme_family(FAMILY).unwrap();
+    assert_eq!(family.name, "Test Family");
+    assert_eq!(family.author.as_deref(), Some("Nobody"));
+    let kinds: Vec<ThemeKind> = family.themes.iter().map(|theme| theme.kind).collect();
+    assert_eq!(kinds, vec![ThemeKind::Dark, ThemeKind::Light]);
   }
 
   #[test]
-  fn label_uses_display_name_or_title_case() {
-    let vesper = parse_theme(VESPER).unwrap();
-    assert_eq!(vesper.label(), vesper.display_name.clone().unwrap());
-    let spec = ThemeSpec {
-      name: "one-dark-pro".into(),
-      display_name: None,
+  fn style_reads_colors_players_and_syntax() {
+    let family = parse_theme_family(FAMILY).unwrap();
+    let style = &family.themes[0].style;
+    assert_eq!(style.color("background"), Some(Rgba::rgb(0x10, 0x10, 0x10)));
+    assert_eq!(
+      style.color("border.transparent"),
+      Some(Rgba::rgb(0, 0, 0).with_alpha(0))
+    );
+    assert_eq!(style.color("missing"), None);
+    assert_eq!(style.color("absent"), None);
+    assert_eq!(style.cursor(), Some(Rgba::rgb(0xff, 0, 0)));
+    assert_eq!(style.selection(), Some(Rgba::rgb(0xff, 0, 0).with_alpha(0x33)));
+    assert_eq!(style.syntax["keyword"].font_style.as_deref(), Some("italic"));
+    assert!(!style.colors.contains_key("syntax"));
+    assert!(!style.colors.contains_key("players"));
+  }
+
+  #[test]
+  fn ids_are_slugs_of_the_name() {
+    let family = parse_theme_family(FAMILY).unwrap();
+    assert_eq!(family.themes[0].id(), "test-dark");
+    assert_eq!(family.themes[0].label(), "Test Dark");
+    let odd = ThemeSpec {
+      name: "Rosé Pine (Moon)!".into(),
       kind: ThemeKind::Dark,
-      colors: BTreeMap::new(),
-      token_colors: vec![],
+      style: ThemeStyle::default(),
     };
-    assert_eq!(spec.label(), "One Dark Pro");
+    assert_eq!(odd.id(), "ros-pine-moon");
   }
 
   #[test]
-  fn rgba_parses_every_hex_form() {
+  fn a_family_without_themes_is_rejected() {
+    let err = parse_theme_family(r#"{"name":"Empty","themes":[]}"#).unwrap_err();
+    assert!(err.to_string().contains("declares no themes"));
+  }
+
+  #[test]
+  fn hex_parses_every_length() {
     assert_eq!(Rgba::parse("#fff"), Some(Rgba::rgb(255, 255, 255)));
-    assert_eq!(Rgba::parse("#1e1e1e"), Some(Rgba::rgb(30, 30, 30)));
+    assert_eq!(Rgba::parse("#0f08"), Some(Rgba::rgb(0, 255, 0).with_alpha(0x88)));
+    assert_eq!(Rgba::parse("#74ade8"), Some(Rgba::rgb(0x74, 0xad, 0xe8)));
     assert_eq!(
-      Rgba::parse("#1e1e1e80"),
-      Some(Rgba {
-        r: 30,
-        g: 30,
-        b: 30,
-        a: 128
-      })
+      Rgba::parse("#74ade83d"),
+      Some(Rgba::rgb(0x74, 0xad, 0xe8).with_alpha(0x3d))
     );
-    assert_eq!(
-      Rgba::parse("#abcd"),
-      Some(Rgba {
-        r: 170,
-        g: 187,
-        b: 204,
-        a: 221
-      })
-    );
-    assert_eq!(Rgba::parse("red"), None);
-    assert_eq!(Rgba::rgb(30, 30, 30).to_hex(), "#1e1e1e");
-    assert_eq!(Rgba { r: 1, g: 2, b: 3, a: 4 }.to_hex(), "#01020304");
+    assert_eq!(Rgba::parse("74ade8"), None);
+    assert_eq!(Rgba::parse("#12345"), None);
   }
 
   #[test]
-  fn scope_iterates_strings_and_arrays() {
-    let one = Scope::One("comment, string".into());
-    assert_eq!(one.iter().collect::<Vec<_>>(), vec!["comment", "string"]);
-    let many = Scope::Many(vec!["keyword".into()]);
-    assert_eq!(many.iter().collect::<Vec<_>>(), vec!["keyword"]);
-  }
-
-  #[test]
-  fn every_bundled_theme_parses() {
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/themes");
-    let mut count = 0;
-    for entry in std::fs::read_dir(dir).unwrap() {
-      let path = entry.unwrap().path();
-      if path.extension().is_some_and(|ext| ext == "json") {
-        let json = std::fs::read_to_string(&path).unwrap();
-        parse_theme(&json).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
-        count += 1;
-      }
-    }
-    assert_eq!(count, 65);
+  fn hex_round_trips_and_mixes() {
+    assert_eq!(Rgba::rgb(0, 0, 0).to_hex(), "#000000");
+    assert_eq!(Rgba::rgb(0, 0, 0).with_alpha(0x80).to_hex(), "#00000080");
+    assert_eq!(
+      Rgba::rgb(0, 0, 0).mix(Rgba::rgb(255, 255, 255), 0.5),
+      Rgba::rgb(128, 128, 128)
+    );
+    assert!(Rgba::rgb(20, 20, 20).is_dark());
+    assert!(!Rgba::rgb(240, 240, 240).is_dark());
   }
 }

@@ -16,10 +16,10 @@ use gpui_kit::*;
 
 use super::bell::bell_flashes;
 use super::element::{
-  PaintCache, TerminalElement, clamp_sel_anchor, clamp_selection, on_key_down, on_key_up, paint_from_app,
+  PaintCache, TerminalElement, clamp_sel_anchor, clamp_selection, on_key_down, on_key_up, paint_from_app, saturate,
 };
 use crate::config::AppConfig;
-use crate::theme::ActivePalette;
+use crate::theme::{ActivePalette, hsla};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaneEvent {
@@ -747,6 +747,7 @@ impl Render for PaneView {
       .id(("terminal-pane", self.id))
       .size_full()
       .p(px(8.0))
+      .bg(hsla(saturate(settings.background, settings.saturation)))
       .overflow_hidden()
       .track_focus(&self.focus_handle)
       .key_context("Terminal")

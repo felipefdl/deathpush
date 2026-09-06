@@ -8,8 +8,8 @@ pub fn zoom_scale(level: i32) -> f32 {
   1.2f32.powi(level.clamp(ZOOM_MIN, ZOOM_MAX))
 }
 
-pub const DEFAULT_DARK_THEME: &str = "vesper";
-pub const DEFAULT_LIGHT_THEME: &str = "ayu-light";
+pub const DEFAULT_DARK_THEME: &str = "warm-burnout-dark";
+pub const DEFAULT_LIGHT_THEME: &str = "warm-burnout-light";
 pub const MONO_FONT_STACK: &str = "MesloLGS Nerd Font Mono";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -319,8 +319,8 @@ mod tests {
     assert!(!settings.terminal.right_click_selects_word);
     assert!(!settings.terminal.mac_option_click_forces_selection);
     assert!(settings.git.blame);
-    assert_eq!(settings.theme.preferred_dark, "vesper");
-    assert_eq!(settings.theme.preferred_light, "ayu-light");
+    assert_eq!(settings.theme.preferred_dark, "warm-burnout-dark");
+    assert_eq!(settings.theme.preferred_light, "warm-burnout-light");
   }
 
   #[test]

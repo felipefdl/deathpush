@@ -78,7 +78,7 @@ pub fn render_status_bar(state: &RepoState, window: &mut Window, cx: &App) -> im
       item("status-branch")
         .child(
           svg()
-            .path("icons/source-control.svg")
+            .path("icons/git-branch.svg")
             .size(px(14.0))
             .text_color(hsla(palette.status_bar_foreground)),
         )
@@ -106,7 +106,7 @@ pub fn render_status_bar(state: &RepoState, window: &mut Window, cx: &App) -> im
         .max_w(px(420.0))
         .child(
           svg()
-            .path("icons/git-commit.svg")
+            .path("icons/git-commit-horizontal.svg")
             .size(px(14.0))
             .text_color(hsla(palette.status_bar_foreground)),
         )

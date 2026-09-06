@@ -13,10 +13,11 @@ How DeathPush is built on GPUI: the crates, the boundary between core logic and 
 Cargo.toml          workspace: shared dependencies, lints, profiles
 crates/core/        deathpush-core, a library with no gpui dependency
 crates/app/         deathpush, the gpui binary
-assets/             codicon SVGs, file-type icons, theme JSON, app icons, metainfo, dp launchers
+assets/             Lucide chrome icons, Material tree icons, `themes/` (Zed theme families plus `LICENSES.md`), app icons, metainfo, dp launchers
 docs/adr/           decision records
 docs/specs/         surface specs and this spec
-justfile            dev, build, lint, fmt, check, test, package, release
+justfile            dev, build, lint, fmt, check, test, icons, themes, package, release
+scripts/            vendor-icons.py for both icon sets and tables; vendor-themes.py for pinned Zed theme revisions
 website/            the marketing site, with its own Astro toolchain
 ```
 
@@ -87,11 +88,11 @@ Every shortcut and menu item in the surface specs is a gpui action. Key contexts
 
 ### Theme
 
-The theme catalog is the tm-themes set embedded as JSON. A `Theme` value maps the `colors` map to UI tokens and the `tokenColors` scopes to tree-sitter captures by scope prefix. The picker, the preferred dark and light themes, and OS scheme switching follow [theme picker](theme-picker.md).
+The theme catalog loads Zed theme families from `assets/themes/*.json`; one family file can provide several themes. Each theme id is a slug of its name. The resolver fills the existing `UiPalette` role names 1:1 from Zed style keys, checking an alias chain inside the theme before falling back to the One base theme with the same appearance, One Dark or One Light. Syntax keys are read directly as tree-sitter capture names. User themes under `<config_dir>/deathpush/themes/*.json` are rescanned when the picker opens. `just themes` re-vendors pinned upstream revisions through `scripts/vendor-themes.py`. The picker, the preferred dark and light themes, and OS scheme switching follow [theme picker](theme-picker.md). The schema decision is [ADR 2](../adr/0002-zed-theme-schema.md).
 
 ### Icons
 
-The codicons the app uses are embedded as SVG and tinted by text color through `svg()`. File-type icons for the Complete tree setting come from an MIT-licensed set.
+Chrome icons are the Lucide set under `assets/icons/`, embedded as SVG and tinted by text color through `svg()`; gpui-kit's own Lucide assets back the widgets it draws. Tree icons follow the `treeIcons` setting: Minimal draws none, Standard reuses the Lucide chrome icons by category, and Complete draws the Material Icon Theme through `img()`, since those icons carry their own colors. The Material tables live in `crates/app/src/repo/explorer/material.rs`, generated with `just icons`: whole file names first, then the longest matching suffix, then the default file icon, plus per-name folder icons. A light theme picks the set's `_light` variant where one exists.
 
 ### Zoom
 

@@ -173,7 +173,7 @@ impl TerminalPanel {
           )
           .child(sidebar_icon(
             format!("term-split-h-{pane_id}"),
-            "icons/split-horizontal.svg",
+            "icons/columns-2.svg",
             "Split Horizontally",
             hover.clone(),
             {
@@ -192,7 +192,7 @@ impl TerminalPanel {
           ))
           .child(sidebar_icon(
             format!("term-split-v-{pane_id}"),
-            "icons/split-vertical.svg",
+            "icons/rows-2.svg",
             "Split Vertically",
             hover.clone(),
             {
@@ -211,7 +211,7 @@ impl TerminalPanel {
           ))
           .child(sidebar_icon(
             format!("term-kill-{pane_id}"),
-            "icons/close.svg",
+            "icons/x.svg",
             "Kill Terminal",
             hover,
             move |window, cx| {
@@ -329,7 +329,7 @@ impl Render for TerminalPanel {
         .opacity(if is_active { 1.0 } else { 0.6 })
         .border_b_2()
         .border_color(if is_active {
-          hsla(palette.ring)
+          hsla(palette.primary)
         } else {
           hsla(palette.border.with_alpha(0))
         })
@@ -393,29 +393,29 @@ impl Render for TerminalPanel {
                 .px_1()
                 .child(header_icon(
                   "panel-new",
-                  "icons/add.svg",
+                  "icons/plus.svg",
                   "New Terminal",
                   Box::new(NewTerminal),
                 ))
                 .child(div().w(px(1.0)).h(px(14.0)).bg(hsla(palette.border)))
                 .child(header_icon(
                   "panel-split-h",
-                  "icons/split-horizontal.svg",
+                  "icons/columns-2.svg",
                   "Split Terminal Horizontally",
                   Box::new(SplitTerminalHorizontal),
                 ))
                 .child(header_icon(
                   "panel-split-v",
-                  "icons/split-vertical.svg",
+                  "icons/rows-2.svg",
                   "Split Terminal Vertically",
                   Box::new(SplitTerminalVertical),
                 ))
                 .child(header_icon(
                   "panel-maximize",
                   if maximized {
-                    "icons/screen-normal.svg"
+                    "icons/minimize.svg"
                   } else {
-                    "icons/screen-full.svg"
+                    "icons/maximize.svg"
                   },
                   if maximized {
                     "Restore Panel Size"
@@ -426,7 +426,7 @@ impl Render for TerminalPanel {
                 ))
                 .child(header_icon(
                   "panel-close",
-                  "icons/close.svg",
+                  "icons/x.svg",
                   "Close Panel",
                   Box::new(ClosePanel),
                 )),

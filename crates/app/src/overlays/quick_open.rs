@@ -427,7 +427,7 @@ impl Render for QuickOpen {
           .occlude()
           .mt(px(60.))
           .w(px(600.))
-          .max_h(px(440.))
+          .overflow_hidden()
           .bg(hsla(palette.sidebar))
           .border_1()
           .border_color(hsla(palette.border))

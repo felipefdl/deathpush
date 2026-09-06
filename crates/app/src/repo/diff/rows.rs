@@ -226,7 +226,7 @@ fn hunk_action_slot(row: &DiffRow, interact: &RowInteract) -> Div {
   if interact.staged {
     slot.child(hunk_button(
       SharedString::from(format!("hunk-unstage-{hunk_id}")),
-      "icons/remove.svg",
+      "icons/minus.svg",
       "Unstage Hunk",
       HunkOp::Unstage,
       hunk_id,
@@ -236,7 +236,7 @@ fn hunk_action_slot(row: &DiffRow, interact: &RowInteract) -> Div {
     slot
       .child(hunk_button(
         SharedString::from(format!("hunk-stage-{hunk_id}")),
-        "icons/add.svg",
+        "icons/plus.svg",
         "Stage Hunk",
         HunkOp::Stage,
         hunk_id.clone(),
@@ -244,7 +244,7 @@ fn hunk_action_slot(row: &DiffRow, interact: &RowInteract) -> Div {
       ))
       .child(hunk_button(
         SharedString::from(format!("hunk-discard-{hunk_id}")),
-        "icons/clear-all.svg",
+        "icons/undo-2.svg",
         "Discard Hunk",
         HunkOp::Discard,
         hunk_id,

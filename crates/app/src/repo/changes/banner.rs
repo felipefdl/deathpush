@@ -36,7 +36,7 @@ pub fn render_banner(chrome: &ChangesChrome, cx: &mut Context<ChangesView>) -> O
       .bg(hsla(palette.warning.with_alpha(40)))
       .child(
         svg()
-          .path("icons/warning.svg")
+          .path("icons/triangle-alert.svg")
           .size(px(14.0))
           .text_color(hsla(palette.warning)),
       )
