@@ -56,6 +56,8 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          # Match the emulated Zig host so Ghostty receives an explicit ARM cross target.
+          toolchain: ${{ matrix.name == 'windows-aarch64' && 'stable-x86_64-pc-windows-msvc' || 'stable' }}
           targets: ${{ matrix.target }}
 
       - uses: mlugg/setup-zig@v2
