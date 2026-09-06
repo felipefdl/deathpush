@@ -38,11 +38,15 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        if: runner.os != 'Windows' || runner.arch != 'ARM64'
         with:
-          # Match the emulated Zig host so Ghostty receives an explicit ARM cross target.
-          toolchain: ${{ matrix.platform == 'windows-11-arm' && 'stable-x86_64-pc-windows-msvc' || 'stable' }}
-          targets: ${{ matrix.platform == 'windows-11-arm' && 'aarch64-pc-windows-msvc' || '' }}
           components: rustfmt, clippy
+      - name: Install x64 Rust on Windows ARM
+        if: runner.os == 'Windows' && runner.arch == 'ARM64'
+        shell: bash
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-msvc --force-non-host --profile minimal --target aarch64-pc-windows-msvc --component rustfmt --component clippy
+          echo "RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-msvc" >> "$GITHUB_ENV"
       - uses: mlugg/setup-zig@v2
         if: runner.os != 'Windows' || runner.arch != 'ARM64'
         with:
