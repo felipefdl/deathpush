@@ -21,7 +21,7 @@ Workspace Settings edits the directories the [welcome screen](welcome-screen.md)
 
 **Workspace Settings rows.** Each row: directory text field, browse button, a depth stepper (left chevron, value, right chevron), and a remove button.
 
-**Licenses groups.** `Assets`, `Frontend`, `Backend`, in that order; empty groups are omitted. Each row: package name, a license badge, and an external-link button when a URL exists.
+**Licenses groups.** `Assets`, then `Backend`; empty groups are omitted. Each row: package name, a license badge, and an external-link button when a URL exists.
 
 **Boot splash.** One mark, white on dark and black on light, no text.
 
@@ -69,7 +69,7 @@ Workspace Settings:
 Open Source Licenses:
 
 - `Open Source Licenses`
-- `Assets`, `Frontend`, `Backend`
+- `Assets`, `Backend`
 - `Close`
 - Badge: the license identifier, or `Unknown`
 
@@ -87,7 +87,7 @@ Boot splash: fixed colors independent of the app theme. Dark background `#1e1e1e
 
 **Workspace Settings.** Opens with one row per configured directory, or one blank row at depth 1 (Remove hidden). Depth 1 disables the down chevron; depth 5 disables the up chevron. Save drops blank rows; an all-blank form saves an empty list. Cancel, backdrop, and Escape discard edits. The first field is focused on open; a new row is focused when added.
 
-**Open Source Licenses.** Always populated from the build: app dependencies for the frontend and backend, plus the bundled font (MesloLGS Nerd Font Mono, Apache-2.0, `https://github.com/ryanoasis/nerd-fonts`). Sorted by name, deduplicated. Rows without a URL have no link.
+**Open Source Licenses.** Always populated from the build: crate dependencies plus the bundled assets (MesloLGS Nerd Font Mono, Apache-2.0, `https://github.com/ryanoasis/nerd-fonts`). Sorted by name, deduplicated. Rows without a URL have no link.
 
 **Boot splash.** Visible from first paint until startup decides between the welcome screen and a repository. If a recent project is known, a placeholder of the repository chrome shows instead of the splash while it opens.
 

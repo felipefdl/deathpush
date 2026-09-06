@@ -11,7 +11,7 @@ DeathPush can review repository changes produced by coding agents such as Claude
 ## Key Features
 
 - VS Code Source Control UX with file-level staging
-- Pierre diffs with syntax highlighting, side-by-side or unified views, and editing of unstaged files
+- Native diffs with tree-sitter highlighting, side-by-side or unified views, and per-hunk stage, unstage, and discard
 - Side-by-side image diffs for PNG, JPG, GIF, WebP, AVIF, SVG, and more
 - Branch create, switch, merge, rebase, rename, delete, push, and pull
 - Current-line blame in the status bar, plus file history and commit diffs
@@ -19,17 +19,17 @@ DeathPush can review repository changes produced by coding agents such as Claude
 - Stash, tags, cherry-pick, and reset
 - Multi-window repositories, each with its own branches and state
 - Built-in dark and light themes
-- Integrated terminal built on libghostty, Ghostty's VT engine, with a real PTY
+- Integrated terminal built on libghostty-vt, Ghostty's VT engine, with a real PTY
 - Hybrid Git engine: git2 for reads, native git CLI for writes so hooks, signing, credentials, SSH, and LFS keep working
-- Native desktop app on Tauri, Rust, Solid, Pierre, and libghostty
+- Native desktop app on GPUI in Rust, with git2 and libghostty-vt
 
 ## Technical Details
 
 - License: Apache-2.0
 - Platforms: macOS, Windows, Linux
-- Packages: macOS universal .dmg and .app.tar.gz; Windows .msi and .exe for x64 and ARM; Linux AppImage, .deb, and .rpm for x64 and ARM
+- Packages: macOS .dmg for Apple Silicon and Intel; Windows NSIS .exe for x64 (ARM when that job succeeds); Linux AppImage and .deb for x64
 - Local operation. No telemetry, no accounts.
-- Build prerequisites: Vite+ (vp) with Node.js 24 and pnpm, Rust edition 2024 (minimum rustc 1.85.0), and just
+- Build prerequisites: Rust 1.97 or newer, Zig 0.16.0, and just. Node is only needed to build the website.
 
 ## Links
 

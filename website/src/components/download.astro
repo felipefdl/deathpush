@@ -71,18 +71,12 @@ const chevronSvg = `<svg class="chevron" width="16" height="16" viewBox="0 0 24 
     var API_URL = "https://api.github.com/repos/felipefdl/deathpush/releases/latest";
 
     var ASSET_MAP = [
-      { suffix: "_universal.dmg",           platform: "darwin",  label: ".dmg Universal" },
-      { suffix: "_universal.app.tar.gz",    platform: "darwin",  label: ".app.tar.gz Universal" },
-      { suffix: "_x64_en-US.msi",           platform: "windows", label: ".msi x64" },
-      { suffix: "_arm64_en-US.msi",         platform: "windows", label: ".msi ARM" },
+      { suffix: "_aarch64.dmg",             platform: "darwin",  label: ".dmg Apple Silicon" },
+      { suffix: "_x64.dmg",                 platform: "darwin",  label: ".dmg Intel" },
       { suffix: "_x64-setup.exe",           platform: "windows", label: ".exe x64" },
       { suffix: "_arm64-setup.exe",         platform: "windows", label: ".exe ARM" },
       { suffix: "_amd64.AppImage",          platform: "linux",   label: "AppImage x64" },
-      { suffix: "_aarch64.AppImage",        platform: "linux",   label: "AppImage ARM" },
-      { suffix: "_amd64.deb",              platform: "linux",   label: ".deb x64" },
-      { suffix: "_arm64.deb",              platform: "linux",   label: ".deb ARM" },
-      { suffix: "-1.x86_64.rpm",           platform: "linux",   label: ".rpm x64" },
-      { suffix: "-1.aarch64.rpm",          platform: "linux",   label: ".rpm ARM" },
+      { suffix: "_amd64.deb",               platform: "linux",   label: ".deb x64" },
     ];
 
     var DOWNLOAD_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';

@@ -130,7 +130,7 @@ Branch list inside the overflow: header `Merge` or `Rebase onto`, placeholder `S
 
 **Stash tooltips:** `Apply Stash`, `Pop Stash`, `Drop Stash`.
 
-**Main panel:** `Select a file to view changes`. Binary: `Binary file cannot be displayed`. Large: `File is too large to display (over 5 MB)`. Header suffix `(Staged)`, `(Working Tree)`, or `(Merge)`. Pending save: ` *`.
+**Main panel:** `Select a file to view changes`. Binary: `Binary file cannot be displayed`. Large: `File is too large to display (over 5 MB)`. Header suffix `(Staged)`, `(Working Tree)`, or `(Merge)`.
 
 **Confirmations (system dialog):** title `Confirm`, warning style, buttons `Continue` and `Cancel`. Messages:
 
@@ -193,7 +193,7 @@ Main diff: the path header, then the diff in side-by-side or inline layout per s
 
 **Diff empty.** No selection: watermark and `Select a file to view changes`.
 
-**Diff kinds.** Text: editable on working-tree files, read-only on staged and merge views. Image: side-by-side images. Binary or large: message plus `Open in External Editor`. Merge conflict: a conflict editor with per-conflict choices.
+**Diff kinds.** Text: read-only. Editing happens in the Explorer file viewer. Image: side-by-side images. Binary or large: message plus `Open in External Editor`. Merge conflict: per-conflict accept choices.
 
 **Error.** Failures show the app toast.
 

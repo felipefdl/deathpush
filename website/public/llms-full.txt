@@ -17,12 +17,12 @@ DeathPush can review repository changes produced by coding agents such as Claude
 - File-level staging and unstaging
 - Commit and amend from the same view
 
-### Pierre Diff Viewer
+### Diff Viewer
 
-- Pierre FileDiff and Editor for text diffs
-- Shiki highlighting
+- Native GPUI diff rows from git2, with tree-sitter highlighting
 - Side-by-side and unified views
-- Edit unstaged files directly in the diff
+- Per-hunk stage, unstage, and discard on the working-tree diff
+- Editing happens in the Explorer file viewer, not in the diff
 
 ### Branch Management
 
@@ -54,12 +54,12 @@ DeathPush can review repository changes produced by coding agents such as Claude
 
 ### Theming
 
-- Built-in dark and light themes
+- Built-in dark and light themes from the tm-themes catalog
 - Theme-aware diff highlighting
 
 ### Integrated Terminal
 
-- Built on libghostty, Ghostty's VT engine
+- Built on libghostty-vt, Ghostty's VT engine
 - Real PTY sessions
 - Theme-aware terminal colors from the active color theme
 
@@ -69,29 +69,29 @@ Downloads come from GitHub Releases. The release page is the source for the curr
 
 ### macOS
 
-- Universal `.dmg` and `.app.tar.gz` (Apple Silicon and Intel)
+- `.dmg` for Apple Silicon and Intel
 
 ### Windows
 
-- `.msi` and `.exe` for x64 and ARM
+- NSIS `.exe` for x64
+- ARM installer when that publish job succeeds
 - Windows 10 or later
 
 ### Linux
 
-- AppImage, `.deb`, and `.rpm` for x64 and ARM
+- AppImage and `.deb` for x64
 
 ## Build from Source
 
 ### Prerequisites
 
-- Vite+ (`vp`) with Node.js 24 and pnpm
-- Rust toolchain (edition 2024, minimum rustc 1.85.0)
+- Rust toolchain (edition 2024, rustc 1.97 or newer)
+- Zig 0.16.0 on PATH, for libghostty-vt
 - `just` task runner
 
 ### Commands
 
 ```sh
-vp install
 just dev
 ```
 
@@ -99,6 +99,7 @@ Production binary:
 
 ```sh
 just build
+just package  # cargo packager --release
 ```
 
 Quality checks:
@@ -112,13 +113,14 @@ just check
 
 ## Architecture
 
-DeathPush uses a hybrid Git engine:
+DeathPush is a GPUI desktop app with a `deathpush-core` crate that has no UI dependency. Git is hybrid:
 
 - `git2` for read operations: status, diff, branches, log, tags
 - Native `git` CLI for write operations: commit, push, pull, stash, checkout, reset, clone, so hooks, signing, credentials, SSH config, and LFS keep working
-- Frontend: Solid, TypeScript, Pierre
-- Backend: Rust and Tauri
-- Terminal: libghostty (Ghostty VT engine) with a native PTY
+- UI: GPUI through gpui-kit
+- Diffs: git2 rows with tree-sitter highlighting
+- Terminal: libghostty-vt with a native PTY
+- Packaging: cargo-packager (dmg, deb, AppImage, nsis)
 - Local operation. No telemetry, no accounts.
 
 ## Supported Git Operations
@@ -142,7 +144,7 @@ DeathPush uses a hybrid Git engine:
 
 - License: Apache-2.0
 - Platforms: macOS, Windows, Linux
-- Packages: macOS universal .dmg and .app.tar.gz; Windows .msi and .exe for x64 and ARM; Linux AppImage, .deb, and .rpm for x64 and ARM
+- Packages: macOS .dmg for Apple Silicon and Intel; Windows NSIS .exe for x64 (ARM when that job succeeds); Linux AppImage and .deb for x64
 - Author: Felipe Lima
 
 ## Links

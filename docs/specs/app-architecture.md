@@ -1,7 +1,7 @@
 # App architecture
 
-Status: Approved design
-Date: 2026-09-03
+Status: Current product
+Date: 2026-09-05
 
 ## Purpose
 
@@ -139,7 +139,7 @@ Writes go to a temp file and rename, debounced 500 ms. Git identity stays in Git
 
 ## Packaging and update
 
-cargo-packager is configured in the app crate's `Cargo.toml`. Formats: dmg per architecture, deb, AppImage, and nsis. rpm is not built. The `dp` launchers ship as packager resources. The `deathpush://` scheme is registered on macOS by cargo-packager; the Windows registry entry and the Linux desktop entry are verified during the shell spike. Signing and notarization use the existing secrets.
+cargo-packager is configured in the app crate's `Cargo.toml`. Formats: dmg per architecture, deb, AppImage, and nsis. rpm is not built. The `dp` launchers ship as packager resources. The `deathpush://` scheme is registered on macOS by cargo-packager. Signing and notarization use the existing secrets.
 
 cargo-packager-updater verifies the existing minisign key. CI writes `latest.json` at `https://github.com/felipefdl/deathpush/releases/latest/download/latest.json`. The manifest carries `version`, `notes`, `pub_date`, and `platforms` keyed `macos-aarch64`, `macos-x86_64`, `linux-x86_64`, `windows-x86_64`, and optionally `windows-aarch64`. Each platform entry has `signature`, `url`, and `format` (`app` / `appimage` / `nsis`). dmg and deb signatures are release assets only.
 
@@ -151,13 +151,13 @@ A packaged app checks for updates 2 s after the welcome screen appears. Debug bu
 
 ## Tests
 
-- Core keeps every existing cargo test, including the storm and shell-env performance tests. New tests cover pane snapshots by feeding bytes to the VT and asserting cells, `diff_view` rows for both layouts and each diff setting, settings round-trips, and parsing of every bundled theme.
+- Core tests cover git ops, the storm and shell-env performance tests, pane snapshots by feeding bytes to the VT and asserting cells, `diff_view` rows for both layouts and each diff setting, settings round-trips, and parsing of every bundled theme.
 - The app uses `#[gpui::test]` for models applying outcomes and events, layout persistence, the keymap table per OS, menu enabled states, and `DiffElement` hit-testing.
 - Before a release, the surface specs are walked by hand on macOS, Linux, and Windows.
 
-## Contract changes
+## Surface contracts
 
-This design changes these surface contracts:
+These contracts differ from the earlier Tauri app:
 
 - [SCM Changes](scm-changes.md): the working-tree diff is read-only. Editing happens in the Explorer file viewer. The merge view offers per-conflict accept choices instead of free-form editing.
 - Distribution: rpm packages are not built.
@@ -167,18 +167,3 @@ This design changes these surface contracts:
 - Windows has no foreground-process discovery. Pane names stay the shell name; closing a window does not ask about a running process.
 - The [Explorer](explorer.md) context menu has no Show File History item. SCM file rows and the diff header still offer it.
 - Updates check and install from the [welcome](welcome-screen.md) footer. [Native menus](native-menus.md) have no Check for Updates item.
-
-## Cutover
-
-Order matters because each step compiles on the previous one:
-
-1. Throwaway spikes: gpui-kit builds on all three OSes with zoom checked, `libghostty-vt` builds with Zig on all three, and `DiffElement` paints a 100k-line diff.
-2. Branch `release/0.4` from the v0.4.0 tag.
-3. Workspace commit: the Rust tree moves to `crates/core`, emits become events, the frontend and Tauri are deleted, and CI is green on core tests.
-4. Shell: window, theme, settings store, welcome screen, menus, multi-window, deep links, CLI installer.
-5. Changes: sidebar, commit, groups, stash, merge banner, overflow, context menus, `DiffElement`, hunk actions.
-6. Explorer, file viewer, Quick Open.
-7. History, branch picker, theme picker, overlays.
-8. Terminal: core panes, `TerminalElement`, groups and splits, Output tab.
-9. Settings page.
-10. Packaging, updater, publish workflow, AGENTS.md and README rewrite, the contract changes above, release.

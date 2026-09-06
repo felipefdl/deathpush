@@ -8,4 +8,4 @@ Standards: HTML5, CSS3
 Software: Astro, TypeScript
 
 /* PRODUCT */
-Stack: Tauri, Rust, Solid, Pierre, libghostty
+Stack: GPUI, Rust, git2, libghostty-vt
