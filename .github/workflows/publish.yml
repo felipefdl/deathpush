@@ -15,7 +15,6 @@ concurrency:
 jobs:
   package:
     # macos-13 is retired. macos-15-intel is the standard x86_64 runner (macos-15-large is a paid larger runner).
-    # windows-11-arm may fail on Zig / libghostty-vt; it does not block the release.
     strategy:
       fail-fast: false
       matrix:
@@ -24,29 +23,19 @@ jobs:
             os: macos-14
             target: aarch64-apple-darwin
             formats: app,dmg
-            allow-failure: false
           - name: macos-x86_64
             os: macos-15-intel
             target: x86_64-apple-darwin
             formats: app,dmg
-            allow-failure: false
           - name: linux-x86_64
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             formats: deb,appimage
-            allow-failure: false
           - name: windows-x86_64
             os: windows-2022
             target: x86_64-pc-windows-msvc
             formats: nsis
-            allow-failure: false
-          - name: windows-aarch64
-            os: windows-11-arm
-            target: aarch64-pc-windows-msvc
-            formats: nsis
-            allow-failure: true
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.allow-failure }}
     timeout-minutes: 90
     steps:
       - name: Enable long paths for dependency checkouts
@@ -55,24 +44,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
-        if: runner.os != 'Windows' || runner.arch != 'ARM64'
         with:
           targets: ${{ matrix.target }}
-      - name: Install x64 Rust on Windows ARM
-        if: runner.os == 'Windows' && runner.arch == 'ARM64'
-        shell: bash
-        run: |
-          rustup toolchain install stable-x86_64-pc-windows-msvc --force-non-host --profile minimal --target aarch64-pc-windows-msvc
-          echo "RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-msvc" >> "$GITHUB_ENV"
 
       - uses: mlugg/setup-zig@v2
-        if: runner.os != 'Windows' || runner.arch != 'ARM64'
         with:
           version: 0.16.0
-      - name: Install x64 Zig on Windows ARM
-        if: runner.os == 'Windows' && runner.arch == 'ARM64'
-        shell: pwsh
-        run: ./.github/scripts/setup-zig-windows-arm.ps1
 
       - uses: swatinem/rust-cache@v2
 
@@ -196,13 +173,7 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-        run: |
-          if [[ "${{ matrix.name }}" == "windows-aarch64" ]]; then
-            export CARGO_BUILD_TARGET=aarch64-pc-windows-msvc
-            cargo packager --release -p deathpush --formats "${{ matrix.formats }}" --target "$CARGO_BUILD_TARGET"
-          else
-            cargo packager --release -p deathpush --formats "${{ matrix.formats }}"
-          fi
+        run: cargo packager --release -p deathpush --formats "${{ matrix.formats }}"
 
       - name: Name the macOS updater bundle by architecture
         if: runner.os == 'macOS'
@@ -320,7 +291,6 @@ jobs:
               "macos-x86_64": ("app.tar.gz", "app"),
               "linux-x86_64": (".appimage", "appimage"),
               "windows-x86_64": ("-setup.exe", "nsis"),
-              "windows-aarch64": ("-setup.exe", "nsis"),
           }
           required = ("macos-aarch64", "macos-x86_64", "linux-x86_64", "windows-x86_64")
 

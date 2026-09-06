@@ -141,7 +141,7 @@ Writes go to a temp file and rename, debounced 500 ms. Git identity stays in Git
 
 cargo-packager is configured in the app crate's `Cargo.toml`. Formats: dmg per architecture, deb, AppImage, and nsis. rpm is not built. The `dp` launchers ship as packager resources. The `deathpush://` scheme is registered on macOS by cargo-packager. Signing and notarization use the existing secrets.
 
-cargo-packager-updater verifies the existing minisign key. CI writes `latest.json` at `https://github.com/felipefdl/deathpush/releases/latest/download/latest.json`. The manifest carries `version`, `notes`, `pub_date`, and `platforms` keyed `macos-aarch64`, `macos-x86_64`, `linux-x86_64`, `windows-x86_64`, and optionally `windows-aarch64`. Each platform entry has `signature`, `url`, and `format` (`app` / `appimage` / `nsis`). dmg and deb signatures are release assets only.
+cargo-packager-updater verifies the existing minisign key. CI writes `latest.json` at `https://github.com/felipefdl/deathpush/releases/latest/download/latest.json`. The manifest carries `version`, `notes`, `pub_date`, and `platforms` keyed `macos-aarch64`, `macos-x86_64`, `linux-x86_64`, and `windows-x86_64`. Each platform entry has `signature`, `url`, and `format` (`app` / `appimage` / `nsis`). dmg and deb signatures are release assets only.
 
 A packaged app checks for updates 2 s after the welcome screen appears. Debug builds skip the check. When an update exists, the welcome footer shows `Update to v{version}`; clicking it downloads and installs. Failures toast. There is no menu item.
 

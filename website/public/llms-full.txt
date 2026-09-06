@@ -74,7 +74,6 @@ Downloads come from GitHub Releases. The release page is the source for the curr
 ### Windows
 
 - NSIS `.exe` for x64
-- ARM installer when that publish job succeeds
 - Windows 10 or later
 
 ### Linux
@@ -144,7 +143,7 @@ DeathPush is a GPUI desktop app with a `deathpush-core` crate that has no UI dep
 
 - License: Apache-2.0
 - Platforms: macOS, Windows, Linux
-- Packages: macOS .dmg for Apple Silicon and Intel; Windows NSIS .exe for x64 (ARM when that job succeeds); Linux AppImage and .deb for x64
+- Packages: macOS .dmg for Apple Silicon and Intel; Windows NSIS .exe for x64; Linux AppImage and .deb for x64
 - Author: Felipe Lima
 
 ## Links

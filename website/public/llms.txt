@@ -27,7 +27,7 @@ DeathPush can review repository changes produced by coding agents such as Claude
 
 - License: Apache-2.0
 - Platforms: macOS, Windows, Linux
-- Packages: macOS .dmg for Apple Silicon and Intel; Windows NSIS .exe for x64 (ARM when that job succeeds); Linux AppImage and .deb for x64
+- Packages: macOS .dmg for Apple Silicon and Intel; Windows NSIS .exe for x64; Linux AppImage and .deb for x64
 - Local operation. No telemetry, no accounts.
 - Build prerequisites: Rust 1.97 or newer, Zig 0.16.0, and just. Node is only needed to build the website.
 

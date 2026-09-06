@@ -20,17 +20,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: macos-latest
-            args: ""
-          - platform: ubuntu-22.04
-            args: ""
-          - platform: ubuntu-22.04-arm
-            args: ""
-          - platform: windows-latest
-            args: ""
-          - platform: windows-11-arm
-            args: "--target aarch64-pc-windows-msvc"
+        platform:
+          - macos-latest
+          - ubuntu-22.04
+          - ubuntu-22.04-arm
+          - windows-latest
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Enable long paths for dependency checkouts
@@ -38,23 +32,11 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        if: runner.os != 'Windows' || runner.arch != 'ARM64'
         with:
           components: rustfmt, clippy
-      - name: Install x64 Rust on Windows ARM
-        if: runner.os == 'Windows' && runner.arch == 'ARM64'
-        shell: bash
-        run: |
-          rustup toolchain install stable-x86_64-pc-windows-msvc --force-non-host --profile minimal --target aarch64-pc-windows-msvc --component rustfmt --component clippy
-          echo "RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-msvc" >> "$GITHUB_ENV"
       - uses: mlugg/setup-zig@v2
-        if: runner.os != 'Windows' || runner.arch != 'ARM64'
         with:
           version: 0.16.0
-      - name: Install x64 Zig on Windows ARM
-        if: runner.os == 'Windows' && runner.arch == 'ARM64'
-        shell: pwsh
-        run: ./.github/scripts/setup-zig-windows-arm.ps1
       - uses: swatinem/rust-cache@v2
       - name: Install Linux deps
         if: startsWith(matrix.platform, 'ubuntu')
@@ -65,8 +47,8 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets ${{ matrix.args }} -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
-        run: cargo test --workspace ${{ matrix.args }}
+        run: cargo test --workspace
       - name: Build
-        run: cargo build --release -p deathpush ${{ matrix.args }}
+        run: cargo build --release -p deathpush

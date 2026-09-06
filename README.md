@@ -52,7 +52,7 @@ Installers are on [GitHub Releases](https://github.com/felipefdl/deathpush/relea
 
 - macOS: `.dmg` (Apple Silicon and Intel)
 - Linux x86_64: `.deb` and AppImage
-- Windows x86_64: NSIS installer (`-setup.exe`). ARM is included when that job succeeds.
+- Windows x86_64: NSIS installer (`-setup.exe`).
 
 A packaged build checks for updates 2 seconds after the welcome screen appears. When one exists, the footer shows `Update to v{version}`; click it to download and install. Debug builds skip the check.
 
