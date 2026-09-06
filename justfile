@@ -1,43 +1,40 @@
 default:
   @just --list
 
-dev:
-  vp run tauri dev --features devtools
+dev *args:
+  cargo run -p deathpush -- {{args}}
 
 build:
-  vp run tauri build
+  cargo build --release -p deathpush
 
 lint:
-  vp lint src/
-  cd src-tauri && cargo clippy -- -D warnings
+  cargo clippy --workspace --all-targets -- -D warnings
 
 fmt:
-  vp fmt src vite.config.ts
-  cd src-tauri && cargo fmt
+  cargo fmt --all
+
+fmt-check:
+  cargo fmt --all --check
 
 check:
-  vp check src vite.config.ts
-  cd src-tauri && cargo check
+  cargo check --workspace --all-targets
 
 test:
-  vp test run
-  cd src-tauri && cargo test
-
-test-watch:
-  vp test watch
+  cargo test --workspace
 
 perf-boot:
-  TZ=UTC vp test run src/hooks/use-repository.test.ts src/lib/themes/apply-theme.test.ts src/lib/themes/boot-theme.test.ts src/lib/recent-projects.test.ts src/app.test.tsx
-  cd src-tauri && TZ=UTC cargo test shell_env
+  TZ=UTC cargo test -p deathpush-core shell_env
 
 perf-storm:
-  cd src-tauri && TZ=UTC cargo test storm
+  TZ=UTC cargo test -p deathpush-core storm
+
+package:
+  cargo packager --release
 
 release version:
-  sed -i '' 's/^  "version": "[^"]*"/  "version": "{{version}}"/' package.json
-  sed -i '' 's/"version": "[^"]*"/"version": "{{version}}"/' src-tauri/tauri.conf.json
-  sed -i '' 's/^version = "[^"]*"/version = "{{version}}"/' src-tauri/Cargo.toml
-  cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
-  git add -A && git commit -m "release: v{{version}}"
+  sed -i '' 's/^version = "[^"]*"/version = "{{version}}"/' Cargo.toml
+  cargo update -w -p deathpush
+  git add Cargo.toml Cargo.lock
+  git commit -m "chore(release): v{{version}}"
   git tag "v{{version}}"
-  git push origin main --tags
+  @echo "Push with: git push origin HEAD --tags"

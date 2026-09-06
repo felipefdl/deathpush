@@ -3,140 +3,382 @@ name: Publish Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  publish-tauri:
+  package:
+    # macos-13 is retired. macos-15-intel is the standard x86_64 runner (macos-15-large is a paid larger runner).
+    # windows-11-arm may fail on Zig / libghostty-vt; it does not block the release.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            args: "--target universal-apple-darwin"
-          - platform: ubuntu-22.04
-            args: ""
-          - platform: ubuntu-22.04-arm
-            args: ""
-          - platform: windows-latest
-            args: ""
-          - platform: windows-11-arm
-            args: "--target aarch64-pc-windows-msvc"
-    runs-on: ${{ matrix.platform }}
+          - name: macos-aarch64
+            os: macos-14
+            target: aarch64-apple-darwin
+            formats: app,dmg
+            allow-failure: false
+          - name: macos-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            formats: app,dmg
+            allow-failure: false
+          - name: linux-x86_64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            formats: deb,appimage
+            allow-failure: false
+          - name: windows-x86_64
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+            formats: nsis
+            allow-failure: false
+          - name: windows-aarch64
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            formats: nsis
+            allow-failure: true
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.allow-failure }}
+    timeout-minutes: 90
     steps:
+      - name: Enable long paths for dependency checkouts
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
-      - uses: voidzero-dev/setup-vp@v1.18.0
-        with:
-          cache: true
-          run-install: false
+
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.platform == 'windows-11-arm' && 'aarch64-pc-windows-msvc' || '' }}
-      - uses: swatinem/rust-cache@v2
+          targets: ${{ matrix.target }}
+
+      - uses: mlugg/setup-zig@v2
+        if: runner.os != 'Windows' || runner.arch != 'ARM64'
         with:
-          workspaces: "./src-tauri -> target"
+          version: 0.16.0
+      - name: Install x64 Zig on Windows ARM
+        if: runner.os == 'Windows' && runner.arch == 'ARM64'
+        shell: pwsh
+        run: ./.github/scripts/setup-zig-windows-arm.ps1
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Cache cargo-packager
+        id: cache-packager
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-packager
+            ~/.cargo/bin/cargo-packager.exe
+          key: cargo-packager-0.11.8-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install Linux deps
-        if: startsWith(matrix.platform, 'ubuntu')
+        if: startsWith(matrix.os, 'ubuntu')
+        shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libdbus-1-dev patchelf xdg-utils
-      - run: vp install --frozen-lockfile
+          sudo apt-get install -y \
+            libfontconfig-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev \
+            libvulkan1 libssl-dev libzstd-dev libfuse2 patchelf
+
       - name: Import Apple Developer Certificate
-        if: matrix.platform == 'macos-latest'
+        if: runner.os == 'macOS'
         uses: apple-actions/import-codesign-certs@v3
         with:
           p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
           p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
       - name: Verify codesigning identity
-        if: matrix.platform == 'macos-latest'
-        run: |
-          security find-identity -v -p codesigning
-          security find-identity -p codesigning
-      - name: Write Apple API key for notarization
-        if: matrix.platform == 'macos-latest'
-        run: |
-          mkdir -p ~/private_keys
-          echo "${{ secrets.APPLE_API_KEY_CONTENT }}" > ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
-      - uses: tauri-apps/tauri-action@v0
+        if: runner.os == 'macOS'
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${APPLE_SIGNING_IDENTITY}" ]]; then
+            echo "codesigning identity not found" >&2
+            exit 1
+          fi
+          if ! security find-identity -p codesigning -v 2>/dev/null | grep -F -q -- "${APPLE_SIGNING_IDENTITY}"; then
+            echo "codesigning identity not found" >&2
+            exit 1
+          fi
+
+      - name: Write Apple API key for notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          set -euo pipefail
+          missing=0
+          if [[ -z "${APPLE_API_KEY}" ]]; then
+            echo "APPLE_API_KEY is empty" >&2
+            missing=1
+          fi
+          if [[ -z "${APPLE_API_ISSUER}" ]]; then
+            echo "APPLE_API_ISSUER is empty" >&2
+            missing=1
+          fi
+          if [[ -z "${APPLE_API_KEY_CONTENT}" ]]; then
+            echo "APPLE_API_KEY_CONTENT is empty" >&2
+            missing=1
+          fi
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+          key_dir="${HOME}/private_keys"
+          mkdir -p "$key_dir"
+          umask 077
+          key_path="${key_dir}/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s\n' "$APPLE_API_KEY_CONTENT" > "$key_path"
+          if [[ ! -s "$key_path" ]] || ! grep -q '[^[:space:]]' "$key_path"; then
+            echo "Apple API key file is empty" >&2
+            exit 1
+          fi
+          echo "APPLE_API_KEY_PATH=${key_path}" >> "$GITHUB_ENV"
+
+      # cargo-packager 0.11.8 reads signing-identity from packager config only, not from
+      # APPLE_SIGNING_IDENTITY. --config JSON replaces the whole config, so this job
+      # writes the identity into Cargo.toml for this run.
+      - name: Inject macOS signing identity
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("crates/app/Cargo.toml")
+          text = path.read_text()
+          marker = "[package.metadata.packager.macos]\n"
+          if marker not in text:
+              raise SystemExit("missing [package.metadata.packager.macos]")
+          macos_table = text.split(marker, 1)[1].split("\n[", 1)[0]
+          if "signing-identity" in macos_table or "signingIdentity" in macos_table:
+              raise SystemExit("signing-identity already present")
+          identity = os.environ.get("APPLE_SIGNING_IDENTITY", "").strip()
+          if not identity:
+              raise SystemExit("APPLE_SIGNING_IDENTITY is empty")
+          insertion = marker + f"signing-identity = {json.dumps(identity)}\n"
+          path.write_text(text.replace(marker, insertion, 1), newline="\n")
+          PY
+
+      - name: Install cargo-packager
+        if: steps.cache-packager.outputs.cache-hit != 'true'
+        run: cargo install cargo-packager --version 0.11.8 --locked
+
+      - name: Package
+        env:
+          CARGO_PACKAGER_SIGN_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PATH: ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
-        with:
-          tauriScript: vp run tauri
-          tagName: v__VERSION__
-          releaseName: "DeathPush v__VERSION__"
-          releaseBody: ""
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+        run: cargo packager --release -p deathpush --formats ${{ matrix.formats }}
 
-  updater-json:
-    needs: publish-tauri
-    runs-on: ubuntu-latest
-    steps:
-      - name: Generate latest.json
+      - name: Name the macOS updater bundle by architecture
+        if: runner.os == 'macOS'
+        shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATER_ARCH: ${{ matrix.name == 'macos-aarch64' && 'aarch64' || 'x86_64' }}
         run: |
           set -euo pipefail
+          VERSION="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("Cargo.toml").read_text())["workspace"]["package"]["version"])')"
+          src="target/release/DeathPush.app.tar.gz"
+          dest="target/release/DeathPush_${VERSION}_${UPDATER_ARCH}.app.tar.gz"
+          test -f "$src"
+          mv "$src" "$dest"
+          mv "${src}.sig" "${dest}.sig"
 
-          TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#v}"
-          BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
-          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
-
-          JSON=$(jq -n \
-            --arg version "$VERSION" \
-            --arg pub_date "$PUB_DATE" \
-            '{version: $version, notes: "", pub_date: $pub_date, platforms: {}}')
-
-          declare -A ASSET_MAP=(
-            ["_aarch64.AppImage"]="linux-aarch64 linux-aarch64-appimage"
-            ["_amd64.AppImage"]="linux-x86_64 linux-x86_64-appimage"
-            ["_arm64.deb"]="linux-aarch64-deb"
-            ["_amd64.deb"]="linux-x86_64-deb"
-            ["-1.aarch64.rpm"]="linux-aarch64-rpm"
-            ["-1.x86_64.rpm"]="linux-x86_64-rpm"
-            ["_arm64_en-US.msi"]="windows-aarch64 windows-aarch64-msi"
-            ["_x64_en-US.msi"]="windows-x86_64 windows-x86_64-msi"
-            ["_arm64-setup.exe"]="windows-aarch64-nsis"
-            ["_x64-setup.exe"]="windows-x86_64-nsis"
-            ["_universal.app.tar.gz"]="darwin-aarch64 darwin-x86_64 darwin-aarch64-app darwin-x86_64-app"
-          )
-
-          sig_assets=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --json assets --jq '.assets[].name | select(endswith(".sig"))')
-
-          for sig_asset in $sig_assets; do
-            base_asset="${sig_asset%.sig}"
-            sig_content=$(gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-              -p "$sig_asset" -O -)
-
-            for pattern in "${!ASSET_MAP[@]}"; do
-              if [[ "$base_asset" == *"$pattern" ]]; then
-                url="${BASE_URL}/${base_asset}"
-                for platform in ${ASSET_MAP[$pattern]}; do
-                  JSON=$(echo "$JSON" | jq \
-                    --arg platform "$platform" \
-                    --arg signature "$sig_content" \
-                    --arg url "$url" \
-                    '.platforms[$platform] = {signature: $signature, url: $url}')
-                done
-                break
-              fi
-            done
+      - name: Check packaged artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target/release
+          case "${{ matrix.formats }}" in
+            app,dmg)
+              patterns=("*.dmg" "*.dmg.sig" "*.app.tar.gz" "*.app.tar.gz.sig")
+              ;;
+            deb,appimage)
+              patterns=("*.deb" "*.deb.sig" "*.AppImage" "*.AppImage.sig")
+              ;;
+            nsis)
+              patterns=("*-setup.exe" "*-setup.exe.sig")
+              ;;
+            *)
+              echo "unexpected packager formats: ${{ matrix.formats }}" >&2
+              exit 1
+              ;;
+          esac
+          missing=0
+          for pattern in "${patterns[@]}"; do
+            count="$(find . -maxdepth 1 -name "$pattern" -type f | wc -l | tr -d ' ')"
+            if [[ "$count" -eq 0 ]]; then
+              echo "missing artifact matching ${pattern}" >&2
+              missing=1
+            fi
           done
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
 
-          echo "$JSON" | jq . > latest.json
-          echo "Generated latest.json with platforms:"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            target/release/*.dmg
+            target/release/*.dmg.sig
+            target/release/*.app.tar.gz
+            target/release/*.app.tar.gz.sig
+            target/release/*.deb
+            target/release/*.deb.sig
+            target/release/*.AppImage
+            target/release/*.AppImage.sig
+            target/release/*-setup.exe
+            target/release/*-setup.exe.sig
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Resolve version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("Cargo.toml").read_text())["workspace"]["package"]["version"])')"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            if [[ "${TAG#v}" != "${VERSION}" ]]; then
+              echo "tag does not match Cargo.toml version" >&2
+              exit 1
+            fi
+          else
+            TAG="v${VERSION}"
+          fi
+          {
+            echo "VERSION=${VERSION}"
+            echo "TAG=${TAG}"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate artifacts and generate latest.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          tag = os.environ["TAG"]
+          version = os.environ["VERSION"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          base = f"https://github.com/{repo}/releases/download/{tag}"
+          artifacts = Path("artifacts")
+
+          # cargo-packager-updater 0.2.3 keys are macos-/linux-/windows-{arch}, not darwin-*.
+          # format is required on each platform (app / appimage / nsis).
+          # dmg and deb signatures are release assets only; they are not updater platforms.
+          selectors = {
+              "macos-aarch64": ("app.tar.gz", "app"),
+              "macos-x86_64": ("app.tar.gz", "app"),
+              "linux-x86_64": (".appimage", "appimage"),
+              "windows-x86_64": ("-setup.exe", "nsis"),
+              "windows-aarch64": ("-setup.exe", "nsis"),
+          }
+          required = ("macos-aarch64", "macos-x86_64", "linux-x86_64", "windows-x86_64")
+
+          platforms = {}
+          for platform, (suffix, fmt) in selectors.items():
+              folder = artifacts / platform
+              if not folder.is_dir():
+                  continue
+              matches = [
+                  path
+                  for path in folder.glob("*.sig")
+                  if path.name[: -len(".sig")].lower().endswith(suffix.lower())
+              ]
+              if not matches:
+                  continue
+              if len(matches) != 1:
+                  names = ", ".join(path.name for path in matches)
+                  raise SystemExit(f"{platform}: expected one updater .sig, found: {names}")
+              sig_path = matches[0]
+              asset_name = sig_path.name[: -len(".sig")]
+              asset_path = folder / asset_name
+              if not asset_path.is_file():
+                  continue
+              signature = sig_path.read_text().strip()
+              if not signature:
+                  raise SystemExit(f"{sig_path} is empty")
+              platforms[platform] = {
+                  "signature": signature,
+                  "url": f"{base}/{asset_path.name}",
+                  "format": fmt,
+              }
+
+          missing = [name for name in required if name not in platforms]
+          if missing:
+              raise SystemExit("missing required updater platforms: " + ", ".join(missing))
+
+          ordered = {name: platforms[name] for name in selectors if name in platforms}
+          manifest = {
+              "version": version,
+              "notes": "",
+              "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": ordered,
+          }
+          Path("latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          print("latest.json platforms:", ", ".join(ordered))
+          PY
+
+      - name: Publish draft release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if is_draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [[ "$is_draft" != "true" ]]; then
+              echo "release ${TAG} is published; refusing to replace assets in place" >&2
+              exit 1
+            fi
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft \
+              --title "DeathPush v${VERSION}" \
+              --notes "" \
+              --target "${GITHUB_SHA}"
+          fi
+          mapfile -t files < <(find artifacts -type f | sort)
+          if [[ "${#files[@]}" -eq 0 ]]; then
+            echo "no artifacts to upload" >&2
+            exit 1
+          fi
+          gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" latest.json --repo "$GITHUB_REPOSITORY" --clobber
+          echo "draft release ${TAG}"
           jq -r '.platforms | keys[]' latest.json
-
-          # Remove stale latest.json if present, then upload
-          gh release delete-asset "$TAG" --repo "$GITHUB_REPOSITORY" latest.json --yes 2>/dev/null || true
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" latest.json

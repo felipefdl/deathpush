@@ -28,7 +28,7 @@ Clicking the backdrop closes the palette. Clicking inside does not.
 | Search field | placeholder above | File search by default; content search when the query starts with `#`; go-to-line when the query is `:digits` | focused on open |
 | File row | file name (matched characters highlighted), optional `:{line}`, directory in muted text | Open the file in the [Explorer](explorer.md) file viewer. With a `:N` suffix, jump to line N | Enter on the active row, or click |
 | Content row | `{filename}:{line}`, directory, the trimmed matching line | Open the file at that line | Enter on the active row, or click |
-| Backdrop | none | Close | Escape |
+| Backdrop | none | Close | click |
 | View menu Quick Open... | `Quick Open...` | Open this palette (only when a repository is open) | Cmd/Ctrl+P |
 
 ## Copy
@@ -81,7 +81,7 @@ Panel on the sidebar background with a subtle border, rounded corners, and a sof
 | Key | Action |
 |---|---|
 | Cmd/Ctrl+P | Open (Cmd/Ctrl+Shift+P is the diff layout toggle, not this) |
-| Escape | Close |
+| Escape | Clear a non-empty query; close when the query is empty |
 | Down / Up | Move the active row, wrapping. Disabled in go-to-line mode |
 | Enter | Open the active row, or jump to the line in go-to-line mode |
 | Typing | Update the query. The field has autocomplete, autocorrect, autocapitalize, and spellcheck off |

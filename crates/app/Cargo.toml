@@ -1,0 +1,81 @@
+[package]
+name = "deathpush"
+description = "A desktop Git client with the VS Code Source Control UX"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+default-run = "deathpush"
+build = "build.rs"
+
+[[bin]]
+name = "deathpush"
+path = "src/main.rs"
+
+[dependencies]
+base64.workspace = true
+cargo-packager-updater.workspace = true
+chrono.workspace = true
+deathpush-core.workspace = true
+dirs.workspace = true
+futures.workspace = true
+gpui-kit.workspace = true
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "0.3.3" }
+ropey.workspace = true
+rust-embed.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true
+
+[build-dependencies]
+serde_json.workspace = true
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true
+
+[package.metadata.packager]
+before-packaging-command = "cargo build --release -p deathpush"
+product-name = "DeathPush"
+identifier = "com.deathpush.app"
+category = "DeveloperTool"
+out-dir = "../../target/release"
+icons = [
+  "../../assets/app-icons/icon.icns",
+  "../../assets/app-icons/icon.ico",
+  "../../assets/app-icons/128x128@2x.png",
+  "../../assets/app-icons/128x128.png",
+  "../../assets/app-icons/32x32.png",
+]
+resources = [
+  { src = "../../assets/bin/dp", target = "bin/dp" },
+  { src = "../../assets/bin/dp.cmd", target = "bin/dp.cmd" },
+]
+deep-link-protocols = [{ schemes = ["deathpush"], name = "DeathPush", role = "viewer" }]
+
+[package.metadata.packager.macos]
+minimum-system-version = "12.0"
+
+[package.metadata.packager.deb]
+depends = [
+  "libx11-6",
+  "libx11-xcb1",
+  "libxcb1",
+  "libxkbcommon0",
+  "libxkbcommon-x11-0",
+  "libwayland-client0",
+  "libwayland-cursor0",
+  "libwayland-egl1",
+  "libfontconfig1",
+]
+files = { "../../assets/metainfo/com.deathpush.app.metainfo.xml" = "usr/share/metainfo/com.deathpush.app.metainfo.xml", "../../assets/bin/dp-linux" = "usr/bin/dp" }
+
+[package.metadata.packager.appimage]
+
+[package.metadata.packager.nsis]
+installMode = "currentUser"

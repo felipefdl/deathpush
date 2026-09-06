@@ -19,7 +19,7 @@ Body: the active terminal group (one or more panes) or the Git output log. A pan
 
 Terminal groups: each new terminal is a group. A group can be split into panes, horizontally or vertically. Panes in a group share the group's space.
 
-Pane names follow the process: a new pane is `Terminal {n}`, then takes the shell name once spawned (for example `zsh` or `bash`), then updates every second to the name of the foreground process (for example `cargo` or `node`).
+Pane names follow the process on Unix: a new pane is `Terminal {n}`, then takes the shell name once spawned (for example `zsh` or `bash`), then updates every second to the name of the foreground process (for example `cargo` or `node`). On Windows the pane name stays the shell name. There is no foreground-process discovery.
 
 ## Regions
 
@@ -78,9 +78,9 @@ The panel sits above the status bar. The tab strip uses the panel colors with th
 
 **Always Open Terminal on Start.** The panel is forced visible when a project loads.
 
-**Closing the window.** If any pane has a foreground process, the app asks before closing.
+**Closing the window.** If any pane has a foreground process, the app asks before closing. On Windows the app does not prompt. There is no foreground-process discovery.
 
-**Bell.** Off, sound, visual flash, or both, per settings.
+**Bell.** `Sound` and `Both` flash the pane like `Visual`. There is no platform sound. `Off` does nothing.
 
 ## Interactions
 

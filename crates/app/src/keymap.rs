@@ -1,0 +1,395 @@
+use gpui_kit::*;
+
+use crate::actions::*;
+
+#[allow(dead_code)]
+pub const PRIMARY: &str = if cfg!(target_os = "macos") { "cmd" } else { "ctrl" };
+
+/// Key contexts the shell sets on its regions.
+pub const CONTEXT_APP: &str = "DeathPush";
+pub const CONTEXT_WELCOME: &str = "Welcome";
+pub const CONTEXT_WELCOME_LIST: &str = "WelcomeList";
+pub const CONTEXT_WELCOME_LIST_INPUT: &str = "WelcomeList > Input";
+pub const CONTEXT_REPOSITORY: &str = "Repository";
+pub const CONTEXT_REPOSITORY_KEYS: &str = "Repository && !Terminal && !Settings";
+pub const CONTEXT_SETTINGS: &str = "Settings";
+pub const CONTEXT_DIALOG: &str = "Dialog";
+#[allow(dead_code)]
+pub const CONTEXT_CHANGES: &str = "Changes";
+pub const CONTEXT_CHANGES_INPUT: &str = "Changes > Input";
+pub const CONTEXT_DIFF: &str = "Diff";
+pub const CONTEXT_BRANCH_LIST: &str = "BranchList";
+pub const CONTEXT_BRANCH_LIST_INPUT: &str = "BranchList > Input";
+pub const CONTEXT_BRANCH_PICKER: &str = "BranchPicker";
+pub const CONTEXT_BRANCH_PICKER_INPUT: &str = "BranchPicker > Input";
+pub const CONTEXT_EXPLORER: &str = "Explorer";
+pub const CONTEXT_EXPLORER_INPUT: &str = "Explorer > Input";
+pub const CONTEXT_EXPLORER_KEYS: &str = "Explorer && !Input";
+pub const CONTEXT_TERMINAL: &str = "Terminal";
+
+/// (keystrokes, action name, context). Pure so it can be tested per platform.
+pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static str>)> {
+  let m = if mac { "cmd" } else { "ctrl" };
+  let mut rows = vec![
+    (format!("{m}-n"), "NewWindow", Some(CONTEXT_APP)),
+    (format!("{m}-o"), "OpenRepository", Some(CONTEXT_APP)),
+    (format!("{m}-,"), "ShowSettings", Some(CONTEXT_APP)),
+    (format!("{m}-p"), "QuickOpen", Some(CONTEXT_APP)),
+    (format!("{m}-p"), "QuickOpen", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-1"), "ShowChanges", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-2"), "ShowExplorer", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-3"), "FocusTerminal", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-shift-2"), "ShowHistory", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-shift-p"), "ToggleDiffLayout", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-j"), "ToggleTerminal", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-shift-j"), "NewTerminal", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-t"), "NewTerminal", Some(CONTEXT_TERMINAL)),
+    (format!("{m}-d"), "SplitTerminalHorizontal", Some(CONTEXT_TERMINAL)),
+    (format!("{m}-shift-d"), "SplitTerminalVertical", Some(CONTEXT_TERMINAL)),
+    (format!("{m}-w"), "KillTerminalPane", Some(CONTEXT_TERMINAL)),
+    (format!("alt-{m}-1"), "ActivateTerminalGroup1", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-2"), "ActivateTerminalGroup2", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-3"), "ActivateTerminalGroup3", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-4"), "ActivateTerminalGroup4", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-5"), "ActivateTerminalGroup5", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-6"), "ActivateTerminalGroup6", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-7"), "ActivateTerminalGroup7", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-8"), "ActivateTerminalGroup8", Some(CONTEXT_REPOSITORY)),
+    (format!("alt-{m}-9"), "ActivateTerminalGroup9", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-shift-g"), "ReloadSession", Some(CONTEXT_REPOSITORY)),
+    (format!("{m}-s"), "SwallowSave", Some(CONTEXT_REPOSITORY)),
+    ("escape".to_string(), "ClearSelection", Some(CONTEXT_REPOSITORY_KEYS)),
+    (format!("{m}-c"), "CopyDiffSelection", Some(CONTEXT_DIFF)),
+    (format!("{m}-enter"), "CommitFromBox", Some(CONTEXT_CHANGES_INPUT)),
+    ("enter".to_string(), "Confirm", Some(CONTEXT_BRANCH_LIST_INPUT)),
+    ("escape".to_string(), "Cancel", Some(CONTEXT_BRANCH_LIST)),
+    ("escape".to_string(), "Cancel", Some(CONTEXT_BRANCH_LIST_INPUT)),
+    ("enter".to_string(), "Confirm", Some(CONTEXT_BRANCH_PICKER_INPUT)),
+    ("escape".to_string(), "Cancel", Some(CONTEXT_BRANCH_PICKER)),
+    ("escape".to_string(), "Cancel", Some(CONTEXT_BRANCH_PICKER_INPUT)),
+    (format!("{m}-1"), "FocusRecentFilter", Some(CONTEXT_WELCOME)),
+    (format!("{m}-2"), "FocusWorkspaceFilter", Some(CONTEXT_WELCOME)),
+    (format!("{m}-="), "ZoomIn", Some(CONTEXT_APP)),
+    (format!("{m}-shift-="), "ZoomIn", Some(CONTEXT_APP)),
+    (format!("{m}--"), "ZoomOut", Some(CONTEXT_APP)),
+    (format!("{m}-0"), "ZoomReset", Some(CONTEXT_APP)),
+    (format!("{m}-k {m}-t"), "ColorTheme", Some(CONTEXT_APP)),
+    (format!("{m}-m"), "Minimize", Some(CONTEXT_APP)),
+    ("escape".to_string(), "Cancel", Some(CONTEXT_DIALOG)),
+    ("enter".to_string(), "Confirm", Some(CONTEXT_DIALOG)),
+    ("up".to_string(), "WelcomeListUp", Some(CONTEXT_WELCOME_LIST_INPUT)),
+    ("down".to_string(), "WelcomeListDown", Some(CONTEXT_WELCOME_LIST_INPUT)),
+    (
+      "enter".to_string(),
+      "WelcomeListConfirm",
+      Some(CONTEXT_WELCOME_LIST_INPUT),
+    ),
+    (
+      "escape".to_string(),
+      "WelcomeListEscape",
+      Some(CONTEXT_WELCOME_LIST_INPUT),
+    ),
+    ("f2".to_string(), "ExplorerRename", Some(CONTEXT_EXPLORER_KEYS)),
+    ("delete".to_string(), "ExplorerDelete", Some(CONTEXT_EXPLORER_KEYS)),
+    (format!("{m}-backspace"), "ExplorerDelete", Some(CONTEXT_EXPLORER_KEYS)),
+    (format!("{m}-c"), "ExplorerCopy", Some(CONTEXT_EXPLORER_KEYS)),
+    (format!("{m}-x"), "ExplorerCut", Some(CONTEXT_EXPLORER_KEYS)),
+    (format!("{m}-v"), "ExplorerPaste", Some(CONTEXT_EXPLORER_KEYS)),
+    ("escape".to_string(), "Cancel", Some(CONTEXT_EXPLORER_INPUT)),
+  ];
+  if mac {
+    rows.push(("cmd-w".to_string(), "CloseWindow", Some(CONTEXT_APP)));
+    rows.push(("cmd-q".to_string(), "Quit", None));
+    rows.push(("cmd-h".to_string(), "Hide", None));
+    rows.push(("alt-cmd-h".to_string(), "HideOthers", None));
+  } else {
+    rows.push(("alt-f4".to_string(), "CloseWindow", Some(CONTEXT_APP)));
+  }
+  if cfg!(debug_assertions) {
+    rows.push((format!("{m}-shift-i"), "InspectElement", Some(CONTEXT_APP)));
+  }
+  rows
+}
+
+fn binding_for(keys: &str, name: &str, context: Option<&str>) -> KeyBinding {
+  match name {
+    "NewWindow" => KeyBinding::new(keys, NewWindow, context),
+    "OpenRepository" => KeyBinding::new(keys, OpenRepository, context),
+    "ShowSettings" => KeyBinding::new(keys, ShowSettings, context),
+    "QuickOpen" => KeyBinding::new(keys, QuickOpen, context),
+    "ShowChanges" => KeyBinding::new(keys, ShowChanges, context),
+    "ShowExplorer" => KeyBinding::new(keys, ShowExplorer, context),
+    "FocusTerminal" => KeyBinding::new(keys, FocusTerminal, context),
+    "ShowHistory" => KeyBinding::new(keys, ShowHistory, context),
+    "ToggleDiffLayout" => KeyBinding::new(keys, ToggleDiffLayout, context),
+    "ToggleTerminal" => KeyBinding::new(keys, ToggleTerminal, context),
+    "NewTerminal" => KeyBinding::new(keys, NewTerminal, context),
+    "SplitTerminalHorizontal" => KeyBinding::new(keys, SplitTerminalHorizontal, context),
+    "SplitTerminalVertical" => KeyBinding::new(keys, SplitTerminalVertical, context),
+    "KillTerminalPane" => KeyBinding::new(keys, KillTerminalPane, context),
+    "ActivateTerminalGroup1" => KeyBinding::new(keys, ActivateTerminalGroup1, context),
+    "ActivateTerminalGroup2" => KeyBinding::new(keys, ActivateTerminalGroup2, context),
+    "ActivateTerminalGroup3" => KeyBinding::new(keys, ActivateTerminalGroup3, context),
+    "ActivateTerminalGroup4" => KeyBinding::new(keys, ActivateTerminalGroup4, context),
+    "ActivateTerminalGroup5" => KeyBinding::new(keys, ActivateTerminalGroup5, context),
+    "ActivateTerminalGroup6" => KeyBinding::new(keys, ActivateTerminalGroup6, context),
+    "ActivateTerminalGroup7" => KeyBinding::new(keys, ActivateTerminalGroup7, context),
+    "ActivateTerminalGroup8" => KeyBinding::new(keys, ActivateTerminalGroup8, context),
+    "ActivateTerminalGroup9" => KeyBinding::new(keys, ActivateTerminalGroup9, context),
+    "ReloadSession" => KeyBinding::new(keys, ReloadSession, context),
+    "SwallowSave" => KeyBinding::new(keys, SwallowSave, context),
+    "ClearSelection" => KeyBinding::new(keys, ClearSelection, context),
+    "CopyDiffSelection" => KeyBinding::new(keys, CopyDiffSelection, context),
+    "CommitFromBox" => KeyBinding::new(keys, CommitFromBox, context),
+    "FocusRecentFilter" => KeyBinding::new(keys, FocusRecentFilter, context),
+    "FocusWorkspaceFilter" => KeyBinding::new(keys, FocusWorkspaceFilter, context),
+    "WelcomeListUp" => KeyBinding::new(keys, WelcomeListUp, context),
+    "WelcomeListDown" => KeyBinding::new(keys, WelcomeListDown, context),
+    "WelcomeListConfirm" => KeyBinding::new(keys, WelcomeListConfirm, context),
+    "WelcomeListEscape" => KeyBinding::new(keys, WelcomeListEscape, context),
+    "ZoomIn" => KeyBinding::new(keys, ZoomIn, context),
+    "ZoomOut" => KeyBinding::new(keys, ZoomOut, context),
+    "ZoomReset" => KeyBinding::new(keys, ZoomReset, context),
+    "ColorTheme" => KeyBinding::new(keys, ColorTheme, context),
+    "Minimize" => KeyBinding::new(keys, Minimize, context),
+    "Cancel" => KeyBinding::new(keys, Cancel, context),
+    "Confirm" => KeyBinding::new(keys, Confirm, context),
+    "CloseWindow" => KeyBinding::new(keys, CloseWindow, context),
+    "Quit" => KeyBinding::new(keys, Quit, context),
+    "Hide" => KeyBinding::new(keys, Hide, context),
+    "HideOthers" => KeyBinding::new(keys, HideOthers, context),
+    "InspectElement" => KeyBinding::new(keys, InspectElement, context),
+    "ExplorerRename" => KeyBinding::new(keys, ExplorerRename, context),
+    "ExplorerDelete" => KeyBinding::new(keys, ExplorerDelete, context),
+    "ExplorerCut" => KeyBinding::new(keys, ExplorerCut, context),
+    "ExplorerCopy" => KeyBinding::new(keys, ExplorerCopy, context),
+    "ExplorerPaste" => KeyBinding::new(keys, ExplorerPaste, context),
+    other => unreachable!("unknown action {other}"),
+  }
+}
+
+pub fn bindings() -> Vec<KeyBinding> {
+  binding_table(cfg!(target_os = "macos"))
+    .into_iter()
+    .map(|(keys, name, context)| binding_for(&keys, name, context))
+    .collect()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use core::prelude::v1::test;
+
+  #[test]
+  fn mac_uses_cmd_and_others_use_ctrl() {
+    let mac = binding_table(true);
+    let other = binding_table(false);
+    assert!(
+      mac
+        .iter()
+        .any(|(keys, name, _)| keys == "cmd-1" && *name == "ShowChanges")
+    );
+    assert!(
+      other
+        .iter()
+        .any(|(keys, name, _)| keys == "ctrl-1" && *name == "ShowChanges")
+    );
+    assert!(mac.iter().any(|(keys, _, _)| keys == "cmd-q"));
+    assert!(!other.iter().any(|(_, name, _)| *name == "Quit"));
+    assert!(
+      other
+        .iter()
+        .any(|(keys, name, _)| keys == "alt-f4" && *name == "CloseWindow")
+    );
+  }
+
+  #[test]
+  fn welcome_and_repository_share_the_number_keys_in_different_contexts() {
+    let rows = binding_table(true);
+    let one: Vec<_> = rows.iter().filter(|(keys, _, _)| keys == "cmd-1").collect();
+    assert_eq!(one.len(), 2);
+    assert!(
+      one
+        .iter()
+        .any(|(_, name, ctx)| *name == "ShowChanges" && *ctx == Some(CONTEXT_REPOSITORY))
+    );
+    assert!(
+      one
+        .iter()
+        .any(|(_, name, ctx)| *name == "FocusRecentFilter" && *ctx == Some(CONTEXT_WELCOME))
+    );
+  }
+
+  #[test]
+  fn every_table_row_builds_a_binding() {
+    let count = binding_table(cfg!(target_os = "macos")).len();
+    assert_eq!(bindings().len(), count);
+  }
+
+  #[test]
+  fn escape_binds_clear_selection_only_in_repository() {
+    let rows = binding_table(true);
+    let clear: Vec<_> = rows.iter().filter(|(_, name, _)| *name == "ClearSelection").collect();
+    assert_eq!(clear.len(), 1);
+    assert_eq!(clear[0].0, "escape");
+    assert_eq!(clear[0].2, Some("Repository && !Terminal && !Settings"));
+    assert_eq!(CONTEXT_SETTINGS, "Settings");
+  }
+
+  #[test]
+  fn scm_and_diff_keys_bind_in_their_contexts() {
+    for (mac, primary) in [(true, "cmd"), (false, "ctrl")] {
+      let rows = binding_table(mac);
+      assert!(
+        rows.iter().any(|(keys, name, ctx)| {
+          keys == &format!("{primary}-enter") && *name == "CommitFromBox" && *ctx == Some(CONTEXT_CHANGES_INPUT)
+        }),
+        "{primary}-enter -> CommitFromBox in Changes > Input"
+      );
+      assert!(
+        rows.iter().any(|(keys, name, ctx)| {
+          keys == &format!("{primary}-c") && *name == "CopyDiffSelection" && *ctx == Some(CONTEXT_DIFF)
+        }),
+        "{primary}-c -> CopyDiffSelection in Diff"
+      );
+    }
+  }
+
+  #[test]
+  fn explorer_keys_bind_in_explorer_context() {
+    for (mac, primary) in [(true, "cmd"), (false, "ctrl")] {
+      let rows = binding_table(mac);
+      let context = Some(CONTEXT_EXPLORER_KEYS);
+      let expected = [
+        ("f2".to_string(), "ExplorerRename"),
+        ("delete".to_string(), "ExplorerDelete"),
+        (format!("{primary}-backspace"), "ExplorerDelete"),
+        (format!("{primary}-c"), "ExplorerCopy"),
+        (format!("{primary}-x"), "ExplorerCut"),
+        (format!("{primary}-v"), "ExplorerPaste"),
+      ];
+      for (key, name) in expected {
+        assert!(
+          rows
+            .iter()
+            .any(|(keys, action, ctx)| keys == &key && *action == name && *ctx == context),
+          "{key} -> {name} in Explorer && !Input"
+        );
+      }
+      assert!(
+        rows.iter().any(|(keys, action, ctx)| {
+          keys == "escape" && *action == "Cancel" && *ctx == Some(CONTEXT_EXPLORER_INPUT)
+        }),
+        "escape -> Cancel in Explorer > Input"
+      );
+    }
+  }
+
+  #[test]
+  fn quick_open_binds_in_app_and_repository() {
+    for (mac, primary) in [(true, "cmd"), (false, "ctrl")] {
+      let rows = binding_table(mac);
+      let key = format!("{primary}-p");
+      assert!(
+        rows
+          .iter()
+          .any(|(keys, name, ctx)| keys == &key && *name == "QuickOpen" && *ctx == Some(CONTEXT_APP)),
+        "{key} -> QuickOpen in DeathPush"
+      );
+      assert!(
+        rows
+          .iter()
+          .any(|(keys, name, ctx)| { keys == &key && *name == "QuickOpen" && *ctx == Some(CONTEXT_REPOSITORY) }),
+        "{key} -> QuickOpen in Repository"
+      );
+    }
+  }
+
+  #[test]
+  fn branch_picker_keys_bind_in_picker_context() {
+    let rows = binding_table(true);
+    assert!(
+      rows.iter().any(|(keys, name, ctx)| {
+        keys == "enter" && *name == "Confirm" && *ctx == Some(CONTEXT_BRANCH_PICKER_INPUT)
+      }),
+      "enter -> Confirm in BranchPicker > Input"
+    );
+    assert!(
+      rows
+        .iter()
+        .any(|(keys, name, ctx)| keys == "escape" && *name == "Cancel" && *ctx == Some(CONTEXT_BRANCH_PICKER)),
+      "escape -> Cancel in BranchPicker"
+    );
+    assert!(
+      rows.iter().any(|(keys, name, ctx)| {
+        keys == "escape" && *name == "Cancel" && *ctx == Some(CONTEXT_BRANCH_PICKER_INPUT)
+      }),
+      "escape -> Cancel in BranchPicker > Input"
+    );
+  }
+
+  #[test]
+  fn color_theme_chord_binds_in_app_context() {
+    for (mac, primary) in [(true, "cmd"), (false, "ctrl")] {
+      let rows = binding_table(mac);
+      let key = format!("{primary}-k {primary}-t");
+      assert!(
+        rows
+          .iter()
+          .any(|(keys, name, ctx)| keys == &key && *name == "ColorTheme" && *ctx == Some(CONTEXT_APP)),
+        "{key} -> ColorTheme in DeathPush"
+      );
+    }
+  }
+
+  #[test]
+  fn welcome_list_keys_bind_inside_the_input_context() {
+    let rows = binding_table(true);
+    let context = Some(CONTEXT_WELCOME_LIST_INPUT);
+    for (key, name) in [
+      ("up", "WelcomeListUp"),
+      ("down", "WelcomeListDown"),
+      ("enter", "WelcomeListConfirm"),
+      ("escape", "WelcomeListEscape"),
+    ] {
+      assert!(
+        rows
+          .iter()
+          .any(|(keys, action, ctx)| keys == key && *action == name && *ctx == context),
+        "{key} -> {name} in WelcomeList > Input"
+      );
+    }
+  }
+
+  #[test]
+  fn terminal_context_and_group_chords() {
+    for (mac, primary) in [(true, "cmd"), (false, "ctrl")] {
+      let rows = binding_table(mac);
+      let term = Some(CONTEXT_TERMINAL);
+      let expected = [
+        (format!("{primary}-t"), "NewTerminal"),
+        (format!("{primary}-d"), "SplitTerminalHorizontal"),
+        (format!("{primary}-shift-d"), "SplitTerminalVertical"),
+        (format!("{primary}-w"), "KillTerminalPane"),
+      ];
+      for (key, name) in expected {
+        assert!(
+          rows
+            .iter()
+            .any(|(keys, action, ctx)| keys == &key && *action == name && *ctx == term),
+          "{key} -> {name} in Terminal"
+        );
+      }
+      for n in 1..=9 {
+        let key = format!("alt-{primary}-{n}");
+        let name = format!("ActivateTerminalGroup{n}");
+        assert!(
+          rows
+            .iter()
+            .any(|(keys, action, ctx)| keys == &key && *action == name && *ctx == Some(CONTEXT_REPOSITORY)),
+          "{key} -> {name} in Repository"
+        );
+      }
+    }
+  }
+}

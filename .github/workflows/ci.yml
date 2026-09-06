@@ -33,35 +33,34 @@ jobs:
             args: "--target aarch64-pc-windows-msvc"
     runs-on: ${{ matrix.platform }}
     steps:
+      - name: Enable long paths for dependency checkouts
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
-      - uses: voidzero-dev/setup-vp@v1.18.0
-        with:
-          cache: true
-          run-install: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'windows-11-arm' && 'aarch64-pc-windows-msvc' || '' }}
-      - uses: swatinem/rust-cache@v2
+          components: rustfmt, clippy
+      - uses: mlugg/setup-zig@v2
+        if: runner.os != 'Windows' || runner.arch != 'ARM64'
         with:
-          workspaces: "./src-tauri -> target"
+          version: 0.16.0
+      - name: Install x64 Zig on Windows ARM
+        if: runner.os == 'Windows' && runner.arch == 'ARM64'
+        shell: pwsh
+        run: ./.github/scripts/setup-zig-windows-arm.ps1
+      - uses: swatinem/rust-cache@v2
       - name: Install Linux deps
         if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libdbus-1-dev patchelf xdg-utils
-      - run: vp install --frozen-lockfile
-      - name: Lint frontend
-        run: vp lint src/
-      - name: Format frontend
+          sudo apt-get install -y libfontconfig-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev libvulkan1 libssl-dev libzstd-dev
+      - name: Format
         if: matrix.platform == 'ubuntu-22.04'
-        run: vp fmt src vite.config.ts --check
-      - name: Typecheck frontend
-        run: vp check --no-lint --no-fmt src vite.config.ts
-      - name: Test frontend
-        run: vp test run
+        run: cargo fmt --all --check
       - name: Clippy
-        run: cd src-tauri && cargo clippy -- -D warnings
-      - name: Test Rust
-        run: cd src-tauri && cargo test
+        run: cargo clippy --workspace --all-targets ${{ matrix.args }} -- -D warnings
+      - name: Test
+        run: cargo test --workspace ${{ matrix.args }}
       - name: Build
-        run: vp run tauri build --no-bundle ${{ matrix.args }}
+        run: cargo build --release -p deathpush ${{ matrix.args }}

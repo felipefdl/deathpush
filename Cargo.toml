@@ -1,0 +1,49 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/app"]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2024"
+rust-version = "1.97"
+license = "Apache-2.0"
+authors = ["felipefdl"]
+repository = "https://github.com/felipefdl/deathpush"
+
+[workspace.dependencies]
+deathpush-core = { path = "crates/core" }
+base64 = "0.23"
+cargo-packager-updater = "0.2"
+chrono = "0.4"
+dirs = "6"
+futures = "0.3"
+git2 = { version = "0.21", features = ["vendored-openssl"] }
+gpui-kit = { version = "0.6.0", features = ["tree-sitter-languages"] }
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
+md5 = "0.8"
+notify = "8"
+nucleo-matcher = "0.3"
+percent-encoding = "2"
+portable-pty = "0.9"
+ropey = "1"
+rust-embed = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+similar = { version = "3", features = ["unicode"] }
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+trash = "5"
+url = "2"
+
+[profile.dev.package.gpui-pre]
+opt-level = 3
+
+[profile.dev.package.gpui-pre-platform]
+opt-level = 3
+
+[profile.dev.package.gpui-pre-macros]
+opt-level = 3

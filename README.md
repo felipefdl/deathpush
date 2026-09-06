@@ -27,7 +27,7 @@ DeathPush is a standalone desktop Git client for people who like the VS Code Sou
 ## What You Can Do
 
 - Track changes across staged, unstaged, and untracked files.
-- Diff files inline or side by side with Pierre views.
+- Diff files inline or side by side.
 - Diff images side-by-side (PNG, JPG, GIF, WebP, AVIF, SVG, and more).
 - Stage and unstage files. Discard, commit, and amend without losing momentum.
 - Push, pull, fetch, checkout, and create branches quickly.
@@ -46,16 +46,31 @@ If you already know VS Code Source Control, DeathPush feels immediately familiar
 - Less overhead.
 - Faster path from "changed file" to "clean commit."
 
+## Downloads
+
+Installers are on [GitHub Releases](https://github.com/felipefdl/deathpush/releases):
+
+- macOS: `.dmg` (Apple Silicon and Intel)
+- Linux x86_64: `.deb` and AppImage
+- Windows x86_64: NSIS installer (`-setup.exe`). ARM is included when that job succeeds.
+
+A packaged build checks for updates 2 seconds after the welcome screen appears. When one exists, the footer shows `Update to v{version}`; click it to download and install. Debug builds skip the check.
+
 ## Prerequisites
 
-- [Vite+](https://viteplus.dev/) (`vp`) with Node.js 24 and pnpm
-- [Rust toolchain](https://rustup.rs/) (edition 2024, minimum rustc 1.85.0)
+- Rust stable (1.97 or newer)
+- [Zig](https://ziglang.org/) 0.16.0 on PATH, for libghostty-vt
 - [`just`](https://github.com/casey/just) task runner (`cargo install just`)
+- Linux: X11, Wayland, fontconfig, Vulkan, OpenSSL, and zstd development packages. On Ubuntu:
+
+  ```sh
+  sudo apt-get install -y libfontconfig-dev libwayland-dev libx11-xcb-dev \
+    libxkbcommon-x11-dev libvulkan1 libssl-dev libzstd-dev
+  ```
 
 ## Get Running in 60 Seconds
 
 ```sh
-vp install
 just dev
 ```
 
@@ -63,16 +78,19 @@ Build production binary:
 
 ```sh
 just build
+just package  # cargo packager --release (pass --formats to pick dmg, deb, appimage, nsis)
 ```
 
 Quality checks:
 
 ```sh
-just lint    # vp lint + cargo clippy
-just test    # vp test
-just fmt     # vp fmt + cargo fmt
-just check   # vp check + cargo check
+just lint    # clippy, warnings denied
+just test    # cargo test --workspace
+just fmt     # rustfmt
+just check   # cargo check, all targets
 ```
+
+Cut a tagged release with `just release <version>` (bumps the workspace version, commits, tags; does not push). Push the tag, then review the draft GitHub release.
 
 ## Under the Hood
 
@@ -80,10 +98,10 @@ DeathPush is built with a hybrid Git engine:
 
 - `git2` for fast read operations (status, diff, branches, log, tags).
 - Native `git` CLI for write operations (commit, push/pull, stash, checkout, reset, clone), so hooks, signing, credentials, SSH config, and LFS keep working as expected.
-- Pierre diffs with Shiki highlighting.
-- Auto-update support: get notified and install new versions without leaving the app.
+- Diffs come from git2 with tree-sitter highlighting.
+- Auto-update: the welcome footer installs a newer package after a minisign-verified check of `latest.json` on GitHub Releases.
 
-Stack: Tauri v2 (Rust) + Solid 2 + TypeScript + Zustand + Pierre diffs and trees.
+Stack: GPUI (Rust) through gpui-kit, git2 and the git CLI, libghostty-vt for the terminal.
 
 ## License
 
