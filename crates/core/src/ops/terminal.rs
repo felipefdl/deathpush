@@ -110,7 +110,7 @@ impl Core {
     #[cfg(windows)]
     {
       let _ = session;
-      return Ok(false);
+      Ok(false)
     }
     #[cfg(not(windows))]
     {

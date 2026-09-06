@@ -228,6 +228,11 @@ fn relaunch(update: &Update) -> Result<(), String> {
 }
 
 fn install_sync(mut update: Update, on_progress: &(dyn Fn(u8) + Send + Sync)) -> Result<(), String> {
+  install_package(&mut update, on_progress)?;
+  relaunch(&update)
+}
+
+fn install_package(update: &mut Update, on_progress: &(dyn Fn(u8) + Send + Sync)) -> Result<(), String> {
   update.timeout = Some(DOWNLOAD_TIMEOUT);
   let received = AtomicU64::new(0);
   update
@@ -238,9 +243,12 @@ fn install_sync(mut update: Update, on_progress: &(dyn Fn(u8) + Send + Sync)) ->
       },
       || {},
     )
-    .map_err(|err| err.to_string())?;
-  relaunch(&update)
+    .map_err(|err| err.to_string())
 }
+
+#[cfg(test)]
+#[path = "updater_tests.rs"]
+mod integration_tests;
 
 pub(crate) fn take_ops(cx: &mut App) -> Arc<dyn UpdaterOps> {
   cx.default_global::<UpdaterState>().ops()

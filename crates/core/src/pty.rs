@@ -1,5 +1,3 @@
-#[cfg(not(unix))]
-use portable_pty::ChildKiller;
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::{Read, Write};

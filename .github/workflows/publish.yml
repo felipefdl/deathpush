@@ -49,6 +49,9 @@ jobs:
     continue-on-error: ${{ matrix.allow-failure }}
     timeout-minutes: 90
     steps:
+      - name: Enable long paths for dependency checkouts
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
