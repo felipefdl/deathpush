@@ -59,8 +59,13 @@ jobs:
           targets: ${{ matrix.target }}
 
       - uses: mlugg/setup-zig@v2
+        if: runner.os != 'Windows' || runner.arch != 'ARM64'
         with:
           version: 0.16.0
+      - name: Install x64 Zig on Windows ARM
+        if: runner.os == 'Windows' && runner.arch == 'ARM64'
+        shell: pwsh
+        run: ./.github/scripts/setup-zig-windows-arm.ps1
 
       - uses: swatinem/rust-cache@v2
 

@@ -42,8 +42,13 @@ jobs:
           targets: ${{ matrix.platform == 'windows-11-arm' && 'aarch64-pc-windows-msvc' || '' }}
           components: rustfmt, clippy
       - uses: mlugg/setup-zig@v2
+        if: runner.os != 'Windows' || runner.arch != 'ARM64'
         with:
           version: 0.16.0
+      - name: Install x64 Zig on Windows ARM
+        if: runner.os == 'Windows' && runner.arch == 'ARM64'
+        shell: pwsh
+        run: ./.github/scripts/setup-zig-windows-arm.ps1
       - uses: swatinem/rust-cache@v2
       - name: Install Linux deps
         if: startsWith(matrix.platform, 'ubuntu')

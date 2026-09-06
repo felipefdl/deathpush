@@ -1,21 +1,33 @@
 use std::path::PathBuf;
 
+#[cfg(not(windows))]
 use percent_encoding::percent_decode_str;
 
 /// `deathpush:///Users/x/repo` or `deathpush://Users/x/repo` to `/Users/x/repo`, only when that directory exists.
 pub fn repository_path_from_url(raw: &str) -> Option<PathBuf> {
-  let url = url::Url::parse(raw).ok()?;
-  if url.scheme() != "deathpush" {
-    return None;
-  }
-  let host = url.host_str().unwrap_or("");
-  let path = percent_decode_str(url.path()).decode_utf8_lossy().into_owned();
-  let joined = if host.is_empty() {
-    path
-  } else {
-    format!("/{host}{path}")
+  #[cfg(windows)]
+  let candidate = {
+    let (scheme, path) = raw.split_once(':')?;
+    if !scheme.eq_ignore_ascii_case("deathpush") {
+      return None;
+    }
+    url::Url::parse(&format!("file:{path}")).ok()?.to_file_path().ok()?
   };
-  let candidate = PathBuf::from(joined);
+  #[cfg(not(windows))]
+  let candidate = {
+    let url = url::Url::parse(raw).ok()?;
+    if url.scheme() != "deathpush" {
+      return None;
+    }
+    let host = url.host_str().unwrap_or("");
+    let path = percent_decode_str(url.path()).decode_utf8_lossy().into_owned();
+    let joined = if host.is_empty() {
+      path
+    } else {
+      format!("/{host}{path}")
+    };
+    PathBuf::from(joined)
+  };
   candidate.is_dir().then_some(candidate)
 }
 
