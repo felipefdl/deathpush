@@ -9,9 +9,9 @@ use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use super::groups::{FileRow, GroupId};
+use super::groups::{FileRow, GroupId, TreeRow};
 use super::view::ChangesView;
-use crate::repo::explorer::icons::{IconKind, icon_for};
+use crate::repo::explorer::icons::{IconKind, icon_for, render_icon, row_height};
 use crate::theme::hsla;
 
 pub fn status_letter(status: FileStatus) -> &'static str {
@@ -47,13 +47,6 @@ pub fn is_dimmed(status: FileStatus) -> bool {
   matches!(status, FileStatus::Ignored)
 }
 
-fn row_height(density: TreeDensity) -> f32 {
-  match density {
-    TreeDensity::Compact => 22.0,
-    TreeDensity::Default | TreeDensity::Relaxed => 28.0,
-  }
-}
-
 fn split_name_dir(path: &str) -> (&str, Option<&str>) {
   match path.rfind('/') {
     Some(index) => (&path[index + 1..], Some(&path[..index])),
@@ -70,6 +63,7 @@ pub fn file_icon(kind: IconKind, path: &str) -> Option<&'static str> {
 pub struct FileRowPaint {
   pub density: TreeDensity,
   pub icons: IconKind,
+  pub depth: usize,
 }
 
 pub fn render_file_row(
@@ -81,7 +75,7 @@ pub fn render_file_row(
   view: WeakEntity<ChangesView>,
   palette: &UiPalette,
 ) -> impl IntoElement {
-  let (name, dir) = split_name_dir(&row.path);
+  let (name, _) = split_name_dir(&row.path);
   let letter = status_letter(row.status.clone());
   let color = status_color(row.status.clone(), palette);
   let dimmed = is_dimmed(row.status.clone());
@@ -99,6 +93,7 @@ pub fn render_file_row(
     .items_center()
     .gap_1()
     .px_2()
+    .pl(px(24.0 + 12.0 * paint.depth as f32))
     .cursor_pointer()
     .when(selected, |el| el.bg(hsla(palette.list_active)))
     .when(!selected, |el| el.hover(|el| el.bg(hsla(palette.list_hover))))
@@ -109,39 +104,18 @@ pub fn render_file_row(
       });
     })
     .when_some(file_icon(paint.icons, &row.path), |el, path| {
-      el.child(
-        svg()
-          .path(path)
-          .size(px(16.0))
-          .text_color(hsla(palette.muted_foreground)),
-      )
+      el.child(render_icon(paint.icons, path, hsla(palette.muted_foreground)))
     })
     .child(
-      div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .items_baseline()
-        .gap_1()
-        .child(
-          div()
-            .flex_shrink_0()
-            .text_size(px(13.0))
-            .text_color(hsla(palette.foreground))
-            .child(name.to_string()),
-        )
-        .when_some(dir.map(str::to_string), |el, dir| {
-          el.child(
-            div()
-              .min_w_0()
-              .flex_1()
-              .overflow_hidden()
-              .text_ellipsis()
-              .text_size(px(11.0))
-              .text_color(hsla(palette.muted_foreground))
-              .child(dir),
-          )
-        }),
+      div().flex_1().min_w_0().flex().items_baseline().gap_1().child(
+        div()
+          .flex_1()
+          .min_w_0()
+          .truncate()
+          .text_size(px(13.0))
+          .text_color(hsla(palette.foreground))
+          .child(name.to_string()),
+      ),
     )
     .child(
       div()
@@ -180,6 +154,90 @@ pub fn render_file_row(
           menu.separator().item(item("Move to Trash", ChangesView::menu_trash))
         })
     })
+}
+
+pub fn render_folder_row(
+  row: &TreeRow,
+  collapsed: bool,
+  paint: FileRowPaint,
+  group: GroupId,
+  view: WeakEntity<ChangesView>,
+  palette: &UiPalette,
+) -> AnyElement {
+  let path = row.path.clone();
+  let (name, _) = split_name_dir(&path);
+  let menu_path = path.clone();
+  let menu_view = view.clone();
+  let name = name.to_string();
+  div()
+    .id(SharedString::from(format!("scm-folder-{}-{}", group.pane_id(), path)))
+    .h(px(row_height(paint.density)))
+    .flex_shrink_0()
+    .flex()
+    .items_center()
+    .gap_1()
+    .px_2()
+    .pl(px(8.0 + 12.0 * row.depth as f32))
+    .cursor_pointer()
+    .hover(|el| el.bg(hsla(palette.list_hover)))
+    .on_click(move |_, _, cx| {
+      let _ = view.update(cx, |this, cx| {
+        let key = (group, path.clone());
+        if !this.collapsed_folders.remove(&key) {
+          this.collapsed_folders.insert(key);
+        }
+        cx.notify();
+      });
+    })
+    .child(
+      svg()
+        .path(if collapsed {
+          "icons/chevron-right.svg"
+        } else {
+          "icons/chevron-down.svg"
+        })
+        .size(px(12.0))
+        .flex_shrink_0()
+        .text_color(hsla(palette.muted_foreground)),
+    )
+    .when_some(icon_for(paint.icons, &name, true, !collapsed), |el, path| {
+      el.child(render_icon(paint.icons, path, hsla(palette.muted_foreground)))
+    })
+    .child(
+      div()
+        .flex_1()
+        .min_w_0()
+        .truncate()
+        .text_size(px(13.0))
+        .text_color(hsla(palette.foreground))
+        .child(name),
+    )
+    .context_menu(move |menu, _, _| {
+      let path = menu_path.clone();
+      let view = menu_view.clone();
+      menu.item(
+        PopupMenuItem::new(if group == GroupId::Staged {
+          "Unstage Changes"
+        } else {
+          "Stage Changes"
+        })
+        .on_click(move |_, window, cx| {
+          let _ = view.update(cx, |this, cx| {
+            let paths = vec![path.clone()];
+            this.send(
+              if group == GroupId::Staged {
+                Intent::Unstage { paths }
+              } else {
+                Intent::Stage { paths }
+              },
+              window,
+              cx,
+            );
+          });
+        }),
+      )
+    })
+    .into_any_element()
 }
 
 pub fn render_stash_row(stash: &StashEntry, view: WeakEntity<ChangesView>, palette: &UiPalette) -> impl IntoElement {

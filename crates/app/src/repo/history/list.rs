@@ -197,7 +197,7 @@ fn render_commit_row(
               div()
                 .flex_shrink_0()
                 .text_size(px(11.0))
-                .text_color(hsla(palette.accent))
+                .text_color(hsla(palette.muted_foreground))
                 .child(entry.short_id.clone()),
             )
             .when(merge, |el| {

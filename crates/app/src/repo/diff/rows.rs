@@ -162,7 +162,9 @@ fn render_inline_row(row: &DiffRow, paint: &RowPaint, index: usize, interact: &R
     RowKind::Remove => Side::Old,
     _ => Side::New,
   };
-  render_cell(row, side, Gutter::Dual, paint, index, interact).into_any_element()
+  render_cell(row, side, Gutter::Dual, paint, index, interact)
+    .w_full()
+    .into_any_element()
 }
 
 fn render_side_row(
@@ -177,6 +179,7 @@ fn render_side_row(
   }
   div()
     .flex()
+    .w_full()
     .h(px(paint.line_height))
     .child(
       render_cell(left, Side::Old, Gutter::SingleOld, paint, index, interact)
@@ -194,6 +197,7 @@ fn render_side_row(
 
 fn render_separator(row: &DiffRow, paint: &RowPaint, interact: &RowInteract) -> Div {
   let mut row_el = div()
+    .w_full()
     .h(px(paint.line_height))
     .flex()
     .items_center()

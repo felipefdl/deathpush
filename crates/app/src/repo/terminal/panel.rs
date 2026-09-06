@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use deathpush_core::config::layout::PanelTab;
 use gpui_kit::base::{ResizableState, h_resizable, resizable_panel, v_resizable};
 use gpui_kit::component::button::*;
-use gpui_kit::component::{Icon, Sizable};
+use gpui_kit::component::{Icon, Sizable, Size};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
@@ -11,6 +11,7 @@ use super::model::{SplitTree, TerminalModel};
 use crate::actions::*;
 use crate::repo::layout_model::LayoutModel;
 use crate::repo::output_log::{OutputLog, format_line};
+use crate::repo::resize::divider;
 use crate::theme::{ActivePalette, hsla};
 
 pub fn tab_label(tab: PanelTab) -> &'static str {
@@ -38,11 +39,13 @@ impl TerminalPanel {
     cx.observe(&model, |_, _, cx| cx.notify()).detach();
     cx.observe(&layout, |_, _, cx| cx.notify()).detach();
     cx.observe(&output, |_, _, cx| cx.notify()).detach();
+    let sidebar_state = cx.new(|_| ResizableState::default());
+    cx.observe(&sidebar_state, |_, _, cx| cx.notify()).detach();
     Self {
       model,
       layout,
       output,
-      sidebar_state: cx.new(|_| ResizableState::default()),
+      sidebar_state,
       split_states: HashMap::new(),
     }
   }
@@ -56,7 +59,11 @@ impl TerminalPanel {
     self
       .split_states
       .entry(id)
-      .or_insert_with(|| cx.new(|_| ResizableState::default()))
+      .or_insert_with(|| {
+        let state = cx.new(|_| ResizableState::default());
+        cx.observe(&state, |_, _, cx| cx.notify()).detach();
+        state
+      })
       .clone()
   }
 
@@ -101,10 +108,12 @@ impl TerminalPanel {
           Axis::Horizontal => h_resizable(key),
           Axis::Vertical => v_resizable(key),
         };
+        let minimum = if *axis == Axis::Horizontal { 80.0 } else { 40.0 };
         group
           .with_state(&state)
-          .child(resizable_panel().child(first))
-          .child(resizable_panel().child(second))
+          .with_handle_appearance(divider(state.clone(), |_, _, _| {}))
+          .child(resizable_panel().size_range(px(minimum)..px(f32::MAX)).child(first))
+          .child(resizable_panel().size_range(px(minimum)..px(f32::MAX)).child(second))
           .into_any_element()
       }
     }
@@ -114,6 +123,7 @@ impl TerminalPanel {
     let palette = cx.global::<ActivePalette>().0;
     let model = self.model.clone();
     let layout = self.layout.clone();
+    let active_pane = model.read(cx).active_pane();
     let rows: Vec<AnyElement> = pane_ids
       .iter()
       .copied()
@@ -140,10 +150,18 @@ impl TerminalPanel {
           .gap_1()
           .px_1()
           .cursor_pointer()
+          .when(active_pane == Some(pane_id), |el| el.bg(hsla(palette.list_active)))
           .hover(|el| el.bg(hsla(palette.list_hover)))
           .on_click(move |_, window, cx| {
             activate.update(cx, |model, cx| model.activate_pane(pane_id, window, cx));
           })
+          .child(
+            svg()
+              .path("icons/terminal.svg")
+              .size(px(14.0))
+              .flex_shrink_0()
+              .text_color(hsla(palette.foreground)),
+          )
           .child(
             div()
               .flex_1()
@@ -167,7 +185,7 @@ impl TerminalPanel {
                 });
                 split_h.update(cx, |model, cx| {
                   model.set_panes_visible(true, cx);
-                  model.split(pane_id, Axis::Vertical, window, cx);
+                  model.split(pane_id, Axis::Horizontal, window, cx);
                 });
               }
             },
@@ -186,7 +204,7 @@ impl TerminalPanel {
                 });
                 split_v.update(cx, |model, cx| {
                   model.set_panes_visible(true, cx);
-                  model.split(pane_id, Axis::Horizontal, window, cx);
+                  model.split(pane_id, Axis::Vertical, window, cx);
                 });
               }
             },
@@ -203,7 +221,13 @@ impl TerminalPanel {
           .into_any_element()
       })
       .collect();
-    div().size_full().flex().flex_col().children(rows)
+    div()
+      .id("terminal-selector")
+      .size_full()
+      .overflow_y_scroll()
+      .flex()
+      .flex_col()
+      .children(rows)
   }
 
   fn render_output(&self, cx: &App) -> AnyElement {
@@ -267,7 +291,9 @@ fn header_icon(
 ) -> impl IntoElement {
   Button::new(id)
     .ghost()
-    .xsmall()
+    .with_size(Size::Medium)
+    .w(px(22.0))
+    .h(px(22.0))
     .icon(Icon::empty().path(icon))
     .tooltip(tooltip)
     .on_click(move |_, window, cx| window.dispatch_action(action.boxed_clone(), cx))
@@ -282,7 +308,13 @@ impl Render for TerminalPanel {
     let maximized = layout.terminal_maximized;
     let show_actions = active == PanelTab::Terminal || maximized;
     let tree = self.model.read(cx).active_group().map(|group| group.tree.clone());
-    let pane_ids = tree.as_ref().map(SplitTree::panes).unwrap_or_default();
+    let pane_ids: Vec<u64> = self
+      .model
+      .read(cx)
+      .groups
+      .iter()
+      .flat_map(|group| group.tree.panes())
+      .collect();
     let show_sidebar = active == PanelTab::Terminal && pane_ids.len() > 1;
     let tab = |id: &'static str, tab: PanelTab, action: Box<dyn Action>| {
       let is_active = active == tab;
@@ -313,14 +345,15 @@ impl Render for TerminalPanel {
           .unwrap_or_else(|| div().size_full().into_any_element());
         if show_sidebar {
           let layout_entity = self.layout.clone();
-          let sidebar_index = 0;
+          let sidebar_index = 1;
           h_resizable("terminal-panes")
             .with_state(&self.sidebar_state)
-            .on_resize(move |state, _, cx| {
+            .with_handle_appearance(divider(self.sidebar_state.clone(), move |state, _, cx| {
               if let Some(width) = state.read(cx).sizes().get(sidebar_index).copied() {
                 layout_entity.update(cx, |layout, cx| layout.set_terminal_sidebar_width(f32::from(width), cx));
               }
-            })
+            }))
+            .child(resizable_panel().child(panes))
             .child(
               resizable_panel()
                 .size(px(layout.terminal_sidebar_width))
@@ -328,7 +361,6 @@ impl Render for TerminalPanel {
                 .flex_none()
                 .child(self.render_sidebar(&pane_ids, cx)),
             )
-            .child(resizable_panel().child(panes))
             .into_any_element()
         } else {
           panes
@@ -486,6 +518,25 @@ mod tests {
       .update(cx, |panel, _, cx| {
         assert_eq!(panel.model().read(cx).groups.len(), 1);
         assert_eq!(panel.model().read(cx).panes.len(), 1);
+        panel.model.update(cx, |model, cx| {
+          let pane = cx.new(|cx| PaneView::new_unthreaded(2, cx));
+          model.insert_test_pane(pane, cx);
+        });
+      })
+      .unwrap();
+
+    AnyWindowHandle::from(window)
+      .update(cx, |_, window, cx| {
+        let _ = window.draw(cx);
+      })
+      .unwrap();
+    window
+      .update(cx, |panel, _, cx| {
+        assert_eq!(
+          panel.sidebar_state.read(cx).sizes().len(),
+          2,
+          "two terminal groups must show the selector"
+        );
       })
       .unwrap();
 

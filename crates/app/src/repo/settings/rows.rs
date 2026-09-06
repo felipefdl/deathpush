@@ -266,7 +266,7 @@ impl RenderOnce for NumberRow {
       }
     });
     let input = state.read(cx).input.clone();
-    labeled_row(label, NumberInput::new(&input).small().w(px(88.0)))
+    labeled_row(label, NumberInput::new(&input).small().flex_none().w(px(88.0)))
   }
 }
 

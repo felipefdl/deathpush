@@ -7,7 +7,7 @@ use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use super::icons::{IconKind, icon_for, row_height};
+use super::icons::{IconKind, icon_for, render_icon, row_height};
 use super::menus::ItemMenu;
 use super::model::{Row, parent_path};
 use super::view::ExplorerView;
@@ -162,13 +162,7 @@ pub fn render_row(row: &Row, paint: &RowPaint, view: WeakEntity<ExplorerView>) -
         }),
     )
     .when_some(icon, |el, path| {
-      el.child(
-        svg()
-          .path(path)
-          .size(px(16.0))
-          .flex_shrink_0()
-          .text_color(hsla(paint.palette.muted_foreground)),
-      )
+      el.child(render_icon(paint.kind, path, hsla(paint.palette.muted_foreground)))
     })
     .when_some(paint.editing.clone(), |el, field| {
       el.child(

@@ -13,7 +13,7 @@ use gpui_kit::*;
 use super::banner::render_banner;
 use super::commit_box::{self, render_commit_box};
 use super::filter::{self, FILTER_DEBOUNCE_MS};
-use super::groups::{FileRow, GroupBody, GroupId, assemble_groups, render_groups};
+use super::groups::{FileRow, GroupBody, GroupId, assemble_groups, render_groups, tree_range, visible_tree};
 use super::overflow::{BranchListMode, OverflowItem, dispatch_item, filter_branches};
 use super::toolbar::render_toolbar;
 use crate::actions::*;
@@ -40,8 +40,10 @@ pub struct ChangesView {
   filter_text: String,
   filter_generation: u64,
   commit_generation: u64,
+  core_commit_message: String,
   pub(crate) selected: HashSet<(ResourceGroupKind, String)>,
   pub(crate) anchor: Option<(GroupId, usize)>,
+  pub(crate) collapsed_folders: HashSet<(GroupId, String)>,
   pub(crate) groups_state: Entity<ResizableState>,
   branch_list: Option<BranchListMode>,
   branch_query: Entity<InputState>,
@@ -63,7 +65,7 @@ impl ChangesView {
       TextareaState::new(window, cx)
         .placeholder("commit message")
         .auto_grow(2, 9)
-        .default_value(commit_message)
+        .default_value(commit_message.clone())
     });
     let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter files..."));
     if !file_filter.is_empty() {
@@ -99,20 +101,17 @@ impl ChangesView {
       }
     })
     .detach();
-    cx.subscribe(&model, |this, model, event: &RepoEvent, cx| {
+    cx.subscribe_in(&model, window, |this, model, event: &RepoEvent, window, cx| {
       if matches!(event, RepoEvent::Changed) {
         let message = model.read(cx).state().commit_message.clone();
+        let previous = std::mem::replace(&mut this.core_commit_message, message.clone());
         let current = this.commit.read(cx).value().to_string();
         let pending = this.commit_generation != 0;
-        let handle = this.window_handle;
-        let commit = this.commit.clone();
-        let _ = handle.update(cx, |_, window, cx| {
-          commit.update(cx, |state, cx| {
-            let focused = state.focus_handle(cx).is_focused(window);
-            if commit_box::should_sync_commit_message(&current, &message, focused, pending) {
-              state.set_value(message, window, cx);
-            }
-          });
+        this.commit.update(cx, |state, cx| {
+          let focused = state.focus_handle(cx).is_focused(window);
+          if commit_box::should_sync_commit_message(&current, &message, &previous, focused, pending) {
+            state.set_value(message, window, cx);
+          }
         });
       }
       cx.notify();
@@ -134,8 +133,10 @@ impl ChangesView {
       filter_text: file_filter,
       filter_generation: 0,
       commit_generation: 0,
+      core_commit_message: commit_message,
       selected: HashSet::new(),
       anchor: None,
+      collapsed_folders: HashSet::new(),
       groups_state: cx.new(|_| ResizableState::default()),
       branch_list: None,
       branch_query,
@@ -310,14 +311,11 @@ impl ChangesView {
     let GroupBody::Files(rows) = &group.body else {
       return;
     };
-    if rows.is_empty() {
-      return;
-    }
-    let last = rows.len() - 1;
-    let start = anchor_index.min(index).min(last);
-    let end = anchor_index.max(index).min(last);
+    let tree = visible_tree(rows, group_id, &self.collapsed_folders);
+    let indices = tree_range(&tree, anchor_index, index);
     self.selected.clear();
-    for row in &rows[start..=end] {
+    for index in indices {
+      let row = &rows[index];
       self.selected.insert((row.group_kind, row.path.clone()));
     }
     cx.notify();

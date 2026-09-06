@@ -15,7 +15,9 @@ use futures::channel::mpsc::{TryRecvError, UnboundedReceiver, unbounded};
 use gpui_kit::*;
 
 use super::bell::bell_flashes;
-use super::element::{PaintCache, TerminalElement, clamp_selection, on_key_down, on_key_up, paint_from_app};
+use super::element::{
+  PaintCache, TerminalElement, clamp_sel_anchor, clamp_selection, on_key_down, on_key_up, paint_from_app,
+};
 use crate::config::AppConfig;
 use crate::theme::ActivePalette;
 
@@ -88,7 +90,7 @@ pub struct PaneView {
   snapshot: Option<Arc<PaneSnapshot>>,
   focus_handle: FocusHandle,
   selection: Option<((u16, u16), (u16, u16))>,
-  dragging: bool,
+  selection_anchor: Option<(u16, u16)>,
   forwarded_button: Option<TermMouse>,
   cell: Option<(Pixels, Pixels)>,
   active: bool,
@@ -195,7 +197,7 @@ impl PaneView {
       snapshot: None,
       focus_handle: cx.focus_handle(),
       selection: None,
-      dragging: false,
+      selection_anchor: None,
       forwarded_button: None,
       cell: None,
       active: true,
@@ -355,11 +357,11 @@ impl PaneView {
   }
 
   pub(crate) fn dragging(&self) -> bool {
-    self.dragging
+    self.selection_anchor.is_some()
   }
 
   pub(crate) fn mouse_captured(&self) -> bool {
-    self.dragging || self.forwarded_button.is_some()
+    self.dragging() || self.forwarded_button.is_some()
   }
 
   pub(crate) fn set_forwarded_button(&mut self, button: Option<TermMouse>) {
@@ -417,28 +419,27 @@ impl PaneView {
       && (cols < old_cols || rows < old_rows)
     {
       self.selection = clamp_selection(self.selection, cols, rows);
+      self.selection_anchor = self.selection_anchor.map(|anchor| clamp_sel_anchor(anchor, cols, rows));
     }
     self.grid = Some((cols, rows, cell_w, cell_h));
   }
 
   pub(crate) fn begin_selection(&mut self, cell: (u16, u16), cx: &mut Context<Self>) {
-    self.selection = Some((cell, cell));
-    self.dragging = true;
+    self.selection = None;
+    self.selection_anchor = Some(cell);
     cx.notify();
   }
 
   pub(crate) fn extend_selection(&mut self, cell: (u16, u16), cx: &mut Context<Self>) {
-    if let Some((start, _)) = self.selection {
-      self.selection = Some((start, cell));
+    if let Some(start) = self.selection_anchor {
+      self.selection = (start != cell).then_some((start, cell));
       cx.notify();
     }
   }
 
   pub(crate) fn end_selection(&mut self, cell: (u16, u16), cx: &mut Context<Self>) {
-    if let Some((start, _)) = self.selection {
-      self.selection = Some((start, cell));
-    }
-    self.dragging = false;
+    self.extend_selection(cell, cx);
+    self.selection_anchor = None;
     cx.notify();
   }
 
@@ -745,6 +746,8 @@ impl Render for PaneView {
     div()
       .id(("terminal-pane", self.id))
       .size_full()
+      .p(px(8.0))
+      .overflow_hidden()
       .track_focus(&self.focus_handle)
       .key_context("Terminal")
       .opacity(if self.active { 1.0 } else { 0.7 })
@@ -838,6 +841,30 @@ mod tests {
     assert_eq!(clamp_sel_anchor((1, 1), 4, 3), (1, 1));
     let clamped = clamp_selection(Some(((9, 9), (8, 0))), 5, 2);
     assert_eq!(clamped, Some(((4, 1), (4, 0))));
+  }
+
+  #[gpui_kit::test]
+  fn click_does_not_select_a_cell_but_drag_selects_text(cx: &mut TestAppContext) {
+    let pane = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+    pane.update(cx, |view, cx| {
+      view.begin_selection((4, 3), cx);
+      assert!(view.selection.is_none());
+      assert!(view.mouse_captured());
+      view.end_selection((4, 3), cx);
+      assert!(view.selection.is_none());
+      assert!(!view.mouse_captured());
+
+      view.begin_selection((2, 0), cx);
+      view.extend_selection((5, 0), cx);
+      assert_eq!(view.selection, Some(((2, 0), (5, 0))));
+      view.end_selection((5, 0), cx);
+      assert_eq!(view.selection, Some(((2, 0), (5, 0))));
+      assert!(!view.mouse_captured());
+
+      view.begin_selection((7, 4), cx);
+      view.end_selection((7, 4), cx);
+      assert!(view.selection.is_none(), "a click clears an existing selection");
+    });
   }
 
   #[gpui_kit::test]

@@ -1,4 +1,5 @@
 use deathpush_core::config::settings::{TreeDensity, TreeIcons};
+use gpui_kit::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IconKind {
@@ -23,6 +24,19 @@ pub fn icon_for(kind: IconKind, name: &str, is_directory: bool, expanded: bool) 
     IconKind::None => None,
     IconKind::Standard => Some(standard_icon(name, is_directory, expanded)),
     IconKind::Complete => Some(complete_icon(name, is_directory, expanded)),
+  }
+}
+
+pub fn render_icon(kind: IconKind, path: &'static str, color: Hsla) -> AnyElement {
+  if kind == IconKind::Complete {
+    img(path).size(px(16.0)).flex_shrink_0().into_any_element()
+  } else {
+    svg()
+      .path(path)
+      .size(px(16.0))
+      .flex_shrink_0()
+      .text_color(color)
+      .into_any_element()
   }
 }
 

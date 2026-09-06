@@ -120,6 +120,10 @@ impl RepoView {
       });
     }
     let terminal_panel = cx.new(|cx| TerminalPanel::new(terminal.clone(), layout.clone(), output.clone(), cx));
+    let body_state = cx.new(|_| ResizableState::default());
+    let main_state = cx.new(|_| ResizableState::default());
+    cx.observe(&body_state, |_, _, cx| cx.notify()).detach();
+    cx.observe(&main_state, |_, _, cx| cx.notify()).detach();
     Self {
       model,
       layout,
@@ -133,8 +137,8 @@ impl RepoView {
       explorer,
       terminal,
       terminal_panel,
-      body_state: cx.new(|_| ResizableState::default()),
-      main_state: cx.new(|_| ResizableState::default()),
+      body_state,
+      main_state,
       focus_handle: cx.focus_handle(),
       settings_restore: None,
     }
@@ -297,11 +301,11 @@ impl RepoView {
         let layout_entity = self.layout.clone();
         v_resizable("main-area")
           .with_state(&self.main_state)
-          .on_resize(move |state, _, cx| {
+          .with_handle_appearance(super::resize::divider(self.main_state.clone(), move |state, _, cx| {
             if let Some(height) = state.read(cx).sizes().get(1).copied() {
               layout_entity.update(cx, |layout, cx| layout.set_terminal_height(f32::from(height), cx));
             }
-          })
+          }))
           .child(resizable_panel().child(main_panel))
           .child(
             resizable_panel()
@@ -322,11 +326,11 @@ impl RepoView {
       .child(sidebar);
     let mut group = h_resizable("shell-body")
       .with_state(&self.body_state)
-      .on_resize(move |state, _, cx| {
+      .with_handle_appearance(super::resize::divider(self.body_state.clone(), move |state, _, cx| {
         if let Some(width) = state.read(cx).sizes().get(sidebar_index).copied() {
           layout_entity.update(cx, |layout, cx| layout.set_sidebar_width(f32::from(width), cx));
         }
-      });
+      }));
     group = if sidebar_right {
       group.child(resizable_panel().child(main_area)).child(sidebar_panel)
     } else {
@@ -462,10 +466,10 @@ impl Render for RepoView {
         });
       }))
       .on_action(cx.listener(|this, _: &SplitTerminalHorizontal, window, cx| {
-        this.split_terminal(Axis::Vertical, window, cx);
+        this.split_terminal(Axis::Horizontal, window, cx);
       }))
       .on_action(cx.listener(|this, _: &SplitTerminalVertical, window, cx| {
-        this.split_terminal(Axis::Horizontal, window, cx);
+        this.split_terminal(Axis::Vertical, window, cx);
       }))
       .on_action(cx.listener(|this, _: &ActivateTerminalGroup1, window, cx| {
         this.activate_terminal_group(1, window, cx);
@@ -688,7 +692,7 @@ mod tests {
   }
 
   #[gpui_kit::test]
-  fn changes_view_renders_with_status_groups(cx: &mut TestAppContext) {
+  fn changes_view_records_selected_file_before_diff_arrives(cx: &mut TestAppContext) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let resource_dir = tempfile::TempDir::new().unwrap();
     cx.update(|cx| {
@@ -720,9 +724,90 @@ mod tests {
         window.refresh();
         assert!(view.changes().read(cx).filter_text().is_empty());
         assert!(view.model().read(cx).state().has_changes());
+        view.model().update(cx, |model, cx| {
+          model.dispatch(
+            Intent::OpenScmDiff {
+              path: "a.rs".into(),
+              staged: true,
+              group_kind: Some(ResourceGroupKind::Index),
+            },
+            window,
+            cx,
+          );
+        });
+        let selected = view.model().read(cx).state().selected_file.as_ref();
+        assert_eq!(selected.map(|file| file.path.as_str()), Some("a.rs"));
+        assert!(selected.is_some_and(|file| file.staged));
       })
       .unwrap();
 
+    crate::test_core::park_and_shutdown(cx, &core);
+  }
+
+  #[gpui_kit::test]
+  fn commit_success_clears_focused_message_without_losing_newer_draft(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let root = config_dir.path().to_string_lossy().into_owned();
+    let window = cx.add_window({
+      let core = core.clone();
+      let mut snapshot = snapshot(&root);
+      snapshot.scm.commit_message = "Commit this change".into();
+      let layout_dir = config_dir.path().to_path_buf();
+      move |window, cx| {
+        let model = cx.new(|_| RepoModel::new(core, session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, false));
+        let output = cx.new(|_| OutputLog::default());
+        RepoView::new(model, layout, output, window, cx)
+      }
+    });
+    window
+      .update(cx, |view, window, cx| {
+        view.changes.update(cx, |changes, cx| changes.focus_commit(window, cx));
+        let field = view.changes.read(cx).commit.clone();
+        assert_eq!(field.read(cx).value().as_str(), "Commit this change");
+        assert!(field.read(cx).focus_handle(cx).is_focused(window));
+        view.model.update(cx, |model, cx| {
+          model.state_mut().commit_message.clear();
+          cx.emit(crate::repo::model::RepoEvent::Changed);
+        });
+      })
+      .unwrap();
+    window
+      .update(cx, |view, window, cx| {
+        let field = view.changes.read(cx).commit.clone();
+        assert!(
+          field.read(cx).value().is_empty(),
+          "successful commit must clear the focused field"
+        );
+        assert!(field.read(cx).focus_handle(cx).is_focused(window));
+        field.update(cx, |field, cx| field.set_value("My next commit", window, cx));
+        view.model.update(cx, |model, cx| {
+          model.state_mut().commit_message = "Commit this change".into();
+          cx.emit(crate::repo::model::RepoEvent::Changed);
+        });
+      })
+      .unwrap();
+    window
+      .update(cx, |view, _, cx| {
+        view.model.update(cx, |model, cx| {
+          model.state_mut().commit_message.clear();
+          cx.emit(crate::repo::model::RepoEvent::Changed);
+        });
+      })
+      .unwrap();
+    window
+      .update(cx, |view, _, cx| {
+        assert_eq!(view.changes.read(cx).commit.read(cx).value().as_str(), "My next commit");
+      })
+      .unwrap();
     crate::test_core::park_and_shutdown(cx, &core);
   }
 

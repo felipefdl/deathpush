@@ -149,7 +149,8 @@ pub async fn apply_intent(
     }
     Intent::SetCommitMessage { message } => Ok(session.with_mut(|state| {
       state.commit_message = message;
-      ApplyOutput::Patch(SessionPatch::Actions {
+      ApplyOutput::Patch(SessionPatch::Scm {
+        scm: session_scm(state),
         actions: session_actions(status, state),
       })
     })?),
@@ -909,7 +910,7 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn set_commit_message_patches_actions_not_ack() {
+  async fn set_commit_message_patches_acknowledged_message_and_actions() {
     let mut state = SessionState::default();
     let output = apply_intent(
       Intent::SetCommitMessage { message: "wip".into() },
@@ -920,7 +921,8 @@ mod tests {
     .await
     .unwrap();
     match output {
-      ApplyOutput::Patch(SessionPatch::Actions { actions }) => {
+      ApplyOutput::Patch(SessionPatch::Scm { scm, actions }) => {
+        assert_eq!(scm.commit_message, "wip");
         assert!(!actions.can_commit);
       }
       other => panic!("{other:?}"),

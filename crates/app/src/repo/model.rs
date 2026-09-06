@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use deathpush_core::config::recent_files::{load_recent_files, save_recent_files};
-use deathpush_core::session::types::{Intent, IntentOutcome, SessionSnapshot, SessionStatusEvent};
+use deathpush_core::session::types::{FileSelection, Intent, IntentOutcome, SessionSnapshot, SessionStatusEvent};
 use deathpush_core::{Core, SessionId};
 use gpui_kit::*;
 
@@ -422,6 +422,22 @@ impl RepoModel {
     if let Intent::OpenCommitDiff { commit, path } = &intent {
       self.state.request_commit_diff(commit.clone(), path.clone());
     }
+    let scm_load_id = if let Intent::OpenScmDiff {
+      path,
+      staged,
+      group_kind: Some(group_kind),
+    } = &intent
+    {
+      self.state.request_scm_diff(FileSelection {
+        path: path.clone(),
+        staged: *staged,
+        group_kind: *group_kind,
+      });
+      cx.notify();
+      Some(self.state.selected_load_id)
+    } else {
+      None
+    };
     let clear_file = matches!(intent, Intent::ClearFile);
     if clear_file {
       self.state.pending_clear_file = true;
@@ -435,6 +451,9 @@ impl RepoModel {
     cx.spawn_in(window, async move |this, cx| {
       let result = task.await;
       let _ = this.update_in(cx, |this, window, cx| {
+        if scm_load_id.is_some_and(|load_id| load_id != this.state.selected_load_id) {
+          return;
+        }
         match result {
           Ok(Ok(outcome)) => this.apply_outcome(sent, outcome, root_at_send, clear_file, window, cx),
           Ok(Err(err)) => this.fail(err.to_string(), cx),

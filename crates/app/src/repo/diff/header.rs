@@ -3,7 +3,7 @@ use deathpush_core::session::types::FileSelection;
 use deathpush_core::theme::UiPalette;
 use deathpush_core::types::{FileStatus, ResourceGroupKind};
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::{Icon, Sizable};
+use gpui_kit::component::{Icon, Sizable, Size};
 use gpui_kit::*;
 
 use super::panel::DiffPanel;
@@ -75,7 +75,9 @@ pub fn render_header(
         .child(
           Button::new("diff-history")
             .ghost()
-            .xsmall()
+            .with_size(Size::Medium)
+            .w(px(22.0))
+            .h(px(22.0))
             .icon(Icon::empty().path("icons/history.svg"))
             .tooltip("Show File History")
             .on_click({
@@ -143,7 +145,7 @@ pub fn render_commit_header(
 fn layout_toggle(layout_icon: &'static str, layout_tooltip: &'static str) -> impl IntoElement {
   Button::new("diff-layout")
     .ghost()
-    .xsmall()
+    .with_size(Size::Medium)
     .w(px(22.0))
     .h(px(22.0))
     .icon(Icon::empty().path(layout_icon))

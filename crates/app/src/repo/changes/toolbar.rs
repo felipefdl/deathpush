@@ -1,7 +1,7 @@
 use deathpush_core::session::types::{Intent, SyncKind};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::menu::DropdownMenu;
-use gpui_kit::component::{Disableable, Icon, Sizable};
+use gpui_kit::component::{Disableable, Icon, Sizable, Size};
 use gpui_kit::*;
 
 use super::overflow::{OverflowState, build_menu};
@@ -20,7 +20,7 @@ pub fn render_toolbar(chrome: &ChangesChrome, cx: &mut Context<ChangesView>) -> 
   let tool = |id: &'static str, path: &'static str, tooltip: &'static str| {
     Button::new(id)
       .ghost()
-      .xsmall()
+      .with_size(Size::Medium)
       .w(px(22.0))
       .h(px(22.0))
       .icon(Icon::empty().path(path))
@@ -32,7 +32,7 @@ pub fn render_toolbar(chrome: &ChangesChrome, cx: &mut Context<ChangesView>) -> 
     .flex_shrink_0()
     .flex()
     .items_center()
-    .justify_end()
+    .justify_center()
     .gap_1()
     .px_2()
     .child(
@@ -82,7 +82,7 @@ pub fn render_toolbar(chrome: &ChangesChrome, cx: &mut Context<ChangesView>) -> 
     row = row.child(
       Button::new("sync")
         .ghost()
-        .xsmall()
+        .with_size(Size::Medium)
         .w(px(22.0))
         .h(px(22.0))
         .icon(Icon::empty().path(path))

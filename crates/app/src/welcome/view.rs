@@ -7,6 +7,7 @@ use deathpush_core::types::ProjectInfo;
 use deathpush_core::workspace::WorkspaceRow;
 use gpui_kit::component::button::*;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, Disableable, Icon, Sizable};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -272,17 +273,21 @@ impl WelcomeView {
               ),
           )
           .child(
-            Button::new(SharedString::from(format!("remove-{position}")))
-              .ghost()
-              .xsmall()
-              .icon(Icon::empty().path("icons/close.svg"))
-              .tooltip("Remove from recents")
+            div()
+              .id(SharedString::from(format!("remove-tooltip-{position}")))
+              .tooltip(|window, cx| Tooltip::new("Remove from recents").build(window, cx))
               .invisible()
               .group_hover(group, |style| style.visible())
-              .on_click(cx.listener(move |this, _, _, cx| {
-                cx.stop_propagation();
-                this.remove_recent(remove_path.clone(), cx);
-              })),
+              .child(
+                Button::new(SharedString::from(format!("remove-{position}")))
+                  .ghost()
+                  .xsmall()
+                  .icon(Icon::empty().path("icons/close.svg"))
+                  .on_click(cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.remove_recent(remove_path.clone(), cx);
+                  })),
+              ),
           )
           .into_any_element()
       })

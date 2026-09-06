@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use deathpush_core::ops::repository::NestedRepository;
@@ -10,7 +11,7 @@ use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::*;
 
 use super::filter::matches_filter;
-use super::rows::{FileRowPaint, render_file_row, render_nested_row, render_stash_row};
+use super::rows::{FileRowPaint, render_file_row, render_folder_row, render_nested_row, render_stash_row};
 use super::view::ChangesView;
 use crate::config::AppConfig;
 use crate::repo::explorer::icons::IconKind;
@@ -54,6 +55,77 @@ pub struct FileRow {
   pub status: FileStatus,
   pub staged: bool,
   pub group_kind: ResourceGroupKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeRow {
+  pub path: String,
+  pub depth: usize,
+  pub file_index: Option<usize>,
+}
+
+pub fn visible_tree(rows: &[FileRow], group: GroupId, collapsed: &HashSet<(GroupId, String)>) -> Vec<TreeRow> {
+  #[derive(Default)]
+  struct Node {
+    children: BTreeMap<String, Node>,
+    file_index: Option<usize>,
+  }
+  fn flatten(
+    node: Node,
+    prefix: &str,
+    depth: usize,
+    group: GroupId,
+    collapsed: &HashSet<(GroupId, String)>,
+    output: &mut Vec<TreeRow>,
+  ) {
+    let mut children: Vec<_> = node.children.into_iter().collect();
+    children.sort_by(|(a, left), (b, right)| {
+      left
+        .file_index
+        .is_some()
+        .cmp(&right.file_index.is_some())
+        .then_with(|| a.to_lowercase().cmp(&b.to_lowercase()))
+        .then_with(|| a.cmp(b))
+    });
+    for (name, child) in children {
+      let path = if prefix.is_empty() {
+        name
+      } else {
+        format!("{prefix}/{name}")
+      };
+      let expanded = !collapsed.contains(&(group, path.clone()));
+      output.push(TreeRow {
+        path: path.clone(),
+        depth,
+        file_index: child.file_index,
+      });
+      if expanded {
+        flatten(child, &path, depth + 1, group, collapsed, output);
+      }
+    }
+  }
+  let mut root = Node::default();
+  for (index, row) in rows.iter().enumerate() {
+    let mut node = &mut root;
+    for part in row.path.split('/') {
+      node = node.children.entry(part.to_string()).or_default();
+    }
+    node.file_index = Some(index);
+  }
+  let mut output = Vec::new();
+  flatten(root, "", 0, group, collapsed, &mut output);
+  output
+}
+
+pub fn tree_range(tree: &[TreeRow], anchor: usize, target: usize) -> Vec<usize> {
+  let files: Vec<_> = tree.iter().filter_map(|row| row.file_index).collect();
+  let (Some(start), Some(end)) = (
+    files.iter().position(|index| *index == anchor),
+    files.iter().position(|index| *index == target),
+  ) else {
+    return Vec::new();
+  };
+  files[start.min(end)..=start.max(end)].to_vec()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -327,58 +399,53 @@ fn render_group_body(
   palette: &UiPalette,
 ) -> AnyElement {
   match &group.body {
-    GroupBody::Files(rows) if rows.len() > 200 => {
+    GroupBody::Files(rows) => {
+      let tree = visible_tree(rows, group.id, &view.collapsed_folders);
       let rows = Arc::new(rows.clone());
       let group_id = group.id;
       let weak = weak.clone();
       let selected = view.selected.clone();
+      let collapsed = view.collapsed_folders.clone();
       let palette = *palette;
-      uniform_list(
-        SharedString::from(format!("scm-files-{}", group.id.pane_id())),
-        rows.len(),
-        move |range, _, _cx| {
-          range
-            .filter_map(|index| {
-              let row = rows.get(index)?;
-              let is_selected = selected.contains(&(row.group_kind, row.path.clone()));
-              Some(
-                render_file_row(
-                  row,
-                  is_selected,
-                  FileRowPaint { density, icons },
-                  group_id,
-                  index,
-                  weak.clone(),
-                  &palette,
-                )
-                .into_any_element(),
-              )
-            })
-            .collect()
-        },
-      )
-      .size_full()
-      .into_any_element()
+      let render = move |node: &TreeRow| {
+        let paint = FileRowPaint {
+          density,
+          icons,
+          depth: node.depth,
+        };
+        if let Some(index) = node.file_index {
+          let row = &rows[index];
+          let selected = selected.contains(&(row.group_kind, row.path.clone()));
+          render_file_row(row, selected, paint, group_id, index, weak.clone(), &palette).into_any_element()
+        } else {
+          render_folder_row(
+            node,
+            collapsed.contains(&(group_id, node.path.clone())),
+            paint,
+            group_id,
+            weak.clone(),
+            &palette,
+          )
+        }
+      };
+      let id = SharedString::from(format!("scm-files-{}", group.id.pane_id()));
+      if tree.len() > 200 {
+        uniform_list(id, tree.len(), move |range, _, _| {
+          range.map(|index| render(&tree[index])).collect()
+        })
+        .size_full()
+        .into_any_element()
+      } else {
+        div()
+          .id(id)
+          .size_full()
+          .overflow_y_scroll()
+          .flex()
+          .flex_col()
+          .children(tree.iter().map(render))
+          .into_any_element()
+      }
     }
-    GroupBody::Files(rows) => div()
-      .id(SharedString::from(format!("scm-files-{}", group.id.pane_id())))
-      .size_full()
-      .overflow_y_scroll()
-      .flex()
-      .flex_col()
-      .children(rows.iter().enumerate().map(|(index, row)| {
-        let selected = view.selected.contains(&(row.group_kind, row.path.clone()));
-        render_file_row(
-          row,
-          selected,
-          FileRowPaint { density, icons },
-          group.id,
-          index,
-          weak.clone(),
-          palette,
-        )
-      }))
-      .into_any_element(),
     GroupBody::Stashes(stashes) => div()
       .id("scm-stashes")
       .size_full()
@@ -436,6 +503,61 @@ mod tests {
       groups,
       operation_state: deathpush_core::types::RepoOperationState::None,
     }
+  }
+
+  fn tree_files() -> Vec<FileRow> {
+    ["z.txt", "src/z.rs", "src/nested/a.rs", "README.md", "src/a.rs"]
+      .into_iter()
+      .map(|path| FileRow {
+        path: path.into(),
+        status: FileStatus::Modified,
+        staged: false,
+        group_kind: ResourceGroupKind::WorkingTree,
+      })
+      .collect()
+  }
+
+  #[test]
+  fn tree_groups_folders_first_and_keeps_file_indices() {
+    let tree = visible_tree(&tree_files(), GroupId::Changes, &HashSet::new());
+    assert_eq!(
+      tree
+        .iter()
+        .map(|row| (row.path.as_str(), row.depth, row.file_index))
+        .collect::<Vec<_>>(),
+      vec![
+        ("src", 0, None),
+        ("src/nested", 1, None),
+        ("src/nested/a.rs", 2, Some(2)),
+        ("src/a.rs", 1, Some(4)),
+        ("src/z.rs", 1, Some(1)),
+        ("README.md", 0, Some(3)),
+        ("z.txt", 0, Some(0)),
+      ]
+    );
+  }
+
+  #[test]
+  fn tree_collapse_is_scoped_to_group_and_preserves_siblings() {
+    let collapsed = HashSet::from([(GroupId::Changes, "src".to_string())]);
+    let tree = visible_tree(&tree_files(), GroupId::Changes, &collapsed);
+    assert_eq!(
+      tree.iter().map(|row| row.path.as_str()).collect::<Vec<_>>(),
+      vec!["src", "README.md", "z.txt"]
+    );
+    assert_eq!(visible_tree(&tree_files(), GroupId::Staged, &collapsed).len(), 7);
+  }
+
+  #[test]
+  fn tree_range_selects_visible_files_in_display_order() {
+    let rows = tree_files();
+    let tree = visible_tree(&rows, GroupId::Changes, &HashSet::new());
+    assert_eq!(tree_range(&tree, 2, 3), vec![2, 4, 1, 3]);
+    assert_eq!(tree_range(&tree, 3, 2), vec![2, 4, 1, 3]);
+    let collapsed = HashSet::from([(GroupId::Changes, "src/nested".to_string())]);
+    let tree = visible_tree(&rows, GroupId::Changes, &collapsed);
+    assert_eq!(tree_range(&tree, 4, 3), vec![4, 1, 3]);
+    assert!(tree_range(&tree, 2, 3).is_empty());
   }
 
   #[test]

@@ -407,6 +407,13 @@ impl RepoState {
     }
   }
 
+  pub fn request_scm_diff(&mut self, selection: FileSelection) {
+    self.selected_load_id += 1;
+    self.selected_file = Some(selection);
+    self.diff = None;
+    self.diff_load_id = None;
+  }
+
   /// Record a commit-file diff request so a later outcome can be matched or rejected as stale.
   pub fn request_commit_diff(&mut self, commit: String, path: String) {
     self.commit_diff_load_id += 1;
@@ -442,6 +449,13 @@ impl RepoState {
 
   /// Apply an SCM diff without touching the commit-file payload.
   pub fn apply_scm_diff_payload(&mut self, payload: DiffPayload) {
+    if !self
+      .selected_file
+      .as_ref()
+      .is_some_and(|selection| selection.path == payload.path && selection.staged == payload.staged)
+    {
+      return;
+    }
     self.diff = Some(payload);
     self.diff_load_id = Some(self.selected_load_id);
   }
@@ -836,6 +850,23 @@ mod tests {
   }
 
   #[test]
+  fn scm_diff_rejects_payload_for_a_different_selection() {
+    let mut state = RepoState::default();
+    state.set_file(Some(file("current.rs")));
+    state.apply_scm_diff_payload(commit_diff_payload("previous.rs", "stale"));
+    assert!(!state.scm_diff_ready());
+    assert!(state.diff.is_none());
+
+    let mut staged = commit_diff_payload("current.rs", "staged");
+    staged.staged = true;
+    state.apply_scm_diff_payload(staged);
+    assert!(!state.scm_diff_ready());
+
+    state.apply_scm_diff_payload(commit_diff_payload("current.rs", "current"));
+    assert!(state.scm_diff_ready());
+  }
+
+  #[test]
   fn switching_commits_sharing_a_path_does_not_keep_the_previous_commit_diff() {
     let mut state = RepoState::default();
     state.request_commit_diff("aaa".into(), "foo.rs".into());
@@ -873,6 +904,7 @@ mod tests {
     assert!(state.commit_diff_ready("aaa", "foo.rs"));
     assert!(!state.scm_diff_ready());
 
+    state.request_scm_diff(file("foo.rs"));
     state.apply_scm_diff_payload(commit_diff_payload("foo.rs", "scm"));
     assert!(state.commit_diff_ready("aaa", "foo.rs"));
     assert!(state.scm_diff_ready());

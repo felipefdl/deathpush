@@ -671,7 +671,7 @@ impl Render for DiffPanel {
                   this.dragging = false;
                 }),
               )
-              .child(div().h_full().min_w(px(width)).child(list)),
+              .child(div().size_full().min_w(px(width)).child(list)),
           )
         }
         None => root.child(div().flex_1().min_h_0()),

@@ -4,10 +4,10 @@ use std::rc::Rc;
 use deathpush_core::config::layout::MainView;
 use gpui_kit::base::{Tree, TreeEvent, TreeItem, TreeState};
 use gpui_kit::component::Icon;
-use gpui_kit::component::Sizable;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::ContextMenuExt;
+use gpui_kit::component::{Sizable, Size};
 use gpui_kit::*;
 
 use super::conflicts::{CONFLICT_KEEP_BOTH, CONFLICT_REPLACE, CONFLICT_TITLE, ConflictChoice, is_conflict_error};
@@ -83,6 +83,7 @@ impl ExplorerView {
           this.sync_edit_field(window, cx);
           this.rebuild_tree(cx);
           this.rebuild_rows(cx);
+          cx.notify();
         }
         ExplorerEvent::OpenFile { path, line } => this.open_file(path, *line, window, cx),
         ExplorerEvent::Renamed { old_path, new_path } => {
@@ -622,7 +623,7 @@ fn node_visible(node: &Node, filter: &str) -> bool {
 fn tool(id: &'static str, path: &'static str, tooltip: &'static str) -> Button {
   Button::new(id)
     .ghost()
-    .xsmall()
+    .with_size(Size::Medium)
     .w(px(22.0))
     .h(px(22.0))
     .icon(Icon::empty().path(path))
@@ -677,6 +678,8 @@ impl Render for ExplorerView {
     root.child(
       div()
         .id("explorer-tree")
+        .flex()
+        .flex_col()
         .flex_1()
         .min_h_0()
         .w_full()
@@ -732,6 +735,7 @@ impl Render for ExplorerView {
                 view.clone(),
               )
             })
+            .list_style(StyleRefinement::default().size_full())
             .flex_1()
             .min_h_0()
             .w_full(),
@@ -931,6 +935,78 @@ mod tests {
       })
       .unwrap();
 
+    crate::test_core::park_and_shutdown(cx, &core);
+  }
+
+  #[gpui_kit::test]
+  fn populated_tree_keeps_visible_rows_after_model_changes(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let root = config_dir.path().to_string_lossy().into_owned();
+    let window = cx.add_window({
+      let core = core.clone();
+      let snapshot = snapshot(&root);
+      let layout_dir = config_dir.path().to_path_buf();
+      move |window, cx| {
+        let repo = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, false));
+        let model = cx.new(|_| ExplorerModel::new(core, session, root));
+        ExplorerView::new(model, repo, layout, window, cx)
+      }
+    });
+    AnyWindowHandle::from(window)
+      .update(cx, |_, window, cx| {
+        let _ = window.draw(cx);
+      })
+      .unwrap();
+    for name in ["README.md", "notes.txt"] {
+      window
+        .update(cx, |view, _, cx| {
+          view.model.update(cx, |model, cx| {
+            model.roots = vec![Node {
+              path: name.into(),
+              name: name.into(),
+              is_directory: false,
+              is_symlink: false,
+              ignored: false,
+              children: None,
+            }];
+            cx.emit(ExplorerEvent::Changed);
+          });
+        })
+        .unwrap();
+      AnyWindowHandle::from(window)
+        .update(cx, |_, window, cx| {
+          let _ = window.draw(cx);
+        })
+        .unwrap();
+      window
+        .update(cx, |view, _, cx| {
+          assert_eq!(
+            view.rows.iter().map(|row| row.path.as_str()).collect::<Vec<_>>(),
+            vec![name]
+          );
+          let tree = view.tree.read(cx);
+          assert_eq!(tree.entry(0).map(|entry| entry.item().id.as_str()), Some(name));
+          let scroll = tree.scroll_handle().0.borrow();
+          assert!(
+            scroll.base_handle.bounds().size.height > px(22.0),
+            "the internal list must fill the available viewport"
+          );
+          assert!(
+            scroll.last_item_size.is_some_and(|size| size.item.height > px(0.0)),
+            "changed rows must reach the rendered list"
+          );
+        })
+        .unwrap();
+    }
     crate::test_core::park_and_shutdown(cx, &core);
   }
 

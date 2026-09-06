@@ -27,8 +27,8 @@ pub fn commit_button_tooltip(amend: bool) -> &'static str {
   }
 }
 
-pub fn should_sync_commit_message(field: &str, core: &str, field_focused: bool, pending: bool) -> bool {
-  field != core && !field_focused && !pending
+pub fn should_sync_commit_message(field: &str, core: &str, previous: &str, field_focused: bool, pending: bool) -> bool {
+  field != core && (!field_focused || field == previous) && !pending
 }
 
 pub fn render_commit_box(
@@ -121,11 +121,18 @@ mod tests {
 
   #[test]
   fn should_sync_skips_when_focused_pending_or_equal() {
-    assert!(should_sync_commit_message("typed", "core", false, false));
-    assert!(!should_sync_commit_message("typed", "core", true, false));
-    assert!(!should_sync_commit_message("typed", "core", false, true));
-    assert!(!should_sync_commit_message("typed", "core", true, true));
-    assert!(!should_sync_commit_message("same", "same", false, false));
+    assert!(should_sync_commit_message("typed", "core", "previous", false, false));
+    assert!(!should_sync_commit_message("typed", "core", "previous", true, false));
+    assert!(!should_sync_commit_message("typed", "core", "previous", false, true));
+    assert!(!should_sync_commit_message("typed", "core", "previous", true, true));
+    assert!(!should_sync_commit_message("same", "same", "previous", false, false));
+  }
+
+  #[test]
+  fn clears_acknowledged_message_after_commit_while_focused() {
+    assert!(should_sync_commit_message("committed", "", "committed", true, false));
+    assert!(!should_sync_commit_message("next draft", "", "committed", true, false));
+    assert!(!should_sync_commit_message("committed", "", "committed", true, true));
   }
 
   #[test]

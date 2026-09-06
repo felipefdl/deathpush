@@ -550,7 +550,7 @@ impl Render for BranchPicker {
           .occlude()
           .mt(px(60.0))
           .w(px(400.0))
-          .max_h(px(300.0))
+          .h(px((32.0 + count as f32 * 26.0 + 2.0).min(300.0)))
           .flex()
           .flex_col()
           .overflow_hidden()
