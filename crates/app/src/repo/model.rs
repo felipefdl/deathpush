@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use deathpush_core::config::recent_files::{load_recent_files, save_recent_files};
 use deathpush_core::session::types::{FileSelection, Intent, IntentOutcome, SessionSnapshot, SessionStatusEvent};
-use deathpush_core::{Core, SessionId};
+use deathpush_core::{Core, PdfPageImage, SessionId};
 use gpui_kit::*;
 
 use super::file_viewer::autosave::should_retry_skipped_write;
@@ -667,6 +667,23 @@ impl RepoModel {
       let _ = this.update(cx, |this, cx| this.apply_loaded_content(load_id, result, cx));
     })
     .detach();
+  }
+
+  /// Rasterize one PDF page. The caller owns the task and the result.
+  pub fn request_pdf_page(
+    &self,
+    path: String,
+    page: usize,
+    max_edge: u32,
+    cx: &mut Context<Self>,
+  ) -> Task<Result<PdfPageImage, String>> {
+    let core = self.core.clone();
+    let session = self.session;
+    cx.background_spawn(async move {
+      core
+        .render_pdf_page(session, &path, page, max_edge)
+        .map_err(|err| err.to_string())
+    })
   }
 
   pub fn set_cursor_line(&mut self, line: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {

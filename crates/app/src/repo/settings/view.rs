@@ -1063,6 +1063,7 @@ mod tests {
             content: Some(deathpush_core::types::FileContent {
               path: "src/main.rs".into(),
               content: "fn main() {}".into(),
+              bytes: None,
               language: Some("rust".into()),
               file_type: "text".into(),
               content_hash: "h".into(),

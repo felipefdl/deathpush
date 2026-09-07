@@ -3,6 +3,7 @@ pub mod diff;
 pub mod explorer;
 pub mod file_viewer;
 pub mod history;
+pub mod image_load;
 pub mod layout_model;
 pub mod main_panel;
 pub mod model;

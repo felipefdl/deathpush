@@ -4,6 +4,15 @@ pub fn sha256_utf8(text: &str) -> String {
   format!("{:x}", Sha256::digest(text.as_bytes()))
 }
 
+pub fn sha256_bytes(bytes: &[u8]) -> String {
+  format!("{:x}", Sha256::digest(bytes))
+}
+
+/// Change token for payloads we deliberately never read (PDF pages are rasterized on demand).
+pub fn stamp(len: u64, modified_nanos: u128) -> String {
+  sha256_utf8(&format!("{len}:{modified_nanos}"))
+}
+
 #[cfg(test)]
 mod tests {
   use super::sha256_utf8;

@@ -16,6 +16,7 @@ base64.workspace = true
 chrono.workspace = true
 dirs.workspace = true
 git2.workspace = true
+hayro.workspace = true
 libghostty-vt.workspace = true
 md5.workspace = true
 notify.workspace = true

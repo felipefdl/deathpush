@@ -1,12 +1,9 @@
-use std::sync::Arc;
-
 use deathpush_core::theme::UiPalette;
 use gpui_kit::component::button::Button;
 use gpui_kit::*;
 
 use super::autosave::LARGE_FILE_BYTES;
 use super::view::FileViewer;
-use crate::repo::diff::states::decode_data_uri;
 use crate::repo::state::OpenFile;
 use crate::theme::hsla;
 
@@ -16,6 +13,7 @@ pub enum ViewerKind {
   Loading,
   Text,
   Image,
+  Pdf,
   Binary,
   Large,
 }
@@ -29,19 +27,12 @@ pub fn classify(open: Option<&OpenFile>) -> ViewerKind {
   };
   match content.file_type.as_str() {
     "image" => ViewerKind::Image,
+    "pdf" => ViewerKind::Pdf,
     "binary" => ViewerKind::Binary,
     "large" => ViewerKind::Large,
     _ if content.content.len() > LARGE_FILE_BYTES => ViewerKind::Large,
     _ => ViewerKind::Text,
   }
-}
-
-pub fn decode_image(uri: &str) -> Option<Arc<Image>> {
-  if uri.is_empty() {
-    return None;
-  }
-  let (format, bytes) = decode_data_uri(uri)?;
-  Some(Arc::new(Image::from_bytes(format, bytes)))
 }
 
 pub fn render_empty(palette: UiPalette) -> impl IntoElement {
@@ -68,21 +59,28 @@ pub fn render_empty(palette: UiPalette) -> impl IntoElement {
     )
 }
 
-pub fn render_image(image: Option<Arc<Image>>) -> impl IntoElement {
-  div()
-    .size_full()
-    .flex()
-    .items_center()
-    .justify_center()
-    .p_3()
-    .child(match image {
-      Some(image) => img(image)
-        .object_fit(ObjectFit::Contain)
-        .w_full()
-        .h_full()
-        .into_any_element(),
-      None => div().into_any_element(),
-    })
+/// Where a viewer image is in its trip from disk to the texture atlas.
+pub enum ImageLoad {
+  Pending,
+  Ready(ImageSource),
+  Failed,
+}
+
+pub fn render_image(load: &ImageLoad, view: WeakEntity<FileViewer>, palette: UiPalette) -> impl IntoElement {
+  match load {
+    ImageLoad::Pending => div().flex_1().min_h_0().into_any_element(),
+    ImageLoad::Ready(source) => div()
+      .size_full()
+      .flex()
+      .items_center()
+      .justify_center()
+      .p_3()
+      .child(img(source.clone()).object_fit(ObjectFit::Contain).w_full().h_full())
+      .into_any_element(),
+    ImageLoad::Failed => {
+      message_with_open("This image cannot be displayed", "icons/file-image.svg", view, palette).into_any_element()
+    }
+  }
 }
 
 pub fn render_binary(view: WeakEntity<FileViewer>, palette: UiPalette) -> impl IntoElement {
@@ -91,15 +89,15 @@ pub fn render_binary(view: WeakEntity<FileViewer>, palette: UiPalette) -> impl I
 
 pub fn render_large(view: WeakEntity<FileViewer>, palette: UiPalette) -> impl IntoElement {
   message_with_open(
-    "File is too large to display (over 5 MB)",
+    "File is too large to display",
     "icons/triangle-alert.svg",
     view,
     palette,
   )
 }
 
-fn message_with_open(
-  message: &'static str,
+pub(crate) fn message_with_open(
+  message: impl Into<SharedString>,
   icon: &'static str,
   view: WeakEntity<FileViewer>,
   palette: UiPalette,
@@ -123,7 +121,7 @@ fn message_with_open(
         .text_size(px(13.0))
         .text_color(hsla(palette.foreground))
         .opacity(0.7)
-        .child(message),
+        .child(message.into()),
     )
     .child(
       Button::new("file-open-external")
@@ -147,6 +145,7 @@ mod tests {
       content: Some(FileContent {
         path: "src/main.rs".into(),
         content: content.to_string(),
+        bytes: None,
         language: Some("rust".into()),
         file_type: file_type.into(),
         content_hash: "h".into(),
@@ -169,10 +168,8 @@ mod tests {
     };
     assert_eq!(classify(Some(&loading)), ViewerKind::Loading);
     assert_eq!(classify(Some(&file("text", "x"))), ViewerKind::Text);
-    assert_eq!(
-      classify(Some(&file("image", "data:image/png;base64,AA=="))),
-      ViewerKind::Image
-    );
+    assert_eq!(classify(Some(&file("image", ""))), ViewerKind::Image);
+    assert_eq!(classify(Some(&file("pdf", ""))), ViewerKind::Pdf);
     assert_eq!(classify(Some(&file("binary", ""))), ViewerKind::Binary);
     assert_eq!(
       classify(Some(&file("text", &"x".repeat(LARGE_FILE_BYTES + 1)))),

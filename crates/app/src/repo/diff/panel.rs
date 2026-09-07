@@ -25,8 +25,8 @@ use crate::theme::ActivePalette;
 
 #[derive(Clone, Default)]
 struct CachedImages {
-  old: Option<Arc<Image>>,
-  new: Option<Arc<Image>>,
+  old: Option<ImageSource>,
+  new: Option<ImageSource>,
 }
 
 #[derive(Clone, PartialEq, Eq, Default)]
@@ -57,8 +57,8 @@ pub struct DiffPanel {
   metrics: RowsMetrics,
   rows_key: RowsKey,
   highlighter: Option<Arc<Highlighted>>,
-  old_image: Option<Arc<Image>>,
-  new_image: Option<Arc<Image>>,
+  old_image: Option<ImageSource>,
+  new_image: Option<ImageSource>,
   scroll: UniformListScrollHandle,
   h_scroll: ScrollHandle,
   selection: Option<Selection>,

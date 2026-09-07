@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -7,9 +8,12 @@ use gpui_kit::*;
 
 use super::autosave::{AUTOSAVE_MS, SaveState, SaveToken, should_complete_save, token_still_valid};
 use super::header;
-use super::states::{self, ViewerKind, classify};
+use super::markdown::{DocumentPaths, MarkdownPreview, is_markdown};
+use super::pdf::{PdfPane, PdfRequest, to_render_image};
+use super::states::{self, ImageLoad, ViewerKind, classify};
 use crate::config::AppConfig;
 use crate::repo::diff::highlight::grammar_name;
+use crate::repo::image_load::prepare_path;
 use crate::repo::layout_model::LayoutModel;
 use crate::repo::model::{RepoEvent, RepoModel};
 use crate::theme::ActivePalette;
@@ -21,15 +25,33 @@ pub struct FileViewer {
   editor: Entity<EditorState>,
   save: SaveState,
   save_token: Option<SaveToken>,
+  /// `OpenFile::load_id` of the document on screen. It survives a rename and changes on a new
+  /// open, which is what tells a moved file apart from a different file.
+  loaded_id: Option<u64>,
   loaded_path: Option<String>,
   loaded_hash: Option<String>,
   loaded_language: Option<String>,
-  image: Option<Arc<Image>>,
+  image: ImageLoad,
+  image_generation: u64,
+  pdf: PdfPane,
+  markdown: MarkdownPreview,
+  preview: bool,
   last_cursor_line: Option<usize>,
   window_handle: AnyWindowHandle,
   focus_handle: FocusHandle,
   editor_input_sub: Option<Subscription>,
   editor_cursor_sub: Option<Subscription>,
+}
+
+/// The open document as the viewer needs it for a sync pass: identity and shape, no payload.
+struct Incoming {
+  id: u64,
+  kind: ViewerKind,
+  path: String,
+  pending_line: Option<usize>,
+  /// `None` while the read is still in flight.
+  hash: Option<String>,
+  language: Option<String>,
 }
 
 impl FileViewer {
@@ -41,10 +63,7 @@ impl FileViewer {
   ) -> Self {
     cx.subscribe(&repo, |this, _, event: &RepoEvent, cx| match event {
       RepoEvent::Saved { path, hash, generation } => this.on_saved(path, hash, *generation, cx),
-      RepoEvent::Changed => {
-        this.follow_open_path(cx);
-        cx.notify();
-      }
+      RepoEvent::Changed => cx.notify(),
       RepoEvent::Error(_) => cx.notify(),
     })
     .detach();
@@ -65,10 +84,15 @@ impl FileViewer {
         generation: 0,
       },
       save_token: None,
+      loaded_id: None,
       loaded_path: None,
       loaded_hash: None,
       loaded_language: None,
-      image: None,
+      image: ImageLoad::Pending,
+      image_generation: 0,
+      pdf: PdfPane::new(),
+      markdown: MarkdownPreview::new(),
+      preview: false,
       last_cursor_line: None,
       window_handle: window.window_handle(),
       focus_handle: cx.focus_handle(),
@@ -258,173 +282,205 @@ impl FileViewer {
     self.save_token = None;
   }
 
-  fn follow_open_path(&mut self, cx: &App) {
-    let Some((path, has_content)) = self
+  /// What the model currently has open, without the payload: this runs on every frame, so the
+  /// body and the raw bytes are only pulled once something actually has to be applied.
+  fn incoming(&self, cx: &App) -> Option<Incoming> {
+    let state = self.repo.read(cx).state();
+    let open = state.open_file.as_ref()?;
+    Some(Incoming {
+      id: open.load_id,
+      kind: classify(Some(open)),
+      path: open.path.clone(),
+      pending_line: open.pending_line,
+      hash: open.content.as_ref().map(|content| content.content_hash.clone()),
+      language: open.content.as_ref().and_then(|content| content.language.clone()),
+    })
+  }
+
+  fn sync_open_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    let Some(open) = self.incoming(cx) else {
+      if self.loaded_id.is_some() {
+        self.close_document();
+      }
+      return;
+    };
+
+    let entering = self.loaded_id != Some(open.id);
+    if entering {
+      self.loaded_id = Some(open.id);
+      self.loaded_path = Some(open.path.clone());
+      self.loaded_hash = None;
+      self.last_cursor_line = None;
+      self.reset_save(String::new());
+    } else if self.loaded_path.as_deref() != Some(open.path.as_str()) {
+      // A rename keeps the same document: only the name moved, so the buffer and any pending
+      // save follow it instead of being torn down.
+      if let Some(token) = &mut self.save_token {
+        token.path = open.path.clone();
+      }
+      self.loaded_path = Some(open.path.clone());
+    }
+    // Whatever this document is not, the viewer must stop holding.
+    self.drop_payloads_except(open.kind);
+
+    // No hash yet means the read is still in flight.
+    let Some(hash) = open.hash else {
+      return;
+    };
+    let fresh = entering || self.loaded_hash.as_deref() != Some(hash.as_str());
+    match open.kind {
+      ViewerKind::Empty | ViewerKind::Loading => {}
+      ViewerKind::Image => {
+        if fresh && let Some(bytes) = self.open_bytes(cx) {
+          self.load_image(open.path.clone(), bytes, cx);
+          self.loaded_hash = Some(hash.clone());
+          self.reset_save(hash);
+        }
+      }
+      ViewerKind::Pdf => {
+        if let Some(request) = self.pdf.sync(&open.path, &hash) {
+          self.request_pdf_page(request, cx);
+        }
+        if fresh {
+          self.loaded_hash = Some(hash.clone());
+          self.reset_save(hash);
+        }
+      }
+      ViewerKind::Binary | ViewerKind::Large => {
+        if fresh {
+          self.loaded_hash = Some(hash.clone());
+          self.reset_save(hash);
+        }
+      }
+      ViewerKind::Text => {
+        if entering || (!self.save.dirty && self.save.should_reload_external(&hash)) {
+          let body = self.open_text(cx);
+          self.rebuild_editor(open.language.as_deref(), window, cx);
+          self.editor.update(cx, |state, cx| state.set_value(body, window, cx));
+          self.loaded_hash = Some(hash.clone());
+          self.reset_save(hash);
+        }
+        if !is_markdown(self.loaded_language.as_deref()) {
+          self.preview = false;
+          self.markdown.reset();
+        }
+        if let Some(line) = open.pending_line {
+          self.apply_pending_line(line, window, cx);
+        }
+      }
+    }
+  }
+
+  /// The text of the open file. Only called when the editor is about to be refilled.
+  fn open_text(&self, cx: &App) -> String {
+    self
       .repo
       .read(cx)
       .state()
       .open_file
       .as_ref()
-      .map(|open| (open.path.clone(), open.content.is_some()))
-    else {
-      return;
-    };
-    self.follow_renamed_path(&path, has_content);
+      .and_then(|open| open.content.as_ref())
+      .map(|content| content.content.clone())
+      .unwrap_or_default()
   }
 
-  fn follow_renamed_path(&mut self, path: &str, has_content: bool) {
-    let Some(loaded) = self.loaded_path.clone() else {
-      return;
-    };
-    if loaded == path || !has_content {
-      return;
-    }
-    if let Some(token) = &mut self.save_token
-      && token.path == loaded
-    {
-      token.path = path.to_string();
-    }
-    self.loaded_path = Some(path.to_string());
+  fn open_bytes(&self, cx: &App) -> Option<Arc<[u8]>> {
+    self
+      .repo
+      .read(cx)
+      .state()
+      .open_file
+      .as_ref()
+      .and_then(|open| open.content.as_ref())
+      .and_then(|content| content.bytes.clone())
   }
 
-  fn sync_open_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-    struct Snap {
-      kind: ViewerKind,
-      path: String,
-      pending_line: Option<usize>,
-      new_path: bool,
-      hash: String,
-      language: Option<String>,
-      body: Option<String>,
+  fn close_document(&mut self) {
+    self.loaded_id = None;
+    self.loaded_path = None;
+    self.loaded_hash = None;
+    self.loaded_language = None;
+    self.last_cursor_line = None;
+    self.reset_save(String::new());
+    self.clear_image();
+    self.pdf.reset();
+    self.markdown.reset();
+    self.preview = false;
+  }
+
+  /// Release the payloads that belong to a different kind of file. A pending decode is
+  /// invalidated too, so a slow answer cannot paint itself over the next document.
+  fn drop_payloads_except(&mut self, kind: ViewerKind) {
+    if kind != ViewerKind::Image && !matches!(self.image, ImageLoad::Pending) {
+      self.clear_image();
     }
-
-    enum Prep {
-      Empty,
-      Loading { path: String, new_path: bool },
-      Ready(Snap),
+    if kind != ViewerKind::Pdf {
+      self.pdf.reset();
     }
-
-    enum Raw {
-      Empty,
-      Loading {
-        path: String,
-      },
-      Ready {
-        path: String,
-        pending_line: Option<usize>,
-        hash: String,
-        language: Option<String>,
-        content: String,
-        kind: ViewerKind,
-      },
+    if kind != ViewerKind::Text {
+      self.preview = false;
+      self.markdown.reset();
     }
+  }
 
-    let raw = {
-      let state = self.repo.read(cx).state();
-      match state.open_file.as_ref() {
-        None => Raw::Empty,
-        Some(open) if open.content.is_none() => Raw::Loading {
-          path: open.path.clone(),
-        },
-        Some(open) => {
-          let content = open.content.as_ref().expect("checked");
-          Raw::Ready {
-            path: open.path.clone(),
-            pending_line: open.pending_line,
-            hash: content.content_hash.clone(),
-            language: content.language.clone(),
-            content: content.content.clone(),
-            kind: classify(Some(open)),
-          }
-        }
-      }
-    };
+  /// Forget the image on screen and any decode still running for it.
+  fn clear_image(&mut self) {
+    self.image_generation += 1;
+    self.image = ImageLoad::Pending;
+  }
 
-    let prep = match raw {
-      Raw::Empty => Prep::Empty,
-      Raw::Loading { path } => Prep::Loading {
-        new_path: self.loaded_path.as_deref() != Some(path.as_str()),
-        path,
-      },
-      Raw::Ready {
-        path,
-        pending_line,
-        hash,
-        language,
-        content,
-        kind,
-      } => {
-        self.follow_renamed_path(&path, true);
-        let new_path = self.loaded_path.as_deref() != Some(path.as_str());
-        let apply_image = kind == ViewerKind::Image && (new_path || self.loaded_hash.as_deref() != Some(hash.as_str()));
-        let apply_text =
-          kind == ViewerKind::Text && (new_path || (!self.save.dirty && self.save.should_reload_external(&hash)));
-        Prep::Ready(Snap {
-          kind,
-          path,
-          pending_line,
-          new_path,
-          hash,
-          language,
-          body: (apply_image || apply_text).then_some(content),
-        })
-      }
-    };
+  /// Decoding happens on the background executor: an oversized image is resized before it reaches
+  /// the texture atlas, and that must never block a frame.
+  fn load_image(&mut self, path: String, bytes: Arc<[u8]>, cx: &mut Context<Self>) {
+    self.clear_image();
+    let generation = self.image_generation;
+    cx.spawn(async move |this, cx| {
+      let prepared = cx.background_spawn(async move { prepare_path(&path, &bytes) }).await;
+      let _ = this.update(cx, |this, cx| {
+        if this.image_generation != generation {
+          return;
+        }
+        this.image = match prepared {
+          Some(prepared) => ImageLoad::Ready(prepared.source()),
+          None => ImageLoad::Failed,
+        };
+        cx.notify();
+      });
+    })
+    .detach();
+  }
 
-    match prep {
-      Prep::Empty => {
-        if self.loaded_path.is_some() {
-          self.loaded_path = None;
-          self.loaded_hash = None;
-          self.loaded_language = None;
-          self.image = None;
-          self.reset_save(String::new());
-          self.last_cursor_line = None;
-        }
-      }
-      Prep::Loading { path, new_path } => {
-        if new_path {
-          self.loaded_path = Some(path);
-          self.loaded_hash = None;
-          self.image = None;
-          self.reset_save(String::new());
-        }
-      }
-      Prep::Ready(snap) => match snap.kind {
-        ViewerKind::Empty | ViewerKind::Loading => {}
-        ViewerKind::Image => {
-          if let Some(uri) = snap.body {
-            self.image = states::decode_image(&uri);
-            self.loaded_path = Some(snap.path);
-            self.loaded_hash = Some(snap.hash.clone());
-            self.reset_save(snap.hash);
-          }
-        }
-        ViewerKind::Binary | ViewerKind::Large => {
-          if snap.new_path {
-            self.loaded_path = Some(snap.path);
-            self.loaded_hash = Some(snap.hash.clone());
-            self.image = None;
-            self.reset_save(snap.hash);
-          }
-        }
-        ViewerKind::Text => {
-          if let Some(body) = snap.body {
-            self.rebuild_editor(snap.language.as_deref(), window, cx);
-            self.editor.update(cx, |state, cx| {
-              state.set_value(body, window, cx);
-            });
-            self.reset_save(snap.hash.clone());
-            self.loaded_path = Some(snap.path);
-            self.loaded_hash = Some(snap.hash);
-            self.image = None;
-          }
-          if let Some(line) = snap.pending_line {
-            self.apply_pending_line(line, window, cx);
-          }
-        }
-      },
+  fn request_pdf_page(&mut self, request: PdfRequest, cx: &mut Context<Self>) {
+    let generation = request.generation;
+    let task = self.repo.update(cx, |model, cx| {
+      model.request_pdf_page(request.path, request.page, request.max_edge, cx)
+    });
+    cx.spawn(async move |this, cx| {
+      let page = task.await;
+      // The RGBA to BGRA swap is 16 MB of work; keep it off the frame.
+      let converted = cx
+        .background_spawn(async move { page.map(|page| (page.page, page.page_count, to_render_image(page))) })
+        .await;
+      let _ = this.update(cx, |this, cx| {
+        this.pdf.apply_prepared(generation, converted);
+        cx.notify();
+      });
+    })
+    .detach();
+  }
+
+  pub(crate) fn pdf_go_to(&mut self, page: usize, cx: &mut Context<Self>) {
+    if let Some(request) = self.pdf.go_to(page) {
+      self.request_pdf_page(request, cx);
+      cx.notify();
     }
+  }
+
+  /// The editor keeps its buffer and cursor while the preview is up, so toggling back lands on
+  /// the same line the source was left at.
+  pub(crate) fn toggle_markdown_preview(&mut self, cx: &mut Context<Self>) {
+    self.preview = !self.preview;
+    cx.notify();
   }
 
   fn editor_font(family: &str) -> SharedString {
@@ -440,9 +496,33 @@ impl FileViewer {
     &self.repo
   }
 
+  /// Where the open file lives and which repository bounds it, so a markdown preview can resolve
+  /// its own images and nothing else.
+  fn open_document(&self, cx: &App) -> Option<(PathBuf, PathBuf)> {
+    let model = self.repo.read(cx);
+    let root = model.root_path()?;
+    let open = model.state().open_file.as_ref()?;
+    Some((root.join(&open.path), root))
+  }
+
   #[cfg(test)]
   pub(crate) fn editor_value(&self, cx: &App) -> String {
     self.editor.read(cx).value().to_string()
+  }
+
+  #[cfg(test)]
+  pub(crate) fn image_state(&self) -> &ImageLoad {
+    &self.image
+  }
+
+  #[cfg(test)]
+  pub(crate) fn pdf_pane(&self) -> &PdfPane {
+    &self.pdf
+  }
+
+  #[cfg(test)]
+  pub(crate) fn preview_active(&self) -> bool {
+    self.preview
   }
 }
 
@@ -462,6 +542,8 @@ impl Render for FileViewer {
       )
     };
     let weak = cx.weak_entity();
+    let markdown = kind == ViewerKind::Text && is_markdown(self.loaded_language.as_deref());
+    let preview = markdown && self.preview;
     let mut root = div()
       .track_focus(&self.focus_handle)
       .size_full()
@@ -473,16 +555,32 @@ impl Render for FileViewer {
     }
     root = root.child(header::render_header(
       &path,
-      self.save.dirty,
-      kind,
+      header::HeaderState {
+        dirty: self.save.dirty,
+        kind,
+        markdown,
+        preview,
+      },
       weak.clone(),
       palette,
       cx,
     ));
+    if preview {
+      // The preview mirrors the editor buffer, so unsaved edits show up immediately.
+      let source = self.editor.read(cx).value().to_string();
+      let document = self.open_document(cx);
+      let paths = document.as_ref().map(|(file, root)| DocumentPaths {
+        file,
+        root: root.as_path(),
+      });
+      self.markdown.set_source(&source, paths, cx);
+      return root.child(self.markdown.render());
+    }
     match kind {
       ViewerKind::Empty => root,
       ViewerKind::Loading => root.child(div().flex_1().min_h_0()),
-      ViewerKind::Image => root.child(states::render_image(self.image.clone())),
+      ViewerKind::Image => root.child(states::render_image(&self.image, weak, palette)),
+      ViewerKind::Pdf => root.child(self.pdf.render(palette, weak)),
       ViewerKind::Binary => root.child(states::render_binary(weak, palette)),
       ViewerKind::Large => root.child(states::render_large(weak, palette)),
       ViewerKind::Text => root.child(
@@ -515,7 +613,10 @@ mod tests {
   use deathpush_core::types::{FileContent, RepoOperationState, StatusPhase};
   use gpui_kit::TestAppContext;
 
+  use super::super::pdf::PdfLoad;
   use crate::config::AppConfig;
+  use crate::markdown_assets::{AssetGrants, MarkdownAssets};
+  use crate::repo::image_load::MAX_IMAGE_EDGE;
   use crate::repo::layout_model::LayoutModel;
   use crate::repo::model::RepoModel;
   use crate::repo::state::OpenFile;
@@ -603,6 +704,7 @@ mod tests {
             content: Some(FileContent {
               path: "src/main.rs".into(),
               content: body.into(),
+              bytes: None,
               language: Some("rust".into()),
               file_type: "text".into(),
               content_hash: "h".into(),
@@ -632,5 +734,234 @@ mod tests {
       .unwrap();
 
     crate::test_core::park_and_shutdown(cx, &core);
+  }
+
+  /// A PNG over the 5 MiB text budget and wider than the texture atlas allows: the pair of walls
+  /// that used to make big screenshots unviewable.
+  fn oversized_png() -> Vec<u8> {
+    let mut buffer = image::RgbaImage::new(6000, 400);
+    for (x, y, pixel) in buffer.enumerate_pixels_mut() {
+      // Noise, so the encoder cannot compress the file back under the budget.
+      let seed = x.wrapping_mul(2_654_435_761).wrapping_add(y.wrapping_mul(40_503));
+      *pixel = image::Rgba([(seed >> 3) as u8, (seed >> 11) as u8, (seed >> 19) as u8, 255]);
+    }
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgba8(buffer)
+      .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+      .expect("encode png");
+    bytes
+  }
+
+  /// A two page PDF, each page holding one filled rectangle.
+  fn two_page_pdf() -> Vec<u8> {
+    let stream = "0 0 0 rg\n72 72 200 200 re\nf\n";
+    let objects = [
+      "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+      "<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>".to_string(),
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << >> >>".to_string(),
+      format!("<< /Length {} >>\nstream\n{stream}endstream", stream.len()),
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 6 0 R /Resources << >> >>".to_string(),
+      format!("<< /Length {} >>\nstream\n{stream}endstream", stream.len()),
+    ];
+    let mut body = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::with_capacity(objects.len());
+    for (index, object) in objects.iter().enumerate() {
+      offsets.push(body.len());
+      body.push_str(&format!("{} 0 obj\n{}\nendobj\n", index + 1, object));
+    }
+    let xref_at = body.len();
+    body.push_str(&format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1));
+    for offset in &offsets {
+      body.push_str(&format!("{offset:010} 00000 n \n"));
+    }
+    body.push_str(&format!(
+      "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+      objects.len() + 1,
+      xref_at
+    ));
+    body.into_bytes()
+  }
+
+  #[gpui_kit::test]
+  fn images_pdfs_and_markdown_reach_their_own_surfaces(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let repo_dir = tempfile::TempDir::new().unwrap();
+    let png = oversized_png();
+    assert!(png.len() > 5 * 1024 * 1024, "fixture must exceed the text budget");
+    std::fs::write(repo_dir.path().join("shot.png"), &png).unwrap();
+    std::fs::write(repo_dir.path().join("manual.pdf"), two_page_pdf()).unwrap();
+    std::fs::write(repo_dir.path().join("README.md"), "# Title\n\n![shot](shot.png)\n").unwrap();
+
+    let grants = Arc::new(AssetGrants::default());
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+      // What `main` installs alongside the http client, so a preview can register its images.
+      cx.set_global(MarkdownAssets(grants.clone()));
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let root = repo_dir.path().to_string_lossy().into_owned();
+    cx.executor().allow_parking();
+    // Core's operations need its own tokio runtime; the test executor is not a reactor.
+    core
+      .runtime_handle()
+      .block_on(core.session_intent(
+        session,
+        deathpush_core::session::types::Intent::OpenRepository { path: root.clone() },
+      ))
+      .expect("session opens the fixture directory");
+
+    let window = cx.add_window({
+      let core = core.clone();
+      let snapshot = snapshot(&root);
+      let layout_dir = config_dir.path().to_path_buf();
+      let root = root.clone();
+      move |window, cx| {
+        let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
+        FileViewer::new(model, layout, window, cx)
+      }
+    });
+    let handle = AnyWindowHandle::from(window);
+
+    open(cx, &window, handle, "shot.png", |viewer, _| {
+      matches!(viewer.image_state(), ImageLoad::Ready(_) | ImageLoad::Failed)
+    });
+    window
+      .update(cx, |viewer, _, cx| {
+        assert_eq!(
+          classify(viewer.model().read(cx).state().open_file.as_ref()),
+          ViewerKind::Image,
+          "an image past the text budget must stay an image"
+        );
+        match viewer.image_state() {
+          ImageLoad::Ready(ImageSource::Render(image)) => {
+            let size = image.size(0);
+            assert!(u32::from(size.width) <= MAX_IMAGE_EDGE, "{size:?} overflows the atlas");
+          }
+          other => panic!("expected a downscaled image, got {}", describe(other)),
+        }
+      })
+      .unwrap();
+
+    open(cx, &window, handle, "manual.pdf", |viewer, _| {
+      !matches!(viewer.pdf_pane().load(), PdfLoad::Pending)
+    });
+    window
+      .update(cx, |viewer, _, cx| {
+        assert_eq!(
+          classify(viewer.model().read(cx).state().open_file.as_ref()),
+          ViewerKind::Pdf
+        );
+        assert!(
+          matches!(viewer.pdf_pane().load(), PdfLoad::Ready(_)),
+          "the pdf page must rasterize, got {:?}",
+          viewer.pdf_pane().load()
+        );
+        assert_eq!(viewer.pdf_pane().page_count(), 2);
+        assert!(
+          matches!(viewer.image_state(), ImageLoad::Pending),
+          "opening a pdf must release the previous image"
+        );
+      })
+      .unwrap();
+
+    // The second page replaces the first, and the first document's answer cannot come back.
+    window.update(cx, |viewer, _, cx| viewer.pdf_go_to(1, cx)).unwrap();
+    settle(cx, &window, handle, |viewer, _| {
+      matches!(viewer.pdf_pane().load(), PdfLoad::Ready(_))
+    });
+
+    open(cx, &window, handle, "README.md", |viewer, cx| {
+      viewer.editor_value(cx).starts_with("# Title")
+    });
+    window
+      .update(cx, |viewer, _, cx| {
+        assert!(
+          matches!(viewer.pdf_pane().load(), PdfLoad::Pending),
+          "opening a text file must release the pdf"
+        );
+        assert!(!viewer.preview_active());
+        viewer.toggle_markdown_preview(cx);
+        assert!(viewer.preview_active());
+      })
+      .unwrap();
+    settle(cx, &window, handle, |viewer, _| viewer.preview_active());
+    assert!(
+      grants.allows_file(&repo_dir.path().canonicalize().unwrap().join("shot.png")),
+      "the preview must grant its own local image, and only its own"
+    );
+    window
+      .update(cx, |viewer, _, cx| {
+        assert_eq!(
+          viewer.editor_value(cx),
+          "# Title\n\n![shot](shot.png)\n",
+          "the raw buffer must survive the preview toggle"
+        );
+        viewer.toggle_markdown_preview(cx);
+      })
+      .unwrap();
+    // Leaving the document releases the grant with it.
+    window
+      .update(cx, |viewer, _, cx| {
+        viewer.model().update(cx, |model, cx| model.close_file(cx));
+      })
+      .unwrap();
+    settle(cx, &window, handle, |viewer, cx| {
+      viewer.model().read(cx).state().open_file.is_none()
+    });
+    assert!(
+      !grants.allows_file(&repo_dir.path().canonicalize().unwrap().join("shot.png")),
+      "a closed document must not keep filesystem access"
+    );
+
+    crate::test_core::park_and_shutdown(cx, &core);
+  }
+
+  /// Ask the model for a file, then pump frames until `ready` sees the surface settle.
+  fn open(
+    cx: &mut TestAppContext,
+    window: &WindowHandle<FileViewer>,
+    handle: AnyWindowHandle,
+    path: &str,
+    ready: impl Fn(&FileViewer, &App) -> bool,
+  ) {
+    let path = path.to_string();
+    window
+      .update(cx, move |viewer, _, cx| {
+        viewer.model().update(cx, |model, cx| model.open_file(&path, None, cx));
+      })
+      .unwrap();
+    settle(cx, window, handle, ready);
+  }
+
+  /// Draw and drain until the condition holds. Every surface here finishes on a background task
+  /// whose result only lands on the next frame, so the loop is a real barrier, not a fixed pump.
+  fn settle(
+    cx: &mut TestAppContext,
+    window: &WindowHandle<FileViewer>,
+    handle: AnyWindowHandle,
+    ready: impl Fn(&FileViewer, &App) -> bool,
+  ) {
+    for _ in 0..50 {
+      cx.run_until_parked();
+      handle.update(cx, |_, window, cx| window.draw(cx).clear(cx)).unwrap();
+      cx.run_until_parked();
+      if window.update(cx, |viewer, _, cx| ready(viewer, cx)).unwrap() {
+        return;
+      }
+    }
+    panic!("the viewer never reached the expected state");
+  }
+
+  fn describe(load: &ImageLoad) -> &'static str {
+    match load {
+      ImageLoad::Pending => "pending",
+      ImageLoad::Ready(_) => "an image that skipped the downscale",
+      ImageLoad::Failed => "a failure",
+    }
   }
 }

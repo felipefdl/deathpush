@@ -5,7 +5,7 @@ Date: 2026-09-07
 
 ## Purpose
 
-The file tree in the sidebar and the file viewer in the main panel for the open folder. With a Git repository the tree lists tracked, untracked, and ignored entries; without one it lists what is on disk. Selecting a file opens it in the main panel as an editable text file, an image preview, or a message for binary and very large files.
+The file tree in the sidebar and the file viewer in the main panel for the open folder. With a Git repository the tree lists tracked, untracked, and ignored entries; without one it lists what is on disk. Selecting a file opens it in the main panel as an editable text file, an image preview, a read-only PDF, or a message for binary and very large files. Markdown files also toggle between the source and a rendered preview.
 
 ## Layout
 
@@ -20,7 +20,7 @@ flowchart TB
   end
   subgraph main [Main panel]
     fileHeader[Path breadcrumbs and actions]
-    fileBody[Editor, image, or message]
+    fileBody[Editor, preview, image, PDF, or message]
   end
   tabs --> header --> tree
   fileHeader --> fileBody
@@ -40,9 +40,11 @@ Nested repositories are not listed here; they appear on [SCM Changes](scm-change
 
 **Blank-area context menu.** Right-click on the tree background: New File, New Folder, and Paste when the clipboard holds an entry.
 
-**File viewer header.** 35 tall. Breadcrumb path with ` / ` between segments and the full path as tooltip. A ` *` suffix while a save is pending. Right: Reveal in Finder (files on disk that are not binary or large) and Open in Editor.
+**File viewer header.** 35 tall. Breadcrumb path with ` / ` between segments and the full path as tooltip. A ` *` suffix while a save is pending. Right: Preview Markdown / Show Source for markdown files, Reveal in Finder (text, image, and PDF files), and Open in Editor.
 
-**File viewer body.** A code editor with syntax highlighting for text; a centered image for images; a centered message plus `Open in External Editor` for binary files and files over 5 MB; an empty state when nothing is selected.
+**File viewer body.** A code editor with syntax highlighting for text; a centered image for images; the current page of a PDF with a page footer; the rendered document for a markdown preview; a centered message plus `Open in External Editor` for binary files, files past their budget, and images or PDFs that cannot be decoded; an empty state when nothing is selected.
+
+**PDF page footer.** 30 tall with a top border, shown only for a document with more than one page: previous and next page buttons, 22 square, around `Page N of M`.
 
 **Status bar.** The cursor line feeds the blame line in the [app shell](app-shell.md). Blame is a status-bar line, not a gutter.
 
@@ -75,9 +77,13 @@ Nested repositories are not listed here; they appear on [SCM Changes](scm-change
 | Context: Move to Trash | `Move to Trash` | Move to the system trash after confirmation | Delete, or Cmd/Ctrl+Backspace |
 | Context: Add to .gitignore | `Add to .gitignore` | Append the path to `.gitignore`. Absent without a Git repository | none |
 | Blank-area: New File..., New Folder..., Paste | same | The same actions at the root | none |
+| Viewer: Preview Markdown | tooltip `Preview Markdown` | Render the markdown source. Markdown files only | none |
+| Viewer: Show Source | tooltip `Show Source` | Return to the source, on the same line it was left at | none |
 | Viewer: Reveal in Finder | tooltip `Reveal in Finder` | Show in the file manager | none |
 | Viewer: Open in Editor | tooltip `Open in Editor` | Open in the system editor | none |
-| Viewer: Open in External Editor | `Open in External Editor` | Open in the system editor (binary or large files) | none |
+| Viewer: Open in External Editor | `Open in External Editor` | Open in the system editor (binary, large, or undisplayable files) | none |
+| Viewer: PDF previous page | chevron left | Show the previous page. Disabled on page 1 | none |
+| Viewer: PDF next page | chevron right | Show the next page. Disabled on the last page | none |
 
 Paste is disabled when nothing is marked. The blank-area menu omits Paste entirely in that case.
 
@@ -89,11 +95,17 @@ Empty sidebar: `No repository open`, `Open Repository`.
 
 Empty viewer: `Select a file to view its contents`.
 
-Large file: `File is too large to display (over 5 MB)`, `Open in External Editor`.
+Large file: `File is too large to display`, `Open in External Editor`.
 
 Binary file: `Binary file cannot be displayed`, `Open in External Editor`.
 
-Viewer tooltips: `Reveal in Finder`, `Open in Editor`. Pending-save marker: ` *`. Breadcrumb separator: ` / `.
+Undisplayable image: `This image cannot be displayed`, `Open in External Editor`.
+
+Undisplayable PDF: the reason, then `Open in External Editor`. Reasons: `This PDF is password protected`, `This PDF uses an encryption algorithm DeathPush cannot read`, `This PDF has broken encryption`, `This PDF is malformed`, `This PDF is too large to display`, `This PDF page has no usable dimensions`, `This PDF page is too thin to rasterize`, `This PDF page is too large to rasterize`, `This PDF page rendered empty`.
+
+PDF footer: `Page {n} of {total}`.
+
+Viewer tooltips: `Preview Markdown`, `Show Source`, `Reveal in Finder`, `Open in Editor`. Pending-save marker: ` *`. Breadcrumb separator: ` / `.
 
 New entry names: `New File`, `New Folder`, then `New File 2`, `New Folder 2`, and up.
 
@@ -119,7 +131,7 @@ Tree: type icons and chevrons per settings; ignored entries dimmed; the selected
 
 Context menus: at the pointer, at least 180 wide, on the sidebar background with a subtle border, rounded corners, and a blur behind them (translucent on macOS and Windows). Items 26 tall, 13px, with a 14px icon. Hover uses the selection colors. Disabled items at 40% opacity.
 
-File viewer header: 35 tall with a bottom border; breadcrumbs 12px with an ellipsis. Body: the editor background; font, size, line height, and tab size from the Editor settings; line numbers per the Diff Viewer Line Numbers setting; wrap per Word Wrap. Empty state: the app mark at 80px and 7% opacity above the prompt at 40% opacity. Binary and large messages at 70% opacity with a 32px warning or binary icon at 40%. Images fit within the panel.
+File viewer header: 35 tall with a bottom border; breadcrumbs 12px with an ellipsis. Body: the editor background; font, size, line height, and tab size from the Editor settings; line numbers per the Diff Viewer Line Numbers setting; wrap per Word Wrap. Empty state: the app mark at 80px and 7% opacity above the prompt at 40% opacity. Binary, large, and undisplayable messages at 70% opacity with a 32px warning, binary, or image icon at 40%. Images and PDF pages fit within the panel. Markdown preview: 16 horizontal and 8 vertical padding, its own scrollbar, links open in the browser.
 
 Empty sidebar: centered muted text and a primary `Open Repository` button with a folder icon.
 
@@ -141,11 +153,15 @@ Empty sidebar: centered muted text and a primary `Open Repository` button with a
 
 **Text file.** Editable. Saves 1 s after the last edit. ` *` shows while a save is pending. If the file changes on disk with no pending save, the viewer reloads it.
 
-**Image.** Preview, with Reveal and Open in Editor.
+**Image.** Preview, with Reveal and Open in Editor. Files up to 64 MB open regardless of the text budget. Anything over 4096 px on its longest edge is decoded and downscaled before it is painted, animation included: an animated GIF or WebP keeps playing with its own frame delays, up to 64 megapixels of frames. A file that will not decode shows the undisplayable message rather than an empty panel.
+
+**PDF.** Read-only. Files up to 128 MB open; the current page is rasterized on a background thread to a 2048 px longest edge, at most 6x and never past 8192 px, and the page footer walks the document. Encrypted, password-protected, and malformed files show the reason.
+
+**Markdown.** `.md` and `.mdx` files carry the preview toggle. The preview renders the editor buffer, so unsaved edits show up immediately, and the source keeps its buffer and cursor across the toggle. Local images resolve relative to the file and only inside the open repository; remote images load over the network; images past 4096 px are downscaled for the preview too. Only `http`, `https`, and `mailto` links are handed to the desktop.
 
 **Binary.** Message and Open in External Editor only.
 
-**Large (over 5 MB).** Message and Open in External Editor only.
+**Large.** Message and Open in External Editor only: over 5 MB of text, 64 MB of image, or 128 MB of PDF.
 
 **Creating or renaming.** An inline field in the tree. Cancelling a create removes the placeholder row.
 

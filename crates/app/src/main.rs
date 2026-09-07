@@ -3,6 +3,7 @@ mod assets;
 mod cli_install;
 mod config;
 mod keymap;
+mod markdown_assets;
 mod menus;
 mod open_requests;
 mod overlays;
@@ -56,10 +57,14 @@ fn main() {
 
   app.run(move |cx| {
     gpui_kit::init(cx);
-    cx.set_http_client(Arc::new(
+    let network = Arc::new(
       reqwest_client::ReqwestClient::user_agent(&format!("deathpush/{}", env!("CARGO_PKG_VERSION")))
         .expect("http client"),
-    ));
+    );
+    // A markdown preview serves its own images through this client; see `markdown_assets`.
+    let (http, grants) = markdown_assets::LocalAssetHttpClient::new(network);
+    cx.set_global(markdown_assets::MarkdownAssets(grants));
+    cx.set_http_client(http);
     cx.text_system()
       .add_fonts(assets::font_files())
       .expect("bundled fonts load");

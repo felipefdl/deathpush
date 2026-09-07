@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -305,8 +307,13 @@ pub struct ExplorerEntry {
 #[serde(rename_all = "camelCase")]
 pub struct FileContent {
   pub path: String,
+  /// Text content. Empty for `image`, `pdf`, `binary`, and `large` files.
   pub content: String,
+  /// Raw file bytes. `Some` only when `file_type` is `image`.
+  #[serde(skip)]
+  pub bytes: Option<Arc<[u8]>>,
   pub language: Option<String>,
+  /// `text` | `image` | `pdf` | `binary` | `large`
   pub file_type: String,
   pub content_hash: String,
 }

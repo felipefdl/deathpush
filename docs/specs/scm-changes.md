@@ -196,7 +196,7 @@ Main diff: the path header, then the diff in side-by-side or inline layout per s
 
 **Diff empty.** No selection: watermark and `Select a file to view changes`. Without a repository: `Diffs need a Git repository`.
 
-**Diff kinds.** Text: read-only. Editing happens in the Explorer file viewer. Image: side-by-side images. Binary or large: message plus `Open in External Editor`. Merge conflict: per-conflict accept choices.
+**Diff kinds.** Text: read-only. Editing happens in the Explorer file viewer. Image: side-by-side images, decoded once per selection through the same pipeline as the file viewer, so png, jpeg, gif, webp, bmp, ico, tiff, and svg all render and anything over 4096 px is downscaled. Binary or large: message plus `Open in External Editor`. Merge conflict: per-conflict accept choices.
 
 **Error.** Failures show the app toast.
 

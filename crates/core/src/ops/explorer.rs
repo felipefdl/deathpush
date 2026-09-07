@@ -1,18 +1,100 @@
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::UNIX_EPOCH;
 
 use crate::core::Core;
 use crate::error::{Error, Result};
 use crate::git::cli::GitCli;
-use crate::git::diff::{blob_to_data_uri, detect_language, is_image_file};
+use crate::git::diff::{detect_language, is_image_file, is_pdf_file};
 use crate::git::repository::GitRepository;
+use crate::pdf::PdfPageImage;
 use crate::session::SessionId;
 use crate::types::{ContentSearchResult, ExplorerEntry, FileContent, FuzzyFileResult};
 use crate::util::async_command_ready;
 
-const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024; // 5 MiB of text is already unreadable
+const MAX_IMAGE_SIZE: u64 = 64 * 1024 * 1024;
+const MAX_PDF_SIZE: u64 = 128 * 1024 * 1024;
 const BINARY_CHECK_SIZE: usize = 8192;
+
+/// How `read_file_content` should treat a file. Extension decides first: a 40 MB screenshot is
+/// still an image, and the text budget has nothing to say about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadPlan {
+  Oversized,
+  Pdf,
+  Image,
+  Text,
+}
+
+fn read_plan(path: &str, len: u64) -> ReadPlan {
+  if is_pdf_file(path) {
+    return if len > MAX_PDF_SIZE {
+      ReadPlan::Oversized
+    } else {
+      ReadPlan::Pdf
+    };
+  }
+  if is_image_file(path) {
+    return if len > MAX_IMAGE_SIZE {
+      ReadPlan::Oversized
+    } else {
+      ReadPlan::Image
+    };
+  }
+  if len > MAX_FILE_SIZE {
+    return ReadPlan::Oversized;
+  }
+  ReadPlan::Text
+}
+
+/// Canonicalize `path` inside `root` and refuse anything that escapes it.
+fn resolve_repo_file(root: &Path, path: &str) -> Result<PathBuf> {
+  let canon_root = root
+    .canonicalize()
+    .map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
+  let canon_target = root
+    .join(path)
+    .canonicalize()
+    .map_err(|e| Error::Other(format!("Cannot resolve file path: {}", e)))?;
+  if !canon_target.starts_with(&canon_root) {
+    return Err(Error::Other("Path traversal denied".into()));
+  }
+  if !canon_target.is_file() {
+    return Err(Error::Other("File not found".into()));
+  }
+  Ok(canon_target)
+}
+
+fn modified_nanos(metadata: &fs::Metadata) -> u128 {
+  metadata
+    .modified()
+    .ok()
+    .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+    .map(|since| since.as_nanos())
+    .unwrap_or(0)
+}
+
+fn placeholder(path: &str, file_type: &str) -> FileContent {
+  FileContent {
+    content_hash: crate::content_hash::sha256_utf8(""),
+    path: path.to_string(),
+    content: String::new(),
+    bytes: None,
+    language: None,
+    file_type: file_type.to_string(),
+  }
+}
+
+fn oversized(path: &str) -> FileContent {
+  placeholder(path, "large")
+}
+
+fn binary(path: &str) -> FileContent {
+  placeholder(path, "binary")
+}
 
 /// `New File`, `New File 2`, `New File 3`... skipping names already present (case-sensitive) in `existing`.
 pub fn next_entry_name(existing: &[String], base: &str) -> String {
@@ -220,84 +302,63 @@ impl Core {
 
   pub fn read_file_content(&self, id: SessionId, path: &str) -> Result<FileContent> {
     let root = self.repo_root(id)?;
+    let target = resolve_repo_file(&root, path)?;
+    let metadata = fs::metadata(&target)?;
+    let len = metadata.len();
 
-    // Path traversal protection
-    let canon_root = root
-      .canonicalize()
-      .map_err(|e| Error::Other(format!("Cannot resolve repository root: {}", e)))?;
-    let target = root.join(path);
-    let canon_target = target
-      .canonicalize()
-      .map_err(|e| Error::Other(format!("Cannot resolve file path: {}", e)))?;
-    if !canon_target.starts_with(&canon_root) {
-      return Err(Error::Other("Path traversal denied".into()));
-    }
-
-    // Check file exists
-    if !canon_target.is_file() {
-      return Err(Error::Other("File not found".into()));
-    }
-
-    // Size check
-    let metadata = fs::metadata(&canon_target)?;
-    if metadata.len() > MAX_FILE_SIZE {
-      return Ok(FileContent {
-        content_hash: crate::content_hash::sha256_utf8(""),
+    match read_plan(path, len) {
+      ReadPlan::Oversized => Ok(oversized(path)),
+      // A PDF's bytes stay on disk; the app asks for rendered pages instead.
+      ReadPlan::Pdf => Ok(FileContent {
+        content_hash: crate::content_hash::stamp(len, modified_nanos(&metadata)),
         path: path.to_string(),
         content: String::new(),
+        bytes: None,
         language: None,
-        file_type: "large".to_string(),
-      });
-    }
-
-    // Image files
-    if is_image_file(path) {
-      let bytes = fs::read(&canon_target)?;
-      let data_uri = blob_to_data_uri(&bytes, path);
-      return Ok(FileContent {
-        content_hash: crate::content_hash::sha256_utf8(&data_uri),
-        path: path.to_string(),
-        content: data_uri,
-        language: None,
-        file_type: "image".to_string(),
-      });
-    }
-
-    // Read raw bytes for binary detection
-    let bytes = fs::read(&canon_target)?;
-
-    // Binary detection: check for null bytes in first 8KB
-    let check_len = bytes.len().min(BINARY_CHECK_SIZE);
-    if bytes[..check_len].contains(&0) {
-      return Ok(FileContent {
-        content_hash: crate::content_hash::sha256_utf8(""),
-        path: path.to_string(),
-        content: String::new(),
-        language: None,
-        file_type: "binary".to_string(),
-      });
-    }
-
-    // Try UTF-8 conversion
-    match String::from_utf8(bytes) {
-      Ok(content) => {
-        let language = detect_language(path);
+        file_type: "pdf".to_string(),
+      }),
+      ReadPlan::Image => {
+        let bytes = fs::read(&target)?;
         Ok(FileContent {
-          content_hash: crate::content_hash::sha256_utf8(&content),
+          content_hash: crate::content_hash::sha256_bytes(&bytes),
           path: path.to_string(),
-          content,
-          language,
-          file_type: "text".to_string(),
+          content: String::new(),
+          bytes: Some(Arc::from(bytes)),
+          language: None,
+          file_type: "image".to_string(),
         })
       }
-      Err(_) => Ok(FileContent {
-        content_hash: crate::content_hash::sha256_utf8(""),
-        path: path.to_string(),
-        content: String::new(),
-        language: None,
-        file_type: "binary".to_string(),
-      }),
+      ReadPlan::Text => {
+        let bytes = fs::read(&target)?;
+        // Binary detection: check for null bytes in the first 8 KB.
+        let check_len = bytes.len().min(BINARY_CHECK_SIZE);
+        if bytes[..check_len].contains(&0) {
+          return Ok(binary(path));
+        }
+        match String::from_utf8(bytes) {
+          Ok(content) => Ok(FileContent {
+            content_hash: crate::content_hash::sha256_utf8(&content),
+            path: path.to_string(),
+            content,
+            bytes: None,
+            language: detect_language(path),
+            file_type: "text".to_string(),
+          }),
+          Err(_) => Ok(binary(path)),
+        }
+      }
     }
+  }
+
+  /// Rasterize one page of a PDF in the repository. Synchronous: callers run it off the UI thread.
+  pub fn render_pdf_page(&self, id: SessionId, path: &str, page: usize, max_edge: u32) -> Result<PdfPageImage> {
+    let root = self.repo_root(id)?;
+    let target = resolve_repo_file(&root, path)?;
+    // The viewer already refused to open a file this big, but the page request arrives on its own.
+    if fs::metadata(&target)?.len() > MAX_PDF_SIZE {
+      return Err(Error::Other("This PDF is too large to display".into()));
+    }
+    crate::pdf::render_page(&target, page, max_edge)
   }
 
   pub fn fuzzy_find_files(&self, id: SessionId, query: &str, max_results: usize) -> Result<Vec<FuzzyFileResult>> {
@@ -470,5 +531,24 @@ mod tests {
       next_entry_name(&["New Folder 2".to_string()], "New Folder"),
       "New Folder"
     );
+  }
+
+  #[test]
+  fn images_and_pdfs_get_their_own_budget() {
+    // The text budget used to run first, so every image over 5 MiB came back as "large".
+    assert_eq!(read_plan("shot.png", 30 * 1024 * 1024), ReadPlan::Image);
+    assert_eq!(read_plan("manual.pdf", 30 * 1024 * 1024), ReadPlan::Pdf);
+    assert_eq!(read_plan("notes.txt", 30 * 1024 * 1024), ReadPlan::Oversized);
+
+    assert_eq!(read_plan("shot.png", MAX_IMAGE_SIZE + 1), ReadPlan::Oversized);
+    assert_eq!(read_plan("manual.pdf", MAX_PDF_SIZE + 1), ReadPlan::Oversized);
+    assert_eq!(read_plan("notes.txt", MAX_FILE_SIZE), ReadPlan::Text);
+  }
+
+  #[test]
+  fn read_plan_is_case_insensitive_about_extensions() {
+    assert_eq!(read_plan("SHOT.PNG", 1), ReadPlan::Image);
+    assert_eq!(read_plan("MANUAL.PDF", 1), ReadPlan::Pdf);
+    assert_eq!(read_plan("photo.avif", 1), ReadPlan::Text);
   }
 }

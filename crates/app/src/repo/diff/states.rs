@@ -1,11 +1,10 @@
-use std::sync::Arc;
-
 use deathpush_core::session::types::DiffPayload;
 use deathpush_core::theme::UiPalette;
 use gpui_kit::component::button::Button;
 use gpui_kit::*;
 
 use super::panel::DiffPanel;
+use crate::repo::image_load::prepare;
 use crate::theme::hsla;
 
 pub const LARGE_FILE_BYTES: usize = 5 * 1024 * 1024;
@@ -68,7 +67,7 @@ pub fn render_large(view: WeakEntity<DiffPanel>, palette: UiPalette) -> impl Int
   message_with_open("File is too large to display (over 5 MB)", view, palette)
 }
 
-pub fn render_image(old: Option<Arc<Image>>, new: Option<Arc<Image>>, palette: UiPalette) -> impl IntoElement {
+pub fn render_image(old: Option<ImageSource>, new: Option<ImageSource>, palette: UiPalette) -> impl IntoElement {
   div()
     .size_full()
     .flex()
@@ -79,7 +78,7 @@ pub fn render_image(old: Option<Arc<Image>>, new: Option<Arc<Image>>, palette: U
     .child(image_pane(new, palette))
 }
 
-pub(crate) fn decode_images(payload: &DiffPayload) -> (Option<Arc<Image>>, Option<Arc<Image>>) {
+pub(crate) fn decode_images(payload: &DiffPayload) -> (Option<ImageSource>, Option<ImageSource>) {
   (
     payload
       .presence
@@ -118,7 +117,7 @@ fn message_with_open(message: &'static str, view: WeakEntity<DiffPanel>, palette
     )
 }
 
-fn image_pane(image: Option<Arc<Image>>, palette: UiPalette) -> Div {
+fn image_pane(image: Option<ImageSource>, palette: UiPalette) -> Div {
   let empty = div()
     .flex_1()
     .min_w_0()
@@ -136,12 +135,14 @@ fn image_pane(image: Option<Arc<Image>>, palette: UiPalette) -> Div {
   }
 }
 
-fn decode_to_image(uri: &str) -> Option<Arc<Image>> {
+/// A diff side is a data URI. Both sides go through the viewer's image pipeline, so a wide
+/// screenshot is downscaled once per selection instead of overflowing the texture atlas.
+fn decode_to_image(uri: &str) -> Option<ImageSource> {
   if uri.is_empty() {
     return None;
   }
   let (format, bytes) = decode_data_uri(uri)?;
-  Some(Arc::new(Image::from_bytes(format, bytes)))
+  Some(prepare(format, &bytes)?.source())
 }
 
 pub(crate) fn decode_data_uri(uri: &str) -> Option<(ImageFormat, Vec<u8>)> {
@@ -153,6 +154,9 @@ pub(crate) fn decode_data_uri(uri: &str) -> Option<(ImageFormat, Vec<u8>)> {
     "image/jpeg" | "image/jpg" => ImageFormat::Jpeg,
     "image/webp" => ImageFormat::Webp,
     "image/gif" => ImageFormat::Gif,
+    "image/bmp" => ImageFormat::Bmp,
+    "image/x-icon" | "image/ico" => ImageFormat::Ico,
+    "image/tiff" => ImageFormat::Tiff,
     "image/svg+xml" => ImageFormat::Svg,
     _ => return None,
   };
@@ -198,5 +202,25 @@ mod tests {
     p.file_type = "text".into();
     p.modified = "x".repeat(LARGE_FILE_BYTES + 1);
     assert_eq!(classify(Some(&p)), DiffKind::Large);
+  }
+
+  #[test]
+  fn every_image_mime_core_emits_can_be_decoded() {
+    // The diff panel used to accept five mime types while core classified ten extensions as
+    // images, so a bmp, ico, or tiff diff showed an empty grey box.
+    for mime in [
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/gif",
+      "image/bmp",
+      "image/x-icon",
+      "image/tiff",
+      "image/svg+xml",
+    ] {
+      let uri = format!("data:{mime};base64,QUJD");
+      assert!(decode_data_uri(&uri).is_some(), "{mime} must decode");
+    }
+    assert!(decode_data_uri("data:application/octet-stream;base64,QUJD").is_none());
   }
 }

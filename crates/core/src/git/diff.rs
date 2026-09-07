@@ -8,13 +8,20 @@ use crate::error::{Error, Result};
 use crate::git::repository::GitRepository;
 use crate::types::{DiffContent, DiffHunk, DiffLine};
 
-const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "avif", "tiff", "svg"];
+const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "tif", "tiff", "svg"];
 
 pub fn is_image_file(path: &str) -> bool {
   Path::new(path)
     .extension()
     .and_then(|e| e.to_str())
     .is_some_and(|ext| IMAGE_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
+}
+
+pub fn is_pdf_file(path: &str) -> bool {
+  Path::new(path)
+    .extension()
+    .and_then(|e| e.to_str())
+    .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
 }
 
 fn image_mime_type(ext: &str) -> &str {
@@ -25,8 +32,7 @@ fn image_mime_type(ext: &str) -> &str {
     "bmp" => "image/bmp",
     "webp" => "image/webp",
     "ico" => "image/x-icon",
-    "avif" => "image/avif",
-    "tiff" => "image/tiff",
+    "tif" | "tiff" => "image/tiff",
     "svg" => "image/svg+xml",
     _ => "application/octet-stream",
   }

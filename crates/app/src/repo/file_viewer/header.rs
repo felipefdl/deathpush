@@ -13,17 +13,33 @@ pub fn breadcrumbs(path: &str) -> Vec<String> {
   path.split(['/', '\\']).map(str::to_string).collect()
 }
 
+/// What the header needs to know about the file it is titling.
+#[derive(Debug, Clone, Copy)]
+pub struct HeaderState {
+  pub dirty: bool,
+  pub kind: ViewerKind,
+  /// The file can be previewed as markdown.
+  pub markdown: bool,
+  /// The preview is the surface currently on screen.
+  pub preview: bool,
+}
+
 pub fn render_header(
   path: &str,
-  dirty: bool,
-  kind: ViewerKind,
+  state: HeaderState,
   view: WeakEntity<FileViewer>,
   palette: UiPalette,
   _cx: &App,
 ) -> impl IntoElement {
+  let HeaderState {
+    dirty,
+    kind,
+    markdown,
+    preview,
+  } = state;
   let full_path = path.to_string();
   let crumb = breadcrumbs(path).join(" / ");
-  let show_reveal = matches!(kind, ViewerKind::Text | ViewerKind::Image);
+  let show_reveal = matches!(kind, ViewerKind::Text | ViewerKind::Image | ViewerKind::Pdf);
   div()
     .h(px(35.0))
     .flex_shrink_0()
@@ -66,6 +82,17 @@ pub fn render_header(
         .flex()
         .items_center()
         .gap_1()
+        .when(markdown, |el| {
+          let view = view.clone();
+          let (icon, tooltip) = if preview {
+            ("icons/file-code.svg", "Show Source")
+          } else {
+            ("icons/file-text.svg", "Preview Markdown")
+          };
+          el.child(tool("file-md-preview", icon, tooltip).on_click(move |_, _, cx| {
+            let _ = view.update(cx, |this, cx| this.toggle_markdown_preview(cx));
+          }))
+        })
         .when(show_reveal, |el| {
           let view = view.clone();
           el.child(
