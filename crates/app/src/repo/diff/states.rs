@@ -31,27 +31,32 @@ pub fn classify(payload: Option<&DiffPayload>) -> DiffKind {
   }
 }
 
-pub fn render_empty(palette: UiPalette) -> impl IntoElement {
+pub fn render_empty(has_repository: bool, palette: UiPalette) -> impl IntoElement {
+  let message = if has_repository {
+    "Select a file to view changes"
+  } else {
+    "Diffs need a Git repository"
+  };
   div()
     .size_full()
     .flex()
     .flex_col()
     .items_center()
     .justify_center()
-    .gap_2()
+    .gap_3()
     .child(
       svg()
         .path("brand/deathpush.svg")
-        .size(px(48.0))
+        .size(px(80.0))
         .text_color(hsla(palette.mark))
-        .opacity(0.12),
+        .opacity(0.07),
     )
     .child(
       div()
         .text_size(px(13.0))
         .text_color(hsla(palette.foreground))
-        .opacity(0.18)
-        .child("Select a file to view changes"),
+        .opacity(0.4)
+        .child(message),
     )
 }
 

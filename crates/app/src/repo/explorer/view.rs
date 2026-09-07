@@ -633,6 +633,7 @@ fn tool(id: &'static str, path: &'static str, tooltip: &'static str) -> Button {
 impl Render for ExplorerView {
   fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let repo_open = self.repo.read(cx).state().root().is_some();
+    let has_repository = self.repo.read(cx).state().has_repository();
     let palette = cx.global::<ActivePalette>().0;
     let density = AppConfig::get(cx).settings.ui.tree_density;
     let kind = IconKind::new(AppConfig::get(cx).settings.ui.tree_icons, palette.kind);
@@ -704,6 +705,7 @@ impl Render for ExplorerView {
             String::new(),
             true,
             has_mark,
+            has_repository,
             blank_view.clone(),
           )
         })
@@ -730,6 +732,7 @@ impl Render for ExplorerView {
                   palette,
                   selected: row.selected || entry_state.is_selected(),
                   has_mark,
+                  has_repository,
                   editing,
                 },
                 view.clone(),
@@ -854,6 +857,7 @@ mod tests {
       status_revision: 1,
       repo: SessionRepo {
         root: root.into(),
+        has_repository: true,
         head_branch: Some("main".into()),
         head_commit: Some("abc".into()),
         ahead: 0,

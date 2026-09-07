@@ -175,6 +175,84 @@ mod tests {
   }
 
   #[test]
+  fn a_folder_without_git_opens_as_an_explorer_session() {
+    let directory = tempfile::TempDir::new().unwrap();
+    std::fs::create_dir(directory.path().join("src")).unwrap();
+    std::fs::write(directory.path().join("src/main.rs"), "fn main() {}").unwrap();
+    let core = Core::new(directory.path().to_path_buf()).unwrap();
+    let (id, _events) = core.open_session();
+    let path = directory.path().to_string_lossy().into_owned();
+
+    let outcome = core
+      .runtime_handle()
+      .block_on(core.session_intent(id, Intent::OpenRepository { path }))
+      .unwrap();
+    let IntentOutcome::Snapshot { snapshot } = outcome else {
+      panic!("expected a snapshot, got {outcome:?}");
+    };
+    assert!(!snapshot.repo.has_repository, "the folder has no Git repository");
+    assert_eq!(
+      std::path::Path::new(&snapshot.repo.root),
+      std::fs::canonicalize(directory.path()).unwrap()
+    );
+    assert!(snapshot.groups.is_empty(), "nothing to stage: {:?}", snapshot.groups);
+    assert_eq!(
+      core.repo_root(id).unwrap(),
+      std::fs::canonicalize(directory.path()).unwrap(),
+      "the session binds the folder itself"
+    );
+
+    let tree = core
+      .runtime_handle()
+      .block_on(core.list_repository_tree(id))
+      .expect("the explorer lists a folder with no repository");
+    assert!(
+      tree.iter().any(|entry| entry.path == "src/main.rs"),
+      "the file should be listed: {tree:?}"
+    );
+
+    let err = core
+      .runtime_handle()
+      .block_on(core.session_intent(id, Intent::StageAll))
+      .unwrap_err();
+    assert!(
+      matches!(err, crate::error::Error::NotARepository { .. }),
+      "Git intents are refused: {err:?}"
+    );
+
+    core.runtime_handle().block_on(core.close_session(id));
+  }
+
+  #[test]
+  fn init_repository_turns_an_explorer_session_into_a_repository() {
+    let directory = tempfile::TempDir::new().unwrap();
+    std::fs::write(directory.path().join("main.rs"), "fn main() {}").unwrap();
+    let core = Core::new(directory.path().to_path_buf()).unwrap();
+    let (id, _events) = core.open_session();
+    let path = directory.path().to_string_lossy().into_owned();
+
+    let outcome = core
+      .runtime_handle()
+      .block_on(core.session_intent(id, Intent::InitRepository { path }))
+      .unwrap();
+    let IntentOutcome::Snapshot { snapshot } = outcome else {
+      panic!("expected a snapshot, got {outcome:?}");
+    };
+    assert!(directory.path().join(".git").is_dir());
+    assert!(snapshot.repo.has_repository);
+    assert_eq!(snapshot.repo.head_branch, None, "a fresh repository has an unborn HEAD");
+    assert!(
+      snapshot
+        .groups
+        .iter()
+        .any(|group| group.files.iter().any(|file| file.path.ends_with("main.rs"))),
+      "the existing file should show up as a change: {:?}",
+      snapshot.groups
+    );
+    core.runtime_handle().block_on(core.close_session(id));
+  }
+
+  #[test]
   fn close_session_waits_for_in_flight_intent() {
     let directory = init_repo();
     let core = Core::new(directory.path().to_path_buf()).unwrap();

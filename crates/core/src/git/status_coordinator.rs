@@ -266,6 +266,7 @@ impl StatusCoordinator {
     let state = self.lock();
     let metadata = state.metadata.clone().unwrap_or_else(|| RepositoryMetadata {
       root: self.root.to_string_lossy().to_string(),
+      has_repository: false,
       head_branch: None,
       head_commit: None,
       ahead: 0,
@@ -280,6 +281,7 @@ impl StatusCoordinator {
     let state = self.lock();
     let metadata = state.metadata.clone().unwrap_or_else(|| RepositoryMetadata {
       root: self.root.to_string_lossy().to_string(),
+      has_repository: false,
       head_branch: None,
       head_commit: None,
       ahead: 0,
@@ -396,6 +398,7 @@ impl StatusCoordinator {
         entries,
         metadata: Some(RepositoryMetadata {
           root: String::new(),
+          has_repository: true,
           head_branch: None,
           head_commit: None,
           ahead: 0,

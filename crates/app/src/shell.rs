@@ -301,6 +301,7 @@ impl Shell {
               cx.notify();
             }
           }
+          this.sync_menus(window, cx);
         }
       },
     )
@@ -497,16 +498,22 @@ impl Shell {
     self.sync_menus(window, cx);
   }
 
-  fn menu_context(&self) -> MenuContext {
+  fn menu_context(&self, cx: &App) -> MenuContext {
+    let folder_open = matches!(self.screen, Screen::Repository(_));
+    let git_open = match &self.screen {
+      Screen::Repository(view) => folder_open && view.read(cx).has_repository(cx),
+      _ => false,
+    };
     MenuContext {
-      repo_open: matches!(self.screen, Screen::Repository(_)),
+      folder_open,
+      git_open,
       cli_installed: self.cli_installed,
     }
   }
 
   fn sync_menus(&self, window: &Window, cx: &mut App) {
     if window.is_window_active() {
-      set_menu_context(self.menu_context(), cx);
+      set_menu_context(self.menu_context(cx), cx);
     }
   }
 
@@ -653,6 +660,9 @@ impl Shell {
     let Screen::Repository(repo) = &self.screen else {
       return;
     };
+    if !repo.read(cx).has_repository(cx) {
+      return;
+    }
     let model = repo.read(cx).model().clone();
     self.remember_overlay_opener(window, cx);
     let overlay = cx.new(|cx| crate::overlays::branch_picker::BranchPicker::new(model, window, cx));
@@ -764,7 +774,7 @@ impl Render for Shell {
     } else {
       self.title.clone()
     };
-    let title_bar = render_title_bar(bar_title, self.menu_context(), window, cx);
+    let title_bar = render_title_bar(bar_title, self.menu_context(cx), window, cx);
     let body: AnyElement = match &self.screen {
       Screen::Boot => self.render_boot(window, cx).into_any_element(),
       Screen::Welcome(view) => view.clone().into_any_element(),
@@ -873,6 +883,7 @@ mod tests {
       status_revision: 1,
       repo: SessionRepo {
         root: root.into(),
+        has_repository: true,
         head_branch: Some("main".into()),
         head_commit: Some("abc".into()),
         ahead: 0,

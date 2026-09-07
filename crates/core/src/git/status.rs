@@ -7,7 +7,8 @@ use crate::error::Result;
 use crate::git::repo_state::detect_operation_state;
 use crate::git::repository::GitRepository;
 use crate::types::{
-  FileEntry, FileStatus, RepositoryMetadata, RepositoryStatus, ResourceGroup, ResourceGroupKind, StatusEntry, StatusKey,
+  FileEntry, FileStatus, RepoOperationState, RepositoryMetadata, RepositoryStatus, ResourceGroup, ResourceGroupKind,
+  StatusEntry, StatusKey,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -83,12 +84,26 @@ impl ScopeIndex {
 pub fn repository_status_from_entries(metadata: RepositoryMetadata, entries: &[StatusEntry]) -> RepositoryStatus {
   RepositoryStatus {
     root: metadata.root,
+    has_repository: metadata.has_repository,
     head_branch: metadata.head_branch,
     head_commit: metadata.head_commit,
     ahead: metadata.ahead,
     behind: metadata.behind,
     groups: groups_from_entries(entries),
     operation_state: metadata.operation_state,
+  }
+}
+
+/// A plain folder with no Git repository: no branch, no upstream, nothing staged.
+pub fn folder_metadata(root: &Path) -> RepositoryMetadata {
+  RepositoryMetadata {
+    root: root.to_string_lossy().to_string(),
+    has_repository: false,
+    head_branch: None,
+    head_commit: None,
+    ahead: 0,
+    behind: 0,
+    operation_state: RepoOperationState::None,
   }
 }
 
@@ -100,7 +115,12 @@ pub fn get_repository_status(repo: &GitRepository) -> Result<RepositoryStatus> {
 }
 
 pub fn scan_baseline(root: &Path) -> Result<StatusScan> {
-  let repo = GitRepository::open(root)?;
+  let Some(repo) = GitRepository::open_optional(root)? else {
+    return Ok(StatusScan {
+      entries: Vec::new(),
+      metadata: Some(folder_metadata(root)),
+    });
+  };
   let mut opts = status_options(true);
   Ok(StatusScan {
     entries: scan_entries(&repo, &mut opts)?,
@@ -119,7 +139,12 @@ pub fn scan_scopes(root: &Path, scopes: &[StatusScope]) -> Result<StatusScan> {
     });
   }
 
-  let repo = GitRepository::open(root)?;
+  let Some(repo) = GitRepository::open_optional(root)? else {
+    return Ok(StatusScan {
+      entries: Vec::new(),
+      metadata: Some(folder_metadata(root)),
+    });
+  };
   let mut merged: BTreeMap<StatusKey, StatusEntry> = BTreeMap::new();
 
   let exact: Vec<String> = scopes
@@ -234,6 +259,7 @@ fn metadata_from(repo: &GitRepository) -> RepositoryMetadata {
   let (ahead, behind) = repo.ahead_behind();
   RepositoryMetadata {
     root: repo.root().to_string_lossy().to_string(),
+    has_repository: true,
     head_branch: repo.head_branch(),
     head_commit: repo.head_commit_id(),
     ahead,

@@ -107,6 +107,16 @@ impl RepoState {
     self.status.as_ref().map(|status| status.root.as_str())
   }
 
+  /// A folder is open. `has_repository()` says whether Git is available in it.
+  pub fn folder_open(&self) -> bool {
+    self.status.is_some()
+  }
+
+  /// `false` while the open folder has no Git repository: explorer, viewer and terminal only.
+  pub fn has_repository(&self) -> bool {
+    self.status.as_ref().is_some_and(|status| status.has_repository)
+  }
+
   pub fn mark_commit_intent(&mut self, intent: &Intent) {
     if matches!(
       intent,
@@ -183,6 +193,7 @@ impl RepoState {
     self.status_revision = revision;
     self.status = Some(RepositoryStatus {
       root: snapshot_repo.root.clone(),
+      has_repository: snapshot_repo.has_repository,
       head_branch: snapshot_repo.head_branch.clone(),
       head_commit: snapshot_repo.head_commit.clone(),
       ahead: snapshot_repo.ahead,
@@ -497,6 +508,7 @@ mod tests {
   fn repo(root: &str, branch: &str) -> SessionRepo {
     SessionRepo {
       root: root.into(),
+      has_repository: true,
       head_branch: Some(branch.into()),
       head_commit: Some("abc".into()),
       ahead: 0,
@@ -747,6 +759,7 @@ mod tests {
     assert!(!state.has_changes());
     state.status = Some(RepositoryStatus {
       root: "/r".into(),
+      has_repository: true,
       head_branch: Some("main".into()),
       head_commit: None,
       ahead: 0,

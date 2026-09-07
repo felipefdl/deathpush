@@ -57,6 +57,11 @@ impl ItemMenu {
       _ => true,
     }
   }
+
+  /// The rows a folder can show: `Add to .gitignore` needs a Git repository.
+  pub fn needs_repository(self) -> bool {
+    matches!(self, Self::AddToGitignore)
+  }
 }
 
 pub fn blank_menu_items(has_mark: bool) -> Vec<ItemMenu> {

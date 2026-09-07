@@ -1,7 +1,7 @@
 # Native menus
 
 Status: Current product
-Date: 2026-09-02
+Date: 2026-09-07
 
 ## Purpose
 
@@ -31,6 +31,8 @@ Linux: no visible menu bar. One dropdown under the menu button holds a flattened
 
 **Help.** Open Source Licenses.
 
+**Gating.** Menu items are gated two ways. Folder-gated items are enabled whenever a folder is open, with or without a Git repository: `Settings...`, `Quick Open...`, View > `Changes`, `Toggle Diff Mode`, and the whole Terminal menu (`New Terminal`, `Kill Terminal`, `Toggle Terminal`). Git-gated items are enabled only when the open folder has a Git repository: every item in the `Git` menu and View > `History`. Everything else is always enabled. On Linux, `Settings...` in the dropdown is never disabled.
+
 ## Controls
 
 Shortcuts use Cmd on macOS and Ctrl elsewhere.
@@ -48,12 +50,14 @@ Shortcuts use Cmd on macOS and Ctrl elsewhere.
 | Show All | `Show All` | macOS | none |
 | Quit | `Quit {appName}` (macOS), `Exit` (Windows), `Quit` (Linux) | Quit | Cmd+Q on macOS |
 
+`Settings...` is folder-gated. The rest are always enabled.
+
 ### File
 
 | Control | Copy | Action | Shortcut |
 |---|---|---|---|
 | New Window | `New Window` | Open a new window on the welcome screen | Cmd/Ctrl+N |
-| Open Repository | `Open Repository...` | Folder picker titled `Open Git Repository`, then open | Cmd/Ctrl+O |
+| Open Repository | `Open Repository...` | Folder picker titled `Open Git Repository`, then open that folder, with or without a Git repository | Cmd/Ctrl+O |
 | Clone Repository | `Clone Repository...` | [Clone dialog](clone-dialog.md) | none |
 | Close Window | `Close Window` (`Close` on Windows) | Close, after the terminal-process check | Cmd+W on macOS, Alt+F4 on Windows |
 
@@ -75,9 +79,11 @@ Undo (Cmd/Ctrl+Z), Redo (Cmd+Shift+Z on macOS, Ctrl+Y elsewhere), Cut (Cmd/Ctrl+
 | Reset Zoom | `Reset Zoom` | Zoom level 0 | Cmd/Ctrl+0 |
 | Inspect Element | `Inspect Element` | Developer tools (development builds only) | Cmd/Ctrl+Shift+I |
 
+`Quick Open...`, `Changes`, and `Toggle Diff Mode` are folder-gated; `History` is Git-gated. The rest are always enabled.
+
 ### Git
 
-No shortcuts.
+No shortcuts. Every item here is Git-gated.
 
 | Control | Copy | Action |
 |---|---|---|
@@ -98,6 +104,8 @@ No shortcuts.
 | Kill Terminal | `Kill Terminal` | Kill the active group | none |
 | Toggle Terminal | `Toggle Terminal` | Show or hide the panel | Cmd/Ctrl+J |
 
+Every item here is folder-gated.
+
 ### Window
 
 Minimize (`Minimize`, Cmd/Ctrl+M), Maximize (`Zoom` on macOS, `Maximize` elsewhere), Close Window (as in File).
@@ -110,33 +118,33 @@ Minimize (`Minimize`, Cmd/Ctrl+M), Maximize (`Zoom` on macOS, `Maximize` elsewhe
 
 ### Linux dropdown
 
-In order, with separators between groups. Rows marked repo-only are disabled when no repository is open.
+In order, with separators between groups. The `Enabled when` column names the gate from the Regions section: `always`, `folder` for folder-gated, `git` for Git-gated.
 
-| Copy | Shortcut label | Repo-only |
+| Copy | Shortcut label | Enabled when |
 |---|---|---|
-| `New Window` | `Ctrl+N` | no |
-| `Open Repository...` | `Ctrl+O` | no |
-| `Clone Repository...` | | no |
-| `Changes` | `Ctrl+1` | yes |
-| `History` | `Ctrl+Shift+2` | yes |
-| `Toggle Diff Mode` | `Ctrl+Shift+P` | yes |
-| `Color Theme...` | | no |
-| `Zoom In` | `Ctrl+=` | no |
-| `Zoom Out` | `Ctrl+-` | no |
-| `Reset Zoom` | `Ctrl+0` | no |
-| `Pull` | | yes |
-| `Push` | | yes |
-| `Fetch` | | yes |
-| `Stage All` | | yes |
-| `Unstage All` | | yes |
-| `Stash...` | | yes |
-| `Stash Pop` | | yes |
-| `Undo Last Commit` | | yes |
-| `New Terminal` | `Ctrl+Shift+J` | yes |
-| `Kill Terminal` | | yes |
-| `Toggle Terminal` | `Ctrl+J` | yes |
-| `Settings...` | `Ctrl+,` | no |
-| `Quit` | | no |
+| `New Window` | `Ctrl+N` | always |
+| `Open Repository...` | `Ctrl+O` | always |
+| `Clone Repository...` | | always |
+| `Changes` | `Ctrl+1` | folder |
+| `History` | `Ctrl+Shift+2` | git |
+| `Toggle Diff Mode` | `Ctrl+Shift+P` | folder |
+| `Color Theme...` | | always |
+| `Zoom In` | `Ctrl+=` | always |
+| `Zoom Out` | `Ctrl+-` | always |
+| `Reset Zoom` | `Ctrl+0` | always |
+| `Pull` | | git |
+| `Push` | | git |
+| `Fetch` | | git |
+| `Stage All` | | git |
+| `Unstage All` | | git |
+| `Stash...` | | git |
+| `Stash Pop` | | git |
+| `Undo Last Commit` | | git |
+| `New Terminal` | `Ctrl+Shift+J` | folder |
+| `Kill Terminal` | | folder |
+| `Toggle Terminal` | `Ctrl+J` | folder |
+| `Settings...` | `Ctrl+,` | always |
+| `Quit` | | always |
 
 The Linux dropdown omits About, Services, Hide, Edit, Quick Open, Inspect Element, Help, Close Window, and Install Command Line Tool.
 
@@ -174,9 +182,11 @@ The native menu bar follows the app theme (dark or light) on macOS and Windows.
 
 ## States
 
-**No repository.** Settings, Changes, History, Toggle Diff Mode, every Git item, the Terminal items, and Quick Open are disabled. Everything else stays enabled. On Linux, Settings stays enabled.
+**No folder open.** Every folder-gated and Git-gated item is disabled. Everything else stays enabled. On Linux, `Settings...` stays enabled.
 
-**Repository open.** Those items enable. The state follows the focused window: focusing a welcome window disables them again.
+**Folder without a Git repository.** The folder-gated items enable; the Git-gated items stay disabled. The [branch picker](branch-picker.md) cannot be opened, and a Git keyboard shortcut does nothing.
+
+**Repository open.** Every gated item enables. The state follows the focused window: focusing a welcome window disables the gated items again.
 
 **Development build.** Inspect Element is present. Release builds omit it.
 
@@ -190,11 +200,11 @@ The native menu bar follows the app theme (dark or light) on macOS and Windows.
 
 ## Interactions
 
-**Open Repository.** Folder picker; cancel does nothing.
+**Open Repository.** Folder picker; cancel does nothing. The picker keeps its `Open Git Repository` title, and a folder with no Git repository opens as well, per [welcome screen](welcome-screen.md).
 
 **Settings.** The menu item always shows Settings. The Cmd/Ctrl+, shortcut toggles between Settings and Changes.
 
-**Command line tool.** Installs `dp` and `deathpush` launchers so that `dp /path/to/repo` opens that repository. On macOS they are links in `/usr/local/bin`, installed after an administrator prompt. On Windows they are scripts in the user's local app data folder. The dialog text names `/usr/local/bin` on both.
+**Command line tool.** Installs `dp` and `deathpush` launchers so that `dp /path/to/repo` opens that repository, and `dp /path/to/folder` opens a folder with no repository. On macOS they are links in `/usr/local/bin`, installed after an administrator prompt. On Windows they are scripts in the user's local app data folder. The dialog text names `/usr/local/bin` on both.
 
 **Quit and last window.** On macOS closing the last window keeps the app running; reopening the app from the Dock creates a new window.
 

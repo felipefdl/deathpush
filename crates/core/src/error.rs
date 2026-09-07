@@ -11,6 +11,9 @@ pub enum Error {
   #[error("Git CLI failed: {0}")]
   GitCli(String),
 
+  #[error("{path} is not a Git repository")]
+  NotARepository { path: String },
+
   #[error("No repository open")]
   NoRepository,
 

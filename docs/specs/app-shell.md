@@ -1,11 +1,11 @@
 # App shell
 
 Status: Current product
-Date: 2026-09-02
+Date: 2026-09-07
 
 ## Purpose
 
-The chrome around an open repository: title, a sidebar with Changes and Explorer, a main panel, an optional terminal panel, and a status bar. When no repository is open the [welcome screen](welcome-screen.md) replaces all of it.
+The chrome around an open folder: title, a sidebar with Changes and Explorer, a main panel, an optional terminal panel, and a status bar. The shell mounts for a folder with a Git repository and for a plain folder with no repository; the Git-specific regions are gated in the second case. When no folder is open at all the [welcome screen](welcome-screen.md) replaces all of it.
 
 ## Layout
 
@@ -34,7 +34,7 @@ Reference sizes: sidebar 300 wide (drag range 200 to 600), terminal 250 tall (dr
 
 Terminal maximized: the terminal fills the whole main area and the divider between the main panel and the terminal disappears. Opening History or Settings docks the terminal back to its normal height.
 
-Titles: the in-window title reads `{repoName} - {branch}`. The OS window title reads `{repoName} ({branch}) - DeathPush`, or `{repoName} - DeathPush` when HEAD is detached.
+Titles: with a repository, the in-window title reads `{repoName} - {branch}` and the OS window title reads `{repoName} ({branch}) - DeathPush`, or `{repoName} - DeathPush` when HEAD is detached. Without a repository, both titles use the folder name alone and no branch.
 
 ## Regions
 
@@ -48,7 +48,7 @@ Titles: the in-window title reads `{repoName} - {branch}`. The OS window title r
 
 **Terminal panel.** [Terminal](terminal.md). A horizontal drag divider above it sets its height. Hidden when the terminal is off.
 
-**Status bar.** Left to right: branch item (source-control icon, then the branch name or `No branch`; tooltip `Switch branch`), an optional sync badge, an optional blame line, a flexible spacer, an optional zoom item, and the last-commit item (commit icon, the message truncated with an ellipsis, relative time; tooltip `View history`).
+**Status bar.** Left to right: branch item (source-control icon, then the branch name or `No branch`; tooltip `Switch branch`), an optional sync badge, an optional blame line, a flexible spacer, an optional zoom item, and the last-commit item (commit icon, the message truncated with an ellipsis, relative time; tooltip `View history`). Without a Git repository the branch item, the sync badge, the blame line, and the last-commit item are all absent; the spacer and the zoom item are unchanged.
 
 **Error toast.** Bottom-right, error colors, above every overlay. Shows the latest error message. Click to dismiss.
 
@@ -80,7 +80,9 @@ The title text is small, centered, and muted. The sidebar and status bar use the
 
 ## States
 
-**No repository.** The welcome screen replaces the shell.
+**No folder open.** The welcome screen replaces the shell. The sidebar's own `No repository open` state and its `Open Repository` button belong to this case and appear nowhere else.
+
+**Folder without a Git repository.** The shell mounts on the folder itself, canonicalized; a folder inside a repository still opens the enclosing repository. The title is the folder name with no branch. The sidebar lands on the `Explorer` tab, overriding a persisted Changes selection; the `Changes` tab stays clickable and shows `This folder is not a Git repository` with an `Initialize Repository` button, per [SCM Changes](scm-changes.md). The status bar drops its branch, sync, blame, and last-commit items. The diff panel reads `Diffs need a Git repository` and History reads `Commit history needs a Git repository`. Menus enable the folder-gated items and disable the Git-gated ones, per [native menus](native-menus.md). The [Explorer](explorer.md) tree and [file viewer](explorer.md), [Settings](settings.md), and [Quick Open](quick-open.md) work as usual, and the [terminal](terminal.md) opens in the folder. Initializing a repository refreshes the shell in place with an unborn HEAD, so the status bar reads `No branch`.
 
 **Default.** Sidebar on Changes, main panel on the SCM diff (empty or a file diff), terminal visible at its default height unless the per-project layout says otherwise.
 
@@ -110,7 +112,7 @@ The title text is small, centered, and muted. The sidebar and status bar use the
 
 ## Keyboard
 
-Repository window:
+Shell window, with or without a Git repository:
 
 - Cmd/Ctrl+1: Changes
 - Cmd/Ctrl+2: Explorer
@@ -130,6 +132,6 @@ Explorer-only shortcuts (focus inside the Explorer tree): F2, Delete or Cmd/Ctrl
 
 ## Persistence
 
-Per project: sidebar width, sidebar view, main view (Changes or History only), terminal visible, terminal height, terminal maximized, terminal panel tab, collapsed SCM groups, history list width.
+Per project: sidebar width, sidebar view, main view (Changes or History only), terminal visible, terminal height, terminal maximized, terminal panel tab, collapsed SCM groups, history list width. A folder with no Git repository mounts on Explorer regardless of the stored sidebar view.
 
 App-wide settings: sidebar position, zoom level, Always Open Terminal on Start. See [settings](settings.md).

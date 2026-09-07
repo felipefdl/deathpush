@@ -6,6 +6,7 @@ use crate::core::Core;
 use crate::error::{Error, Result};
 use crate::git::cli::GitCli;
 use crate::git::diff::{blob_to_data_uri, detect_language, is_image_file};
+use crate::git::repository::GitRepository;
 use crate::session::SessionId;
 use crate::types::{ContentSearchResult, ExplorerEntry, FileContent, FuzzyFileResult};
 use crate::util::async_command_ready;
@@ -81,7 +82,60 @@ fn push_listed_paths(
   }
 }
 
+/// Every file under `root`, relative and slash-separated, sorted case-insensitively.
+/// Used when the open folder has no Git repository, so `git ls-files` cannot list it.
+/// Symlinked directories are not followed, and the walk is capped so a stray
+/// `node_modules` cannot stall the explorer.
+pub fn walk_folder_paths(root: &Path) -> Vec<String> {
+  const MAX_ENTRIES: usize = 50_000;
+  let mut paths = Vec::new();
+  let mut pending = std::collections::VecDeque::from([String::new()]);
+  while let Some(relative) = pending.pop_front() {
+    if paths.len() >= MAX_ENTRIES {
+      break;
+    }
+    let dir = if relative.is_empty() {
+      root.to_path_buf()
+    } else {
+      root.join(&relative)
+    };
+    let Ok(read) = fs::read_dir(&dir) else {
+      continue;
+    };
+    for child in read.flatten() {
+      let name = child.file_name();
+      let name = name.to_string_lossy();
+      let path = if relative.is_empty() {
+        name.to_string()
+      } else {
+        format!("{relative}/{name}")
+      };
+      if is_hard_hidden(&path) {
+        continue;
+      }
+      let Ok(file_type) = child.file_type() else {
+        continue;
+      };
+      if file_type.is_dir() {
+        pending.push_back(path);
+      } else {
+        paths.push(path);
+      }
+    }
+  }
+  paths.sort_by_cached_key(|path| path.to_lowercase());
+  paths
+}
+
 async fn collect_repository_entries(root: &Path) -> Result<Vec<ExplorerEntry>> {
+  if GitRepository::open_optional(root)?.is_none() {
+    return Ok(
+      walk_folder_paths(root)
+        .into_iter()
+        .map(|path| explorer_entry(root, path, false, false))
+        .collect(),
+    );
+  }
   let cli = GitCli::new(root);
   let visible = cli
     .run(&["ls-files", "-z", "--cached", "--others", "--exclude-standard"])

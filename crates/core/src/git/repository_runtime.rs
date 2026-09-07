@@ -274,8 +274,12 @@ impl RepositoryRuntimeRegistry {
     start_watcher: impl FnOnce(&Path, Arc<StatusCoordinator>, mpsc::SyncSender<WatcherMessage>) -> Option<WatcherHandle>,
     on_inflight: impl FnOnce(),
   ) -> Result<Arc<RepositoryRuntime>> {
-    let repo = GitRepository::open(path)?;
-    let root = std::fs::canonicalize(repo.root())?;
+    let root = match GitRepository::open(path) {
+      Ok(repo) => std::fs::canonicalize(repo.root())?,
+      // A folder with no repository is opened as itself: explorer, viewer and terminal only.
+      Err(Error::NotARepository { .. }) => std::fs::canonicalize(path)?,
+      Err(err) => return Err(err),
+    };
 
     let slot = {
       let mut state = self.state.lock().map_err(|err| Error::Other(err.to_string()))?;
@@ -515,7 +519,11 @@ pub(crate) fn refresh_git_lists(
 }
 
 fn list_quick_open_paths(root: &Path) -> Result<Vec<String>> {
-  let repo = git2::Repository::open(root)?;
+  let repo = match GitRepository::open_optional(root)? {
+    Some(repo) => repo,
+    None => return Ok(crate::ops::explorer::walk_folder_paths(root)),
+  };
+  let repo = repo.inner();
   let mut seen = HashSet::new();
   let mut paths = Vec::new();
   let index = repo.index()?;

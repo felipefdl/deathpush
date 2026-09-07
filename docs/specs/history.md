@@ -1,7 +1,7 @@
 # History
 
 Status: Current product
-Date: 2026-09-02
+Date: 2026-09-07
 
 ## Purpose
 
@@ -62,6 +62,7 @@ flowchart LR
 ## Copy
 
 - `No commits found`
+- `Commit history needs a Git repository`
 - `Select a commit to view details`
 - `Changed Files ({n})`
 - `Show as tree`, `Show as list`
@@ -79,6 +80,8 @@ Rows show circular avatars: the GitHub avatar for GitHub no-reply emails, otherw
 ## States
 
 **Empty log.** `No commits found`.
+
+**Folder without a Git repository.** `Commit history needs a Git repository`. No list, no detail.
 
 **No selection.** Empty detail.
 

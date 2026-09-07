@@ -514,7 +514,7 @@ impl Render for DiffPanel {
       DiffMode::Commit { commit, path, status } => Some((commit.clone(), path.clone(), status.clone())),
       DiffMode::Scm => None,
     };
-    let (selected, scm_load_ready, kind, commit_ready) = {
+    let (selected, scm_load_ready, kind, commit_ready, has_repository) = {
       let state = self.model.read(cx).state();
       let commit_ready = match &commit_mode {
         Some((commit, path, _)) => state.commit_diff_ready(commit, path),
@@ -531,6 +531,7 @@ impl Render for DiffPanel {
         scm_load_ready,
         classify(payload),
         commit_ready,
+        state.has_repository(),
       )
     };
     if commit_mode.is_some() {
@@ -565,7 +566,7 @@ impl Render for DiffPanel {
       commit_ready
     } else {
       let Some(selection) = selected else {
-        return root.child(states::render_empty(palette));
+        return root.child(states::render_empty(has_repository, palette));
       };
       root = root.child(header::render_header(&selection, layout, weak.clone(), palette, cx));
       scm_load_ready
@@ -703,6 +704,7 @@ mod tests {
       status_revision: 1,
       repo: SessionRepo {
         root: root.into(),
+        has_repository: true,
         head_branch: Some("main".into()),
         head_commit: Some("abc".into()),
         ahead: 0,

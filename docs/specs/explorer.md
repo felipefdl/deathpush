@@ -1,11 +1,11 @@
 # Explorer
 
 Status: Current product
-Date: 2026-09-02
+Date: 2026-09-07
 
 ## Purpose
 
-The file tree in the sidebar and the file viewer in the main panel for an open repository. The tree lists tracked, untracked, and ignored entries. Selecting a file opens it in the main panel as an editable text file, an image preview, or a message for binary and very large files.
+The file tree in the sidebar and the file viewer in the main panel for the open folder. With a Git repository the tree lists tracked, untracked, and ignored entries; without one it lists what is on disk. Selecting a file opens it in the main panel as an editable text file, an image preview, or a message for binary and very large files.
 
 ## Layout
 
@@ -30,11 +30,11 @@ Nested repositories are not listed here; they appear on [SCM Changes](scm-change
 
 ## Regions
 
-**Header (repository open).** 35 tall. Left: a filter field with a search icon and the placeholder `Filter files...`; a clear button appears when the filter is non-empty. Right: icon buttons New File, New Folder, Refresh Explorer.
+**Header (folder open).** 35 tall. Left: a filter field with a search icon and the placeholder `Filter files...`; a clear button appears when the filter is non-empty. Right: icon buttons New File, New Folder, Refresh Explorer.
 
-**Header (no repository).** Title `Explorer` (rendered uppercase). The body is the empty state.
+**Header (no folder open).** Title `Explorer` (rendered uppercase). The body is the empty state.
 
-**Tree.** Folders with chevrons, files with type icons per the Tree Icons setting, row density per the Tree Density setting. Ignored entries are dimmed. Changed files carry the same status letter and color as in SCM. The selected file is highlighted. Expanding a folder loads its children on demand.
+**Tree.** Folders with chevrons, files with type icons per the Tree Icons setting, row density per the Tree Density setting. Ignored entries are dimmed. Changed files carry the same status letter and color as in SCM. Without a Git repository the tree is a plain filesystem walk with no status letters and no ignore dimming. The selected file is highlighted. Expanding a folder loads its children on demand.
 
 **Item context menu.** Right-click on a file or folder row.
 
@@ -71,9 +71,9 @@ Nested repositories are not listed here; they appear on [SCM Changes](scm-change
 | Context: Paste | `Paste` | Copy or move the marked entry into this folder, or into the parent of this file | Cmd/Ctrl+V |
 | Context: Reveal in Finder | `Reveal in Finder` | Show in the system file manager | none |
 | Context: Copy Path | `Copy Path` | Copy the absolute path | none |
-| Context: Copy Relative Path | `Copy Relative Path` | Copy the repository-relative path | none |
+| Context: Copy Relative Path | `Copy Relative Path` | Copy the path relative to the open folder | none |
 | Context: Move to Trash | `Move to Trash` | Move to the system trash after confirmation | Delete, or Cmd/Ctrl+Backspace |
-| Context: Add to .gitignore | `Add to .gitignore` | Append the path to `.gitignore` | none |
+| Context: Add to .gitignore | `Add to .gitignore` | Append the path to `.gitignore`. Absent without a Git repository | none |
 | Blank-area: New File..., New Folder..., Paste | same | The same actions at the root | none |
 | Viewer: Reveal in Finder | tooltip `Reveal in Finder` | Show in the file manager | none |
 | Viewer: Open in Editor | tooltip `Open in Editor` | Open in the system editor | none |
@@ -99,7 +99,7 @@ New entry names: `New File`, `New Folder`, then `New File 2`, `New Folder 2`, an
 
 Duplicate names: `{stem} copy{ext}`, then `{stem} copy 2{ext}`, and up.
 
-Item context menu, in order: `New File...`, `New Folder...`, `Open in Editor`, `Rename`, `Duplicate`, `Cut`, `Copy`, `Paste`, `Reveal in Finder`, `Copy Path`, `Copy Relative Path`, `Move to Trash`, `Add to .gitignore`.
+Item context menu, in order: `New File...`, `New Folder...`, `Open in Editor`, `Rename`, `Duplicate`, `Cut`, `Copy`, `Paste`, `Reveal in Finder`, `Copy Path`, `Copy Relative Path`, `Move to Trash`, `Add to .gitignore`. Without a Git repository the menu ends at `Move to Trash`.
 
 Blank-area menu: `New File...`, `New Folder...`, `Paste`.
 
@@ -125,11 +125,13 @@ Empty sidebar: centered muted text and a primary `Open Repository` button with a
 
 ## States
 
-**No repository.** Title `Explorer`, `No repository open`, `Open Repository`. No tree, no filter.
+**No folder open.** Title `Explorer`, `No repository open`, `Open Repository`. No tree, no filter.
 
-**Loading.** The tree loads when the repository opens. Errors go to the toast. No spinner.
+**Loading.** The tree loads when the folder opens. Errors go to the toast. No spinner.
 
 **Populated.** Tracked and untracked files, ignored entries dimmed. `.git`, `.svn`, `.hg`, `.DS_Store`, and `Thumbs.db` never appear.
+
+**Folder without a Git repository.** The tree walks the filesystem from the open folder instead of reading Git status: no status letters and no dimmed ignored entries. The same hidden entries are skipped, and the walk stops at 50,000 files. The filter, the header buttons, rename, duplicate, cut, copy, paste, import, and trash all behave as usual, the file viewer keeps its autosave, and nested repositories are still discovered. The context menu drops `Add to .gitignore` and keeps every other row.
 
 **Filtered.** The tree is filtered by name; the clear button is visible.
 
@@ -153,7 +155,7 @@ Empty sidebar: centered muted text and a primary `Open Repository` button with a
 
 **Delete.** Confirmation dialog. Continue moves the entry to the trash; if it was open in the viewer, the viewer clears.
 
-**Drag and drop.** Dragging inside the tree moves entries. Dropping files from the OS onto the window imports them into the repository root.
+**Drag and drop.** Dragging inside the tree moves entries. Dropping files from the OS onto the window imports them into the root folder.
 
 ## Interactions
 
@@ -173,7 +175,7 @@ Empty sidebar: centered muted text and a primary `Open Repository` button with a
 
 **Delete.** Context item, Delete, or Cmd/Ctrl+Backspace, then the confirmation.
 
-**Add to .gitignore.** Appends the path.
+**Add to .gitignore.** Appends the path. The row is absent in a folder with no Git repository.
 
 **Open in Editor, Reveal.** The system editor and the system file manager (Finder on macOS).
 

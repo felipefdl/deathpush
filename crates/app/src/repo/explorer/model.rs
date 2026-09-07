@@ -1264,6 +1264,7 @@ mod tests {
     let roots = build_tree(&[entry("a.rs", false, false)]);
     let status = RepositoryStatus {
       root: "/r".into(),
+      has_repository: true,
       head_branch: None,
       head_commit: None,
       ahead: 0,

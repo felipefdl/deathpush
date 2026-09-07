@@ -41,13 +41,14 @@ impl EventEmitter<RepoEvent> for RepoModel {}
 
 /// Whether to dispatch `OpenBlame` for the open path.
 pub fn should_request_blame(
+  has_repository: bool,
   blame_enabled: bool,
   dirty: bool,
   requested_path: Option<&str>,
   path: &str,
   has_content: bool,
 ) -> bool {
-  blame_enabled && !dirty && has_content && requested_path != Some(path)
+  has_repository && blame_enabled && !dirty && has_content && requested_path != Some(path)
 }
 
 /// New path for the open file after a rename or move of that path or an ancestor.
@@ -702,6 +703,7 @@ impl RepoModel {
       return;
     };
     if !should_request_blame(
+      self.state.has_repository(),
       AppConfig::get(cx).settings.git.blame,
       open.dirty,
       self.blame_requested.as_deref(),
@@ -1006,19 +1008,19 @@ mod tests {
   #[test]
   fn requests_blame_again_after_save() {
     assert!(
-      !should_request_blame(true, true, None, "a.rs", true),
+      !should_request_blame(true, true, true, None, "a.rs", true),
       "dirty does not request"
     );
     assert!(
-      !should_request_blame(true, false, Some("a.rs"), "a.rs", true),
+      !should_request_blame(true, true, false, Some("a.rs"), "a.rs", true),
       "already requested for this path"
     );
     assert!(
-      should_request_blame(true, false, None, "a.rs", true),
+      should_request_blame(true, true, false, None, "a.rs", true),
       "after save, requested is cleared"
     );
-    assert!(!should_request_blame(false, false, None, "a.rs", true));
-    assert!(!should_request_blame(true, false, None, "a.rs", false));
+    assert!(!should_request_blame(true, false, false, None, "a.rs", true));
+    assert!(!should_request_blame(true, true, false, None, "a.rs", false));
   }
 
   #[test]

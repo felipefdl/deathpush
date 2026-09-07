@@ -4,9 +4,9 @@ use deathpush_core::config::layout::MainView;
 use deathpush_core::session::types::{Intent, SessionActions};
 use deathpush_core::types::{RepoOperationState, ResourceGroupKind};
 use gpui_kit::base::ResizableState;
-use gpui_kit::component::Sizable;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState, TextareaState};
+use gpui_kit::component::{Disableable, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
@@ -570,6 +570,35 @@ impl ChangesView {
       )
   }
 
+  fn render_no_repository(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    let palette = cx.global::<ActivePalette>().0;
+    let has_root = self.model.read(cx).state().root().is_some();
+    div()
+      .size_full()
+      .flex()
+      .flex_col()
+      .items_center()
+      .justify_center()
+      .gap_3()
+      .child(
+        div()
+          .text_size(px(13.0))
+          .text_color(hsla(palette.muted_foreground))
+          .child("This folder is not a Git repository"),
+      )
+      .child(
+        Button::new("init-repo")
+          .label("Initialize Repository")
+          .disabled(!has_root)
+          .on_click(cx.listener(|this, _, window, cx| {
+            let Some(path) = this.model.read(cx).state().root().map(str::to_owned) else {
+              return;
+            };
+            this.send(Intent::InitRepository { path }, window, cx);
+          })),
+      )
+  }
+
   fn render_watermark(cx: &App) -> impl IntoElement {
     let palette = cx.global::<ActivePalette>().0;
     div()
@@ -599,12 +628,13 @@ impl ChangesView {
 
 impl Render for ChangesView {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    let (repo_open, has_changes, chrome, groups) = {
+    let (folder_open, has_repository, has_changes, chrome, groups) = {
       let state = self.model.read(cx).state();
       let status = state.status.as_ref();
       let groups = assemble_groups(state, &self.filter_text);
       (
-        status.is_some(),
+        state.folder_open(),
+        state.has_repository(),
         state.has_changes(),
         ChangesChrome {
           actions: state.actions.clone(),
@@ -667,8 +697,11 @@ impl Render for ChangesView {
         this.open_branch_list(BranchListMode::Rebase, window, cx);
       }));
 
-    if !repo_open {
+    if !folder_open {
       return root.child(Self::render_empty_repo(cx));
+    }
+    if !has_repository {
+      return root.child(self.render_no_repository(cx));
     }
 
     root = root.child(render_toolbar(&chrome, cx));

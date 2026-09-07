@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use git2::Repository;
+use git2::{ErrorCode, Repository};
 
 use crate::error::{Error, Result};
 
@@ -9,14 +9,36 @@ pub struct GitRepository {
   root: PathBuf,
 }
 
+/// `Repository::discover` reports a missing repository and a missing path with the same code.
+/// An existing directory with no Git repository in it or above it is reported separately so
+/// callers can offer to initialize one.
+fn discover_error(err: git2::Error, path: &Path) -> Error {
+  if err.code() == ErrorCode::NotFound && path.is_dir() {
+    Error::NotARepository {
+      path: path.display().to_string(),
+    }
+  } else {
+    Error::Git(err)
+  }
+}
+
 impl GitRepository {
   pub fn open(path: &Path) -> Result<Self> {
-    let repo = Repository::discover(path)?;
+    let repo = Repository::discover(path).map_err(|err| discover_error(err, path))?;
     let root = repo
       .workdir()
       .ok_or_else(|| Error::Other("bare repository not supported".into()))?
       .to_path_buf();
     Ok(Self { repo, root })
+  }
+
+  /// `Ok(None)` when `path` is a folder with no Git repository in it or above it.
+  pub fn open_optional(path: &Path) -> Result<Option<Self>> {
+    match Self::open(path) {
+      Ok(repo) => Ok(Some(repo)),
+      Err(Error::NotARepository { .. }) => Ok(None),
+      Err(err) => Err(err),
+    }
   }
 
   pub fn root(&self) -> &Path {

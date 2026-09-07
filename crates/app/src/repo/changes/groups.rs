@@ -496,6 +496,7 @@ mod tests {
   fn status(groups: Vec<ResourceGroup>) -> RepositoryStatus {
     RepositoryStatus {
       root: "/r".into(),
+      has_repository: true,
       head_branch: Some("main".into()),
       head_commit: None,
       ahead: 0,

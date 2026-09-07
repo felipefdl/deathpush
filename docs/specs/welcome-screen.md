@@ -1,11 +1,11 @@
 # Welcome screen
 
 Status: Current product
-Date: 2026-09-02
+Date: 2026-09-07
 
 ## Purpose
 
-The project picker shown when no repository is open. Open a folder, clone a remote, pick a recent project, or pick a project found in a configured workspace directory. After a successful open the [app shell](app-shell.md) takes over.
+The project picker shown when no folder is open. Open a folder, clone a remote, pick a recent project, or pick a project found in a configured workspace directory. After a successful open the [app shell](app-shell.md) takes over, whether or not the folder holds a Git repository.
 
 The brand tagline (`Murder the Noise. Push the Code.`) belongs to the README and the website. This screen shows only the app mark and the wordmark `DeathPush`.
 
@@ -49,7 +49,7 @@ flowchart TB
 
 | Control | Copy | Action | Shortcut |
 |---|---|---|---|
-| Open Repository | `Open Repository` | System folder picker, then open that folder | Cmd/Ctrl+O (File menu) |
+| Open Repository | `Open Repository` | System folder picker, then open that folder, with or without a Git repository | Cmd/Ctrl+O (File menu) |
 | Clone Repository | `Clone Repository` | Open the [clone dialog](clone-dialog.md) | none |
 | Recent filter | placeholder `Filter recent (⌘1)` on macOS, `Filter recent (Ctrl+1)` elsewhere | Filter recents by name or path | Cmd/Ctrl+1 focuses it |
 | Recent row | name and path | Open that project | Enter or Space on the focused row |
@@ -110,6 +110,8 @@ Footer text is 11px muted. The opening overlay dims the screen by 40% behind the
 
 **Open Repository.** Folder picker, then open. On success the project is added to recents (with its branch) and the app shell appears.
 
+**Folder without a Git repository.** Picking a folder that is not inside any Git repository opens it anyway: no prompt and no error. The app shell mounts on the folder itself with the Git surfaces gated, per [app shell](app-shell.md), and the folder joins recents with no branch. A folder inside a repository still opens the enclosing repository. The same holds for a recent row, a workspace row, `dp <dir>` from the command line, and a `deathpush://` deep link.
+
 **Clone Repository.** Opens the clone dialog. On success the clone opens in this window.
 
 **Select project.** Clicking a recent or workspace row opens that path, the same as Open Repository with a known path.
@@ -118,7 +120,7 @@ Footer text is 11px muted. The opening overlay dims the screen by 40% behind the
 
 **Configure Workspace...** Opens Workspace Settings. Saving rewrites the workspace list and reruns the scan.
 
-**Scan.** Each workspace directory is searched to its configured depth for Git repositories. A failed scan yields an empty list. Rows show name and path only; the branch is not shown here.
+**Scan.** Each workspace directory is searched to its configured depth for Git repositories. Folders with no repository are not listed. A failed scan yields an empty list. Rows show name and path only; the branch is not shown here.
 
 **Filters.** Live filtering as the user types. Up and Down move a highlight through the rows (folder and project rows alike in the tree). Enter opens the highlighted row. Escape blurs the field.
 
@@ -129,9 +131,9 @@ Footer text is 11px muted. The opening overlay dims the screen by 40% behind the
 - Up, Down, Enter, Escape: list navigation from a filter field
 - Enter or Space: activate the focused row
 
-Cmd/Ctrl+1 and Cmd/Ctrl+2 mean Changes and Explorer inside a repository. They never clash, because this screen exists only when no repository is open.
+Cmd/Ctrl+1 and Cmd/Ctrl+2 mean Changes and Explorer inside the app shell. They never clash, because this screen exists only when no folder is open.
 
 ## Persistence
 
-- Recents: up to 20 entries of path, name, last-opened time, and branch, sorted newest first. Stored locally on the machine.
+- Recents: up to 20 entries of path, name, last-opened time, and branch, sorted newest first. A folder with no Git repository is stored with no branch. Stored locally on the machine.
 - Workspace directories: part of app settings (`Projects`). See [settings](settings.md).

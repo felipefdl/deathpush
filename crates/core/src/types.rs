@@ -86,6 +86,8 @@ pub enum RepoOperationState {
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryStatus {
   pub root: String,
+  /// `false` when the open folder has no Git repository: DeathPush runs as a plain file explorer.
+  pub has_repository: bool,
   pub head_branch: Option<String>,
   pub head_commit: Option<String>,
   pub ahead: usize,
@@ -122,6 +124,8 @@ pub struct StatusEntry {
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryMetadata {
   pub root: String,
+  /// `false` when the open folder has no Git repository.
+  pub has_repository: bool,
   pub head_branch: Option<String>,
   pub head_commit: Option<String>,
   pub ahead: usize,
@@ -356,6 +360,7 @@ mod tests {
   fn repository_status_fields_serialize_as_camel_case() {
     let status = RepositoryStatus {
       root: "/tmp".to_string(),
+      has_repository: true,
       head_branch: Some("main".to_string()),
       head_commit: None,
       ahead: 0,

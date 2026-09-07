@@ -211,6 +211,28 @@ impl HistoryView {
     });
   }
 }
+fn render_no_repository(palette: deathpush_core::theme::UiPalette) -> impl IntoElement {
+  div()
+    .size_full()
+    .flex()
+    .flex_col()
+    .items_center()
+    .justify_center()
+    .gap_2()
+    .child(
+      svg()
+        .path("icons/rotate-ccw-clock.svg")
+        .size(px(48.0))
+        .text_color(hsla(palette.muted_foreground))
+        .opacity(0.4),
+    )
+    .child(
+      div()
+        .text_size(px(13.0))
+        .text_color(hsla(palette.muted_foreground))
+        .child("Commit history needs a Git repository"),
+    )
+}
 
 impl Render for HistoryView {
   fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -230,24 +252,29 @@ impl Render for HistoryView {
       palette,
     )
     .into_any_element();
+    let has_repository = self.repo.read(cx).state().has_repository();
     let mut detail = div().size_full().flex().flex_col();
-    detail = match self.derived.entry.as_ref() {
-      Some(entry) => {
-        let commit_id = entry.id.clone();
-        detail
-          .child(detail::render_header(entry, view.clone(), palette))
-          .child(detail::render_files(
-            &self.derived.files,
-            &self.derived.tree,
-            self.files_as_tree,
-            selected_file.as_deref(),
-            &commit_id,
-            view,
-            palette,
-          ))
-          .child(self.diff.clone().into_any_element())
+    detail = if has_repository {
+      match self.derived.entry.as_ref() {
+        Some(entry) => {
+          let commit_id = entry.id.clone();
+          detail
+            .child(detail::render_header(entry, view.clone(), palette))
+            .child(detail::render_files(
+              &self.derived.files,
+              &self.derived.tree,
+              self.files_as_tree,
+              selected_file.as_deref(),
+              &commit_id,
+              view,
+              palette,
+            ))
+            .child(self.diff.clone().into_any_element())
+        }
+        None => detail.child(detail::render_empty(palette)),
       }
-      None => detail.child(detail::render_empty(palette)),
+    } else {
+      detail.child(render_no_repository(palette))
     };
     let layout_entity = self.layout.clone();
     let split = h_resizable("history-split")
@@ -300,6 +327,7 @@ mod tests {
       status_revision: 1,
       repo: SessionRepo {
         root: root.into(),
+        has_repository: true,
         head_branch: Some("main".into()),
         head_commit: Some("abc".into()),
         ahead: 0,

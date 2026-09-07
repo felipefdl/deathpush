@@ -1,7 +1,7 @@
 # App architecture
 
 Status: Current product
-Date: 2026-09-05
+Date: 2026-09-07
 
 ## Purpose
 
@@ -33,6 +33,12 @@ Operations are async methods on `Core` returning core types directly. There is n
 
 Core methods run on core's tokio runtime through `spawn`. The join handle is a plain future, and the app awaits it inside `cx.spawn`. The git CLI keeps `tokio::process`; the watcher keeps `notify`.
 
+### Sessions
+
+A session binds one root path per window. The root is the canonicalized enclosing Git repository when the opened path is inside one, and otherwise the opened folder itself, so a plain folder gets a session and a repository runtime the same way a repository does. `SessionRepo` and `RepositoryStatus` carry `has_repository: bool`, and the app gates its Git surfaces on that flag alone.
+
+`Intent::InitRepository { path }` runs `git init` in the folder and returns a Snapshot like open and clone, so the window rebinds in place to the now-initialized root. Every other Git intent is refused in a repository-less folder with the error `<path> is not a Git repository`, which reaches the window's toast if the UI ever dispatches one. The gating decision is [ADR 3](../adr/0003-folders-without-git.md).
+
 ### Events
 
 Every former emit becomes a `CoreEvent` on an async channel per session:
@@ -56,7 +62,7 @@ A pane is a PTY from `portable-pty` plus a `libghostty-vt` terminal on a dedicat
 
 ### Globals
 
-An `Arc<Core>`, a `Settings` entity, a `ThemeModel` entity, the recent projects list, and the updater. Each window has a root view that renders the welcome screen or the repository shell.
+An `Arc<Core>`, a `Settings` entity, a `ThemeModel` entity, the recent projects list, and the updater. Each window has a root view that renders the welcome screen when no folder is bound, and otherwise the app shell for the session's root.
 
 ### Models
 

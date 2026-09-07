@@ -30,6 +30,10 @@ impl Core {
       Intent::OpenRepository { path } => {
         self.open_bound_repository(id, path)?;
       }
+      Intent::InitRepository { path } => {
+        GitCli::new(Path::new(path)).init().await?;
+        self.open_bound_repository(id, path)?;
+      }
       Intent::CloneRepository { url, directory } => {
         let target = crate::session::policy::clone_target_path(url, directory);
         GitCli::clone_repo(url, &target).await?;
@@ -45,6 +49,11 @@ impl Core {
       runtime.status()?
     };
     let root = runtime.root().to_path_buf();
+    if !status.has_repository && intent_requires_repository(&intent) {
+      return Err(Error::NotARepository {
+        path: root.display().to_string(),
+      });
+    }
     let mut handle = self.sessions.handle(id)?;
     let output = apply_intent(intent.clone(), &root, &status, &mut handle).await?;
     let should_bump = outcome_should_bump(&intent, &output);
@@ -123,11 +132,13 @@ impl Core {
       self
         .runtimes
         .open_for_session(id, &PathBuf::from(path), self.hub.clone(), self.sessions.clone())?;
-    let repo = self.runtimes.with_runtime(id, |runtime| runtime.open_repository())?;
+    let repo = self
+      .runtimes
+      .with_runtime(id, |runtime| Ok(runtime.open_repository().ok()))?;
     let mut repos = self.lock_repos();
     let state = repos.entry(id).or_default();
     state.cli_root = Some(repo_root);
-    state.repo = Some(repo);
+    state.repo = repo;
     drop(repos);
     self.sessions.reset(id);
     Ok(())
@@ -161,6 +172,24 @@ fn intent_can_use_cached_status(intent: &Intent) -> bool {
   )
 }
 
+/// Intents that only touch session state, the filesystem, or create a repository run in a
+/// folder that has none. Everything else is a Git operation and needs a repository first.
+fn intent_requires_repository(intent: &Intent) -> bool {
+  !matches!(
+    intent,
+    Intent::OpenRepository { .. }
+      | Intent::InitRepository { .. }
+      | Intent::CloneRepository { .. }
+      | Intent::RefreshStatus
+      | Intent::ClearFile
+      | Intent::ClearFileHistory
+      | Intent::SetAmend { .. }
+      | Intent::SetCommitMessage { .. }
+      | Intent::SetFileFilter { .. }
+      | Intent::DeleteFile { .. }
+  )
+}
+
 #[cfg(test)]
 mod tests {
   use super::{intent_can_use_cached_status, refresh_session_lists};
@@ -179,6 +208,7 @@ mod tests {
   fn status(root: &str) -> RepositoryStatus {
     RepositoryStatus {
       root: root.into(),
+      has_repository: true,
       head_branch: None,
       head_commit: None,
       ahead: 0,

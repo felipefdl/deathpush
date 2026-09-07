@@ -6,11 +6,13 @@ use crate::actions::*;
 /// What the focused window allows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct MenuContext {
-  pub repo_open: bool,
+  pub folder_open: bool,
+  pub git_open: bool,
   pub cli_installed: bool,
 }
 
-/// The current context, refreshed whenever a window's screen or activation changes.
+/// The current context, refreshed whenever a window's screen, activation, or repository state changes.
+
 #[derive(Default)]
 pub struct MenuState(pub MenuContext);
 
@@ -18,8 +20,12 @@ impl Global for MenuState {}
 
 const APP_NAME: &str = "deathpush";
 
-fn repo_item(name: &str, action: impl Action, ctx: &MenuContext) -> MenuItem {
-  MenuItem::action(name.to_string(), action).disabled(!ctx.repo_open)
+fn folder_item(name: &str, action: impl Action, ctx: &MenuContext) -> MenuItem {
+  MenuItem::action(name.to_string(), action).disabled(!ctx.folder_open)
+}
+
+fn git_item(name: &str, action: impl Action, ctx: &MenuContext) -> MenuItem {
+  MenuItem::action(name.to_string(), action).disabled(!ctx.git_open)
 }
 
 fn menu(name: impl Into<SharedString>, items: Vec<MenuItem>) -> Menu {
@@ -44,7 +50,7 @@ pub fn build_menus(ctx: &MenuContext) -> Vec<Menu> {
     ),
     MenuItem::separator(),
   ];
-  app_items.push(repo_item("Settings...", ShowSettings, ctx));
+  app_items.push(folder_item("Settings...", ShowSettings, ctx));
   if !cfg!(target_os = "linux") {
     let label = if ctx.cli_installed {
       "Uninstall Command Line Tool..."
@@ -74,11 +80,11 @@ pub fn build_menus(ctx: &MenuContext) -> Vec<Menu> {
   ));
 
   let mut view_items = vec![
-    repo_item("Quick Open...", QuickOpen, ctx),
+    folder_item("Quick Open...", QuickOpen, ctx),
     MenuItem::separator(),
-    repo_item("Changes", ShowChanges, ctx),
-    repo_item("History", ShowHistory, ctx),
-    repo_item("Toggle Diff Mode", ToggleDiffLayout, ctx),
+    folder_item("Changes", ShowChanges, ctx),
+    git_item("History", ShowHistory, ctx),
+    folder_item("Toggle Diff Mode", ToggleDiffLayout, ctx),
     MenuItem::separator(),
     MenuItem::action("Color Theme...", ColorTheme),
     MenuItem::separator(),
@@ -120,31 +126,31 @@ pub fn build_menus(ctx: &MenuContext) -> Vec<Menu> {
     menu(
       "Git",
       vec![
-        repo_item("Pull", GitPull, ctx),
-        repo_item("Push", GitPush, ctx),
-        repo_item("Fetch", GitFetch, ctx),
-        repo_item("Sync", GitSync, ctx),
-        repo_item("Pull (Rebase)", GitPullRebase, ctx),
-        repo_item("Push (Force)", GitPushForce, ctx),
+        git_item("Pull", GitPull, ctx),
+        git_item("Push", GitPush, ctx),
+        git_item("Fetch", GitFetch, ctx),
+        git_item("Sync", GitSync, ctx),
+        git_item("Pull (Rebase)", GitPullRebase, ctx),
+        git_item("Push (Force)", GitPushForce, ctx),
         MenuItem::separator(),
-        repo_item("Stage All", GitStageAll, ctx),
-        repo_item("Unstage All", GitUnstageAll, ctx),
-        repo_item("Discard All Changes", GitDiscardAll, ctx),
+        git_item("Stage All", GitStageAll, ctx),
+        git_item("Unstage All", GitUnstageAll, ctx),
+        git_item("Discard All Changes", GitDiscardAll, ctx),
         MenuItem::separator(),
-        repo_item("Stash...", GitStash, ctx),
-        repo_item("Stash Pop", GitStashPop, ctx),
-        repo_item("Stash (Include Untracked)", GitStashIncludeUntracked, ctx),
-        repo_item("Stash Staged Only", GitStashStagedOnly, ctx),
+        git_item("Stash...", GitStash, ctx),
+        git_item("Stash Pop", GitStashPop, ctx),
+        git_item("Stash (Include Untracked)", GitStashIncludeUntracked, ctx),
+        git_item("Stash Staged Only", GitStashStagedOnly, ctx),
         MenuItem::separator(),
-        repo_item("Undo Last Commit", GitUndoCommit, ctx),
+        git_item("Undo Last Commit", GitUndoCommit, ctx),
       ],
     ),
     menu(
       "Terminal",
       vec![
-        repo_item("New Terminal", NewTerminal, ctx),
-        repo_item("Kill Terminal", KillTerminal, ctx),
-        repo_item("Toggle Terminal", ToggleTerminal, ctx),
+        folder_item("New Terminal", NewTerminal, ctx),
+        folder_item("Kill Terminal", KillTerminal, ctx),
+        folder_item("Toggle Terminal", ToggleTerminal, ctx),
       ],
     ),
     menu(
@@ -172,62 +178,99 @@ pub struct LinuxRow {
 
 #[allow(dead_code)]
 pub fn linux_rows(ctx: &MenuContext) -> Vec<LinuxRow> {
-  let repo = !ctx.repo_open;
-  let row = |label, shortcut, action: Box<dyn Action>, disabled, separator_before| LinuxRow {
+  let row = |label, shortcut, action: Box<dyn Action>, folder_only, git_only, separator_before| LinuxRow {
     label,
     shortcut,
     action,
-    disabled,
+    disabled: (folder_only && !ctx.folder_open) || (git_only && !ctx.git_open),
     separator_before,
   };
   vec![
-    row("New Window", Some("Ctrl+N"), Box::new(NewWindow), false, false),
+    row("New Window", Some("Ctrl+N"), Box::new(NewWindow), false, false, false),
     row(
       "Open Repository...",
       Some("Ctrl+O"),
       Box::new(OpenRepository),
       false,
       false,
+      false,
     ),
-    row("Clone Repository...", None, Box::new(CloneRepository), false, false),
-    row("Changes", Some("Ctrl+1"), Box::new(ShowChanges), repo, true),
-    row("History", Some("Ctrl+Shift+2"), Box::new(ShowHistory), repo, false),
+    row(
+      "Clone Repository...",
+      None,
+      Box::new(CloneRepository),
+      false,
+      false,
+      false,
+    ),
+    row("Changes", Some("Ctrl+1"), Box::new(ShowChanges), true, false, true),
+    row(
+      "History",
+      Some("Ctrl+Shift+2"),
+      Box::new(ShowHistory),
+      false,
+      true,
+      false,
+    ),
     row(
       "Toggle Diff Mode",
       Some("Ctrl+Shift+P"),
       Box::new(ToggleDiffLayout),
-      repo,
+      true,
+      false,
       false,
     ),
-    row("Color Theme...", None, Box::new(ColorTheme), false, true),
-    row("Zoom In", Some("Ctrl+="), Box::new(ZoomIn), false, false),
-    row("Zoom Out", Some("Ctrl+-"), Box::new(ZoomOut), false, false),
-    row("Reset Zoom", Some("Ctrl+0"), Box::new(ZoomReset), false, false),
-    row("Pull", None, Box::new(GitPull), repo, true),
-    row("Push", None, Box::new(GitPush), repo, false),
-    row("Fetch", None, Box::new(GitFetch), repo, false),
-    row("Sync", None, Box::new(GitSync), repo, false),
-    row("Pull (Rebase)", None, Box::new(GitPullRebase), repo, false),
-    row("Push (Force)", None, Box::new(GitPushForce), repo, false),
-    row("Stage All", None, Box::new(GitStageAll), repo, false),
-    row("Unstage All", None, Box::new(GitUnstageAll), repo, false),
-    row("Discard All Changes", None, Box::new(GitDiscardAll), repo, false),
-    row("Stash...", None, Box::new(GitStash), repo, false),
-    row("Stash Pop", None, Box::new(GitStashPop), repo, false),
+    row("Color Theme...", None, Box::new(ColorTheme), false, false, true),
+    row("Zoom In", Some("Ctrl+="), Box::new(ZoomIn), false, false, false),
+    row("Zoom Out", Some("Ctrl+-"), Box::new(ZoomOut), false, false, false),
+    row("Reset Zoom", Some("Ctrl+0"), Box::new(ZoomReset), false, false, false),
+    row("Pull", None, Box::new(GitPull), false, true, true),
+    row("Push", None, Box::new(GitPush), false, true, false),
+    row("Fetch", None, Box::new(GitFetch), false, true, false),
+    row("Sync", None, Box::new(GitSync), false, true, false),
+    row("Pull (Rebase)", None, Box::new(GitPullRebase), false, true, false),
+    row("Push (Force)", None, Box::new(GitPushForce), false, true, false),
+    row("Stage All", None, Box::new(GitStageAll), false, true, false),
+    row("Unstage All", None, Box::new(GitUnstageAll), false, true, false),
+    row("Discard All Changes", None, Box::new(GitDiscardAll), false, true, false),
+    row("Stash...", None, Box::new(GitStash), false, true, false),
+    row("Stash Pop", None, Box::new(GitStashPop), false, true, false),
     row(
       "Stash (Include Untracked)",
       None,
       Box::new(GitStashIncludeUntracked),
-      repo,
+      false,
+      true,
       false,
     ),
-    row("Stash Staged Only", None, Box::new(GitStashStagedOnly), repo, false),
-    row("Undo Last Commit", None, Box::new(GitUndoCommit), repo, false),
-    row("New Terminal", Some("Ctrl+Shift+J"), Box::new(NewTerminal), repo, true),
-    row("Kill Terminal", None, Box::new(KillTerminal), repo, false),
-    row("Toggle Terminal", Some("Ctrl+J"), Box::new(ToggleTerminal), repo, false),
-    row("Settings...", Some("Ctrl+,"), Box::new(ShowSettings), false, true),
-    row("Quit", None, Box::new(Quit), false, false),
+    row(
+      "Stash Staged Only",
+      None,
+      Box::new(GitStashStagedOnly),
+      false,
+      true,
+      false,
+    ),
+    row("Undo Last Commit", None, Box::new(GitUndoCommit), false, true, false),
+    row(
+      "New Terminal",
+      Some("Ctrl+Shift+J"),
+      Box::new(NewTerminal),
+      true,
+      false,
+      true,
+    ),
+    row("Kill Terminal", None, Box::new(KillTerminal), true, false, false),
+    row(
+      "Toggle Terminal",
+      Some("Ctrl+J"),
+      Box::new(ToggleTerminal),
+      true,
+      false,
+      false,
+    ),
+    row("Settings...", Some("Ctrl+,"), Box::new(ShowSettings), false, false, true),
+    row("Quit", None, Box::new(Quit), false, false, false),
   ]
 }
 
@@ -283,9 +326,10 @@ mod tests {
   }
 
   #[test]
-  fn repo_only_items_follow_repo_open() {
+  fn folder_and_git_items_follow_context() {
     let closed = build_menus(&MenuContext {
-      repo_open: false,
+      folder_open: false,
+      git_open: false,
       cli_installed: false,
     });
     assert!(disabled(&closed[4], "Pull"));
@@ -293,7 +337,8 @@ mod tests {
     assert!(!disabled(&closed[3], "Zoom In"));
     assert!(disabled(&closed[5], "Toggle Terminal"));
     let open = build_menus(&MenuContext {
-      repo_open: true,
+      folder_open: true,
+      git_open: true,
       cli_installed: false,
     });
     assert!(!disabled(&open[4], "Pull"));
@@ -304,7 +349,8 @@ mod tests {
   fn cli_item_flips_between_install_and_uninstall() {
     let not_installed = build_menus(&MenuContext::default());
     let installed = build_menus(&MenuContext {
-      repo_open: false,
+      folder_open: false,
+      git_open: false,
       cli_installed: true,
     });
     if cfg!(target_os = "linux") {

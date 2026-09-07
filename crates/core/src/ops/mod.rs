@@ -88,10 +88,10 @@ impl Core {
   ) -> Result<()> {
     let runtime = self.runtimes.runtime_for_session(id).ok_or(Error::NoRepository)?;
     invalidate(&runtime)?;
-    let repo = runtime.open_repository()?;
+    let repo = runtime.open_repository().ok();
     let mut repos = self.lock_repos();
     let state = repos.get_mut(&id).ok_or(Error::NoRepository)?;
-    state.repo = Some(repo);
+    state.repo = repo;
     Ok(())
   }
 }

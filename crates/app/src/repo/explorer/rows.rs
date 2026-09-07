@@ -20,6 +20,8 @@ pub struct RowPaint {
   pub palette: UiPalette,
   pub selected: bool,
   pub has_mark: bool,
+  /// Git-only rows (`Add to .gitignore`) are dropped when the folder has no repository.
+  pub has_repository: bool,
   pub editing: Option<Entity<InputState>>,
 }
 
@@ -62,11 +64,15 @@ pub fn fill_menu(
   path: String,
   is_directory: bool,
   has_mark: bool,
+  has_repository: bool,
   view: WeakEntity<ExplorerView>,
 ) -> PopupMenu {
   let mut menu = menu.min_w(px(180.));
   for item in items {
     let item = *item;
+    if item.needs_repository() && !has_repository {
+      continue;
+    }
     let view = view.clone();
     let path = path.clone();
     menu = menu.item(
@@ -99,6 +105,7 @@ pub fn render_row(row: &Row, paint: &RowPaint, view: WeakEntity<ExplorerView>) -
   let menu_path = path.clone();
   let menu_view = view.clone();
   let has_mark = paint.has_mark;
+  let has_repository = paint.has_repository;
   let drag = DragEntry {
     path: path.clone(),
     is_directory,
@@ -204,6 +211,7 @@ pub fn render_row(row: &Row, paint: &RowPaint, view: WeakEntity<ExplorerView>) -
         menu_path.clone(),
         is_directory,
         has_mark,
+        has_repository,
         menu_view.clone(),
       )
     })

@@ -34,6 +34,8 @@ pub struct SessionSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct SessionRepo {
   pub root: String,
+  /// `false` when the open folder has no Git repository: explorer, viewer and terminal only.
+  pub has_repository: bool,
   pub head_branch: Option<String>,
   pub head_commit: Option<String>,
   pub ahead: usize,
@@ -110,6 +112,9 @@ pub struct OperationActions {
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Intent {
   OpenRepository {
+    path: String,
+  },
+  InitRepository {
     path: String,
   },
   CloneRepository {

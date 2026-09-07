@@ -1,11 +1,11 @@
 # Quick Open
 
 Status: Current product
-Date: 2026-09-02
+Date: 2026-09-07
 
 ## Purpose
 
-A command-palette overlay for jumping to a file in the open repository, jumping to a line in the current file, or searching file contents. It sits on top of the [app shell](app-shell.md).
+A command-palette overlay for jumping to a file in the open folder, jumping to a line in the current file, or searching file contents. It sits on top of the [app shell](app-shell.md).
 
 ## Layout
 
@@ -29,7 +29,7 @@ Clicking the backdrop closes the palette. Clicking inside does not.
 | File row | file name (matched characters highlighted), optional `:{line}`, directory in muted text | Open the file in the [Explorer](explorer.md) file viewer. With a `:N` suffix, jump to line N | Enter on the active row, or click |
 | Content row | `{filename}:{line}`, directory, the trimmed matching line | Open the file at that line | Enter on the active row, or click |
 | Backdrop | none | Close | click |
-| View menu Quick Open... | `Quick Open...` | Open this palette (only when a repository is open) | Cmd/Ctrl+P |
+| View menu Quick Open... | `Quick Open...` | Open this palette (only when a folder is open) | Cmd/Ctrl+P |
 
 ## Copy
 
@@ -50,7 +50,7 @@ Panel on the sidebar background with a subtle border, rounded corners, and a sof
 
 ## States
 
-**Closed.** Not shown. Opens only when a repository is open.
+**Closed.** Not shown. Opens whenever a folder is open, with or without a Git repository.
 
 **Open, empty query.** Lists the first 100 files alphabetically. Files opened recently in this repository come first under `recently opened`; the rest follow under `files`. The labels appear only when at least one recent file exists in the index.
 
@@ -72,9 +72,9 @@ Panel on the sidebar background with a subtle border, rounded corners, and a sof
 
 **Select.** Opens the file in the file viewer (at a line when given), records it as a recent file, docks the terminal, switches the sidebar to Explorer and the main panel to the file viewer, then closes.
 
-**Search scope.** File search covers tracked files plus untracked files that are not ignored. The index rebuilds when files are added, removed, or renamed, or when ignore rules change; editing a file's content does not rebuild it. Content search is live over the same set, case-sensitive and literal, skips nested repositories, and returns path, line number, and the line text. A query with no hits is an empty list, not an error.
+**Search scope.** File search covers tracked files plus untracked files that are not ignored. Without a Git repository the index is a filesystem walk of the open folder, and every file in it is searchable. The index rebuilds when files are added, removed, or renamed, or when ignore rules change; editing a file's content does not rebuild it. Content search is live over the same set, case-sensitive and literal, skips nested repositories, and returns path, line number, and the line text. A query with no hits is an empty list, not an error.
 
-**Open.** View > Quick Open... or Cmd/Ctrl+P, even while typing in a text field. Ignored when no repository is open.
+**Open.** View > Quick Open... or Cmd/Ctrl+P, even while typing in a text field. Ignored when no folder is open.
 
 ## Keyboard
 

@@ -118,9 +118,10 @@ pub async fn apply_intent(
   session.with_mut(|state| state.error = None)?;
   let cli = GitCli::new(root);
   match intent {
-    Intent::OpenRepository { .. } | Intent::CloneRepository { .. } | Intent::RefreshStatus => {
-      Ok(ApplyOutput::Refresh(RefreshImpact::Snapshot))
-    }
+    Intent::OpenRepository { .. }
+    | Intent::InitRepository { .. }
+    | Intent::CloneRepository { .. }
+    | Intent::RefreshStatus => Ok(ApplyOutput::Refresh(RefreshImpact::Snapshot)),
 
     Intent::ClearFile => {
       session.with_mut(|state| {
@@ -857,6 +858,7 @@ mod tests {
   fn empty_status(root: &str) -> RepositoryStatus {
     RepositoryStatus {
       root: root.into(),
+      has_repository: true,
       head_branch: None,
       head_commit: None,
       ahead: 0,

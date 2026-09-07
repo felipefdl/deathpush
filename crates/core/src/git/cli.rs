@@ -77,6 +77,11 @@ impl GitCli {
     }
   }
 
+  pub async fn init(&self) -> Result<()> {
+    self.run(&["init"]).await?;
+    Ok(())
+  }
+
   pub async fn stage_files(&self, paths: &[String]) -> Result<()> {
     let mut args = vec!["add", "--"];
     let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();

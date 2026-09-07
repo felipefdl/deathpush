@@ -278,6 +278,7 @@ pub fn build_status_event(
 fn session_repo(status: &RepositoryStatus, phase: StatusPhase) -> SessionRepo {
   SessionRepo {
     root: status.root.clone(),
+    has_repository: status.has_repository,
     head_branch: status.head_branch.clone(),
     head_commit: status.head_commit.clone(),
     ahead: status.ahead,
@@ -335,6 +336,7 @@ mod tests {
   fn status(root: &str, head: &str) -> RepositoryStatus {
     RepositoryStatus {
       root: root.into(),
+      has_repository: true,
       head_branch: Some("master".into()),
       head_commit: Some(head.into()),
       ahead: 0,
@@ -353,6 +355,7 @@ mod tests {
       removals: vec![],
       metadata: head.map(|commit| RepositoryMetadata {
         root: root.into(),
+        has_repository: true,
         head_branch: Some("master".into()),
         head_commit: Some(commit.into()),
         ahead: 0,

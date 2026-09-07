@@ -83,14 +83,18 @@ impl RepoView {
     cx.observe(&model, |_, _, cx| cx.notify()).detach();
     cx.observe(&layout, |_, _, cx| cx.notify()).detach();
     cx.observe(&output, |_, _, cx| cx.notify()).detach();
-    let (core, session, root) = {
+    let (core, session, root, has_repository) = {
       let model = model.read(cx);
       (
         model.core(),
         model.session(),
         model.state().root().unwrap_or("").to_string(),
+        model.state().has_repository(),
       )
     };
+    if !has_repository {
+      layout.update(cx, |layout, cx| layout.select_sidebar_view(SidebarView::Explorer, cx));
+    }
     let explorer_model = cx.new({
       let core = core.clone();
       let root = root.clone();
@@ -142,6 +146,10 @@ impl RepoView {
       focus_handle: cx.focus_handle(),
       settings_restore: None,
     }
+  }
+
+  pub fn has_repository(&self, cx: &App) -> bool {
+    self.model.read(cx).state().has_repository()
   }
 
   pub fn model(&self) -> &Entity<RepoModel> {
@@ -366,6 +374,9 @@ impl Render for RepoView {
           .update(cx, |layout, cx| layout.select_sidebar_view(SidebarView::Explorer, cx));
       }))
       .on_action(cx.listener(|this, _: &ShowHistory, _, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
         this
           .layout
           .update(cx, |layout, cx| layout.select_main_view(MainView::History, cx));
@@ -499,11 +510,17 @@ impl Render for RepoView {
         this.activate_terminal_group(9, window, cx);
       }))
       .on_action(cx.listener(|this, _: &GitPull, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
         this.model.update(cx, |model, cx| {
           model.dispatch_network(NetworkOp::Pull, Intent::Pull { rebase: false }, window, cx);
         });
       }))
       .on_action(cx.listener(|this, _: &GitPush, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
         this.model.update(cx, |model, cx| {
           model.dispatch_network(
             NetworkOp::Push,
@@ -517,13 +534,29 @@ impl Render for RepoView {
         });
       }))
       .on_action(cx.listener(|this, _: &GitFetch, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
         this.model.update(cx, |model, cx| {
           model.dispatch_network(NetworkOp::Fetch, Intent::Fetch { prune: true }, window, cx);
         });
       }))
-      .on_action(cx.listener(|this, _: &GitStageAll, window, cx| this.send(Intent::StageAll, window, cx)))
-      .on_action(cx.listener(|this, _: &GitUnstageAll, window, cx| this.send(Intent::UnstageAll, window, cx)))
+      .on_action(cx.listener(|this, _: &GitStageAll, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
+        this.send(Intent::StageAll, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &GitUnstageAll, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
+        this.send(Intent::UnstageAll, window, cx);
+      }))
       .on_action(cx.listener(|this, _: &GitStash, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
         this.send(
           Intent::StashSave {
             include_untracked: false,
@@ -534,28 +567,52 @@ impl Render for RepoView {
           cx,
         )
       }))
-      .on_action(cx.listener(|this, _: &GitStashPop, window, cx| this.send(Intent::StashPop { index: 0 }, window, cx)))
-      .on_action(
-        cx.listener(|this, _: &GitUndoCommit, window, cx| {
-          this.send(Intent::UndoCommit { confirmed: false }, window, cx)
-        }),
-      )
+      .on_action(cx.listener(|this, _: &GitStashPop, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
+        this.send(Intent::StashPop { index: 0 }, window, cx);
+      }))
+      .on_action(cx.listener(|this, _: &GitUndoCommit, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
+        this.send(Intent::UndoCommit { confirmed: false }, window, cx)
+      }))
       .on_action(cx.listener(|this, _: &GitSync, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
         dispatch_item(&this.model, OverflowItem::Sync, window, cx);
       }))
       .on_action(cx.listener(|this, _: &GitPullRebase, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
         dispatch_item(&this.model, OverflowItem::PullRebase, window, cx);
       }))
       .on_action(cx.listener(|this, _: &GitPushForce, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
         dispatch_item(&this.model, OverflowItem::PushForce, window, cx);
       }))
       .on_action(cx.listener(|this, _: &GitDiscardAll, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
         dispatch_item(&this.model, OverflowItem::DiscardAll, window, cx);
       }))
       .on_action(cx.listener(|this, _: &GitStashIncludeUntracked, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
         dispatch_item(&this.model, OverflowItem::StashIncludeUntracked, window, cx);
       }))
       .on_action(cx.listener(|this, _: &GitStashStagedOnly, window, cx| {
+        if !this.has_repository(cx) {
+          return;
+        }
         dispatch_item(&this.model, OverflowItem::StashStagedOnly, window, cx);
       }))
       .child(body)
@@ -590,6 +647,7 @@ mod tests {
       status_revision: 1,
       repo: SessionRepo {
         root: root.into(),
+        has_repository: true,
         head_branch: Some("main".into()),
         head_commit: Some("abc".into()),
         ahead: 0,

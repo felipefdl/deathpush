@@ -30,28 +30,39 @@ pub fn truncate_message(message: &str, max: usize) -> String {
 
 pub fn render_status_bar(state: &RepoState, window: &mut Window, cx: &App) -> impl IntoElement {
   let palette = cx.global::<ActivePalette>().0;
-  let branch = state
-    .head_branch()
-    .map(str::to_string)
-    .unwrap_or_else(|| "No branch".to_string());
-  let badge = state
-    .status
-    .as_ref()
-    .and_then(|status| sync_badge(status.ahead, status.behind));
+  let has_repository = state.has_repository();
+  let branch = has_repository.then(|| {
+    state
+      .head_branch()
+      .map(str::to_string)
+      .unwrap_or_else(|| "No branch".to_string())
+  });
+  let badge = has_repository
+    .then(|| {
+      state
+        .status
+        .as_ref()
+        .and_then(|status| sync_badge(status.ahead, status.behind))
+    })
+    .flatten();
   let dirty = state.open_file.as_ref().is_some_and(|open| open.dirty);
-  let blame = (AppConfig::get(cx).settings.git.blame && !dirty)
+  let blame = (has_repository && AppConfig::get(cx).settings.git.blame && !dirty)
     .then(|| {
       let line = state.cursor_line?;
       blame_status_line(state.blame.as_ref()?, line, Utc::now())
     })
     .flatten();
   let zoom_level = zoom::current_level(cx);
-  let last_commit = state.last_commit.as_ref().map(|commit| {
-    (
-      truncate_message(&commit.message, 60),
-      relative_time(&commit.author_date, Utc::now()),
-    )
-  });
+  let last_commit = has_repository
+    .then(|| {
+      state.last_commit.as_ref().map(|commit| {
+        (
+          truncate_message(&commit.message, 60),
+          relative_time(&commit.author_date, Utc::now()),
+        )
+      })
+    })
+    .flatten();
   let item = |id: &'static str| {
     div()
       .id(id)
@@ -74,7 +85,7 @@ pub fn render_status_bar(state: &RepoState, window: &mut Window, cx: &App) -> im
     .text_color(hsla(palette.status_bar_foreground))
     .border_t_1()
     .border_color(hsla(palette.border))
-    .child(
+    .children(branch.map(|branch| {
       item("status-branch")
         .child(
           svg()
@@ -85,8 +96,8 @@ pub fn render_status_bar(state: &RepoState, window: &mut Window, cx: &App) -> im
         .child(branch)
         .children(badge)
         .tooltip(|window, cx| Tooltip::new("Switch branch").build(window, cx))
-        .on_click(|_, window, cx| window.dispatch_action(Box::new(ShowBranchPicker), cx)),
-    )
+        .on_click(|_, window, cx| window.dispatch_action(Box::new(ShowBranchPicker), cx))
+    }))
     .children(blame.map(|text| {
       div()
         .px_2()

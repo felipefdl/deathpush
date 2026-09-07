@@ -1,7 +1,7 @@
 # SCM Changes
 
 Status: Current product
-Date: 2026-09-02
+Date: 2026-09-07
 
 ## Purpose
 
@@ -12,7 +12,7 @@ The working Git surface in the sidebar: write a commit message, stage and unstag
 Sidebar, top to bottom:
 
 1. Tabs `Changes` / `Explorer`.
-2. Icon toolbar (only with a repository open).
+2. Icon toolbar (only with a Git repository open).
 3. Merge or rebase banner (only during an operation).
 4. Commit message box and the split Commit button.
 5. File filter (only when at least one file is changed).
@@ -47,11 +47,11 @@ Selecting a file switches the main panel to the diff, docks the terminal, and lo
 
 **File filter.** A search field between the commit box and the groups.
 
-**Empty body.** With a repository and no changes: the centered watermark and `No changes`; the toolbar and commit box stay. Without a repository: `No repository open` and `Open Repository`.
+**Empty body.** With a repository and no changes: the centered watermark and `No changes`; the toolbar and commit box stay. With no folder open: `No repository open` and `Open Repository`. With a folder that has no repository: centered muted text `This folder is not a Git repository` and a primary `Initialize Repository` button.
 
 **Groups.** One resizable group per non-empty (after filtering) status group, then Stashes when any exist, then Nested Repositories when any exist.
 
-**Main panel diff.** Empty: watermark and `Select a file to view changes`. With a selection: a path header, then a text diff, an image comparison, a merge-conflict editor, or a binary or large-file message.
+**Main panel diff.** Empty: watermark and `Select a file to view changes`, or `Diffs need a Git repository` when the open folder has no repository. With a selection: a path header, then a text diff, an image comparison, a merge-conflict editor, or a binary or large-file message.
 
 ## Controls
 
@@ -85,6 +85,7 @@ Selecting a file switches the main panel to the diff, docks the terminal, and lo
 | Stash drop | tooltip `Drop Stash` | Drop after confirmation | none |
 | Nested repository row | name and branch | Open that repository in a new window | none |
 | Empty Open Repository | `Open Repository` | System folder picker | none |
+| Empty Initialize Repository | `Initialize Repository` | Run `git init` in the open folder, then reload the shell as a repository | none |
 | Diff header history | tooltip `Show File History` | Open History filtered to this file | none |
 | Diff header layout | tooltip `Switch to side by side` / `Switch to inline` | Toggle the Diff Layout setting | Cmd/Ctrl+Shift+P |
 | Diff Open in External Editor | `Open in External Editor` | Open the file in the system editor | none |
@@ -97,7 +98,7 @@ Selecting a file switches the main panel to the diff, docks the terminal, and lo
 
 **Commit:** placeholder `commit message`. Field tooltip `⌘+Enter to commit on "{branch}"` on macOS, `Ctrl+Enter to commit on "{branch}"` elsewhere (`HEAD` when detached). Button labels `Commit`, `Commit All`, `Amend`, `Amend All`; tooltip `Commit staged changes` or `Amend staged changes`. Chevron tooltip `More commit options`. Dropdown `Commit`, `Commit (Amend)`, `Commit & Push`, `Commit & Sync`.
 
-**Empty:** `No changes`. No repository: `No repository open`, `Open Repository`.
+**Empty:** `No changes`. No folder open: `No repository open`, `Open Repository`. Folder without a repository: `This folder is not a Git repository`, `Initialize Repository`.
 
 **Filter:** `Filter files...`.
 
@@ -130,7 +131,7 @@ Branch list inside the overflow: header `Merge` or `Rebase onto`, placeholder `S
 
 **Stash tooltips:** `Apply Stash`, `Pop Stash`, `Drop Stash`.
 
-**Main panel:** `Select a file to view changes`. Binary: `Binary file cannot be displayed`. Large: `File is too large to display (over 5 MB)`. Header suffix `(Staged)`, `(Working Tree)`, or `(Merge)`.
+**Main panel:** `Select a file to view changes`, or `Diffs need a Git repository` without a repository. Binary: `Binary file cannot be displayed`. Large: `File is too large to display (over 5 MB)`. Header suffix `(Staged)`, `(Working Tree)`, or `(Merge)`.
 
 **Confirmations (system dialog):** title `Confirm`, warning style, buttons `Continue` and `Cancel`. Messages:
 
@@ -169,7 +170,9 @@ Main diff: the path header, then the diff in side-by-side or inline layout per s
 
 ## States
 
-**No repository.** Toolbar and commit box hidden; `No repository open` and `Open Repository`.
+**No repository open.** No folder is open at all: toolbar and commit box hidden; `No repository open` and `Open Repository`.
+
+**Not a Git repository.** A folder is open and holds no repository: toolbar, commit box, filter, and groups hidden; `This folder is not a Git repository` and `Initialize Repository`. The tab itself stays clickable, though the sidebar lands on `Explorer` when the folder opens. Initializing runs `git init` in the folder and the shell refreshes in place as a repository with an unborn HEAD: the status bar reads `No branch`, every file is listed as untracked, and the commit box is back.
 
 **No changes.** Toolbar, commit box, watermark. No filter, no groups.
 
@@ -191,7 +194,7 @@ Main diff: the path header, then the diff in side-by-side or inline layout per s
 
 **Confirmation.** Destructive actions ask first. Cancel changes nothing.
 
-**Diff empty.** No selection: watermark and `Select a file to view changes`.
+**Diff empty.** No selection: watermark and `Select a file to view changes`. Without a repository: `Diffs need a Git repository`.
 
 **Diff kinds.** Text: read-only. Editing happens in the Explorer file viewer. Image: side-by-side images. Binary or large: message plus `Open in External Editor`. Merge conflict: per-conflict accept choices.
 
@@ -200,6 +203,8 @@ Main diff: the path header, then the diff in side-by-side or inline layout per s
 ## Interactions
 
 **Tabs.** Changes and Explorer both keep their state when hidden.
+
+**Initialize Repository.** In a folder with no repository, the button runs `git init` in that folder, logged in the terminal Output tab like every other Git command, and the shell reloads in place. Every file in the folder appears as untracked and the commit box becomes available. A failure shows the app toast and the folder stays as it was.
 
 **Stage and unstage.** The toolbar plus stages everything. A group's plus stages that group; its minus unstages. Pending editor saves flush before staging. The file context menu stages or unstages the selected rows (multi-select when the clicked row is part of the selection).
 
@@ -261,4 +266,5 @@ Per project: collapsed groups, sidebar view, main view. App-wide: tree density, 
 - Status letters: modified, type-changed, and both-modified show `M`; added, intent-to-add, and add conflicts show `A`; deleted variants show `D`; renamed and copied show `R`; untracked shows `U`; ignored dims the row.
 - Operations in progress: merge, rebase, cherry-pick, revert.
 - Fetch always prunes.
+- `Initialize Repository` runs `git init` in the open folder. A fresh repository has an unborn HEAD, so the status bar reads `No branch` until the first commit.
 - Every Git command the app runs is logged in the terminal Output tab.
