@@ -218,7 +218,7 @@ fn page_button(
 /// Runs on the background executor: a 2048 px page is 16 MB.
 pub fn to_render_image(page: PdfPageImage) -> Arc<RenderImage> {
   let mut buffer = page.rgba;
-  for pixel in buffer.chunks_exact_mut(4) {
+  for pixel in buffer.as_chunks_mut::<4>().0 {
     pixel.swap(0, 2);
   }
   let buffer = image::RgbaImage::from_raw(page.width, page.height, buffer).expect("core sizes the buffer");

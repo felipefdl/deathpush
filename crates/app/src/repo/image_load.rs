@@ -125,7 +125,7 @@ fn animated<'a, D: AnimationDecoder<'a>>(decoder: D) -> image::ImageResult<Vec<F
 /// Downscale to the atlas limit if needed, then swap to BGRA, which is what `RenderImage` stores.
 fn fit(buffer: RgbaImage) -> RgbaImage {
   let mut buffer = downscaled(buffer);
-  for pixel in buffer.chunks_exact_mut(4) {
+  for pixel in buffer.as_chunks_mut::<4>().0 {
     pixel.swap(0, 2);
   }
   buffer
