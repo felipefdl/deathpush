@@ -269,7 +269,14 @@ pub fn linux_rows(ctx: &MenuContext) -> Vec<LinuxRow> {
       false,
       false,
     ),
-    row("Settings...", Some("Ctrl+,"), Box::new(ShowSettings), false, false, true),
+    row(
+      "Settings...",
+      Some("Ctrl+,"),
+      Box::new(ShowSettings),
+      false,
+      false,
+      true,
+    ),
     row("Quit", None, Box::new(Quit), false, false, false),
   ]
 }
