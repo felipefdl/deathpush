@@ -18,25 +18,9 @@ use gpui_kit::http_client::http::{HeaderValue, Request, Response, StatusCode};
 use gpui_kit::http_client::{AsyncBody, HttpClient, Result as HttpResult, Url};
 use gpui_kit::*;
 use markdown::mdast::Node;
-use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_encode};
+use percent_encoding::percent_decode_str;
 
 use crate::repo::image_load::bounded_bytes;
-
-/// Everything a path segment must not carry into a URL. `/` stays, it is the separator.
-const PATH_ESCAPES: &AsciiSet = &CONTROLS
-  .add(b' ')
-  .add(b'"')
-  .add(b'#')
-  .add(b'<')
-  .add(b'>')
-  .add(b'?')
-  .add(b'%')
-  .add(b'\\')
-  .add(b'^')
-  .add(b'`')
-  .add(b'{')
-  .add(b'|')
-  .add(b'}');
 
 /// The files open markdown previews may read, one set per preview.
 #[derive(Default)]
@@ -197,7 +181,7 @@ fn destination_range(source: &str, (start, end): Span, url: &str) -> Option<Span
 
 /// `http::Uri` refuses an empty authority, and GPUI parses the URL into one before it ever
 /// reaches this client, so a minted URL has to name a host.
-const LOCAL_PREFIX: &str = "file://localhost";
+const LOCAL_HOST: &str = "localhost";
 
 /// The URL for a local image, or `None` for anything remote, missing, or outside the repository.
 /// The modification time rides along so an edited image gets a new cache key.
@@ -209,9 +193,12 @@ fn mint(url: &str, directory: &Path, boundary: &Path) -> Option<(String, PathBuf
     .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
     .map(|since| since.as_nanos())
     .unwrap_or(0);
-  let path = file.to_string_lossy();
-  let encoded = utf8_percent_encode(&path, PATH_ESCAPES).to_string();
-  Some((format!("{LOCAL_PREFIX}{encoded}?v={modified}"), file))
+  let mut url = Url::from_file_path(&file).ok()?;
+  if !url.has_host() {
+    url.set_host(Some(LOCAL_HOST)).ok()?;
+  }
+  url.set_query(Some(&format!("v={modified}")));
+  Some((url.into(), file))
 }
 
 /// Resolve a markdown image reference against the document's own directory. `None` when the
@@ -313,9 +300,11 @@ impl HttpClient for LocalAssetHttpClient {
 }
 
 fn granted_path(uri: &str, grants: &AssetGrants) -> Option<PathBuf> {
-  let raw = uri.strip_prefix(LOCAL_PREFIX)?;
-  let raw = raw.split(['?', '#']).next()?;
-  let file = PathBuf::from(percent_decode_str(raw).decode_utf8_lossy().into_owned());
+  let url = Url::parse(uri).ok()?;
+  if url.scheme() != "file" {
+    return None;
+  }
+  let file = url.to_file_path().ok()?.canonicalize().ok()?;
   grants.allows(&file).then_some(file)
 }
 
@@ -444,10 +433,10 @@ mod tests {
     image::DynamicImage::ImageRgba8(wide)
       .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
       .expect("encode png");
-    std::fs::write(repo.root().join("wide.png"), &png).expect("asset");
+    std::fs::write(repo.root().join("wide #%.png"), &png).expect("asset");
 
     let readme = repo.root().join("README.md");
-    let rewritten = rewrite_images("![wide](wide.png)", &readme, repo.root());
+    let rewritten = rewrite_images("![wide](wide%20%23%25.png)", &readme, repo.root());
     let url = rewritten
       .source
       .trim_start_matches("![wide](")
@@ -471,7 +460,7 @@ mod tests {
     );
 
     // Anything the previews did not resolve is refused, however the document spells it.
-    let outside = format!("{LOCAL_PREFIX}/etc/hosts");
+    let outside = format!("file://{LOCAL_HOST}/etc/hosts");
     assert_eq!(fetch(&client, &outside).0, StatusCode::NOT_FOUND);
     grants.revoke(preview);
     assert_eq!(fetch(&client, &url).0, StatusCode::NOT_FOUND);
