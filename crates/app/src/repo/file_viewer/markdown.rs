@@ -5,7 +5,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 use std::sync::Arc;
 
-use gpui_kit::component::text::{SelectionFormat, TextView, TextViewState};
+use gpui_kit::component::text::{FrontmatterPlugin, MarkdownExtensions, SelectionFormat, TextView, TextViewState};
 use gpui_kit::*;
 
 use super::view::FileViewer;
@@ -83,6 +83,11 @@ impl MarkdownPreview {
       .child(
         // `scrollable` paints its own scrollbar and needs a fixed-height parent, which the pane is.
         TextView::new(state)
+          .markdown_extensions(
+            MarkdownExtensions::default()
+              .frontmatter()
+              .plugin(FrontmatterPlugin::new()),
+          )
           .selectable(true)
           .scrollable(true)
           // Copying out of a preview should yield markdown, not flattened text.
