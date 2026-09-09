@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use deathpush_core::config::settings::{DiffIndicators, DiffLayout, LineDiffType, MONO_FONT_STACK};
+use deathpush_core::config::settings::{DiffIndicators, LineDiffType, MONO_FONT_STACK};
 use deathpush_core::diff_view::{DiffRow, DiffRows, RowKind};
 use deathpush_core::theme::UiPalette;
 use gpui_kit::component::button::{Button, ButtonVariants};
@@ -67,22 +67,16 @@ pub struct RowPaint {
   pub font_size: f32,
   pub number_width: f32,
   pub indicator_width: f32,
+  pub text_width: f32,
+  pub h_scroll: ScrollHandle,
   pub highlighter: Option<Arc<Highlighted>>,
   pub theme: Arc<HighlightTheme>,
 }
 
-pub fn content_width(metrics: &RowsMetrics, paint: &RowPaint, layout: DiffLayout, advance: f32) -> f32 {
-  let numbers = if paint.show_line_numbers {
-    paint.number_width
-  } else {
-    0.0
-  };
-  let indicator = paint.indicator_width;
-  let text = metrics.max_columns as f32 * advance;
-  match layout {
-    DiffLayout::Inline => numbers * 2.0 + indicator + text + 24.0,
-    DiffLayout::SideBySide => (numbers + indicator + text) * 2.0 + 1.0 + 24.0,
-  }
+/// Width of the text column itself. Gutters stay pinned, so only this part
+/// scrolls horizontally; both sides share it to keep their offsets in step.
+pub fn text_width(metrics: &RowsMetrics, advance: f32) -> f32 {
+  metrics.max_columns as f32 * advance + 8.0
 }
 
 pub fn number_width(max_line_number: usize, advance: f32) -> f32 {
@@ -332,11 +326,20 @@ fn render_cell(
   }
   cell.child(
     div()
+      .id(SharedString::from(format!("diff-scroll-{index}-{}", side as u8)))
       .flex_1()
       .min_w_0()
       .h_full()
       .px_1()
-      .child(text.children(quad).child(styled)),
+      .overflow_x_scroll()
+      .restrict_scroll_to_axis()
+      .track_scroll(&paint.h_scroll)
+      .child(
+        div()
+          .min_w(px(paint.text_width))
+          .h_full()
+          .child(text.children(quad).child(styled)),
+      ),
   )
 }
 

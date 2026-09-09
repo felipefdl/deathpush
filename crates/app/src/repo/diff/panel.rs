@@ -539,6 +539,8 @@ impl Render for DiffPanel {
     }
     let weak = cx.weak_entity();
     let mut root = div()
+      .id("diff-panel")
+      .role(Role::Pane)
       .size_full()
       .flex()
       .flex_col()
@@ -600,10 +602,11 @@ impl Render for DiffPanel {
             font_size,
             number_width: rows::number_width(self.metrics.max_line_number, advance),
             indicator_width: rows::indicator_width(indicators, advance),
+            text_width: rows::text_width(&self.metrics, advance),
+            h_scroll: self.h_scroll.clone(),
             highlighter: self.highlighter.clone(),
             theme: cx.theme().highlight_theme.clone(),
           };
-          let width = rows::content_width(&self.metrics, &paint, layout, advance);
           let count = rows.len();
           let scroll = self.scroll.clone();
           let layouts = self.layouts.clone();
@@ -630,7 +633,7 @@ impl Render for DiffPanel {
               }
             }),
           };
-          let list = uniform_list("diff-rows", count, move |range, _, _| {
+          let mut list = uniform_list("diff-rows", count, move |range, _, _| {
             layouts.borrow_mut().retain(|&(index, _), _| range.contains(&index));
             pending.borrow_mut().retain(|&(index, _), _| range.contains(&index));
             range
@@ -639,13 +642,14 @@ impl Render for DiffPanel {
           })
           .size_full()
           .track_scroll(&scroll);
+          // The rows scroll horizontally on their own; keep a sideways gesture
+          // from also driving the list's vertical offset.
+          list.style().restrict_scroll_to_axis = Some(true);
           root.child(
             div()
-              .id("diff-h-scroll")
+              .id("diff-body")
               .flex_1()
               .min_h_0()
-              .overflow_x_scroll()
-              .track_scroll(&self.h_scroll)
               .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
@@ -672,7 +676,7 @@ impl Render for DiffPanel {
                   this.dragging = false;
                 }),
               )
-              .child(div().size_full().min_w(px(width)).child(list)),
+              .child(list),
           )
         }
         None => root.child(div().flex_1().min_h_0()),
