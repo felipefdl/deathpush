@@ -792,6 +792,8 @@ impl Render for Shell {
       Some(Overlay::ThemePicker(view)) => Some(view.clone().into_any_element()),
     };
     div()
+      .id("shell")
+      .role(Role::Window)
       .key_context(key_context.as_str())
       .track_focus(&self.focus_handle)
       .size_full()

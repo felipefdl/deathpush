@@ -358,6 +358,8 @@ impl Render for RepoView {
     };
     let body = self.render_body(window, cx).into_any_element();
     div()
+      .id("repo-view")
+      .role(Role::Group)
       .track_focus(&self.focus_handle)
       .size_full()
       .flex()

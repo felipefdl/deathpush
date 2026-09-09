@@ -125,8 +125,9 @@ impl ExplorerView {
   }
 
   #[cfg(test)]
-  pub(crate) fn focus(&self, window: &mut Window, cx: &mut App) {
-    self.tree_focus.focus(window, cx);
+  pub(crate) fn focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    self.tree.update(cx, |tree, cx| tree.focus(window, cx));
+    self.capture_tree_focus(window, cx);
   }
 
   pub fn open_file(&mut self, path: &str, line: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
@@ -684,7 +685,6 @@ impl Render for ExplorerView {
         .flex_1()
         .min_h_0()
         .w_full()
-        .track_focus(&self.tree_focus)
         .on_mouse_down(
           MouseButton::Left,
           cx.listener(|this, _, window, cx| this.capture_tree_focus(window, cx)),

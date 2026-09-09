@@ -164,6 +164,8 @@ impl Render for LicensesDialog {
       )
       .child(
         dialog_frame(560.0, "Open Source Licenses", cx)
+          .id("licenses-dialog")
+          .role(Role::Dialog)
           .track_focus(&self.focus_handle)
           .max_h(max_height)
           .on_action(cx.listener(|_, _: &Cancel, _, cx| cx.emit(LicensesEvent::Close)))

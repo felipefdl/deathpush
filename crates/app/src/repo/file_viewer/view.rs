@@ -545,6 +545,8 @@ impl Render for FileViewer {
     let markdown = kind == ViewerKind::Text && is_markdown(self.loaded_language.as_deref());
     let preview = markdown && self.preview;
     let mut root = div()
+      .id("file-viewer")
+      .role(Role::Pane)
       .track_focus(&self.focus_handle)
       .size_full()
       .flex()

@@ -293,6 +293,8 @@ impl Render for HistoryView {
       )
       .child(resizable_panel().child(detail));
     div()
+      .id("history-view")
+      .role(Role::Pane)
       .track_focus(&self.focus_handle)
       .size_full()
       .flex()

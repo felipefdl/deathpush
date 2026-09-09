@@ -463,6 +463,8 @@ impl Render for SettingsView {
     let catalog = ThemeCatalog::get(cx).entries.clone();
     let view = cx.weak_entity();
     div()
+      .id("settings-view")
+      .role(Role::Pane)
       .key_context(CONTEXT_SETTINGS)
       .track_focus(&self.focus_handle)
       .size_full()

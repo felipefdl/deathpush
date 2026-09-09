@@ -653,6 +653,8 @@ impl Render for ChangesView {
     };
     let branch_list = self.branch_list;
     let mut root = div()
+      .id("changes-view")
+      .role(Role::Pane)
       .relative()
       .size_full()
       .flex()

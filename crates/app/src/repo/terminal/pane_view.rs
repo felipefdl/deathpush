@@ -745,6 +745,7 @@ impl Render for PaneView {
     let focus = self.focus_handle.clone();
     div()
       .id(("terminal-pane", self.id))
+      .role(Role::Terminal)
       .size_full()
       .p(px(8.0))
       .bg(hsla(saturate(settings.background, settings.saturation)))
