@@ -7,7 +7,7 @@ use std::time::Instant;
 use hayro::hayro_interpret::InterpreterSettings;
 use hayro::hayro_syntax::{DecryptionError, LoadPdfError, Pdf};
 use hayro::vello_cpu::color::palette::css::WHITE;
-use hayro::{RenderCache, RenderSettings, render};
+use hayro::{PixmapSettings, RenderCache, RenderSettings, render};
 
 use crate::error::{Error, Result};
 
@@ -69,13 +69,18 @@ pub(crate) fn render_page(file: &Path, page: usize, max_edge: u32) -> Result<Pdf
     return Err(Error::Other("This PDF page is too large to rasterize".into()));
   }
 
-  let settings = RenderSettings {
+  let pixmap_settings = PixmapSettings {
     x_scale: scale,
     y_scale: scale,
     bg_color: WHITE,
-    ..Default::default()
   };
-  let pixmap = render(target, &RenderCache::new(), &InterpreterSettings::default(), &settings);
+  let pixmap = render(
+    target,
+    &RenderCache::new(),
+    &InterpreterSettings::default(),
+    &RenderSettings::default(),
+    &pixmap_settings,
+  );
   let (width, height) = (u32::from(pixmap.width()), u32::from(pixmap.height()));
   if width == 0 || height == 0 {
     return Err(Error::Other("This PDF page rendered empty".into()));

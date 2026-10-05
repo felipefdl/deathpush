@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use deathpush_core::Core;
 use deathpush_core::config::windows::SavedWindow;
-use gpui_kit::component::{Root, TitleBar};
+use gpui_kit::component::TitleBar;
 use gpui_kit::*;
 
 use crate::config::AppConfig;
@@ -51,7 +51,7 @@ pub fn window_options(saved: SavedWindow) -> WindowOptions {
 }
 
 /// Open a shell window; `initial` opens that repository at once.
-pub fn open_shell_window(initial: Option<PathBuf>, cx: &mut App) -> Option<WindowHandle<Root>> {
+pub fn open_shell_window(initial: Option<PathBuf>, cx: &mut App) -> Option<AnyWindowHandle> {
   let core = cx.global::<WindowRegistry>().core.clone()?;
   let index = {
     let registry = cx.global_mut::<WindowRegistry>();
@@ -60,16 +60,15 @@ pub fn open_shell_window(initial: Option<PathBuf>, cx: &mut App) -> Option<Windo
     index
   };
   let saved = AppConfig::get(cx).windows.bounds_for(index);
-  let handle = cx
-    .open_window(window_options(saved), |window, cx| {
-      let shell = cx.new(|cx| Shell::new(core.clone(), index, initial.clone(), window, cx));
-      let session = shell.read(cx).session;
-      cx.global_mut::<WindowRegistry>()
-        .sessions
-        .push((window.window_handle().window_id(), session));
-      cx.new(|cx| Root::new(shell, window, cx))
-    })
-    .ok()?;
+  let (handle, _shell) = gpui_kit::open_window(window_options(saved), cx, |window, cx| {
+    let shell = cx.new(|cx| Shell::new(core.clone(), index, initial.clone(), window, cx));
+    let session = shell.read(cx).session;
+    cx.global_mut::<WindowRegistry>()
+      .sessions
+      .push((window.window_handle().window_id(), session));
+    shell
+  })
+  .ok()?;
   Some(handle)
 }
 

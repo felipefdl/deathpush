@@ -1,11 +1,19 @@
+use std::fmt::Write;
+
 use sha2::{Digest, Sha256};
 
 pub fn sha256_utf8(text: &str) -> String {
-  format!("{:x}", Sha256::digest(text.as_bytes()))
+  sha256_bytes(text.as_bytes())
 }
 
 pub fn sha256_bytes(bytes: &[u8]) -> String {
-  format!("{:x}", Sha256::digest(bytes))
+  let digest = Sha256::digest(bytes);
+  let mut hex = String::with_capacity(digest.len() * 2);
+  for byte in digest {
+    // Writing into a String cannot fail.
+    let _ = write!(hex, "{byte:02x}");
+  }
+  hex
 }
 
 /// Change token for payloads we deliberately never read (PDF pages are rasterized on demand).

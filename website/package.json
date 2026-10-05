@@ -5,12 +5,12 @@
   "devEngines": {
     "runtime": {
       "name": "node",
-      "version": "24.20.0",
+      "version": "24.21.0",
       "onFail": "download"
     },
     "packageManager": {
       "name": "pnpm",
-      "version": "11.24.0",
+      "version": "11.28.2",
       "onFail": "download"
     }
   },
@@ -21,9 +21,10 @@
     "astro": "astro"
   },
   "dependencies": {
-    "@astrojs/sitemap": "^3.7.3",
+    "@astrojs/sitemap": "^3.7.4",
     "@resvg/resvg-js": "^2.6.2",
-    "astro": "^7.2.9",
-    "satori": "^0.33.4"
-  }
+    "astro": "^7.3.5",
+    "satori": "^0.35.0"
+  },
+  "devDependencies": {}
 }

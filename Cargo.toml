@@ -15,13 +15,13 @@ deathpush-core = { path = "crates/core" }
 base64 = "0.23"
 cargo-packager-updater = "0.2"
 chrono = "0.4"
-dirs = "6"
+dirs = "7"
 futures = "0.3"
 git2 = { version = "0.21", features = ["vendored-openssl"] }
-gpui-kit = { version = "0.6.1", features = ["tree-sitter-languages"] }
-hayro = "0.7"
+gpui-kit = { version = "0.7.0", features = ["tree-sitter-languages"] }
+hayro = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico", "tiff"] }
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "8953a740bc378cec3e07e1f6ca949f0595eab19b" }
 markdown = "1"
 md5 = "0.8"
 notify = "8"
@@ -32,7 +32,7 @@ ropey = "1"
 rust-embed = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 similar = { version = "3", features = ["unicode"] }
 tempfile = "3"
 thiserror = "2"
