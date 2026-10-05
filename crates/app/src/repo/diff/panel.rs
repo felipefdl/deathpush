@@ -17,6 +17,7 @@ use super::highlight::{Highlighted, Side};
 use super::rows::{self, HunkOp, Layouts, RowInteract, RowPaint, RowsMetrics};
 use super::selection::{Anchor, Selection, row_at};
 use super::states::{self, DiffKind, classify};
+use super::wheel;
 use crate::actions::{ClearSelection, CopyDiffSelection};
 use crate::config::AppConfig;
 use crate::repo::layout_model::LayoutModel;
@@ -61,6 +62,7 @@ pub struct DiffPanel {
   new_image: Option<ImageSource>,
   scroll: UniformListScrollHandle,
   h_scroll: ScrollHandle,
+  wheel: OngoingScroll,
   selection: Option<Selection>,
   dragging: bool,
   layouts: Layouts,
@@ -96,6 +98,7 @@ impl DiffPanel {
       new_image: None,
       scroll: UniformListScrollHandle::new(),
       h_scroll: ScrollHandle::new(),
+      wheel: OngoingScroll::default(),
       selection: None,
       dragging: false,
       layouts: Rc::new(RefCell::new(HashMap::new())),
@@ -336,6 +339,20 @@ impl DiffPanel {
   fn clear_text_selection(&mut self) {
     self.selection = None;
     self.dragging = false;
+  }
+
+  fn scroll_wheel(&mut self, event: &ScrollWheelEvent, line_height: Pixels, cx: &mut Context<Self>) {
+    let vertical = self.scroll.0.borrow().base_handle.clone();
+    let room = point(
+      self.h_scroll.max_offset().x > Pixels::ZERO,
+      vertical.max_offset().y > Pixels::ZERO,
+    );
+    let delta = wheel::route(&mut self.wheel, event, line_height, room);
+    let moved_x = wheel::scroll_by(&self.h_scroll, point(delta.x, Pixels::ZERO));
+    let moved_y = wheel::scroll_by(&vertical, point(Pixels::ZERO, delta.y));
+    if moved_x || moved_y {
+      cx.notify();
+    }
   }
 
   fn begin_selection(&mut self, anchor: Anchor, window: &mut Window, cx: &mut Context<Self>) {
@@ -627,13 +644,13 @@ impl Render for DiffPanel {
               }
             }),
             on_hunk: Rc::new({
-              let view = weak;
+              let view = weak.clone();
               move |op, hunk_id, window, cx| {
                 let _ = view.update(cx, |this, cx| this.hunk_action(op, hunk_id, window, cx));
               }
             }),
           };
-          let mut list = uniform_list("diff-rows", count, move |range, _, _| {
+          let list = uniform_list("diff-rows", count, move |range, _, _| {
             layouts.borrow_mut().retain(|&(index, _), _| range.contains(&index));
             pending.borrow_mut().retain(|&(index, _), _| range.contains(&index));
             range
@@ -642,12 +659,31 @@ impl Render for DiffPanel {
           })
           .size_full()
           .track_scroll(&scroll);
-          // The rows scroll horizontally on their own; keep a sideways gesture
-          // from also driving the list's vertical offset.
-          list.style().restrict_scroll_to_axis = Some(true);
+          // Every wheel event over the body goes through one gesture lock before either
+          // scroller sees it, so the two axes never decide on their own.
+          let wheel_router = canvas(
+            |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+            {
+              let view = weak.clone();
+              move |_, hitbox: Hitbox, window: &mut Window, _: &mut App| {
+                window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
+                  if phase == DispatchPhase::Capture && hitbox.should_handle_scroll(window) {
+                    let line_height = window.line_height();
+                    let _ = view.update(cx, |this, cx| this.scroll_wheel(event, line_height, cx));
+                    cx.stop_propagation();
+                  }
+                });
+              }
+            },
+          )
+          .absolute()
+          .top_0()
+          .left_0()
+          .size_full();
           root.child(
             div()
               .id("diff-body")
+              .relative()
               .flex_1()
               .min_h_0()
               .on_mouse_down(
@@ -676,7 +712,8 @@ impl Render for DiffPanel {
                   this.dragging = false;
                 }),
               )
-              .child(list),
+              .child(list)
+              .child(wheel_router),
           )
         }
         None => root.child(div().flex_1().min_h_0()),

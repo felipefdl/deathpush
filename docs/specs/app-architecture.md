@@ -168,7 +168,7 @@ These contracts differ from the earlier Tauri app:
 
 - [SCM Changes](scm-changes.md): the working-tree diff is read-only. Editing happens in the Explorer file viewer. The merge view offers per-conflict accept choices instead of free-form editing.
 - Distribution: rpm packages are not built.
-- Diff rows render unwrapped. Word Wrap applies to the [file viewer](explorer.md), not the diff. A long line scrolls sideways inside its own text column: line-number gutters and indicators stay pinned, and both sides of a side-by-side diff keep half the panel and share one horizontal offset.
+- Diff rows render unwrapped. Word Wrap applies to the [file viewer](explorer.md), not the diff. A long line scrolls sideways inside its own text column: line-number gutters and indicators stay pinned, and both sides of a side-by-side diff keep half the panel and share one horizontal offset. A wheel or trackpad event over the diff body scrolls one axis only: one gesture lock covers the whole body, and an event that still carries both axes keeps the larger one, so sideways drift during a vertical scroll never scrolls horizontally.
 - The terminal Sound bell is a visual flash (same as Visual and Both). There is no platform beep.
 - gpui-component's command palette owns Escape in [Quick Open](quick-open.md) and the [theme picker](theme-picker.md): the first Escape clears a non-empty query; Escape on an empty query closes.
 - Windows has no foreground-process discovery. Pane names stay the shell name; closing a window does not ask about a running process.

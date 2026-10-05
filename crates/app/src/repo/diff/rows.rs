@@ -332,7 +332,6 @@ fn render_cell(
       .h_full()
       .px_1()
       .overflow_x_scroll()
-      .restrict_scroll_to_axis()
       .track_scroll(&paint.h_scroll)
       .child(
         div()
