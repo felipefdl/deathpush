@@ -30,13 +30,13 @@ jobs:
       - name: Enable long paths for dependency checkouts
         if: runner.os == 'Windows'
         run: git config --global core.longpaths true
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: 0.17.0
       - uses: swatinem/rust-cache@v2
       - name: Install Linux deps
         if: startsWith(matrix.platform, 'ubuntu')
