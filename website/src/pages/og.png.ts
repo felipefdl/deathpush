@@ -20,6 +20,7 @@ export const GET: APIRoute = async () => {
         style: {
           width: "100%",
           height: "100%",
+          boxSizing: "border-box",
           display: "flex",
           flexDirection: "column",
           backgroundColor: "#0a0a0a",
@@ -39,6 +40,7 @@ export const GET: APIRoute = async () => {
                 position: "absolute",
                 left: "-100px",
                 top: "-80px",
+                zIndex: -1,
               },
             },
           },
@@ -135,6 +137,7 @@ export const GET: APIRoute = async () => {
                       border: "1px solid #222222",
                       overflow: "hidden",
                       width: "460px",
+                      boxSizing: "border-box",
                       height: "200px",
                       backgroundColor: "#0d0d0d",
                       flexDirection: "row",
@@ -145,6 +148,7 @@ export const GET: APIRoute = async () => {
                         props: {
                           style: {
                             width: "140px",
+                            boxSizing: "border-box",
                             height: "100%",
                             borderRight: "1px solid #222222",
                             padding: "12px",
