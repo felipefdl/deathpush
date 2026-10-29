@@ -25,7 +25,7 @@ pub fn classify(payload: Option<&DiffPayload>) -> DiffKind {
   match payload.file_type.as_str() {
     "image" => DiffKind::Image,
     "binary" => DiffKind::Binary,
-    _ if payload.original.len() > LARGE_FILE_BYTES || payload.modified.len() > LARGE_FILE_BYTES => DiffKind::Large,
+    _ if payload.patch.len() + payload.merge_text.as_ref().map_or(0, String::len) > LARGE_FILE_BYTES => DiffKind::Large,
     _ => DiffKind::Text,
   }
 }
@@ -74,23 +74,12 @@ pub fn render_image(old: Option<ImageSource>, new: Option<ImageSource>, palette:
     .flex_row()
     .gap_2()
     .p_3()
-    .child(image_pane(old, palette))
-    .child(image_pane(new, palette))
+    .child(image_pane("Original", old, palette))
+    .child(image_pane("Modified", new, palette))
 }
 
 pub(crate) fn decode_images(payload: &DiffPayload) -> (Option<ImageSource>, Option<ImageSource>) {
-  (
-    payload
-      .presence
-      .old_exists
-      .then(|| decode_to_image(&payload.original))
-      .flatten(),
-    payload
-      .presence
-      .new_exists
-      .then(|| decode_to_image(&payload.modified))
-      .flatten(),
-  )
+  (decode_to_image(&payload.old_image), decode_to_image(&payload.new_image))
 }
 
 fn message_with_open(message: &'static str, view: WeakEntity<DiffPanel>, palette: UiPalette) -> impl IntoElement {
@@ -117,22 +106,31 @@ fn message_with_open(message: &'static str, view: WeakEntity<DiffPanel>, palette
     )
 }
 
-fn image_pane(image: Option<ImageSource>, palette: UiPalette) -> Div {
-  let empty = div()
-    .flex_1()
-    .min_w_0()
-    .min_h(px(120.0))
-    .bg(hsla(palette.muted.with_alpha(30)));
-  match image {
+fn image_pane(label: &'static str, image: Option<ImageSource>, palette: UiPalette) -> Div {
+  let body = match image {
     Some(image) => div()
       .flex_1()
-      .min_w_0()
+      .min_h_0()
       .flex()
       .items_center()
       .justify_center()
       .child(img(image).object_fit(ObjectFit::Contain).max_h(px(480.0)).w_full()),
-    None => empty,
-  }
+    None => div().flex_1().min_h(px(120.0)).bg(hsla(palette.muted.with_alpha(30))),
+  };
+  div()
+    .flex_1()
+    .min_w_0()
+    .flex()
+    .flex_col()
+    .gap_2()
+    .child(
+      div()
+        .flex_shrink_0()
+        .text_size(px(11.0))
+        .text_color(hsla(palette.muted_foreground))
+        .child(label),
+    )
+    .child(body)
 }
 
 /// A diff side is a data URI. Both sides go through the viewer's image pipeline, so a wide
@@ -169,22 +167,17 @@ pub(crate) fn decode_data_uri(uri: &str) -> Option<(ImageFormat, Vec<u8>)> {
 mod tests {
   use super::*;
   use core::prelude::v1::test;
-  use deathpush_core::session::types::DiffPresence;
 
-  fn text_payload(modified: &str) -> DiffPayload {
+  fn text_payload(patch: &str) -> DiffPayload {
     DiffPayload {
       path: "src/main.rs".into(),
-      original: String::new(),
-      modified: modified.to_string(),
+      patch: patch.to_string(),
+      merge_text: None,
+      old_image: String::new(),
+      new_image: String::new(),
       language: Some("rust".into()),
       file_type: "text".into(),
       hunks: vec![],
-      presence: DiffPresence {
-        old_exists: true,
-        new_exists: true,
-      },
-      editable: true,
-      enable_line_selection: true,
       staged: false,
       content_hash: "h".into(),
     }
@@ -200,7 +193,7 @@ mod tests {
     p.file_type = "binary".into();
     assert_eq!(classify(Some(&p)), DiffKind::Binary);
     p.file_type = "text".into();
-    p.modified = "x".repeat(LARGE_FILE_BYTES + 1);
+    p.patch = "x".repeat(LARGE_FILE_BYTES + 1);
     assert_eq!(classify(Some(&p)), DiffKind::Large);
   }
 

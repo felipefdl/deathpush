@@ -18,10 +18,10 @@ chrono = "0.4"
 dirs = "7"
 futures = "0.3"
 git2 = { version = "0.21", features = ["vendored-openssl"] }
-gpui-kit = { version = "0.7.0", features = ["tree-sitter-languages"] }
+gpui-kit = { version = "0.8", features = ["tree-sitter-languages"] }
 hayro = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico", "tiff"] }
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "8953a740bc378cec3e07e1f6ca949f0595eab19b" }
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "9ede35b8ea94a55ed3608408d67e102883129f1e", features = ["png"] }
 markdown = "1"
 md5 = "0.8"
 notify = "8"

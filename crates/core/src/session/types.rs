@@ -405,18 +405,22 @@ pub enum IntentOutcome {
   },
 }
 
+/// One file's diff, as the diff viewer renders it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiffPayload {
   pub path: String,
-  pub original: String,
-  pub modified: String,
+  /// Unified Git patch. Empty for images and binary files.
+  pub patch: String,
+  /// The working file with its conflict markers, for a file in Merge Changes; `None` for every other diff.
+  pub merge_text: Option<String>,
+  /// Image sides as data URIs; empty when the side does not exist or the file is not an image.
+  pub old_image: String,
+  pub new_image: String,
   pub language: Option<String>,
   pub file_type: String,
+  /// The patch's hunks in order, as targets for stage, unstage, and discard.
   pub hunks: Vec<DiffHunkPayload>,
-  pub presence: DiffPresence,
-  pub editable: bool,
-  pub enable_line_selection: bool,
   pub staged: bool,
   pub content_hash: String,
 }
@@ -425,31 +429,20 @@ pub struct DiffPayload {
 #[serde(rename_all = "camelCase")]
 pub struct DiffHunkPayload {
   pub id: String,
-  pub header: String,
   pub old_start: usize,
   pub old_lines: usize,
   pub new_start: usize,
   pub new_lines: usize,
-  pub lines: Vec<crate::types::DiffLine>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct DiffPresence {
-  pub old_exists: bool,
-  pub new_exists: bool,
 }
 
 impl From<&DiffHunk> for DiffHunkPayload {
   fn from(hunk: &DiffHunk) -> Self {
     Self {
       id: crate::git::hunk::hunk_id(hunk),
-      header: hunk.header.clone(),
       old_start: hunk.old_start,
       old_lines: hunk.old_lines,
       new_start: hunk.new_start,
       new_lines: hunk.new_lines,
-      lines: hunk.lines.clone(),
     }
   }
 }

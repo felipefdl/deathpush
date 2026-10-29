@@ -175,6 +175,47 @@ mod tests {
   }
 
   #[test]
+  fn a_conditional_write_refuses_a_file_edited_since_it_was_read() {
+    use crate::content_hash::sha256_utf8;
+    let directory = init_repo();
+    let file = directory.path().join("c.txt");
+    let opened = "<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> other\n";
+    std::fs::write(&file, opened).unwrap();
+    let core = Core::new(directory.path().to_path_buf()).unwrap();
+    let (id, _events) = core.open_session();
+    let path = directory.path().to_string_lossy().into_owned();
+    core
+      .runtime_handle()
+      .block_on(core.session_intent(id, Intent::OpenRepository { path }))
+      .unwrap();
+
+    // An edit lands after the conflict was read: the resolution must not overwrite it.
+    std::fs::write(&file, format!("{opened}edited elsewhere\n")).unwrap();
+    let err = core
+      .write_file_if_unchanged(id, "c.txt", &sha256_utf8(opened), "resolved\n")
+      .unwrap_err();
+    assert!(matches!(err, crate::error::Error::FileChanged { .. }), "{err}");
+    assert!(std::fs::read_to_string(&file).unwrap().ends_with("edited elsewhere\n"));
+
+    // A file still matching what was read is written.
+    let current = std::fs::read_to_string(&file).unwrap();
+    core
+      .write_file_if_unchanged(id, "c.txt", &sha256_utf8(&current), "resolved\n")
+      .unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "resolved\n");
+
+    // A file that vanished is not recreated.
+    std::fs::remove_file(&file).unwrap();
+    assert!(
+      core
+        .write_file_if_unchanged(id, "c.txt", &sha256_utf8("resolved\n"), "x")
+        .is_err()
+    );
+    assert!(!file.exists());
+    core.runtime_handle().block_on(core.close_session(id));
+  }
+
+  #[test]
   fn a_folder_without_git_opens_as_an_explorer_session() {
     let directory = tempfile::TempDir::new().unwrap();
     std::fs::create_dir(directory.path().join("src")).unwrap();

@@ -20,15 +20,17 @@ cargo-packager-updater.workspace = true
 chrono.workspace = true
 deathpush-core.workspace = true
 futures.workspace = true
+git2.workspace = true
 gpui-kit.workspace = true
 image.workspace = true
 markdown.workspace = true
 percent-encoding.workspace = true
-reqwest_client = { package = "gpui-pre-reqwest-client", version = "0.3.7" }
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "0.3.10" }
 ropey.workspace = true
 rust-embed.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+similar.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

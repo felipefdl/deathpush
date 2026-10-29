@@ -100,7 +100,7 @@ The title text is small, centered, and muted. The sidebar and status bar use the
 
 ## Interactions
 
-**Resize.** Drag the sidebar or terminal divider. The new size persists per project.
+**Resize.** Drag the sidebar or terminal divider. The new size persists per project. Resizing the window keeps the sidebar width and terminal height; the main panel takes the difference.
 
 **Sidebar tab.** Click a tab. If the main panel is not on Settings, it follows: Explorer shows the file viewer, Changes shows the SCM diff.
 

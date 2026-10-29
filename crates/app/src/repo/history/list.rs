@@ -139,6 +139,9 @@ fn render_commit_row(
   let merge = entry.parent_ids.len() > 1;
   div()
     .id(SharedString::from(format!("history-commit-{id}")))
+    .w_full()
+    .min_w_0()
+    .overflow_hidden()
     .h(px(44.0))
     .flex_shrink_0()
     .flex()

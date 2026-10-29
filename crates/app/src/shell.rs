@@ -187,6 +187,17 @@ impl Shell {
               {
                 model.update(cx, |model, cx| model.reload_open_file(cx));
               }
+              let selected = model
+                .read(cx)
+                .state()
+                .selected_file
+                .as_ref()
+                .map(|file| file.path.clone());
+              if let Some(path) = selected
+                && (event.storm || event.paths.iter().any(|changed| changed == &path))
+              {
+                model.update(cx, |model, cx| model.reload_selected_diff(window, cx));
+              }
             }
           }
           (CoreEvent::WatcherError(message), _) => this.show_toast(message.clone(), cx),

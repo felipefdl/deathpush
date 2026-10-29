@@ -72,7 +72,8 @@ fn main() {
     config::AppConfig::init(cx);
     theme::init(cx);
     cx.set_global(updater::UpdaterState::default());
-    cx.bind_keys(keymap::bindings());
+    let bindings = keymap::bindings(cx);
+    cx.bind_keys(bindings);
     let mut registry = WindowRegistry::default();
     registry.core = Some(core.clone());
     cx.set_global(registry);

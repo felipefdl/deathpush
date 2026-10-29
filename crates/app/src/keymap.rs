@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use gpui_kit::*;
 
 use crate::actions::*;
@@ -26,6 +28,8 @@ pub const CONTEXT_EXPLORER: &str = "Explorer";
 pub const CONTEXT_EXPLORER_INPUT: &str = "Explorer > Input";
 pub const CONTEXT_EXPLORER_KEYS: &str = "Explorer && !Input";
 pub const CONTEXT_TERMINAL: &str = "Terminal";
+pub const CONTEXT_TERMINAL_FIND: &str = "TerminalFind";
+pub const CONTEXT_TERMINAL_FIND_INPUT: &str = "TerminalFind > Input";
 
 /// (keystrokes, action name, context). Pure so it can be tested per platform.
 pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static str>)> {
@@ -47,6 +51,13 @@ pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static st
     (format!("{m}-d"), "SplitTerminalHorizontal", Some(CONTEXT_TERMINAL)),
     (format!("{m}-shift-d"), "SplitTerminalVertical", Some(CONTEXT_TERMINAL)),
     (format!("{m}-w"), "KillTerminalPane", Some(CONTEXT_TERMINAL)),
+    (format!("{m}-f"), "FindInTerminal", Some(CONTEXT_TERMINAL)),
+    (format!("{m}-f"), "FindInTerminal", Some(CONTEXT_TERMINAL_FIND)),
+    (
+      "escape".to_string(),
+      "CloseTerminalFind",
+      Some(CONTEXT_TERMINAL_FIND_INPUT),
+    ),
     (format!("alt-{m}-1"), "ActivateTerminalGroup1", Some(CONTEXT_REPOSITORY)),
     (format!("alt-{m}-2"), "ActivateTerminalGroup2", Some(CONTEXT_REPOSITORY)),
     (format!("alt-{m}-3"), "ActivateTerminalGroup3", Some(CONTEXT_REPOSITORY)),
@@ -59,7 +70,8 @@ pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static st
     (format!("{m}-shift-g"), "ReloadSession", Some(CONTEXT_REPOSITORY)),
     (format!("{m}-s"), "SwallowSave", Some(CONTEXT_REPOSITORY)),
     ("escape".to_string(), "ClearSelection", Some(CONTEXT_REPOSITORY_KEYS)),
-    (format!("{m}-c"), "CopyDiffSelection", Some(CONTEXT_DIFF)),
+    ("f7".to_string(), "NextDiffChange", Some(CONTEXT_DIFF)),
+    ("shift-f7".to_string(), "PreviousDiffChange", Some(CONTEXT_DIFF)),
     (format!("{m}-enter"), "CommitFromBox", Some(CONTEXT_CHANGES_INPUT)),
     ("enter".to_string(), "Confirm", Some(CONTEXT_BRANCH_LIST_INPUT)),
     ("escape".to_string(), "Cancel", Some(CONTEXT_BRANCH_LIST)),
@@ -111,67 +123,74 @@ pub fn binding_table(mac: bool) -> Vec<(String, &'static str, Option<&'static st
   rows
 }
 
-fn binding_for(keys: &str, name: &str, context: Option<&str>) -> KeyBinding {
+fn binding_for(keys: &str, name: &str, context: Option<&str>, cx: &App) -> KeyBinding {
+  let context = context.map(|source| Rc::new(KeyBindingContextPredicate::parse(source).expect("valid key context")));
+  let bind = |action: Box<dyn Action>| {
+    KeyBinding::load(keys, action, context.clone(), false, None, cx).expect("valid keystrokes")
+  };
   match name {
-    "NewWindow" => KeyBinding::new(keys, NewWindow, context),
-    "OpenRepository" => KeyBinding::new(keys, OpenRepository, context),
-    "ShowSettings" => KeyBinding::new(keys, ShowSettings, context),
-    "QuickOpen" => KeyBinding::new(keys, QuickOpen, context),
-    "ShowChanges" => KeyBinding::new(keys, ShowChanges, context),
-    "ShowExplorer" => KeyBinding::new(keys, ShowExplorer, context),
-    "FocusTerminal" => KeyBinding::new(keys, FocusTerminal, context),
-    "ShowHistory" => KeyBinding::new(keys, ShowHistory, context),
-    "ToggleDiffLayout" => KeyBinding::new(keys, ToggleDiffLayout, context),
-    "ToggleTerminal" => KeyBinding::new(keys, ToggleTerminal, context),
-    "NewTerminal" => KeyBinding::new(keys, NewTerminal, context),
-    "SplitTerminalHorizontal" => KeyBinding::new(keys, SplitTerminalHorizontal, context),
-    "SplitTerminalVertical" => KeyBinding::new(keys, SplitTerminalVertical, context),
-    "KillTerminalPane" => KeyBinding::new(keys, KillTerminalPane, context),
-    "ActivateTerminalGroup1" => KeyBinding::new(keys, ActivateTerminalGroup1, context),
-    "ActivateTerminalGroup2" => KeyBinding::new(keys, ActivateTerminalGroup2, context),
-    "ActivateTerminalGroup3" => KeyBinding::new(keys, ActivateTerminalGroup3, context),
-    "ActivateTerminalGroup4" => KeyBinding::new(keys, ActivateTerminalGroup4, context),
-    "ActivateTerminalGroup5" => KeyBinding::new(keys, ActivateTerminalGroup5, context),
-    "ActivateTerminalGroup6" => KeyBinding::new(keys, ActivateTerminalGroup6, context),
-    "ActivateTerminalGroup7" => KeyBinding::new(keys, ActivateTerminalGroup7, context),
-    "ActivateTerminalGroup8" => KeyBinding::new(keys, ActivateTerminalGroup8, context),
-    "ActivateTerminalGroup9" => KeyBinding::new(keys, ActivateTerminalGroup9, context),
-    "ReloadSession" => KeyBinding::new(keys, ReloadSession, context),
-    "SwallowSave" => KeyBinding::new(keys, SwallowSave, context),
-    "ClearSelection" => KeyBinding::new(keys, ClearSelection, context),
-    "CopyDiffSelection" => KeyBinding::new(keys, CopyDiffSelection, context),
-    "CommitFromBox" => KeyBinding::new(keys, CommitFromBox, context),
-    "FocusRecentFilter" => KeyBinding::new(keys, FocusRecentFilter, context),
-    "FocusWorkspaceFilter" => KeyBinding::new(keys, FocusWorkspaceFilter, context),
-    "WelcomeListUp" => KeyBinding::new(keys, WelcomeListUp, context),
-    "WelcomeListDown" => KeyBinding::new(keys, WelcomeListDown, context),
-    "WelcomeListConfirm" => KeyBinding::new(keys, WelcomeListConfirm, context),
-    "WelcomeListEscape" => KeyBinding::new(keys, WelcomeListEscape, context),
-    "ZoomIn" => KeyBinding::new(keys, ZoomIn, context),
-    "ZoomOut" => KeyBinding::new(keys, ZoomOut, context),
-    "ZoomReset" => KeyBinding::new(keys, ZoomReset, context),
-    "ColorTheme" => KeyBinding::new(keys, ColorTheme, context),
-    "Minimize" => KeyBinding::new(keys, Minimize, context),
-    "Cancel" => KeyBinding::new(keys, Cancel, context),
-    "Confirm" => KeyBinding::new(keys, Confirm, context),
-    "CloseWindow" => KeyBinding::new(keys, CloseWindow, context),
-    "Quit" => KeyBinding::new(keys, Quit, context),
-    "Hide" => KeyBinding::new(keys, Hide, context),
-    "HideOthers" => KeyBinding::new(keys, HideOthers, context),
-    "InspectElement" => KeyBinding::new(keys, InspectElement, context),
-    "ExplorerRename" => KeyBinding::new(keys, ExplorerRename, context),
-    "ExplorerDelete" => KeyBinding::new(keys, ExplorerDelete, context),
-    "ExplorerCut" => KeyBinding::new(keys, ExplorerCut, context),
-    "ExplorerCopy" => KeyBinding::new(keys, ExplorerCopy, context),
-    "ExplorerPaste" => KeyBinding::new(keys, ExplorerPaste, context),
+    "NewWindow" => bind(Box::new(NewWindow)),
+    "OpenRepository" => bind(Box::new(OpenRepository)),
+    "ShowSettings" => bind(Box::new(ShowSettings)),
+    "QuickOpen" => bind(Box::new(QuickOpen)),
+    "ShowChanges" => bind(Box::new(ShowChanges)),
+    "ShowExplorer" => bind(Box::new(ShowExplorer)),
+    "FocusTerminal" => bind(Box::new(FocusTerminal)),
+    "ShowHistory" => bind(Box::new(ShowHistory)),
+    "ToggleDiffLayout" => bind(Box::new(ToggleDiffLayout)),
+    "ToggleTerminal" => bind(Box::new(ToggleTerminal)),
+    "NewTerminal" => bind(Box::new(NewTerminal)),
+    "SplitTerminalHorizontal" => bind(Box::new(SplitTerminalHorizontal)),
+    "SplitTerminalVertical" => bind(Box::new(SplitTerminalVertical)),
+    "KillTerminalPane" => bind(Box::new(KillTerminalPane)),
+    "FindInTerminal" => bind(Box::new(FindInTerminal)),
+    "CloseTerminalFind" => bind(Box::new(CloseTerminalFind)),
+    "ActivateTerminalGroup1" => bind(Box::new(ActivateTerminalGroup1)),
+    "ActivateTerminalGroup2" => bind(Box::new(ActivateTerminalGroup2)),
+    "ActivateTerminalGroup3" => bind(Box::new(ActivateTerminalGroup3)),
+    "ActivateTerminalGroup4" => bind(Box::new(ActivateTerminalGroup4)),
+    "ActivateTerminalGroup5" => bind(Box::new(ActivateTerminalGroup5)),
+    "ActivateTerminalGroup6" => bind(Box::new(ActivateTerminalGroup6)),
+    "ActivateTerminalGroup7" => bind(Box::new(ActivateTerminalGroup7)),
+    "ActivateTerminalGroup8" => bind(Box::new(ActivateTerminalGroup8)),
+    "ActivateTerminalGroup9" => bind(Box::new(ActivateTerminalGroup9)),
+    "ReloadSession" => bind(Box::new(ReloadSession)),
+    "SwallowSave" => bind(Box::new(SwallowSave)),
+    "ClearSelection" => bind(Box::new(ClearSelection)),
+    "NextDiffChange" => bind(Box::new(NextDiffChange)),
+    "PreviousDiffChange" => bind(Box::new(PreviousDiffChange)),
+    "CommitFromBox" => bind(Box::new(CommitFromBox)),
+    "FocusRecentFilter" => bind(Box::new(FocusRecentFilter)),
+    "FocusWorkspaceFilter" => bind(Box::new(FocusWorkspaceFilter)),
+    "WelcomeListUp" => bind(Box::new(WelcomeListUp)),
+    "WelcomeListDown" => bind(Box::new(WelcomeListDown)),
+    "WelcomeListConfirm" => bind(Box::new(WelcomeListConfirm)),
+    "WelcomeListEscape" => bind(Box::new(WelcomeListEscape)),
+    "ZoomIn" => bind(Box::new(ZoomIn)),
+    "ZoomOut" => bind(Box::new(ZoomOut)),
+    "ZoomReset" => bind(Box::new(ZoomReset)),
+    "ColorTheme" => bind(Box::new(ColorTheme)),
+    "Minimize" => bind(Box::new(Minimize)),
+    "Cancel" => bind(Box::new(Cancel)),
+    "Confirm" => bind(Box::new(Confirm)),
+    "CloseWindow" => bind(Box::new(CloseWindow)),
+    "Quit" => bind(Box::new(Quit)),
+    "Hide" => bind(Box::new(Hide)),
+    "HideOthers" => bind(Box::new(HideOthers)),
+    "InspectElement" => bind(Box::new(InspectElement)),
+    "ExplorerRename" => bind(Box::new(ExplorerRename)),
+    "ExplorerDelete" => bind(Box::new(ExplorerDelete)),
+    "ExplorerCut" => bind(Box::new(ExplorerCut)),
+    "ExplorerCopy" => bind(Box::new(ExplorerCopy)),
+    "ExplorerPaste" => bind(Box::new(ExplorerPaste)),
     other => unreachable!("unknown action {other}"),
   }
 }
 
-pub fn bindings() -> Vec<KeyBinding> {
+pub fn bindings(cx: &App) -> Vec<KeyBinding> {
   binding_table(cfg!(target_os = "macos"))
     .into_iter()
-    .map(|(keys, name, context)| binding_for(&keys, name, context))
+    .map(|(keys, name, context)| binding_for(&keys, name, context, cx))
     .collect()
 }
 
@@ -220,10 +239,10 @@ mod tests {
     );
   }
 
-  #[test]
-  fn every_table_row_builds_a_binding() {
+  #[gpui_kit::test]
+  fn every_table_row_builds_a_binding(cx: &mut gpui_kit::TestAppContext) {
     let count = binding_table(cfg!(target_os = "macos")).len();
-    assert_eq!(bindings().len(), count);
+    cx.update(|cx| assert_eq!(bindings(cx).len(), count));
   }
 
   #[test]
@@ -246,12 +265,14 @@ mod tests {
         }),
         "{primary}-enter -> CommitFromBox in Changes > Input"
       );
-      assert!(
-        rows.iter().any(|(keys, name, ctx)| {
-          keys == &format!("{primary}-c") && *name == "CopyDiffSelection" && *ctx == Some(CONTEXT_DIFF)
-        }),
-        "{primary}-c -> CopyDiffSelection in Diff"
-      );
+      for (keys, name) in [("f7", "NextDiffChange"), ("shift-f7", "PreviousDiffChange")] {
+        assert!(
+          rows
+            .iter()
+            .any(|(row_keys, row_name, ctx)| row_keys == keys && *row_name == name && *ctx == Some(CONTEXT_DIFF)),
+          "{keys} -> {name} in Diff"
+        );
+      }
     }
   }
 
@@ -371,6 +392,7 @@ mod tests {
         (format!("{primary}-d"), "SplitTerminalHorizontal"),
         (format!("{primary}-shift-d"), "SplitTerminalVertical"),
         (format!("{primary}-w"), "KillTerminalPane"),
+        (format!("{primary}-f"), "FindInTerminal"),
       ];
       for (key, name) in expected {
         assert!(
@@ -390,6 +412,22 @@ mod tests {
           "{key} -> {name} in Repository"
         );
       }
+    }
+  }
+
+  #[test]
+  fn find_widget_keys_bind_inside_the_widget() {
+    for mac in [true, false] {
+      let rows = binding_table(mac);
+      assert!(rows.iter().any(|(keys, action, ctx)| keys == "escape"
+        && *action == "CloseTerminalFind"
+        && *ctx == Some(CONTEXT_TERMINAL_FIND_INPUT)));
+      let find = if mac { "cmd-f" } else { "ctrl-f" };
+      assert!(
+        rows.iter().any(|(keys, action, ctx)| keys == find
+          && *action == "FindInTerminal"
+          && *ctx == Some(CONTEXT_TERMINAL_FIND))
+      );
     }
   }
 }

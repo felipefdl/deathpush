@@ -87,7 +87,7 @@ Boot splash: fixed colors independent of the app theme. Dark background `#1e1e1e
 
 **Workspace Settings.** Opens with one row per configured directory, or one blank row at depth 1 (Remove hidden). Depth 1 disables the down chevron; depth 5 disables the up chevron. Save drops blank rows; an all-blank form saves an empty list. Cancel, backdrop, and Escape discard edits. The first field is focused on open; a new row is focused when added.
 
-**Open Source Licenses.** Always populated from the build: crate dependencies plus the bundled assets (MesloLGS Nerd Font Mono, Apache-2.0, `https://github.com/ryanoasis/nerd-fonts`). Sorted by name, deduplicated. Rows without a URL have no link.
+**Open Source Licenses.** Always populated from the build: crate dependencies plus the bundled assets (MesloLGSDZ Nerd Font Mono, Apache-2.0, `https://github.com/ryanoasis/nerd-fonts`). Sorted by name, deduplicated. Rows without a URL have no link.
 
 **Boot splash.** Visible from first paint until startup decides between the welcome screen and a repository. If a recent project is known, a placeholder of the repository chrome shows instead of the splash while it opens.
 

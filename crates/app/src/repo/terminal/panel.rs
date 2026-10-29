@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use deathpush_core::config::layout::PanelTab;
+use deathpush_core::config::settings::MONO_FONT_STACK;
 use gpui_kit::base::{ResizableState, h_resizable, resizable_panel, v_resizable};
 use gpui_kit::component::button::*;
 use gpui_kit::component::{Icon, Sizable, Size};
@@ -11,7 +12,6 @@ use super::model::{SplitTree, TerminalModel};
 use crate::actions::*;
 use crate::repo::layout_model::LayoutModel;
 use crate::repo::output_log::{OutputLog, format_line};
-use crate::repo::resize::divider;
 use crate::theme::{ActivePalette, hsla};
 
 pub fn tab_label(tab: PanelTab) -> &'static str {
@@ -111,7 +111,6 @@ impl TerminalPanel {
         let minimum = if *axis == Axis::Horizontal { 80.0 } else { 40.0 };
         group
           .with_state(&state)
-          .with_handle_appearance(divider(state.clone(), |_, _, _| {}))
           .child(resizable_panel().size_range(px(minimum)..px(f32::MAX)).child(first))
           .child(resizable_panel().size_range(px(minimum)..px(f32::MAX)).child(second))
           .into_any_element()
@@ -253,7 +252,7 @@ impl TerminalPanel {
             .px_2()
             .h(px(20.0))
             .text_size(px(12.0))
-            .font_family("MesloLGS Nerd Font Mono")
+            .font_family(MONO_FONT_STACK)
             .child(lines[i].clone())
         })
         .collect()
@@ -348,17 +347,18 @@ impl Render for TerminalPanel {
           let sidebar_index = 1;
           h_resizable("terminal-panes")
             .with_state(&self.sidebar_state)
-            .with_handle_appearance(divider(self.sidebar_state.clone(), move |state, _, cx| {
+            .on_resize(move |state, _, cx| {
               if let Some(width) = state.read(cx).sizes().get(sidebar_index).copied() {
                 layout_entity.update(cx, |layout, cx| layout.set_terminal_sidebar_width(f32::from(width), cx));
               }
-            }))
+            })
             .child(resizable_panel().child(panes))
             .child(
               resizable_panel()
                 .size(px(layout.terminal_sidebar_width))
                 .size_range(px(80.0)..px(400.0))
                 .flex_none()
+                .fixed()
                 .child(self.render_sidebar(&pane_ids, cx)),
             )
             .into_any_element()
@@ -444,7 +444,7 @@ mod tests {
   use std::sync::Arc;
 
   use deathpush_core::Core;
-  use deathpush_core::terminal::snapshot::{PaneSnapshot, Rgb, SnapshotCell};
+  use deathpush_core::terminal::snapshot::{PaneSnapshot, PointerShape, Rgb, SnapshotCell, SnapshotRow};
   use gpui_kit::TestAppContext;
 
   use crate::config::AppConfig;
@@ -463,7 +463,9 @@ mod tests {
       seq: 1,
       cols,
       rows: 1,
-      cells: text.chars().map(text_cell).collect(),
+      lines: vec![Arc::new(SnapshotRow {
+        cells: text.chars().map(text_cell).collect(),
+      })],
       cursor: None,
       background: Rgb(0, 0, 0),
       foreground: Rgb(255, 255, 255),
@@ -471,6 +473,11 @@ mod tests {
       viewport_offset: 0,
       scrollback_rows: 0,
       bell: false,
+      pointer: PointerShape::default(),
+      search: None,
+      cell_width: 8,
+      cell_height: 16,
+      images: Arc::default(),
     })
   }
 

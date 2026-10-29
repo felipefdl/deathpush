@@ -918,6 +918,11 @@ impl RepoModel {
     cx: &mut Context<Self>,
   ) {
     let confirming = matches!(outcome, IntentOutcome::NeedsConfirmation { .. });
+    let hunk_applied = !confirming
+      && matches!(
+        sent,
+        Intent::StageHunk { .. } | Intent::UnstageHunk { .. } | Intent::DiscardHunk { .. }
+      );
     self.state.resolve_commit_outcome(confirming);
     match outcome {
       IntentOutcome::Snapshot { snapshot } => self.state.apply_snapshot(*snapshot),
@@ -985,6 +990,57 @@ impl RepoModel {
         .detach();
       }
     }
+    if hunk_applied {
+      self.reload_selected_diff(window, cx);
+    }
+  }
+
+  /// Write the text of a merge file whose conflicts are all resolved, then read its diff again. The write
+  /// only replaces the text the conflicts were read from (`expected_hash`); a file edited since is left
+  /// alone, the error is shown, and the diff reloads with the file's current conflicts.
+  pub fn write_resolved_conflicts(
+    &mut self,
+    path: String,
+    expected_hash: String,
+    content: String,
+    window: &mut Window,
+    cx: &mut Context<Self>,
+  ) {
+    let core = self.core.clone();
+    let session = self.session;
+    let task = self
+      .core
+      .runtime_handle()
+      .spawn_blocking(move || core.write_file_if_unchanged(session, &path, &expected_hash, &content));
+    cx.spawn_in(window, async move |this, cx| {
+      let result = task.await;
+      let _ = this.update_in(cx, |this, window, cx| {
+        match result {
+          Ok(Ok(_)) => {}
+          Ok(Err(err)) => this.fail(err.to_string(), cx),
+          Err(err) => this.fail(err.to_string(), cx),
+        }
+        this.reload_selected_diff(window, cx);
+        cx.notify();
+      });
+    })
+    .detach();
+  }
+
+  /// Read the selected file's diff again, after a hunk was applied or the file changed on disk.
+  pub fn reload_selected_diff(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    let Some(file) = self.state.selected_file.clone() else {
+      return;
+    };
+    self.dispatch(
+      Intent::OpenScmDiff {
+        path: file.path,
+        staged: file.staged,
+        group_kind: Some(file.group_kind),
+      },
+      window,
+      cx,
+    );
   }
 
   /// Cmd/Ctrl+Shift+G: reload the session state from scratch.

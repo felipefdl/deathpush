@@ -1,115 +1,12 @@
+//! Regression for the stock gpui-kit resizable handle: a release ends the drag before the next
+//! paint, and a nested divider's drag leaves its ancestor alone.
+
 use std::rc::Rc;
 
-use gpui_kit::base::{ResizableState, ResizeHandleRenderer};
+use gpui_kit::base::ResizableState;
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 
-use crate::theme::{ActivePalette, hsla};
-
-#[derive(Clone, Copy)]
-struct DragStart {
-  position: Point<Pixels>,
-  size: Pixels,
-}
-
-/// Keeps the panel group's sizing rules, but reads pointer state at event time.
-/// The upstream handle captures drag state at paint time and can miss a quick release.
-pub fn divider(
-  state: Entity<ResizableState>,
-  on_resize: impl Fn(&Entity<ResizableState>, &mut Window, &mut App) + 'static,
-) -> ResizeHandleRenderer {
-  let on_resize = Rc::new(on_resize);
-  Rc::new(move |handle, window, cx| {
-    let axis = handle.axis();
-    let drag = window.use_keyed_state(
-      SharedString::from(format!("resize-pointer-{}", state.entity_id())),
-      cx,
-      |_, _| None::<DragStart>,
-    );
-    let palette = cx.global::<ActivePalette>().0;
-    let active = drag.read(cx).is_some();
-    let pointer = canvas(|_, _, _| (), {
-      let drag = drag.clone();
-      let state = state.clone();
-      let on_resize = on_resize.clone();
-      move |_, _, window, _| {
-        window.on_mouse_event({
-          let drag = drag.clone();
-          let state = state.clone();
-          let on_resize = on_resize.clone();
-          move |event: &MouseMoveEvent, phase, window, cx| {
-            if phase != DispatchPhase::Capture {
-              return;
-            }
-            let Some(start) = *drag.read(cx) else { return };
-            if event.pressed_button != Some(MouseButton::Left) {
-              drag.update(cx, |drag, _| *drag = None);
-              on_resize(&state, window, cx);
-              window.refresh();
-              return;
-            }
-            let delta = match axis {
-              Axis::Horizontal => event.position.x - start.position.x,
-              Axis::Vertical => event.position.y - start.position.y,
-            };
-            state.update(cx, |state, cx| state.resize_panel(0, start.size + delta, window, cx));
-          }
-        });
-        window.on_mouse_event({
-          let drag = drag.clone();
-          let state = state.clone();
-          let on_resize = on_resize.clone();
-          move |_: &MouseUpEvent, phase, window, cx| {
-            if phase == DispatchPhase::Capture && drag.read(cx).is_some() {
-              drag.update(cx, |drag, _| *drag = None);
-              on_resize(&state, window, cx);
-              window.refresh();
-            }
-          }
-        });
-      }
-    });
-    Some(
-      div()
-        .id("resize-pointer")
-        .relative()
-        .flex_none()
-        .when(axis == Axis::Horizontal, |el| {
-          el.w(px(9.0)).h_full().ml(px(-4.0)).px(px(4.0)).cursor_col_resize()
-        })
-        .when(axis == Axis::Vertical, |el| {
-          el.h(px(9.0)).w_full().mt(px(-4.0)).py(px(4.0)).cursor_row_resize()
-        })
-        .on_mouse_down(MouseButton::Left, {
-          let state = state.clone();
-          move |event, window, cx| {
-            if let Some(size) = state.read(cx).sizes().first().copied() {
-              drag.update(cx, |drag, _| {
-                *drag = Some(DragStart {
-                  position: event.position,
-                  size,
-                })
-              });
-              window.refresh();
-            }
-            cx.stop_propagation();
-          }
-        })
-        .child(
-          div()
-            .flex_none()
-            .bg(hsla(if active { palette.ring } else { palette.border }))
-            .group_hover("handle", |el| el.bg(hsla(palette.ring)))
-            .when(axis == Axis::Horizontal, |el| el.w(px(1.0)).h_full())
-            .when(axis == Axis::Vertical, |el| el.h(px(1.0)).w_full()),
-        )
-        .child(pointer.absolute().size_full())
-        .into_any_element(),
-    )
-  })
-}
-
-#[cfg(test)]
 mod tests {
   use super::*;
   use core::prelude::v1::test;
@@ -129,17 +26,17 @@ mod tests {
       div().w(px(600.0)).h(px(300.0)).child(
         h_resizable("outer")
           .with_state(&self.outer)
-          .with_handle_appearance(divider(self.outer.clone(), move |_, _, _| {
+          .on_resize(move |_, _, _| {
             outer_releases.set(outer_releases.get() + 1);
-          }))
+          })
           .child(resizable_panel().size(px(300.0)).child(div().size_full()))
           .child(
             resizable_panel().size(px(300.0)).child(
               v_resizable("inner")
                 .with_state(&self.inner)
-                .with_handle_appearance(divider(self.inner.clone(), move |_, _, _| {
+                .on_resize(move |_, _, _| {
                   inner_releases.set(inner_releases.get() + 1);
-                }))
+                })
                 .child(resizable_panel().size(px(150.0)).child(div().size_full()))
                 .child(
                   resizable_panel()
@@ -163,14 +60,20 @@ mod tests {
       }),
       cx,
     );
-    window.dispatch_event(
-      PlatformInput::MouseMove(MouseMoveEvent {
-        position: to,
-        pressed_button: Some(MouseButton::Left),
-        modifiers: Modifiers::default(),
-      }),
-      cx,
-    );
+    // The first move past the press starts the gpui drag, the next ones resize.
+    for position in [
+      point(from.x + (to.x - from.x) / 2.0, from.y + (to.y - from.y) / 2.0),
+      to,
+    ] {
+      window.dispatch_event(
+        PlatformInput::MouseMove(MouseMoveEvent {
+          position,
+          pressed_button: Some(MouseButton::Left),
+          modifiers: Modifiers::default(),
+        }),
+        cx,
+      );
+    }
     window.dispatch_event(
       PlatformInput::MouseUp(MouseUpEvent {
         position: to,
@@ -210,7 +113,7 @@ mod tests {
       pointer_drag(
         window,
         cx,
-        point(nested.left(), px(50.0)),
+        point(nested.left() - px(2.0), px(50.0)),
         point(nested.left() + px(40.0), px(50.0)),
       );
       let after_release = outer.read(cx).sizes().clone();
@@ -240,7 +143,7 @@ mod tests {
       pointer_drag(
         window,
         cx,
-        point(nested.left() + px(60.0), nested.top()),
+        point(nested.left() + px(60.0), nested.top() - px(2.0)),
         point(nested.left() + px(80.0), nested.top() + px(20.0)),
       );
       assert_ne!(

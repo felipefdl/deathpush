@@ -184,25 +184,6 @@ pub fn operation_skip(state: RepoOperationState) -> Option<OperationRoute> {
   }
 }
 
-pub fn scm_patch_presence(group_kind: ResourceGroupKind, status: Option<&FileStatus>) -> (bool, bool) {
-  if group_kind == ResourceGroupKind::Untracked {
-    return (false, true);
-  }
-  match status {
-    Some(FileStatus::Deleted | FileStatus::IndexDeleted) => (true, false),
-    Some(FileStatus::Added | FileStatus::IndexAdded | FileStatus::IntentToAdd) => (false, true),
-    _ => (true, true),
-  }
-}
-
-pub fn is_scm_diff_editable(group_kind: ResourceGroupKind, has_working_tree_side: bool) -> bool {
-  group_kind != ResourceGroupKind::Index && group_kind != ResourceGroupKind::Merge && has_working_tree_side
-}
-
-pub fn enable_scm_line_selection(group_kind: ResourceGroupKind) -> bool {
-  matches!(group_kind, ResourceGroupKind::WorkingTree | ResourceGroupKind::Index)
-}
-
 pub fn derive_actions(
   groups: &[ResourceGroup],
   message: &str,
@@ -405,24 +386,6 @@ mod tests {
     assert!(actions.operation.abort);
     assert!(actions.operation.skip);
     assert!(actions.operation.abort_destructive);
-  }
-
-  #[test]
-  fn scm_presence_and_editability() {
-    assert_eq!(scm_patch_presence(ResourceGroupKind::Untracked, None), (false, true));
-    assert_eq!(
-      scm_patch_presence(ResourceGroupKind::WorkingTree, Some(&FileStatus::Deleted)),
-      (true, false)
-    );
-    assert_eq!(
-      scm_patch_presence(ResourceGroupKind::Index, Some(&FileStatus::IndexAdded)),
-      (false, true)
-    );
-    assert!(is_scm_diff_editable(ResourceGroupKind::WorkingTree, true));
-    assert!(!is_scm_diff_editable(ResourceGroupKind::Index, true));
-    assert!(!is_scm_diff_editable(ResourceGroupKind::Merge, true));
-    assert!(enable_scm_line_selection(ResourceGroupKind::Index));
-    assert!(!enable_scm_line_selection(ResourceGroupKind::Merge));
   }
 
   #[test]

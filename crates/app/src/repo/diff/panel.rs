@@ -1,24 +1,27 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::mem;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use deathpush_core::config::layout::MainView;
-use deathpush_core::config::settings::{DiffLayout, HunkSeparators, LineDiffType};
-use deathpush_core::diff_view::{DiffRows, RowOptions, build_rows};
-use deathpush_core::session::types::Intent;
+use deathpush_core::config::settings::{DiffIndicators, DiffLayout, HunkSeparators, LineDiffType, WordWrap};
+use deathpush_core::content_hash::sha256_utf8;
+use deathpush_core::session::types::{DiffHunkPayload, DiffPayload, Intent};
 use deathpush_core::types::{FileStatus, ResourceGroupKind};
+use gpui_kit::base::TextSelection;
 use gpui_kit::component::ActiveTheme;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::diff::{
+  Diff, DiffAnnotation, DiffChangeIndicator, DiffEvent, DiffFile, DiffHunkSeparator, DiffInlineUnit, DiffLinePosition,
+  DiffMode as ViewMode, DiffSide, DiffState,
+};
+use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::*;
 
+use super::grammar::grammar_name;
 use super::header;
-use super::highlight::{Highlighted, Side};
-use super::rows::{self, HunkOp, Layouts, RowInteract, RowPaint, RowsMetrics};
-use super::selection::{Anchor, Selection, row_at};
+use super::split::{SplitDiff, SplitState};
+use super::split_document::{Document, Hunk};
 use super::states::{self, DiffKind, classify};
-use super::wheel;
-use crate::actions::{ClearSelection, CopyDiffSelection};
+use crate::actions::{ClearSelection, NextDiffChange, PreviousDiffChange};
 use crate::config::AppConfig;
 use crate::repo::layout_model::LayoutModel;
 use crate::repo::model::RepoModel;
@@ -28,14 +31,6 @@ use crate::theme::ActivePalette;
 struct CachedImages {
   old: Option<ImageSource>,
   new: Option<ImageSource>,
-}
-
-#[derive(Clone, PartialEq, Eq, Default)]
-struct RowsKey {
-  content_hash: String,
-  layout: DiffLayout,
-  line_diff: LineDiffType,
-  separators: HunkSeparators,
 }
 
 /// How the diff panel paints: the SCM file, or a read-only commit file.
@@ -50,75 +45,194 @@ pub enum DiffMode {
   },
 }
 
+/// What a hunk button does to the hunk it sits on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HunkOp {
+  Stage,
+  Unstage,
+  Discard,
+}
+
+pub(crate) fn hunk_intent(op: HunkOp, hunk_id: String) -> Intent {
+  match op {
+    HunkOp::Stage => Intent::StageHunk { hunk_id },
+    HunkOp::Unstage => Intent::UnstageHunk { hunk_id },
+    HunkOp::Discard => Intent::DiscardHunk {
+      hunk_id,
+      confirmed: false,
+    },
+  }
+}
+
+/// Where a hunk's button row hangs: under the hunk's first old line when the hunk has one, so the row sits at
+/// the left edge of the diff, else under its first new line (a hunk that only adds).
+pub(crate) fn hunk_anchor(path: &str, hunk: &DiffHunkPayload) -> DiffLinePosition {
+  if hunk.old_lines > 0 {
+    DiffLinePosition::new(path.to_string(), DiffSide::Original, hunk.old_start)
+  } else {
+    DiffLinePosition::new(path.to_string(), DiffSide::Modified, hunk.new_start)
+  }
+}
+
+/// Whether the diff is a whole-file add or delete: every hunk has an empty old side, or every hunk has an
+/// empty new side, so the other side's column would only push the text off screen. Such a diff always
+/// shows inline.
+pub(crate) fn one_sided(payload: &DiffPayload) -> bool {
+  let empty_old = |hunk: &DiffHunkPayload| hunk.old_start == 0 && hunk.old_lines == 0;
+  let empty_new = |hunk: &DiffHunkPayload| hunk.new_start == 0 && hunk.new_lines == 0;
+  payload.merge_text.is_none()
+    && !payload.hunks.is_empty()
+    && (payload.hunks.iter().all(empty_old) || payload.hunks.iter().all(empty_new))
+}
+
+/// One annotation per hunk, plus the hunk id behind each anchor.
+pub(crate) fn hunk_annotations(
+  path: &str,
+  hunks: &[DiffHunkPayload],
+) -> (Vec<DiffAnnotation>, HashMap<DiffLinePosition, DiffHunkPayload>) {
+  let mut annotations = Vec::with_capacity(hunks.len());
+  let mut targets = HashMap::with_capacity(hunks.len());
+  for hunk in hunks {
+    let anchor = hunk_anchor(path, hunk);
+    annotations.push(DiffAnnotation::line(
+      SharedString::from(format!("hunk-actions-{}", hunk.id)),
+      anchor.clone(),
+    ));
+    targets.insert(anchor, hunk.clone());
+  }
+  (annotations, targets)
+}
+
+pub(crate) fn view_mode(layout: DiffLayout) -> ViewMode {
+  match layout {
+    DiffLayout::SideBySide => ViewMode::Split,
+    DiffLayout::Inline => ViewMode::Unified,
+  }
+}
+
+pub(crate) fn inline_unit(line_diff: LineDiffType) -> Option<DiffInlineUnit> {
+  match line_diff {
+    LineDiffType::Word => Some(DiffInlineUnit::Word),
+    LineDiffType::Char => Some(DiffInlineUnit::Character),
+    LineDiffType::None => None,
+  }
+}
+
+fn change_indicator(indicators: DiffIndicators) -> DiffChangeIndicator {
+  match indicators {
+    DiffIndicators::Classic => DiffChangeIndicator::Signs,
+    DiffIndicators::Bars => DiffChangeIndicator::Bars,
+    DiffIndicators::None => DiffChangeIndicator::None,
+  }
+}
+
+fn hunk_separator(separators: HunkSeparators) -> DiffHunkSeparator {
+  match separators {
+    HunkSeparators::Simple => DiffHunkSeparator::Simple,
+    HunkSeparators::Metadata => DiffHunkSeparator::Metadata,
+    HunkSeparators::LineInfo => DiffHunkSeparator::LineInfo,
+  }
+}
+
+/// The payload's files with its language applied, or none when it does not parse. A merge file shows its
+/// working text with the conflicts as choices; everything else shows the patch.
+fn parse_files(payload: &DiffPayload) -> Vec<DiffFile> {
+  let parsed = match &payload.merge_text {
+    Some(text) => DiffFile::parse_conflicts(payload.path.clone(), text).map(|file| vec![file]),
+    None => DiffFile::parse(&payload.patch),
+  };
+  let files = match parsed {
+    Ok(files) => files,
+    Err(err) => {
+      tracing::warn!("diff for {} did not parse: {err}", payload.path);
+      return Vec::new();
+    }
+  };
+  match payload.language.as_deref().and_then(grammar_name) {
+    Some(name) => files.into_iter().map(|file| file.with_language(name)).collect(),
+    None => files,
+  }
+}
+
 pub struct DiffPanel {
   model: Entity<RepoModel>,
   layout: Entity<LayoutModel>,
   mode: DiffMode,
-  rows: Option<Arc<DiffRows>>,
-  metrics: RowsMetrics,
-  rows_key: RowsKey,
-  highlighter: Option<Arc<Highlighted>>,
-  old_image: Option<ImageSource>,
-  new_image: Option<ImageSource>,
-  scroll: UniformListScrollHandle,
-  h_scroll: ScrollHandle,
-  wheel: OngoingScroll,
-  selection: Option<Selection>,
-  dragging: bool,
-  layouts: Layouts,
-  pending_layouts: Layouts,
-  hunk_ids: Vec<String>,
-  staged: bool,
-  merge: bool,
-  line_height: f32,
-  focus_handle: FocusHandle,
+  state: Entity<DiffState>,
+  split: Entity<SplitState>,
+  /// Hash of the payload currently installed in `state` and `images`.
+  installed: Option<String>,
+  images: CachedImages,
+  /// Hash of the merge text the installed conflicts were parsed from; a resolution writes back only over it.
+  merge_base: Option<String>,
+  /// The installed diff is a whole-file add or delete, shown inline whatever the layout setting.
+  one_sided: bool,
+  /// Frames still owed to a freshly installed diff. The viewer measures its viewport while it paints, and a
+  /// notification raised mid-paint does not schedule the frame that applies it.
+  settle_frames: u8,
 }
 
 impl DiffPanel {
-  pub fn new(model: Entity<RepoModel>, layout: Entity<LayoutModel>, cx: &mut Context<Self>) -> Self {
+  pub fn new(
+    model: Entity<RepoModel>,
+    layout: Entity<LayoutModel>,
+    window: &mut Window,
+    cx: &mut Context<Self>,
+  ) -> Self {
     cx.observe(&model, |this, _, cx| {
-      this.sync_rows(cx);
+      this.sync(cx);
       cx.notify();
     })
     .detach();
     cx.observe_global::<AppConfig>(|this, cx| {
-      this.sync_rows(cx);
+      this.sync(cx);
       cx.notify();
+    })
+    .detach();
+    let (layout_setting, line_diff) = {
+      let diff = &AppConfig::get(cx).settings.diff;
+      (diff.layout, diff.line_diff_type)
+    };
+    let state = cx.new(|cx| {
+      DiffState::new(Vec::new(), cx)
+        .with_mode(view_mode(layout_setting))
+        // The patch carries its own three lines of context; a resolved merge file shows whole.
+        .with_context_lines(None)
+        .with_inline_unit(inline_unit(line_diff))
+    });
+    // Scrolling, selection, and paint-time measurements change the state; the viewer repaints from the owner.
+    cx.observe(&state, |_, _, cx| cx.notify()).detach();
+    let split = cx.new(|cx| SplitState::new(state.clone(), cx));
+    cx.observe(&split, |_, _, cx| cx.notify()).detach();
+    // The last conflict of a merge file resolved: the resolved text becomes the working file.
+    cx.subscribe_in(&state, window, |this, state, event: &DiffEvent, window, cx| {
+      let DiffEvent::ConflictResolved(path, _) = event else {
+        return;
+      };
+      let Some(text) = state.read(cx).resolved_text(path) else {
+        return;
+      };
+      let Some(expected_hash) = this.merge_base.clone() else {
+        return;
+      };
+      let path = path.to_string();
+      this.model.update(cx, |model, cx| {
+        model.write_resolved_conflicts(path, expected_hash, text, window, cx)
+      });
     })
     .detach();
     Self {
       model,
       layout,
       mode: DiffMode::Scm,
-      rows: None,
-      metrics: RowsMetrics::default(),
-      rows_key: RowsKey::default(),
-      highlighter: None,
-      old_image: None,
-      new_image: None,
-      scroll: UniformListScrollHandle::new(),
-      h_scroll: ScrollHandle::new(),
-      wheel: OngoingScroll::default(),
-      selection: None,
-      dragging: false,
-      layouts: Rc::new(RefCell::new(HashMap::new())),
-      pending_layouts: Rc::new(RefCell::new(HashMap::new())),
-      hunk_ids: Vec::new(),
-      staged: false,
-      merge: false,
-      line_height: 20.0,
-      focus_handle: cx.focus_handle(),
+      state,
+      split,
+      installed: None,
+      merge_base: None,
+      one_sided: false,
+      images: CachedImages::default(),
+      settle_frames: 0,
     }
-  }
-
-  #[allow(dead_code)]
-  pub fn focus(&self, window: &mut Window, cx: &mut App) {
-    self.focus_handle.focus(window, cx);
-  }
-
-  #[allow(dead_code)]
-  pub fn rows(&self) -> Option<&Arc<DiffRows>> {
-    self.rows.as_ref()
   }
 
   /// Switch between SCM and commit-file presentation.
@@ -157,421 +271,335 @@ impl DiffPanel {
     self.model.update(cx, |model, cx| model.open_in_editor(path, cx));
   }
 
+  /// Scroll to the next changed group after the viewport.
+  pub(crate) fn next_change(&mut self, cx: &mut Context<Self>) {
+    if self.uses_split(cx) {
+      self.split.update(cx, |split, cx| split.move_change(true, cx));
+    } else {
+      self.state.update(cx, |state, cx| state.next_change(cx));
+    }
+  }
+
+  /// Scroll to the previous changed group before the viewport.
+  pub(crate) fn previous_change(&mut self, cx: &mut Context<Self>) {
+    if self.uses_split(cx) {
+      self.split.update(cx, |split, cx| split.move_change(false, cx));
+    } else {
+      self.state.update(cx, |state, cx| state.previous_change(cx));
+    }
+  }
+
   #[cfg(test)]
   pub(crate) fn model(&self) -> &Entity<RepoModel> {
     &self.model
   }
 
-  fn sync_rows(&mut self, cx: &App) {
-    let (layout, line_diff, separators) = {
+  #[cfg(test)]
+  pub(crate) fn state(&self) -> &Entity<DiffState> {
+    &self.state
+  }
+
+  /// Escape: clear the text and line selection. Returns whether there was one.
+  fn clear_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    let had_lines = self.state.read(cx).selected_lines().is_some();
+    if !had_lines && !TextSelection::has_selection(window, cx) {
+      return false;
+    }
+    TextSelection::clear(window, cx);
+    self.state.update(cx, |state, cx| state.set_selected_lines(None, cx));
+    self.split.update(cx, |split, cx| split.clear_selection(cx));
+    true
+  }
+
+  /// The payload this panel shows, when it is loaded for the current selection.
+  fn ready_payload<'a>(&self, cx: &'a App) -> Option<&'a DiffPayload> {
+    let state = self.model.read(cx).state();
+    match &self.mode {
+      DiffMode::Scm => {
+        if state.selected_file.is_none() || !state.scm_diff_ready() {
+          return None;
+        }
+        state.diff.as_ref()
+      }
+      DiffMode::Commit { commit, path, .. } => {
+        if path.is_empty() || !state.commit_diff_ready(commit, path) {
+          return None;
+        }
+        state.commit_diff.as_ref()
+      }
+    }
+  }
+
+  /// Whether the SCM selection is a merge-conflict entry, which takes no hunk actions.
+  fn selection_is_merge(&self, cx: &App) -> bool {
+    matches!(self.mode, DiffMode::Scm)
+      && self
+        .model
+        .read(cx)
+        .state()
+        .selected_file
+        .as_ref()
+        .is_some_and(|file| file.group_kind == ResourceGroupKind::Merge)
+  }
+
+  fn uses_split(&self, cx: &App) -> bool {
+    self.effective_mode(AppConfig::get(cx).settings.diff.layout) == ViewMode::Split
+      && self.merge_base.is_none()
+      && self.split.read(cx).has_document()
+  }
+
+  /// Push the layout and inline-change settings into the diff state, then install the loaded payload when it
+  /// changed, or drop it when nothing is shown.
+  fn sync(&mut self, cx: &mut Context<Self>) {
+    let (layout, line_diff) = {
       let diff = &AppConfig::get(cx).settings.diff;
-      (diff.layout, diff.line_diff_type, diff.hunk_separators)
+      (diff.layout, diff.line_diff_type)
     };
     enum Plan {
       Skip,
       Clear,
       Apply {
-        key: RowsKey,
-        rows: Option<Arc<DiffRows>>,
-        metrics: RowsMetrics,
-        highlighter: Option<Option<Arc<Highlighted>>>,
-        images: Option<CachedImages>,
-        reset_scroll: bool,
-        hunk_ids: Vec<String>,
-        staged: bool,
-        merge: bool,
+        hash: String,
+        merge_base: Option<String>,
+        one_sided: bool,
+        files: Vec<DiffFile>,
+        images: CachedImages,
+        split: Option<Box<Document>>,
+        language: SharedString,
       },
     }
-    let plan = (|| {
-      let state = self.model.read(cx).state();
-      let payload = match &self.mode {
-        DiffMode::Scm => {
-          if state.selected_file.is_none() {
-            return Plan::Clear;
-          }
-          if !state.scm_diff_ready() {
-            return Plan::Skip;
-          }
-          let Some(payload) = state.diff.as_ref() else {
-            return Plan::Clear;
-          };
-          payload
-        }
-        DiffMode::Commit { commit, path, .. } => {
-          if path.is_empty() {
-            return Plan::Clear;
-          }
-          if !state.commit_diff_ready(commit, path) {
-            return Plan::Skip;
-          }
-          let Some(payload) = state.commit_diff.as_ref() else {
-            return Plan::Clear;
-          };
-          payload
-        }
+    let plan = {
+      let shown = match &self.mode {
+        DiffMode::Scm => self.model.read(cx).state().selected_file.is_some(),
+        DiffMode::Commit { path, .. } => !path.is_empty(),
       };
-      let key = RowsKey {
-        content_hash: payload.content_hash.clone(),
-        layout,
-        line_diff,
-        separators,
-      };
-      if self.rows_key == key {
-        return Plan::Skip;
-      }
-      let hash_changed = self.rows_key.content_hash != key.content_hash;
-      let hunk_ids: Vec<String> = payload.hunks.iter().map(|hunk| hunk.id.clone()).collect();
-      let staged = payload.staged;
-      let merge = matches!(self.mode, DiffMode::Scm)
-        && state
-          .selected_file
-          .as_ref()
-          .is_some_and(|file| file.group_kind == ResourceGroupKind::Merge);
-      match classify(Some(payload)) {
-        DiffKind::Text => {
-          let rows = Arc::new(build_rows(
-            payload,
-            &RowOptions {
-              layout: key.layout,
-              line_diff: key.line_diff,
-              separators: key.separators,
-            },
-          ));
-          let metrics = RowsMetrics::from_rows(rows.as_ref());
-          let rebuild_highlighter = self
-            .highlighter
-            .as_ref()
-            .is_none_or(|highlighted| highlighted.hash != key.content_hash);
-          Plan::Apply {
-            key,
-            rows: Some(rows),
-            metrics,
-            highlighter: rebuild_highlighter.then(|| Some(Arc::new(Highlighted::build(payload)))),
-            images: hash_changed.then_some(CachedImages::default()),
-            reset_scroll: hash_changed,
-            hunk_ids,
-            staged,
-            merge,
-          }
-        }
-        DiffKind::Image => Plan::Apply {
-          key,
-          rows: None,
-          metrics: RowsMetrics::default(),
-          highlighter: hash_changed.then_some(None),
-          images: hash_changed.then(|| {
+      match (shown, self.ready_payload(cx)) {
+        (false, _) => Plan::Clear,
+        (true, None) => Plan::Skip,
+        (true, Some(payload)) if self.installed.as_deref() == Some(payload.content_hash.as_str()) => Plan::Skip,
+        (true, Some(payload)) => {
+          let kind = classify(Some(payload));
+          let files = if kind == DiffKind::Text {
+            parse_files(payload)
+          } else {
+            Vec::new()
+          };
+          let images = if kind == DiffKind::Image {
             let (old, new) = states::decode_images(payload);
             CachedImages { old, new }
-          }),
-          reset_scroll: hash_changed,
-          hunk_ids,
-          staged,
-          merge,
-        },
-        _ => Plan::Apply {
-          key,
-          rows: None,
-          metrics: RowsMetrics::default(),
-          highlighter: hash_changed.then_some(None),
-          images: hash_changed.then_some(CachedImages::default()),
-          reset_scroll: hash_changed,
-          hunk_ids,
-          staged,
-          merge,
-        },
+          } else {
+            CachedImages::default()
+          };
+          let split =
+            if kind == DiffKind::Text && payload.merge_text.is_none() && !one_sided(payload) && !files.is_empty() {
+              match Document::parse(&payload.path, &payload.patch) {
+                Ok(document) => Some(Box::new(document)),
+                Err(error) => {
+                  tracing::warn!("split diff for {} did not parse: {error}", payload.path);
+                  None
+                }
+              }
+            } else {
+              None
+            };
+          let language = files.first().map(DiffFile::language).unwrap_or_else(|| "text".into());
+          Plan::Apply {
+            hash: payload.content_hash.clone(),
+            merge_base: payload.merge_text.as_deref().map(sha256_utf8),
+            one_sided: kind == DiffKind::Text && one_sided(payload),
+            files,
+            images,
+            split,
+            language,
+          }
+        }
       }
-    })();
+    };
+    match &plan {
+      Plan::Skip => {}
+      Plan::Clear => self.one_sided = false,
+      Plan::Apply { one_sided, .. } => self.one_sided = *one_sided,
+    }
+    let mode = self.effective_mode(layout);
+    let split_anchor = (self.state.read(cx).mode() == ViewMode::Split && mode == ViewMode::Unified)
+      .then(|| self.split.read(cx).top_line())
+      .flatten();
+    self.state.update(cx, |state, cx| {
+      if state.mode() != mode {
+        state.set_mode(mode, cx);
+        if let Some(position) = split_anchor {
+          state.scroll_to_line(position, cx);
+        }
+      }
+      if state.inline_unit() != inline_unit(line_diff) {
+        state.set_inline_unit(inline_unit(line_diff), cx);
+      }
+    });
     match plan {
       Plan::Skip => {}
       Plan::Clear => {
-        self.rows = None;
-        self.metrics = RowsMetrics::default();
-        self.highlighter = None;
-        self.old_image = None;
-        self.new_image = None;
-        self.rows_key = RowsKey::default();
-        self.hunk_ids.clear();
-        self.staged = false;
-        self.merge = false;
-        self.clear_text_selection();
-        self.layouts.borrow_mut().clear();
-        self.pending_layouts.borrow_mut().clear();
+        self.merge_base = None;
+        if self.installed.take().is_some() {
+          self.images = CachedImages::default();
+          self.state.update(cx, |state, cx| state.set_files(Vec::new(), cx));
+          self
+            .split
+            .update(cx, |split, cx| split.set_document(None, "text".into(), cx));
+        }
       }
       Plan::Apply {
-        key,
-        rows,
-        metrics,
-        highlighter,
+        hash,
+        merge_base,
+        files,
         images,
-        reset_scroll,
-        hunk_ids,
-        staged,
-        merge,
+        split,
+        language,
+        ..
       } => {
-        self.rows = rows;
-        self.metrics = metrics;
-        self.hunk_ids = hunk_ids;
-        self.staged = staged;
-        self.merge = merge;
-        self.clear_text_selection();
-        self.layouts.borrow_mut().clear();
-        self.pending_layouts.borrow_mut().clear();
-        if let Some(highlighter) = highlighter {
-          self.highlighter = highlighter;
-        }
-        if let Some(images) = images {
-          self.old_image = images.old;
-          self.new_image = images.new;
-        }
-        if reset_scroll {
-          self.scroll.scroll_to_item(0, ScrollStrategy::Top);
-          self.h_scroll.set_offset(point(px(0.0), px(0.0)));
-        }
-        self.rows_key = key;
+        self.installed = Some(hash);
+        self.merge_base = merge_base;
+        self.settle_frames = 2;
+        self.images = images;
+        self.state.update(cx, |state, cx| state.set_files(files, cx));
+        self.split.update(cx, |state, cx| {
+          state.set_document(split.map(|document| *document), language, cx)
+        });
       }
     }
   }
 
-  fn has_text_selection(&self) -> bool {
-    self.selection.as_ref().is_some_and(|sel| !sel.is_empty())
-  }
-
-  fn clear_text_selection(&mut self) {
-    self.selection = None;
-    self.dragging = false;
-  }
-
-  fn scroll_wheel(&mut self, event: &ScrollWheelEvent, line_height: Pixels, cx: &mut Context<Self>) {
-    let vertical = self.scroll.0.borrow().base_handle.clone();
-    let room = point(
-      self.h_scroll.max_offset().x > Pixels::ZERO,
-      vertical.max_offset().y > Pixels::ZERO,
-    );
-    let delta = wheel::route(&mut self.wheel, event, line_height, room);
-    let moved_x = wheel::scroll_by(&self.h_scroll, point(delta.x, Pixels::ZERO));
-    let moved_y = wheel::scroll_by(&vertical, point(Pixels::ZERO, delta.y));
-    if moved_x || moved_y {
-      cx.notify();
+  /// The layout the viewer paints: the saved choice, except a whole-file add or delete, which has nothing
+  /// to put beside its empty side and so shows inline.
+  fn effective_mode(&self, layout: DiffLayout) -> ViewMode {
+    if self.one_sided {
+      ViewMode::Unified
+    } else {
+      view_mode(layout)
     }
-  }
-
-  fn begin_selection(&mut self, anchor: Anchor, window: &mut Window, cx: &mut Context<Self>) {
-    self.selection = Some(Selection { anchor, head: anchor });
-    self.dragging = true;
-    self.focus_handle.focus(window, cx);
-    cx.notify();
-  }
-
-  fn update_head(&mut self, pos: Point<Pixels>, cx: &mut Context<Self>) {
-    if !self.dragging {
-      return;
-    }
-    let Some(rows) = self.rows.as_ref() else {
-      return;
-    };
-    let Some(sel) = self.selection.as_mut() else {
-      return;
-    };
-    let Some(head) = hit_anchor(
-      &self.layouts,
-      pos,
-      sel.anchor.side,
-      rows,
-      self.line_height,
-      &self.scroll,
-      Some(sel.head.byte),
-    ) else {
-      return;
-    };
-    if sel.head != head {
-      sel.head = head;
-      cx.notify();
-    }
-  }
-
-  fn copy_selection(&self, cx: &mut App) {
-    let Some(sel) = self.selection.as_ref().filter(|sel| !sel.is_empty()) else {
-      return;
-    };
-    let Some(rows) = self.rows.as_ref() else {
-      return;
-    };
-    cx.write_to_clipboard(ClipboardItem::new_string(sel.text(rows)));
   }
 
   fn hunk_action(&self, op: HunkOp, hunk_id: String, window: &mut Window, cx: &mut Context<Self>) {
-    let intent = match op {
-      HunkOp::Stage => Intent::StageHunk { hunk_id },
-      HunkOp::Unstage => Intent::UnstageHunk { hunk_id },
-      HunkOp::Discard => Intent::DiscardHunk {
-        hunk_id,
-        confirmed: false,
-      },
-    };
+    let intent = hunk_intent(op, hunk_id);
     self.model.update(cx, |model, cx| model.dispatch(intent, window, cx));
   }
-}
 
-fn hit_anchor(
-  layouts: &Layouts,
-  pos: Point<Pixels>,
-  side: Side,
-  rows: &DiffRows,
-  line_height: f32,
-  scroll: &UniformListScrollHandle,
-  fallback_byte: Option<usize>,
-) -> Option<Anchor> {
-  let n = rows.len();
-  if n == 0 {
-    return None;
+  fn render_hunk_actions(
+    hunk: &DiffHunkPayload,
+    staged: bool,
+    show_range: bool,
+    view: WeakEntity<DiffPanel>,
+    cx: &App,
+  ) -> impl IntoElement {
+    let button = |prefix: &str, icon: &'static str, tooltip: &'static str, op: HunkOp| {
+      let view = view.clone();
+      let hunk_id = hunk.id.clone();
+      Button::new(SharedString::from(format!("{prefix}-{}", hunk.id)))
+        .ghost()
+        .xsmall()
+        .icon(Icon::empty().path(icon))
+        .tooltip(tooltip)
+        .on_click(move |_, window, cx| {
+          cx.stop_propagation();
+          let _ = view.update(cx, |this, cx| this.hunk_action(op, hunk_id.clone(), window, cx));
+        })
+    };
+    let range = format!(
+      "@@ -{},{} +{},{} @@",
+      hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
+    );
+    // Buttons lead and the range follows: a long line widens the row, and a trailing button would scroll
+    // out of reach with it.
+    div()
+      .flex()
+      .items_center()
+      .justify_start()
+      .gap_2()
+      .child(div().flex().flex_shrink_0().items_center().gap_1().children(if staged {
+        vec![button(
+          "hunk-unstage",
+          "icons/minus.svg",
+          "Unstage Hunk",
+          HunkOp::Unstage,
+        )]
+      } else {
+        vec![
+          button("hunk-stage", "icons/plus.svg", "Stage Hunk", HunkOp::Stage),
+          button("hunk-discard", "icons/undo-2.svg", "Discard Hunk", HunkOp::Discard),
+        ]
+      }))
+      .child(
+        div()
+          .min_w_0()
+          .truncate()
+          .text_xs()
+          .text_color(cx.theme().muted_foreground)
+          .child(if show_range { range } else { String::new() }),
+      )
   }
-  let map = layouts.borrow();
-  let mut min_top: Option<Pixels> = None;
-  for ((row, layout_side), layout) in map.iter() {
-    if *layout_side != side && matches!(rows, DiffRows::SideBySide(_)) {
-      continue;
-    }
-    let bounds = rows::ready_bounds(layout);
-    min_top = Some(min_top.map_or(bounds.top(), |top| top.min(bounds.top())));
-    if pos.y >= bounds.top() && pos.y < bounds.bottom() {
-      let len = row_at(rows, *row, side).map(|row| row.text.len()).unwrap_or(0);
-      let byte = rows::byte_at(layout, pos, len).or(fallback_byte)?;
-      return Some(clamp_anchor(Anchor { row: *row, side, byte }, rows));
-    }
-  }
-  let row = row_from_scroll(pos, n, line_height, scroll).unwrap_or_else(|| {
-    if min_top.is_some_and(|top| pos.y < top) {
-      0
-    } else {
-      n - 1
-    }
-  });
-  let len = row_at(rows, row, side).map(|row| row.text.len()).unwrap_or(0);
-  let byte = if let Some(layout) = map.get(&(row, side)) {
-    map_byte_in_row(layout, pos, len).or(fallback_byte)
-  } else {
-    fallback_byte
-  }?;
-  Some(clamp_anchor(Anchor { row, side, byte }, rows))
-}
-
-fn map_byte_in_row(layout: &TextLayout, pos: Point<Pixels>, text_len: usize) -> Option<usize> {
-  let bounds = rows::ready_bounds(layout);
-  let mut mapped = pos;
-  let top = f32::from(bounds.top());
-  let bottom = f32::from(bounds.bottom());
-  if bottom > top {
-    mapped.y = px(f32::from(pos.y).clamp(top, (bottom - 0.01).max(top)));
-  }
-  rows::byte_at(layout, mapped, text_len)
-}
-
-fn clamp_anchor(mut anchor: Anchor, rows: &DiffRows) -> Anchor {
-  let n = rows.len();
-  if n == 0 {
-    return anchor;
-  }
-  anchor.row = anchor.row.min(n - 1);
-  if let Some(row) = row_at(rows, anchor.row, anchor.side) {
-    anchor.byte = anchor.byte.min(row.text.len());
-  }
-  anchor
-}
-
-fn row_from_scroll(pos: Point<Pixels>, n: usize, line_height: f32, scroll: &UniformListScrollHandle) -> Option<usize> {
-  if line_height <= 0.0 || n == 0 {
-    return None;
-  }
-  let state = scroll.0.borrow();
-  let bounds = state.base_handle.bounds();
-  if bounds.size.height == px(0.0) {
-    return None;
-  }
-  let offset = state.base_handle.offset();
-  let y = f32::from(pos.y - bounds.origin.y) - f32::from(offset.y);
-  let row = (y / line_height).floor();
-  Some(row.clamp(0.0, (n - 1) as f32) as usize)
 }
 
 impl Render for DiffPanel {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    {
-      let mut pending = self.pending_layouts.borrow_mut();
-      if !pending.is_empty() {
-        *self.layouts.borrow_mut() = mem::take(&mut *pending);
-      }
+    self.sync(cx);
+    if self.settle_frames > 0 {
+      self.settle_frames -= 1;
+      let view = cx.weak_entity();
+      window.on_next_frame(move |_, cx| {
+        let _ = view.update(cx, |_, cx| cx.notify());
+      });
     }
-    self.sync_rows(cx);
     let palette = cx.global::<ActivePalette>().0;
-    let (
-      layout,
-      show_line_numbers,
-      show_background,
-      indicators,
-      line_diff,
-      font_family,
-      font_size,
-      line_height,
-      mut show_hunk_actions,
-    ) = {
+    let (layout, show_line_numbers, show_background, indicators, separators, wrap, show_hunk_actions) = {
       let settings = &AppConfig::get(cx).settings;
       (
         settings.diff.layout,
         settings.diff.show_line_numbers,
         settings.diff.show_background,
         settings.diff.diff_indicators,
-        settings.diff.line_diff_type,
-        settings.editor.font_family.clone(),
-        settings.editor.font_size,
-        settings.editor.line_height,
+        settings.diff.hunk_separators,
+        settings.editor.word_wrap == WordWrap::On,
         settings.diff.show_inline_hunk_actions,
       )
     };
+    let is_scm = matches!(self.mode, DiffMode::Scm);
     let commit_mode = match &self.mode {
       DiffMode::Commit { commit, path, status } => Some((commit.clone(), path.clone(), status.clone())),
       DiffMode::Scm => None,
     };
-    let (selected, scm_load_ready, kind, commit_ready, has_repository) = {
-      let state = self.model.read(cx).state();
-      let commit_ready = match &commit_mode {
-        Some((commit, path, _)) => state.commit_diff_ready(commit, path),
-        None => false,
-      };
-      let scm_load_ready = state.scm_diff_ready();
-      let payload = match &self.mode {
-        DiffMode::Scm if scm_load_ready => state.diff.as_ref(),
-        DiffMode::Commit { commit, path, .. } if !path.is_empty() && commit_ready => state.commit_diff.as_ref(),
-        _ => None,
-      };
+    let merge = self.selection_is_merge(cx);
+    let (selected, kind, load_ready, has_repository, staged, hunks, path) = {
+      let model_state = self.model.read(cx).state();
+      let payload = self.ready_payload(cx);
       (
-        state.selected_file.clone(),
-        scm_load_ready,
+        model_state.selected_file.clone(),
         classify(payload),
-        commit_ready,
-        state.has_repository(),
+        payload.is_some(),
+        model_state.has_repository(),
+        payload.is_some_and(|payload| payload.staged),
+        payload.map(|payload| payload.hunks.clone()).unwrap_or_default(),
+        payload.map(|payload| payload.path.clone()).unwrap_or_default(),
       )
     };
-    if commit_mode.is_some() {
-      show_hunk_actions = false;
-    }
+    let show_nav = load_ready && kind == DiffKind::Text;
+    // A whole-file add or delete always shows inline, so the layout control would do nothing.
+    let show_layout = !(load_ready && self.one_sided);
     let weak = cx.weak_entity();
     let mut root = div()
       .id("diff-panel")
       .role(Role::Pane)
       .size_full()
+      .min_w_0()
       .flex()
       .flex_col()
-      .track_focus(&self.focus_handle)
-      .key_context("Diff")
-      .on_action(cx.listener(|this, _: &CopyDiffSelection, _, cx| this.copy_selection(cx)))
-      .on_action(cx.listener(|this, _: &ClearSelection, _, cx| {
-        if this.has_text_selection() {
-          this.clear_text_selection();
+      .on_action(cx.listener(|this, _: &ClearSelection, window, cx| {
+        if this.clear_selection(window, cx) {
           cx.stop_propagation();
           cx.notify();
         }
-      }));
-    let load_ready = if let Some((_commit, path, status)) = commit_mode {
+      }))
+      .on_action(cx.listener(|this, _: &NextDiffChange, _, cx| this.next_change(cx)))
+      .on_action(cx.listener(|this, _: &PreviousDiffChange, _, cx| this.previous_change(cx)));
+    if let Some((_commit, path, status)) = commit_mode {
       if path.is_empty() {
         return root.child(div().flex_1().min_h_0());
       }
@@ -579,145 +607,92 @@ impl Render for DiffPanel {
         &path,
         status,
         layout,
+        show_nav,
+        show_layout,
         weak.clone(),
         palette,
       ));
-      commit_ready
     } else {
       let Some(selection) = selected else {
         return root.child(states::render_empty(has_repository, palette));
       };
-      root = root.child(header::render_header(&selection, layout, weak.clone(), palette, cx));
-      scm_load_ready
-    };
+      root = root.child(header::render_header(
+        &selection,
+        layout,
+        show_nav,
+        show_layout,
+        weak.clone(),
+        palette,
+        cx,
+      ));
+    }
     if !load_ready {
       return root.child(div().flex_1().min_h_0());
     }
     match kind {
       DiffKind::Empty => root.child(div().flex_1().min_h_0()),
       DiffKind::Image => root.child(states::render_image(
-        self.old_image.clone(),
-        self.new_image.clone(),
+        self.images.old.clone(),
+        self.images.new.clone(),
         palette,
       )),
       DiffKind::Binary => root.child(states::render_binary(weak, palette)),
       DiffKind::Large => root.child(states::render_large(weak, palette)),
-      DiffKind::Text => match self.rows.clone() {
-        Some(rows) => {
-          self.line_height = line_height as f32;
-          let family = rows::editor_font_family(&font_family);
-          let font_size = font_size as f32;
-          let advance = rows::measure_advance(window, family.as_ref(), font_size);
-          let paint = RowPaint {
-            palette,
-            show_line_numbers,
-            show_background,
-            indicators,
-            line_diff,
-            line_height: line_height as f32,
-            font_family: family,
-            font_size,
-            number_width: rows::number_width(self.metrics.max_line_number, advance),
-            indicator_width: rows::indicator_width(indicators, advance),
-            text_width: rows::text_width(&self.metrics, advance),
-            h_scroll: self.h_scroll.clone(),
-            highlighter: self.highlighter.clone(),
-            theme: cx.theme().highlight_theme.clone(),
-          };
-          let count = rows.len();
-          let scroll = self.scroll.clone();
-          let layouts = self.layouts.clone();
-          let pending = self.pending_layouts.clone();
-          let interact = RowInteract {
-            selection: self.selection,
-            layouts: layouts.clone(),
-            pending: pending.clone(),
-            hunk_ids: Rc::new(self.hunk_ids.clone()),
-            staged: self.staged,
-            merge: self.merge,
-            show_hunk_actions,
-            side_by_side: matches!(rows.as_ref(), DiffRows::SideBySide(_)),
-            on_mouse_down: Rc::new({
-              let view = weak.clone();
-              move |anchor, window, cx| {
-                let _ = view.update(cx, |this, cx| this.begin_selection(anchor, window, cx));
-              }
-            }),
-            on_hunk: Rc::new({
-              let view = weak.clone();
-              move |op, hunk_id, window, cx| {
-                let _ = view.update(cx, |this, cx| this.hunk_action(op, hunk_id, window, cx));
-              }
-            }),
-          };
-          let list = uniform_list("diff-rows", count, move |range, _, _| {
-            layouts.borrow_mut().retain(|&(index, _), _| range.contains(&index));
-            pending.borrow_mut().retain(|&(index, _), _| range.contains(&index));
-            range
-              .map(|index| rows::render_row(rows.as_ref(), index, &paint, &interact))
-              .collect()
-          })
-          .size_full()
-          .track_scroll(&scroll);
-          // Every wheel event over the body goes through one gesture lock before either
-          // scroller sees it, so the two axes never decide on their own.
-          let wheel_router = canvas(
-            |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
-            {
-              let view = weak.clone();
-              move |_, hitbox: Hitbox, window: &mut Window, _: &mut App| {
-                window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
-                  if phase == DispatchPhase::Capture && hitbox.should_handle_scroll(window) {
-                    let line_height = window.line_height();
-                    let _ = view.update(cx, |this, cx| this.scroll_wheel(event, line_height, cx));
-                    cx.stop_propagation();
-                  }
-                });
-              }
-            },
-          )
-          .absolute()
-          .top_0()
-          .left_0()
-          .size_full();
-          root.child(
-            div()
-              .id("diff-body")
-              .relative()
-              .flex_1()
-              .min_h_0()
-              .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                  if !this.dragging {
-                    this.clear_text_selection();
-                    cx.notify();
-                  }
-                }),
-              )
-              .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
-                if this.dragging {
-                  this.update_head(event.position, cx);
-                }
-              }))
-              .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _, _, _| {
-                  this.dragging = false;
-                }),
-              )
-              .on_mouse_up_out(
-                MouseButton::Left,
-                cx.listener(|this, _, _, _| {
-                  this.dragging = false;
-                }),
-              )
-              .child(list)
-              .child(wheel_router),
-          )
+      DiffKind::Text => {
+        let file_path = self
+          .state
+          .read(cx)
+          .files()
+          .first()
+          .map(|file| file.path().to_string())
+          .unwrap_or(path);
+        let actions = show_hunk_actions && is_scm && !merge;
+        if self.uses_split(cx) {
+          let show_range = separators != HunkSeparators::Metadata;
+          let render = actions.then(|| {
+            Rc::new(move |target: &Hunk, _: &mut Window, cx: &mut App| {
+              div()
+                .children(
+                  hunks
+                    .iter()
+                    .find(|hunk| {
+                      (hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines)
+                        == (target.old_start, target.old_lines, target.new_start, target.new_lines)
+                    })
+                    .map(|hunk| Self::render_hunk_actions(hunk, staged, show_range, weak.clone(), cx)),
+                )
+                .into_any_element()
+            }) as Rc<dyn Fn(&Hunk, &mut Window, &mut App) -> AnyElement>
+          });
+          return root.child(SplitDiff::new(&self.split, render));
         }
-        None => root.child(div().flex_1().min_h_0()),
-      },
+        let (annotations, targets) = if actions {
+          hunk_annotations(&file_path, &hunks)
+        } else {
+          (Vec::new(), HashMap::new())
+        };
+        let targets = Rc::new(targets);
+        // The Metadata separator already prints each hunk's range.
+        let show_range = separators != HunkSeparators::Metadata;
+        let view = weak.clone();
+        root.child(
+          Diff::new(&self.state)
+            .flex_1()
+            .min_h_0()
+            .border_0()
+            .header_visible(false)
+            .line_number(show_line_numbers)
+            .change_background(show_background)
+            .change_indicator(change_indicator(indicators))
+            .hunk_separator(hunk_separator(separators))
+            .soft_wrap(wrap)
+            .annotations(annotations)
+            .render_annotation(move |annotation, _, cx| {
+              let hunk = annotation.position().and_then(|position| targets.get(position));
+              div().children(hunk.map(|hunk| Self::render_hunk_actions(hunk, staged, show_range, view.clone(), cx)))
+            }),
+        )
+      }
     }
   }
 }
@@ -728,14 +703,128 @@ mod tests {
   use core::prelude::v1::test;
   use deathpush_core::Core;
   use deathpush_core::session::types::{
-    DiffHunkPayload, DiffPayload, DiffPresence, FileSelection, OperationActions, SessionActions, SessionRepo,
-    SessionScm, SessionSelection, SessionSnapshot, SyncAction, SyncKind,
+    FileSelection, OperationActions, SessionActions, SessionRepo, SessionScm, SessionSelection, SessionSnapshot,
+    SyncAction, SyncKind,
   };
-  use deathpush_core::types::{DiffLine, RepoOperationState, ResourceGroupKind, StatusPhase};
+  use deathpush_core::types::{RepoOperationState, StatusPhase};
   use gpui_kit::TestAppContext;
+  use gpui_kit::component::diff::DiffConflictResolution;
 
   use crate::config::AppConfig;
   use crate::repo::layout_model::LayoutModel;
+
+  const PATCH: &str = "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,2 +1,3 @@\n fn main() {}\n+let x = 1;\n fn end() {}\n@@ -10,2 +11,1 @@\n-gone();\n keep();\n";
+
+  fn hunk(id: &str, old: (usize, usize), new: (usize, usize)) -> DiffHunkPayload {
+    DiffHunkPayload {
+      id: id.into(),
+      old_start: old.0,
+      old_lines: old.1,
+      new_start: new.0,
+      new_lines: new.1,
+    }
+  }
+
+  #[test]
+  fn hunk_buttons_map_to_hunk_intents() {
+    assert!(matches!(
+      hunk_intent(HunkOp::Stage, "a".into()),
+      Intent::StageHunk { hunk_id } if hunk_id == "a"
+    ));
+    assert!(matches!(
+      hunk_intent(HunkOp::Unstage, "a".into()),
+      Intent::UnstageHunk { hunk_id } if hunk_id == "a"
+    ));
+    assert!(matches!(
+      hunk_intent(HunkOp::Discard, "a".into()),
+      Intent::DiscardHunk { hunk_id, confirmed: false } if hunk_id == "a"
+    ));
+  }
+
+  #[test]
+  fn hunk_rows_hang_under_the_first_old_line_unless_the_hunk_has_none() {
+    let hunks = vec![
+      hunk("edit", (1, 2), (1, 3)),
+      hunk("del", (10, 2), (0, 0)),
+      hunk("new", (0, 0), (1, 3)),
+    ];
+    let (annotations, targets) = hunk_annotations("src/main.rs", &hunks);
+    assert_eq!(annotations.len(), 3);
+    let first = annotations[0].position().unwrap();
+    assert_eq!((first.side(), first.line()), (DiffSide::Original, 1));
+    let second = annotations[1].position().unwrap();
+    assert_eq!((second.side(), second.line()), (DiffSide::Original, 10));
+    let third = annotations[2].position().unwrap();
+    assert_eq!((third.side(), third.line()), (DiffSide::Modified, 1));
+    assert_eq!(targets[first].id, "edit");
+    assert_eq!(targets[second].id, "del");
+    assert_eq!(targets[third].id, "new");
+  }
+
+  #[test]
+  fn whole_file_adds_and_deletes_are_one_sided() {
+    let with_hunks = |hunks: Vec<DiffHunkPayload>| {
+      let mut payload = text_payload(PATCH, "rust");
+      payload.hunks = hunks;
+      payload
+    };
+    assert!(one_sided(&with_hunks(vec![hunk("add", (0, 0), (1, 2))])));
+    assert!(one_sided(&with_hunks(vec![hunk("del", (1, 2), (0, 0))])));
+    assert!(!one_sided(&with_hunks(vec![hunk("edit", (1, 2), (1, 3))])));
+    assert!(!one_sided(&with_hunks(vec![
+      hunk("add", (0, 0), (1, 2)),
+      hunk("edit", (5, 2), (6, 3)),
+    ])));
+    assert!(!one_sided(&with_hunks(Vec::new())));
+    let mut merge = with_hunks(vec![hunk("add", (0, 0), (1, 2))]);
+    merge.merge_text = Some("text".into());
+    assert!(!one_sided(&merge));
+  }
+
+  #[test]
+  fn settings_map_to_the_viewer() {
+    assert_eq!(view_mode(DiffLayout::SideBySide), ViewMode::Split);
+    assert_eq!(view_mode(DiffLayout::Inline), ViewMode::Unified);
+    assert_eq!(inline_unit(LineDiffType::Word), Some(DiffInlineUnit::Word));
+    assert_eq!(inline_unit(LineDiffType::Char), Some(DiffInlineUnit::Character));
+    assert_eq!(inline_unit(LineDiffType::None), None);
+  }
+
+  #[test]
+  fn payload_language_reaches_the_parsed_file() {
+    let payload = text_payload(PATCH, "rust");
+    let files = parse_files(&payload);
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path().as_str(), "src/main.rs");
+    assert_eq!(files[0].language().as_str(), "rust");
+    assert_eq!((files[0].additions(), files[0].deletions()), (1, 1));
+  }
+
+  #[gpui_kit::test]
+  fn a_merge_file_offers_its_conflicts_as_choices(cx: &mut TestAppContext) {
+    let mut payload = text_payload("", "rust");
+    payload.path = "c.txt".into();
+    payload.merge_text = Some("one\n<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> other\nthree\n".into());
+    let files = parse_files(&payload);
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].conflicts().len(), 1);
+    let state = cx.new(|cx| DiffState::new(files, cx));
+    state.update(cx, |state, cx| {
+      assert_eq!(
+        state.resolved_text("c.txt"),
+        None,
+        "an unresolved conflict has no resolved text"
+      );
+      state.resolve_conflict("c.txt", 0, Some(DiffConflictResolution::Incoming), cx);
+      assert_eq!(state.resolved_text("c.txt").as_deref(), Some("one\ntheirs\nthree\n"));
+    });
+  }
+
+  #[test]
+  fn a_patch_that_does_not_parse_shows_nothing() {
+    let payload = text_payload("@@ -x +y @@\n", "rust");
+    assert!(parse_files(&payload).is_empty());
+  }
 
   fn snapshot(root: &str, file: Option<FileSelection>) -> SessionSnapshot {
     SessionSnapshot {
@@ -787,48 +876,23 @@ mod tests {
     }
   }
 
-  fn text_payload(modified: &str) -> DiffPayload {
+  fn text_payload(patch: &str, language: &str) -> DiffPayload {
     DiffPayload {
       path: "src/main.rs".into(),
-      original: String::new(),
-      modified: modified.to_string(),
-      language: Some("rust".into()),
+      patch: patch.to_string(),
+      merge_text: None,
+      old_image: String::new(),
+      new_image: String::new(),
+      language: Some(language.into()),
       file_type: "text".into(),
-      hunks: vec![DiffHunkPayload {
-        id: "h".into(),
-        header: "@@ -1,2 +1,2 @@".into(),
-        old_start: 1,
-        old_lines: 1,
-        new_start: 1,
-        new_lines: 2,
-        lines: vec![
-          DiffLine {
-            content: "fn main() {}".into(),
-            line_type: "context".into(),
-            old_line_number: Some(1),
-            new_line_number: Some(1),
-          },
-          DiffLine {
-            content: "let x = 1;".into(),
-            line_type: "add".into(),
-            old_line_number: None,
-            new_line_number: Some(2),
-          },
-        ],
-      }],
-      presence: DiffPresence {
-        old_exists: true,
-        new_exists: true,
-      },
-      editable: true,
-      enable_line_selection: true,
+      hunks: vec![hunk("first", (1, 2), (1, 3)), hunk("second", (10, 2), (11, 1))],
       staged: false,
-      content_hash: "h".into(),
+      content_hash: format!("hash-{}", patch.len()),
     }
   }
 
   #[gpui_kit::test]
-  fn text_payload_builds_rows(cx: &mut TestAppContext) {
+  fn a_loaded_text_diff_reaches_the_viewer_in_the_chosen_layout(cx: &mut TestAppContext) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let resource_dir = tempfile::TempDir::new().unwrap();
     cx.update(|cx| {
@@ -840,16 +904,6 @@ mod tests {
     let (session, _events) = core.open_session();
     let layout_dir = config_dir.path().to_path_buf();
     let root = layout_dir.to_string_lossy().into_owned();
-    let payload = text_payload("fn main() {}\nlet x = 1;\n");
-    let expected = build_rows(
-      &payload,
-      &RowOptions {
-        layout: DiffLayout::SideBySide,
-        line_diff: LineDiffType::WordAlt,
-        separators: HunkSeparators::Simple,
-      },
-    )
-    .len();
     let window = cx.add_window({
       let core = core.clone();
       let snapshot = snapshot(
@@ -862,18 +916,17 @@ mod tests {
       );
       let layout_dir = layout_dir.clone();
       let root = root.clone();
-      move |_, cx| {
+      move |window, cx| {
         let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
         let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
-        DiffPanel::new(model, layout, cx)
+        DiffPanel::new(model, layout, window, cx)
       }
     });
     window
       .update(cx, |panel, window, cx| {
-        let payload = payload.clone();
         panel.model().update(cx, |model, _| {
           let load_id = model.state().selected_load_id;
-          model.state_mut().diff = Some(payload);
+          model.state_mut().diff = Some(text_payload(PATCH, "rust"));
           model.state_mut().diff_load_id = Some(load_id);
         });
         window.refresh();
@@ -881,20 +934,87 @@ mod tests {
       .unwrap();
     cx.run_until_parked();
     window
-      .update(cx, |panel, window, cx| {
-        assert_eq!(panel.rows().map(|rows| rows.len()), Some(expected));
-        panel.begin_selection(
-          Anchor {
-            row: 0,
-            side: Side::New,
-            byte: 0,
-          },
-          window,
-          cx,
-        );
-        assert_eq!(window.focused(cx).as_ref(), Some(&panel.focus_handle));
+      .update(cx, |panel, _, cx| {
+        let state = panel.state().read(cx);
+        assert_eq!(state.files().len(), 1);
+        assert_eq!(state.files()[0].path().as_str(), "src/main.rs");
+        assert_eq!(state.mode(), ViewMode::Split);
       })
       .unwrap();
+    cx.update(|cx| AppConfig::update(cx, |config| config.settings.diff.layout = DiffLayout::Inline));
+    cx.run_until_parked();
+    window
+      .update(cx, |panel, _, cx| {
+        assert_eq!(panel.state().read(cx).mode(), ViewMode::Unified);
+      })
+      .unwrap();
+
+    crate::test_core::park_and_shutdown(cx, &core);
+  }
+
+  #[gpui_kit::test]
+  fn f7_moves_a_focused_side_by_side_diff_to_the_next_change(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+      let bindings = crate::keymap::bindings(cx);
+      cx.bind_keys(bindings);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let layout_dir = config_dir.path().to_path_buf();
+    let root = layout_dir.to_string_lossy().into_owned();
+    let (panel, cx) = cx.add_window_view({
+      let core = core.clone();
+      let snapshot = snapshot(
+        &root,
+        Some(FileSelection {
+          path: "src/main.rs".into(),
+          staged: false,
+          group_kind: ResourceGroupKind::WorkingTree,
+        }),
+      );
+      move |window, cx| {
+        let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
+        DiffPanel::new(model, layout, window, cx)
+      }
+    });
+    // Each hunk is taller than the window, so moving to the second change has to scroll.
+    let context: String = (1..=100).map(|n| format!(" ctx{n}\n")).collect();
+    let patch = format!(
+      "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,101 +1,101 @@\n-old\n+new\n{context}@@ -300,101 +300,101 @@\n-far\n+near\n{context}"
+    );
+    panel.update_in(cx, |panel, window, cx| {
+      panel.model().update(cx, |model, _| {
+        let load_id = model.state().selected_load_id;
+        model.state_mut().diff = Some(text_payload(&patch, "rust"));
+        model.state_mut().diff_load_id = Some(load_id);
+      });
+      window.refresh();
+    });
+    cx.run_until_parked();
+    let top = |cx: &mut gpui_kit::VisualTestContext| {
+      cx.run_until_parked();
+      cx.update(|window, cx| {
+        let _ = window.draw(cx);
+      });
+      panel.update(cx, |panel, cx| panel.split.read(cx).top_line().map(|line| line.line()))
+    };
+    assert_eq!(top(cx), Some(1));
+    panel.update_in(cx, |panel, window, cx| {
+      let focus = panel.split.read(cx).focus_handle();
+      window.focus(&focus, cx);
+    });
+    cx.simulate_keystrokes("f7");
+    assert_eq!(top(cx), Some(1));
+    cx.simulate_keystrokes("f7");
+    assert_eq!(top(cx), Some(300));
+    cx.simulate_keystrokes("shift-f7");
+    assert_eq!(top(cx), Some(1));
 
     crate::test_core::park_and_shutdown(cx, &core);
   }

@@ -501,7 +501,7 @@ impl RepoState {
 mod tests {
   use super::*;
   use deathpush_core::session::types::{
-    DiffPresence, OperationActions, SessionRepo, SessionScm, SessionSelection, SyncAction, SyncKind,
+    OperationActions, SessionRepo, SessionScm, SessionSelection, SyncAction, SyncKind,
   };
   use deathpush_core::types::{RepoOperationState, ResourceGroup, ResourceGroupKind, StatusPhase};
 
@@ -846,17 +846,13 @@ mod tests {
   fn commit_diff_payload(path: &str, hash: &str) -> DiffPayload {
     DiffPayload {
       path: path.into(),
-      original: "old\n".into(),
-      modified: hash.into(),
+      patch: "old\n".into(),
+      merge_text: None,
+      old_image: String::new(),
+      new_image: String::new(),
       language: Some("rust".into()),
       file_type: "text".into(),
       hunks: vec![],
-      presence: DiffPresence {
-        old_exists: true,
-        new_exists: true,
-      },
-      editable: false,
-      enable_line_selection: false,
       staged: false,
       content_hash: hash.into(),
     }

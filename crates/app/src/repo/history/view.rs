@@ -289,6 +289,7 @@ impl Render for HistoryView {
           .size(px(list_width))
           .size_range(px(200.0)..px(600.0))
           .flex_none()
+          .fixed()
           .child(list),
       )
       .child(resizable_panel().child(detail));
@@ -401,10 +402,10 @@ mod tests {
       let snapshot = snapshot(&root, log);
       let layout_dir = layout_dir.clone();
       let root = root.clone();
-      move |_, cx| {
+      move |window, cx| {
         let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
         let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
-        let diff = cx.new(|cx| DiffPanel::new(model.clone(), layout.clone(), cx));
+        let diff = cx.new(|cx| DiffPanel::new(model.clone(), layout.clone(), window, cx));
         HistoryView::new(model, layout, diff, cx)
       }
     });

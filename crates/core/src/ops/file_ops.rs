@@ -92,6 +92,29 @@ fn resolve_dest_child(dest: &Path, name: &std::ffi::OsStr, on_conflict: &str) ->
 
 impl Core {
   pub fn write_file(&self, id: SessionId, path: &str, content: &str) -> Result<WriteFileResult> {
+    self.write_file_checked(id, path, None, content)
+  }
+
+  /// Write `content` only while the file on disk still hashes to `expected_hash`
+  /// (`content_hash::sha256_utf8` of the text the caller read). A file that changed or vanished
+  /// is left alone and reported as `Error::FileChanged`.
+  pub fn write_file_if_unchanged(
+    &self,
+    id: SessionId,
+    path: &str,
+    expected_hash: &str,
+    content: &str,
+  ) -> Result<WriteFileResult> {
+    self.write_file_checked(id, path, Some(expected_hash), content)
+  }
+
+  fn write_file_checked(
+    &self,
+    id: SessionId,
+    path: &str,
+    expected_hash: Option<&str>,
+    content: &str,
+  ) -> Result<WriteFileResult> {
     let root = self.repo_root(id)?;
     let canon_root = root
       .canonicalize()
@@ -108,6 +131,13 @@ impl Core {
     let full_path = canon_parent.join(file_name);
     if !canon_parent.starts_with(&canon_root) {
       return Err(Error::Other("Path traversal denied".into()));
+    }
+    if let Some(expected) = expected_hash {
+      let unchanged =
+        std::fs::read_to_string(&full_path).is_ok_and(|current| crate::content_hash::sha256_utf8(&current) == expected);
+      if !unchanged {
+        return Err(Error::FileChanged { path: path.to_string() });
+      }
     }
     let content_hash = crate::content_hash::sha256_utf8(content);
     std::fs::write(&full_path, content)?;

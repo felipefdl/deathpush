@@ -59,7 +59,7 @@ A packaged build checks for updates 2 seconds after the welcome screen appears. 
 ## Prerequisites
 
 - Rust stable (1.97 or newer)
-- [Zig](https://ziglang.org/) 0.16.0 on PATH, for libghostty-vt
+- [Zig](https://ziglang.org/) 0.17.0 on PATH, for libghostty-vt
 - [`just`](https://github.com/casey/just) task runner (`cargo install just`)
 - Linux: X11, Wayland, fontconfig, Vulkan, OpenSSL, and zstd development packages. On Ubuntu:
 

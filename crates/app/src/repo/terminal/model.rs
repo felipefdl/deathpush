@@ -2,8 +2,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use deathpush_core::terminal::pane::PaneHandle;
+use deathpush_core::config::settings::ClipboardRead;
+use deathpush_core::terminal::pane::{ClipboardReadRequest, PaneHandle};
 use deathpush_core::{Core, SessionId};
+use futures::StreamExt;
+use futures::channel::mpsc::{UnboundedReceiver, unbounded};
 use gpui_kit::*;
 
 use super::names::default_name;
@@ -119,6 +122,8 @@ pub(crate) struct PaneInfo {
   pub foreground: Option<String>,
   pub view: Entity<PaneView>,
   handle: Option<Arc<PaneHandle>>,
+  /// Hands the pane's clipboard reads to the app; dropped with the pane.
+  _clipboard: Option<Task<()>>,
 }
 
 impl PaneInfo {
@@ -351,6 +356,7 @@ impl TerminalModel {
     };
     let id = spawned.id;
     let (wake, wake_rx) = pane_view::wake_pair();
+    let (clipboard_tx, clipboard_rx) = unbounded();
     let core = self.core.clone();
     let handle = match PaneHandle::spawn(
       80,
@@ -360,6 +366,9 @@ impl TerminalModel {
         let _ = core.terminal_write(id, &String::from_utf8_lossy(&bytes));
       }),
       wake,
+      Box::new(move |request| {
+        let _ = clipboard_tx.unbounded_send(request);
+      }),
     ) {
       Ok(handle) => Arc::new(handle),
       Err(err) => {
@@ -378,6 +387,7 @@ impl TerminalModel {
     } else {
       Some(spawned.shell)
     };
+    let clipboard = Some(Self::watch_clipboard(id, clipboard_rx, cx));
     self.panes.insert(
       id,
       PaneInfo {
@@ -387,6 +397,7 @@ impl TerminalModel {
         foreground: None,
         view,
         handle: Some(handle),
+        _clipboard: clipboard,
       },
     );
     Some(id)
@@ -396,6 +407,81 @@ impl TerminalModel {
     if let Some(palette) = cx.try_global::<ActivePalette>() {
       handle.send(pane_view::vt_set_colors(&palette.0));
     }
+  }
+
+  /// Answers the pane's clipboard reads as they arrive, one at a time: the program waits for each.
+  fn watch_clipboard(id: u64, requests: UnboundedReceiver<ClipboardReadRequest>, cx: &mut Context<Self>) -> Task<()> {
+    cx.spawn(async move |this, cx| {
+      let mut requests = requests;
+      while let Some(request) = requests.next().await {
+        if this
+          .update(cx, |this, cx| this.answer_clipboard_read(id, request, cx))
+          .is_err()
+        {
+          return;
+        }
+      }
+    })
+  }
+
+  /// Applies the Clipboard Read setting. Ask puts the question to the user in the pane's window;
+  /// no window, no answer, or a closed dialog all answer with an empty clipboard.
+  fn answer_clipboard_read(&mut self, pane: u64, request: ClipboardReadRequest, cx: &mut Context<Self>) {
+    match AppConfig::get(cx).settings.terminal.clipboard_read {
+      ClipboardRead::Deny => request.deny(),
+      ClipboardRead::Allow => give_clipboard(request, cx),
+      ClipboardRead::Ask if request.granted => give_clipboard(request, cx),
+      ClipboardRead::Ask => self.ask_clipboard_read(pane, request, cx),
+    }
+  }
+
+  fn ask_clipboard_read(&mut self, pane: u64, request: ClipboardReadRequest, cx: &mut Context<Self>) {
+    let Some(info) = self.panes.get(&pane) else {
+      request.deny();
+      return;
+    };
+    let fallback_name = info.name();
+    let Some(window) = info.view.read(cx).window_handle().or_else(|| cx.active_window()) else {
+      request.deny();
+      return;
+    };
+    let core = self.core.clone();
+    let session = self.session;
+    cx.spawn(async move |_, cx| {
+      // The cached pane name is refreshed once a second, so a program started a moment ago would
+      // be named after the shell. Ask the system which process owns the terminal right now.
+      let live = cx
+        .background_executor()
+        .spawn(async move { core.terminal_foreground_process(session, pane).ok() })
+        .await;
+      let message = clipboard_prompt_message(
+        live
+          .as_deref()
+          .filter(|name| !name.is_empty())
+          .unwrap_or(&fallback_name),
+      );
+      let answer = cx.update(|cx| {
+        window.update(cx, |_, window, cx| {
+          window.prompt(
+            PromptLevel::Warning,
+            CLIPBOARD_PROMPT_TITLE,
+            Some(&message),
+            &[PromptButton::ok(CLIPBOARD_ALLOW), PromptButton::cancel(CLIPBOARD_DENY)],
+            cx,
+          )
+        })
+      });
+      let Ok(answer) = answer else {
+        request.deny();
+        return;
+      };
+      if matches!(answer.await, Ok(0)) {
+        cx.update(|cx| give_clipboard(request, cx));
+      } else {
+        request.deny();
+      }
+    })
+    .detach();
   }
 
   fn remove_pane(&mut self, pane: u64, window: Option<&mut Window>, cx: &mut Context<Self>) {
@@ -599,6 +685,7 @@ impl TerminalModel {
         foreground: None,
         view,
         handle,
+        _clipboard: None,
       },
     );
     let group_id = self.next_group;
@@ -633,6 +720,7 @@ impl TerminalModel {
         foreground: None,
         view,
         handle: None,
+        _clipboard: None,
       },
     );
     let split_id = self.alloc_split_id();
@@ -647,6 +735,46 @@ impl TerminalModel {
     cx.notify();
     id
   }
+
+  #[cfg(test)]
+  fn watch_test_clipboard(
+    &mut self,
+    pane: u64,
+    requests: UnboundedReceiver<ClipboardReadRequest>,
+    cx: &mut Context<Self>,
+  ) {
+    let task = Self::watch_clipboard(pane, requests, cx);
+    if let Some(info) = self.panes.get_mut(&pane) {
+      info._clipboard = Some(task);
+    }
+  }
+}
+
+const CLIPBOARD_PROMPT_TITLE: &str = "Clipboard Access";
+const CLIPBOARD_ALLOW: &str = "Allow";
+const CLIPBOARD_DENY: &str = "Deny";
+
+/// The program name comes from the process table, so it is untrusted text: control characters
+/// are dropped and long names are cut before they reach the dialog.
+fn clipboard_prompt_message(name: &str) -> String {
+  const MAX_NAME_CHARS: usize = 48;
+  let clean: String = name.chars().filter(|c| !c.is_control()).collect();
+  let clean = clean.trim();
+  let shown: String = if clean.chars().count() > MAX_NAME_CHARS {
+    clean.chars().take(MAX_NAME_CHARS).chain(['…']).collect()
+  } else {
+    clean.to_string()
+  };
+  format!("\"{shown}\" wants to read your clipboard.")
+}
+
+/// Hands the program the clipboard's text, or nothing when it holds none.
+fn give_clipboard(request: ClipboardReadRequest, cx: &mut App) {
+  let text = cx
+    .read_from_clipboard()
+    .and_then(|item| item.text())
+    .unwrap_or_default();
+  request.allow(text);
 }
 
 #[cfg(test)]
@@ -1289,5 +1417,151 @@ mod tests {
     drop(blocked);
 
     crate::test_core::park_and_shutdown(cx, &core);
+  }
+
+  struct ClipboardHost {
+    pane: Entity<PaneView>,
+    _model: Entity<TerminalModel>,
+  }
+
+  impl Render for ClipboardHost {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+      self.pane.clone()
+    }
+  }
+
+  /// A program in pane 1 reads the clipboard (`OSC 52`). Returns what the terminal wrote back to
+  /// the program and the dialog the user saw, after answering it with `button` when one showed.
+  fn read_clipboard(
+    cx: &mut TestAppContext,
+    policy: ClipboardRead,
+    button: &str,
+  ) -> (Vec<u8>, Option<(String, String)>) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+      AppConfig::update(cx, |config| config.settings.terminal.clipboard_read = policy);
+      cx.write_to_clipboard(ClipboardItem::new_string("hi there".to_string()));
+    });
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let reply = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let writer_buf = Arc::clone(&reply);
+    // The test scheduler only accepts wakes from the test thread, so the pane thread hands its
+    // requests over a plain channel and this thread forwards them.
+    let (_, wake_rx) = unbounded();
+    let (request_tx, request_queue) = std::sync::mpsc::channel();
+    let (forward_tx, request_rx) = unbounded();
+    let handle = Arc::new(
+      PaneHandle::spawn(
+        20,
+        4,
+        None,
+        Box::new(move |bytes| writer_buf.lock().unwrap().extend(bytes)),
+        Box::new(|| {}),
+        Box::new(move |request| {
+          let _ = request_tx.send(request);
+        }),
+      )
+      .unwrap(),
+    );
+    let window = cx.add_window({
+      let core = core.clone();
+      let handle = Arc::clone(&handle);
+      move |_, cx| {
+        let pane = cx.new(|cx| PaneView::new(1, Arc::clone(&handle), wake_rx, cx));
+        let model = cx.new(|cx| {
+          let mut model = TerminalModel::new(core, session, cx);
+          model.insert_test_pane_with_handle(pane.clone(), handle, cx);
+          model.watch_test_clipboard(1, request_rx, cx);
+          model
+        });
+        ClipboardHost { pane, _model: model }
+      }
+    });
+    AnyWindowHandle::from(window)
+      .update(cx, |_, window, cx| {
+        let _ = window.draw(cx);
+      })
+      .unwrap();
+    handle.push_bytes(b"\x1b]52;c;?\x1b\\");
+    let mut dialog = None;
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while std::time::Instant::now() < deadline {
+      while let Ok(request) = request_queue.try_recv() {
+        let _ = forward_tx.unbounded_send(request);
+      }
+      cx.run_until_parked();
+      if dialog.is_none() && cx.has_pending_prompt() {
+        dialog = cx.pending_prompt();
+        cx.simulate_prompt_answer(button);
+      }
+      if reply.lock().unwrap().ends_with(b"\x1b\\") {
+        break;
+      }
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    let reply = reply.lock().unwrap().clone();
+    drop(handle);
+    crate::test_core::park_and_shutdown(cx, &core);
+    (reply, dialog)
+  }
+
+  const HI_THERE_REPLY: &[u8] = b"\x1b]52;c;aGkgdGhlcmU=\x1b\\";
+  const EMPTY_REPLY: &[u8] = b"\x1b]52;c;\x1b\\";
+
+  #[gpui_kit::test]
+  fn ask_shows_the_dialog_and_allow_hands_over_the_clipboard(cx: &mut TestAppContext) {
+    let (reply, dialog) = read_clipboard(cx, ClipboardRead::Ask, "Allow");
+    assert_eq!(
+      dialog,
+      Some((
+        "Clipboard Access".to_string(),
+        "\"Terminal 1\" wants to read your clipboard.".to_string()
+      ))
+    );
+    assert_eq!(reply, HI_THERE_REPLY);
+  }
+
+  #[gpui_kit::test]
+  fn ask_then_deny_answers_with_an_empty_clipboard(cx: &mut TestAppContext) {
+    let (reply, dialog) = read_clipboard(cx, ClipboardRead::Ask, "Deny");
+    assert!(dialog.is_some(), "Ask must show the dialog");
+    assert_eq!(reply, EMPTY_REPLY);
+  }
+
+  #[gpui_kit::test]
+  fn allow_setting_hands_over_the_clipboard_without_asking(cx: &mut TestAppContext) {
+    let (reply, dialog) = read_clipboard(cx, ClipboardRead::Allow, "Deny");
+    assert_eq!(dialog, None);
+    assert_eq!(reply, HI_THERE_REPLY);
+  }
+
+  #[gpui_kit::test]
+  fn deny_setting_answers_empty_without_asking(cx: &mut TestAppContext) {
+    let (reply, dialog) = read_clipboard(cx, ClipboardRead::Deny, "Allow");
+    assert_eq!(dialog, None);
+    assert_eq!(reply, EMPTY_REPLY);
+  }
+
+  #[test]
+  fn prompt_message_treats_the_program_name_as_untrusted_text() {
+    assert_eq!(
+      clipboard_prompt_message("python3"),
+      "\"python3\" wants to read your clipboard."
+    );
+    assert_eq!(
+      clipboard_prompt_message("evil\n\"Allow\"\u{1b}[2J "),
+      "\"evil\"Allow\"[2J\" wants to read your clipboard."
+    );
+    let long = "x".repeat(200);
+    let message = clipboard_prompt_message(&long);
+    assert_eq!(
+      message,
+      format!("\"{}…\" wants to read your clipboard.", "x".repeat(48))
+    );
   }
 }

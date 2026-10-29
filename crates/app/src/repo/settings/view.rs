@@ -88,7 +88,7 @@ impl SettingsView {
       if matches!(event, InputEvent::Change) {
         let value = input.read(cx).value().to_string();
         AppConfig::update(cx, |c| c.settings.ui.font_family = value);
-        crate::theme::refresh_ui_font(None, cx);
+        crate::theme::refresh_fonts(None, cx);
         cx.notify();
       }
     })
@@ -97,6 +97,7 @@ impl SettingsView {
       if matches!(event, InputEvent::Change) {
         let value = input.read(cx).value().to_string();
         AppConfig::update(cx, |c| c.settings.editor.font_family = value);
+        crate::theme::refresh_fonts(None, cx);
         cx.notify();
       }
     })
@@ -1112,7 +1113,8 @@ mod tests {
       gpui_kit::init(cx);
       AppConfig::init_at(config_dir.path().to_path_buf(), cx);
       crate::theme::init(cx);
-      cx.bind_keys(crate::keymap::bindings());
+      let bindings = crate::keymap::bindings(cx);
+      cx.bind_keys(bindings);
     });
     let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
     let (session, _events) = core.open_session();

@@ -3,7 +3,7 @@ use deathpush_core::session::types::FileSelection;
 use deathpush_core::theme::UiPalette;
 use deathpush_core::types::{FileStatus, ResourceGroupKind};
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::{Icon, Sizable, Size};
+use gpui_kit::component::{Icon, IconName, Sizable, Size};
 use gpui_kit::*;
 
 use super::panel::DiffPanel;
@@ -28,6 +28,8 @@ pub fn file_name(path: &str) -> &str {
 pub fn render_header(
   selection: &FileSelection,
   layout: DiffLayout,
+  show_nav: bool,
+  show_layout: bool,
   view: WeakEntity<DiffPanel>,
   palette: UiPalette,
   _cx: &App,
@@ -72,6 +74,7 @@ pub fn render_header(
         .flex()
         .items_center()
         .gap_1()
+        .children(show_nav.then(|| change_nav(view.clone())).into_iter().flatten())
         .child(
           Button::new("diff-history")
             .ghost()
@@ -90,7 +93,7 @@ pub fn render_header(
               }
             }),
         )
-        .child(layout_toggle(layout_icon, layout_tooltip)),
+        .children(show_layout.then(|| layout_toggle(layout_icon, layout_tooltip))),
     )
 }
 
@@ -99,7 +102,9 @@ pub fn render_commit_header(
   path: &str,
   status: FileStatus,
   layout: DiffLayout,
-  _view: WeakEntity<DiffPanel>,
+  show_nav: bool,
+  show_layout: bool,
+  view: WeakEntity<DiffPanel>,
   palette: UiPalette,
 ) -> impl IntoElement {
   let letter = status_letter(status.clone());
@@ -139,7 +144,43 @@ pub fn render_commit_header(
             .child(letter),
         ),
     )
-    .child(layout_toggle(layout_icon, layout_tooltip))
+    .child(
+      div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .children(show_nav.then(|| change_nav(view)).into_iter().flatten())
+        .children(show_layout.then(|| layout_toggle(layout_icon, layout_tooltip))),
+    )
+}
+
+/// Previous and next change buttons, the pointer twin of F7 and Shift+F7.
+fn change_nav(view: WeakEntity<DiffPanel>) -> [Button; 2] {
+  let nav = |id: &'static str, icon: IconName, tooltip: &'static str, forward: bool| {
+    Button::new(id)
+      .ghost()
+      .with_size(Size::Medium)
+      .w(px(22.0))
+      .h(px(22.0))
+      .icon(icon)
+      .tooltip(tooltip)
+      .on_click({
+        let view = view.clone();
+        move |_, _, cx| {
+          let _ = view.update(cx, |this, cx| {
+            if forward {
+              this.next_change(cx);
+            } else {
+              this.previous_change(cx);
+            }
+          });
+        }
+      })
+  };
+  [
+    nav("diff-previous-change", IconName::ArrowUp, "Previous Change", false),
+    nav("diff-next-change", IconName::ArrowDown, "Next Change", true),
+  ]
 }
 
 fn layout_toggle(layout_icon: &'static str, layout_tooltip: &'static str) -> impl IntoElement {

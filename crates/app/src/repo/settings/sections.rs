@@ -1,6 +1,7 @@
 use deathpush_core::config::settings::{
-  BellStyle, CursorInactiveStyle, CursorStyle, DiffIndicators, DiffLayout, DiffSettings, EditorSettings, GitSettings,
-  HunkSeparators, LineDiffType, Settings, SidebarPosition, TerminalSettings, TreeDensity, TreeIcons, WordWrap,
+  BellStyle, ClipboardRead, CursorInactiveStyle, CursorStyle, DiffIndicators, DiffLayout, DiffSettings, EditorSettings,
+  GitSettings, HunkSeparators, LineDiffType, Settings, SidebarPosition, TerminalSettings, TreeDensity, TreeIcons,
+  WordWrap,
 };
 use deathpush_core::config::settings_ui::{
   FONT_WEIGHTS, ShellPreset, preset_for, shell_exists, shell_presets, workspace_summary,
@@ -95,7 +96,7 @@ pub(crate) fn appearance(
       1.0,
       persist(view.clone(), |value: f64, cx| {
         AppConfig::update(cx, |c| c.settings.ui.font_size = value.round() as u32);
-        crate::theme::refresh_ui_font(None, cx);
+        crate::theme::refresh_fonts(None, cx);
       }),
     ))
     .child(select_row(
@@ -133,6 +134,7 @@ pub(crate) fn editor(
       1.0,
       persist(view.clone(), |value: f64, cx| {
         AppConfig::update(cx, |c| c.settings.editor.font_size = value.round() as u32);
+        crate::theme::refresh_fonts(None, cx);
       }),
     ))
     .child(text_row("Font Family", font_input))
@@ -438,8 +440,16 @@ pub(crate) fn terminal(
       "Bell Style",
       bell_style_options(),
       terminal.bell_style,
-      persist(view, |value, cx| {
+      persist(view.clone(), |value, cx| {
         AppConfig::update(cx, |c| c.settings.terminal.bell_style = value);
+      }),
+    ))
+    .child(select_row(
+      "Clipboard Read",
+      clipboard_read_options(),
+      terminal.clipboard_read,
+      persist(view, |value, cx| {
+        AppConfig::update(cx, |c| c.settings.terminal.clipboard_read = value);
       }),
     ))
 }
@@ -544,7 +554,6 @@ fn diff_indicators_options() -> Vec<(SharedString, DiffIndicators)> {
 
 fn line_diff_options() -> Vec<(SharedString, LineDiffType)> {
   vec![
-    ("Smart Words".into(), LineDiffType::WordAlt),
     ("Words".into(), LineDiffType::Word),
     ("Characters".into(), LineDiffType::Char),
     ("None".into(), LineDiffType::None),
@@ -553,7 +562,6 @@ fn line_diff_options() -> Vec<(SharedString, LineDiffType)> {
 
 fn hunk_separators_options() -> Vec<(SharedString, HunkSeparators)> {
   vec![
-    ("Compact Line Info".into(), HunkSeparators::LineInfoBasic),
     ("Line Info".into(), HunkSeparators::LineInfo),
     ("Metadata".into(), HunkSeparators::Metadata),
     ("Simple".into(), HunkSeparators::Simple),
@@ -591,6 +599,14 @@ fn bell_style_options() -> Vec<(SharedString, BellStyle)> {
     ("Sound".into(), BellStyle::Sound),
     ("Visual".into(), BellStyle::Visual),
     ("Both".into(), BellStyle::Both),
+  ]
+}
+
+fn clipboard_read_options() -> Vec<(SharedString, ClipboardRead)> {
+  vec![
+    ("Ask".into(), ClipboardRead::Ask),
+    ("Allow".into(), ClipboardRead::Allow),
+    ("Deny".into(), ClipboardRead::Deny),
   ]
 }
 

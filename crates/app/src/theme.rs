@@ -98,14 +98,30 @@ fn hex(color: Rgba) -> Option<SharedString> {
   Some(color.to_hex().into())
 }
 
+/// The saved fonts a theme config carries: the UI font, and the editor font as gpui-component's monospace font,
+/// which the diff viewer renders code in.
+#[derive(Default)]
+pub struct ThemeFonts {
+  pub ui_family: String,
+  pub ui_size: u32,
+  pub mono_family: String,
+  pub mono_size: u32,
+}
+
+impl ThemeFonts {
+  fn from_settings(cx: &App) -> Self {
+    let settings = &AppConfig::get(cx).settings;
+    Self {
+      ui_family: settings.ui.font_family.clone(),
+      ui_size: settings.ui.font_size,
+      mono_family: settings.editor.font_family.clone(),
+      mono_size: settings.editor.font_size,
+    }
+  }
+}
+
 /// gpui-component's theme config for one of our themes.
-pub fn theme_config(
-  spec: &ThemeSpec,
-  palette: &UiPalette,
-  base: &ThemeStyle,
-  ui_font_family: &str,
-  ui_font_size: u32,
-) -> ThemeConfig {
+pub fn theme_config(spec: &ThemeSpec, palette: &UiPalette, base: &ThemeStyle, fonts: &ThemeFonts) -> ThemeConfig {
   // Base.* fields on ThemeConfigColors are private, so struct update from outside the crate does not compile.
   let mut colors = ThemeConfigColors::default();
   colors.background = hex(palette.background);
@@ -193,8 +209,10 @@ pub fn theme_config(
     } else {
       ThemeMode::Light
     },
-    font_family: (!ui_font_family.is_empty()).then(|| ui_font_family.to_string().into()),
-    font_size: Some(ui_font_size as f32),
+    font_family: (!fonts.ui_family.is_empty()).then(|| fonts.ui_family.clone().into()),
+    font_size: Some(fonts.ui_size as f32),
+    mono_font_family: (!fonts.mono_family.is_empty()).then(|| fonts.mono_family.clone().into()),
+    mono_font_size: Some(fonts.mono_size as f32),
     colors,
     highlight,
     ..Default::default()
@@ -217,10 +235,7 @@ fn load_catalog(cx: &App) -> (ThemeCatalog, ThemeSet) {
   let mut all_specs = bundled;
   load_user_specs(&mut all_specs, taken);
 
-  let (font_family, font_size) = {
-    let ui = &AppConfig::get(cx).settings.ui;
-    (ui.font_family.clone(), ui.font_size)
-  };
+  let fonts = ThemeFonts::from_settings(cx);
   let dark_base = Arc::new(dark_base);
   let light_base = Arc::new(light_base);
   let mut entries = Vec::new();
@@ -239,7 +254,7 @@ fn load_catalog(cx: &App) -> (ThemeCatalog, ThemeSet) {
       ThemeKind::Light => light_base.as_ref(),
     };
     let palette = UiPalette::resolve(&spec, base);
-    configs.push(theme_config(&spec, &palette, base, &font_family, font_size));
+    configs.push(theme_config(&spec, &palette, base, &fonts));
     entries.push(ThemeEntry {
       id: id.clone(),
       label: spec.label(),
@@ -362,11 +377,7 @@ fn apply_visual(id: &str, wanted: ThemeKind, window: Option<&mut Window>, cx: &m
     let base = catalog.base(kind);
     (id, kind, palette, spec, base)
   };
-  let (font_family, font_size) = {
-    let ui = &AppConfig::get(cx).settings.ui;
-    (ui.font_family.clone(), ui.font_size)
-  };
-  let config = Rc::new(theme_config(&spec, &palette, &base, &font_family, font_size));
+  let config = Rc::new(theme_config(&spec, &palette, &base, &ThemeFonts::from_settings(cx)));
   {
     let theme = Theme::global_mut(cx);
     if kind == ThemeKind::Dark {
@@ -388,8 +399,8 @@ fn apply_visual(id: &str, wanted: ThemeKind, window: Option<&mut Window>, cx: &m
   id
 }
 
-/// Rebuild the current theme's config from the catalog and the saved UI font, then apply it.
-pub fn refresh_ui_font(window: Option<&mut Window>, cx: &mut App) {
+/// Rebuild the current theme's config from the catalog and the saved UI and editor fonts, then apply it.
+pub fn refresh_fonts(window: Option<&mut Window>, cx: &mut App) {
   let current = AppConfig::get(cx).settings.theme.current.clone();
   let wanted = ThemeCatalog::get(cx).kind(&current).unwrap_or(ThemeKind::Dark);
   apply_visual(&current, wanted, window, cx);
@@ -458,7 +469,15 @@ mod tests {
     let family = parse_theme_family(include_str!("../../../assets/themes/one.json")).unwrap();
     let spec = family.themes.iter().find(|spec| spec.name == "One Light").unwrap();
     let palette = UiPalette::resolve(spec, &spec.style);
-    let config = theme_config(spec, &palette, &spec.style, "", 13);
+    let config = theme_config(
+      spec,
+      &palette,
+      &spec.style,
+      &ThemeFonts {
+        ui_size: 13,
+        ..ThemeFonts::default()
+      },
+    );
     assert_eq!(config.mode, ThemeMode::Light);
     assert_eq!(
       config.colors.background.as_deref(),
@@ -481,7 +500,15 @@ mod tests {
     .unwrap();
     let spec = &family.themes[0];
     let palette = UiPalette::resolve(spec, &spec.style);
-    let config = theme_config(spec, &palette, &spec.style, "", 13);
+    let config = theme_config(
+      spec,
+      &palette,
+      &spec.style,
+      &ThemeFonts {
+        ui_size: 13,
+        ..ThemeFonts::default()
+      },
+    );
     let highlight = config.highlight.expect("highlight style");
     assert!(highlight.syntax.style("keyword").and_then(|s| s.color).is_some());
   }
@@ -502,7 +529,7 @@ mod tests {
   }
 
   #[gpui_kit::test]
-  fn refresh_ui_font_updates_the_active_theme_without_reload(cx: &mut TestAppContext) {
+  fn refresh_fonts_updates_the_active_theme_without_reload(cx: &mut TestAppContext) {
     let dir = tempfile::TempDir::new().unwrap();
     cx.update(|cx| {
       gpui_kit::init(cx);
@@ -512,11 +539,15 @@ mod tests {
       AppConfig::update(cx, |c| {
         c.settings.ui.font_family = "Test Sans".into();
         c.settings.ui.font_size = 16;
+        c.settings.editor.font_family = "Test Mono".into();
+        c.settings.editor.font_size = 15;
       });
       assert_eq!(Theme::global(cx).font_size, px(13.));
-      refresh_ui_font(None, cx);
+      refresh_fonts(None, cx);
       assert_eq!(Theme::global(cx).font_family.as_ref(), "Test Sans");
       assert_eq!(Theme::global(cx).font_size, px(16.));
+      assert_eq!(Theme::global(cx).mono_font_family.as_ref(), "Test Mono");
+      assert_eq!(Theme::global(cx).mono_font_size, px(15.));
     });
   }
 

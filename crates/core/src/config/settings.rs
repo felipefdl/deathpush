@@ -10,7 +10,17 @@ pub fn zoom_scale(level: i32) -> f32 {
 
 pub const DEFAULT_DARK_THEME: &str = "warm-burnout-dark";
 pub const DEFAULT_LIGHT_THEME: &str = "warm-burnout-light";
-pub const MONO_FONT_STACK: &str = "MesloLGS Nerd Font Mono";
+pub const MONO_FONT_STACK: &str = "MesloLGSDZ Nerd Font Mono";
+
+fn deserialize_monospace_family<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+  let family = String::deserialize(deserializer)?;
+  // Older settings saved a family name that did not match the bundled font.
+  Ok(if family == "MesloLGS Nerd Font Mono" {
+    MONO_FONT_STACK.to_string()
+  } else {
+    family
+  })
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -88,6 +98,7 @@ pub enum WordWrap {
 #[serde(rename_all = "camelCase", default)]
 pub struct EditorSettings {
   pub font_size: u32,
+  #[serde(deserialize_with = "deserialize_monospace_family")]
   pub font_family: String,
   pub line_height: u32,
   pub tab_size: u32,
@@ -126,8 +137,9 @@ pub enum DiffIndicators {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum LineDiffType {
+  /// Saved as `word-alt` before the Smart Words and Words options merged.
   #[default]
-  WordAlt,
+  #[serde(alias = "word-alt")]
   Word,
   Char,
   None,
@@ -139,8 +151,9 @@ pub enum HunkSeparators {
   #[default]
   Simple,
   Metadata,
+  /// Saved as `line-info-basic` before Compact Line Info and Line Info merged.
+  #[serde(alias = "line-info-basic")]
   LineInfo,
-  LineInfoBasic,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -162,7 +175,7 @@ impl Default for DiffSettings {
       show_inline_hunk_actions: false,
       show_line_numbers: true,
       diff_indicators: DiffIndicators::None,
-      line_diff_type: LineDiffType::WordAlt,
+      line_diff_type: LineDiffType::Word,
       show_background: true,
       hunk_separators: HunkSeparators::Simple,
     }
@@ -199,10 +212,24 @@ pub enum BellStyle {
   Both,
 }
 
+/// What a program running in the terminal may do when it asks to read the clipboard (OSC 52).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ClipboardRead {
+  /// Ask each time.
+  #[default]
+  Ask,
+  /// Hand the clipboard over without asking.
+  Allow,
+  /// Answer with an empty clipboard.
+  Deny,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TerminalSettings {
   pub font_size: u32,
+  #[serde(deserialize_with = "deserialize_monospace_family")]
   pub font_family: String,
   pub line_height: f32,
   pub cursor_blink: bool,
@@ -219,6 +246,7 @@ pub struct TerminalSettings {
   pub shell_path: String,
   pub bell_style: BellStyle,
   pub color_saturation: f32,
+  pub clipboard_read: ClipboardRead,
 }
 
 impl Default for TerminalSettings {
@@ -241,6 +269,7 @@ impl Default for TerminalSettings {
       shell_path: String::new(),
       bell_style: BellStyle::Off,
       color_saturation: 1.42,
+      clipboard_read: ClipboardRead::Ask,
     }
   }
 }
@@ -307,6 +336,20 @@ mod tests {
   use super::*;
 
   #[test]
+  fn saved_font_typo_is_repaired_without_changing_custom_fonts() {
+    let settings: Settings = serde_json::from_str(
+      r#"{"editor":{"fontFamily":"MesloLGS Nerd Font Mono"},"terminal":{"fontFamily":"MesloLGS Nerd Font Mono"}}"#,
+    )
+    .unwrap();
+    assert_eq!(settings.editor.font_family, MONO_FONT_STACK);
+    assert_eq!(settings.terminal.font_family, MONO_FONT_STACK);
+    let custom: Settings =
+      serde_json::from_str(r#"{"editor":{"fontFamily":"Menlo"},"terminal":{"fontFamily":"Monaco"}}"#).unwrap();
+    assert_eq!(custom.editor.font_family, "Menlo");
+    assert_eq!(custom.terminal.font_family, "Monaco");
+  }
+
+  #[test]
   fn defaults_match_the_settings_spec() {
     let settings = Settings::default();
     assert_eq!(settings.ui.font_size, 13);
@@ -318,6 +361,7 @@ mod tests {
     assert_eq!(settings.terminal.scrollback, 5000);
     assert!(!settings.terminal.right_click_selects_word);
     assert!(!settings.terminal.mac_option_click_forces_selection);
+    assert_eq!(settings.terminal.clipboard_read, ClipboardRead::Ask);
     assert!(settings.git.blame);
     assert_eq!(settings.theme.preferred_dark, "warm-burnout-dark");
     assert_eq!(settings.theme.preferred_light, "warm-burnout-light");
@@ -337,18 +381,30 @@ mod tests {
     assert_eq!(settings.ui.zoom_level, 2);
     assert_eq!(settings.ui.font_size, 13);
     assert_eq!(settings.diff.layout, DiffLayout::Inline);
-    assert_eq!(settings.diff.line_diff_type, LineDiffType::WordAlt);
+    assert_eq!(settings.diff.line_diff_type, LineDiffType::Word);
+  }
+
+  #[test]
+  fn merged_diff_options_still_load_their_old_wire_names() {
+    let settings: DiffSettings =
+      serde_json::from_str(r#"{"lineDiffType":"word-alt","hunkSeparators":"line-info-basic"}"#).unwrap();
+    assert_eq!(settings.line_diff_type, LineDiffType::Word);
+    assert_eq!(settings.hunk_separators, HunkSeparators::LineInfo);
   }
 
   #[test]
   fn enums_keep_the_old_wire_names() {
     let json = serde_json::to_string(&DiffSettings::default()).unwrap();
-    assert!(json.contains("\"lineDiffType\":\"word-alt\""));
+    assert!(json.contains("\"lineDiffType\":\"word\""));
     assert!(json.contains("\"hunkSeparators\":\"simple\""));
     let terminal: TerminalSettings =
-      serde_json::from_str(r#"{"cursorInactiveStyle":"underline","bellStyle":"both"}"#).unwrap();
+      serde_json::from_str(r#"{"cursorInactiveStyle":"underline","bellStyle":"both","clipboardRead":"allow"}"#)
+        .unwrap();
     assert_eq!(terminal.cursor_inactive_style, CursorInactiveStyle::Underline);
     assert_eq!(terminal.bell_style, BellStyle::Both);
+    assert_eq!(terminal.clipboard_read, ClipboardRead::Allow);
+    let json = serde_json::to_string(&TerminalSettings::default()).unwrap();
+    assert!(json.contains("\"clipboardRead\":\"ask\""));
   }
 
   #[test]

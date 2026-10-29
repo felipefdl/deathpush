@@ -4,22 +4,22 @@ use crate::error::{Error, Result};
 use crate::git::blame::{get_file_blame, get_file_log};
 
 use crate::git::cli::GitCli;
-use crate::git::diff::{commit_file_diff, scm_file_diff};
+use crate::git::diff::{ScmFileDiff, commit_file_diff, scm_file_diff};
 use crate::git::hunk::{find_hunk_index, generate_hunk_patch_from_hunks, generate_lines_patch, hunk_id};
 use crate::git::log::{get_commit_detail, get_commit_log};
 use crate::git::repository::GitRepository;
-use crate::types::{FileStatus, RepositoryStatus, ResourceGroupKind};
+use crate::types::{RepositoryStatus, ResourceGroupKind};
 
 use super::policy::{
   OperationRoute, classify_discard, confirmation_required, derive_actions, discard_confirmation_message,
-  enable_scm_line_selection, expand_resource_paths, files_from_groups, is_scm_diff_editable, operation_abort,
-  operation_continue, operation_skip, push_needs_confirmation, reset_needs_confirmation, scm_patch_presence,
-  should_stage_all_before_commit, sync_kind_after_commit, unstaged_files,
+  expand_resource_paths, files_from_groups, operation_abort, operation_continue, operation_skip,
+  push_needs_confirmation, reset_needs_confirmation, should_stage_all_before_commit, sync_kind_after_commit,
+  unstaged_files,
 };
 use super::registry::{SessionAccess, SessionState};
 use super::types::{
-  COMMIT_LOG_PAGE, DEFAULT_REMOTE, DiffHunkPayload, DiffPayload, DiffPresence, FileSelection, Intent, IntentOutcome,
-  SessionActions, SessionPatch, SessionScm, SyncKind,
+  COMMIT_LOG_PAGE, DEFAULT_REMOTE, DiffHunkPayload, DiffPayload, FileSelection, Intent, IntentOutcome, SessionActions,
+  SessionPatch, SessionScm, SyncKind,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -278,7 +278,7 @@ pub async fn apply_intent(
       staged,
       group_kind,
     } => {
-      let selection = session.with_mut(|state| {
+      session.with_mut(|state| {
         if let Some(group_kind) = group_kind {
           state.selection = Some(FileSelection {
             path: path.clone(),
@@ -288,14 +288,23 @@ pub async fn apply_intent(
         }
         state.diff_path = Some(path.clone());
         state.diff_staged = staged;
-        state.selection.clone()
       })?;
-      let payload = open_scm_diff(root, status, selection.as_ref(), &path, staged)?;
-      Ok(ApplyOutput::Diff(payload))
+      let repo = GitRepository::open(root)?;
+      let file = scm_file_diff(&repo, &path, staged)?;
+      let merge_text = if group_kind == Some(ResourceGroupKind::Merge) && file.content.file_type == "text" {
+        read_workdir_text(root, &path)
+      } else {
+        None
+      };
+      Ok(ApplyOutput::Diff(diff_payload(file, staged, merge_text)))
     }
     Intent::OpenCommitDiff { commit, path } => {
       let repo = GitRepository::open(root)?;
-      Ok(ApplyOutput::Diff(open_commit_diff(&repo, &commit, &path)?))
+      Ok(ApplyOutput::Diff(diff_payload(
+        commit_file_diff(&repo, &commit, &path)?,
+        false,
+        None,
+      )))
     }
     Intent::OpenBlame { path } => Ok(ApplyOutput::Blame(get_file_blame(root, &path).await?)),
 
@@ -710,69 +719,44 @@ fn line_range_calls(hunks: &[crate::types::DiffHunk], start: usize, end: usize) 
   calls
 }
 
-fn open_scm_diff(
-  root: &Path,
-  status: &RepositoryStatus,
-  selection: Option<&FileSelection>,
-  path: &str,
-  staged: bool,
-) -> Result<DiffPayload> {
-  let repo = GitRepository::open(root)?;
-  let file = scm_file_diff(&repo, path, staged)?;
-  let group_kind = selection
-    .filter(|selection| selection.path == path)
-    .map(|selection| selection.group_kind)
-    .unwrap_or(if staged {
-      ResourceGroupKind::Index
-    } else {
-      ResourceGroupKind::WorkingTree
-    });
-  let file_status = status
-    .groups
-    .iter()
-    .find(|group| group.kind == group_kind)
-    .and_then(|group| group.files.iter().find(|file| file.path == path))
-    .map(|file| &file.status);
-  let (old_exists, new_exists) = scm_patch_presence(group_kind, file_status);
-  let has_working_tree_side = status.groups.iter().any(|group| {
-    group.kind != ResourceGroupKind::Index
-      && group.kind != ResourceGroupKind::Merge
-      && group.files.iter().any(|file| file.path == path)
-  }) || file_status == Some(&FileStatus::Untracked);
-  let content_hash = crate::content_hash::sha256_utf8(&file.content.modified);
-  Ok(DiffPayload {
-    path: path.to_string(),
-    original: file.content.original,
-    modified: file.content.modified,
+/// The working-tree text of `path`, when it is inside the repository and valid UTF-8.
+fn read_workdir_text(root: &Path, path: &str) -> Option<String> {
+  let canon_root = root.canonicalize().ok()?;
+  let full = root.join(path).canonicalize().ok()?;
+  if !full.starts_with(&canon_root) {
+    return None;
+  }
+  std::fs::read_to_string(full).ok()
+}
+
+fn diff_payload(file: ScmFileDiff, staged: bool, merge_text: Option<String>) -> DiffPayload {
+  let is_image = file.content.file_type == "image";
+  let (old_image, new_image) = if is_image {
+    (file.content.original, file.content.modified)
+  } else {
+    (String::new(), String::new())
+  };
+  let content_hash = crate::content_hash::sha256_utf8(
+    &[
+      file.patch.as_str(),
+      old_image.as_str(),
+      new_image.as_str(),
+      merge_text.as_deref().unwrap_or(""),
+    ]
+    .join("\0"),
+  );
+  DiffPayload {
+    path: file.content.path,
+    patch: file.patch,
+    merge_text,
+    old_image,
+    new_image,
     language: file.content.original_language,
     file_type: file.content.file_type,
     hunks: file.hunks.iter().map(DiffHunkPayload::from).collect(),
-    presence: DiffPresence { old_exists, new_exists },
-    editable: is_scm_diff_editable(group_kind, has_working_tree_side),
-    enable_line_selection: enable_scm_line_selection(group_kind),
     staged,
     content_hash,
-  })
-}
-
-fn open_commit_diff(repo: &GitRepository, commit: &str, path: &str) -> Result<DiffPayload> {
-  let diff = commit_file_diff(repo, commit, path)?;
-  let old_exists = !diff.content.original.is_empty();
-  let new_exists = !diff.content.modified.is_empty();
-  let content_hash = crate::content_hash::sha256_utf8(&diff.content.modified);
-  Ok(DiffPayload {
-    path: diff.content.path,
-    original: diff.content.original,
-    modified: diff.content.modified,
-    language: diff.content.original_language,
-    file_type: diff.content.file_type,
-    hunks: diff.hunks.iter().map(DiffHunkPayload::from).collect(),
-    presence: DiffPresence { old_exists, new_exists },
-    editable: false,
-    enable_line_selection: false,
-    staged: false,
-    content_hash,
-  })
+  }
 }
 
 fn trash_paths(root: &Path, paths: &[String]) -> Result<()> {
@@ -843,13 +827,15 @@ mod tests {
   use std::path::Path;
 
   use super::{
-    ApplyOutput, FinishApply, RefreshImpact, apply_intent, finish_apply, outcome_should_bump, stamp_outcome,
+    ApplyOutput, FinishApply, RefreshImpact, apply_intent, diff_payload, finish_apply, outcome_should_bump,
+    scm_file_diff, stamp_outcome,
   };
   use crate::git::cli::GitCli;
+  use crate::git::repository::GitRepository;
   use crate::session::registry::SessionState;
   use crate::session::types::{
-    DiffPayload, DiffPresence, FileSelection, Intent, IntentOutcome, OperationActions, SessionActions, SessionPatch,
-    SyncAction, SyncKind,
+    DiffPayload, FileSelection, Intent, IntentOutcome, OperationActions, SessionActions, SessionPatch, SyncAction,
+    SyncKind,
   };
   use crate::types::{
     FileBlame, FileEntry, FileStatus, RepoOperationState, RepositoryStatus, ResourceGroup, ResourceGroupKind,
@@ -1120,6 +1106,103 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn a_staged_hunk_leaves_the_working_diff_and_enters_the_staged_one() {
+    let (directory, _) = init_repo();
+    let root = directory.path();
+    let numbered: String = (1..=40).map(|n| format!("line {n}\n")).collect();
+    std::fs::write(root.join("many.txt"), &numbered).unwrap();
+    let cli = GitCli::new(root);
+    cli.stage_files(&["many.txt".to_string()]).await.unwrap();
+    cli.commit("many", false).await.unwrap();
+    let changed = numbered
+      .replace("line 3\n", "line three\n")
+      .replace("line 38\n", "line thirty-eight\n");
+    std::fs::write(root.join("many.txt"), changed).unwrap();
+
+    let repo = GitRepository::open(root).unwrap();
+    let payload = diff_payload(scm_file_diff(&repo, "many.txt", false).unwrap(), false, None);
+    assert_eq!(payload.hunks.len(), 2);
+    assert!(payload.patch.contains("+line thirty-eight"));
+
+    let mut state = SessionState {
+      diff_path: Some("many.txt".into()),
+      ..SessionState::default()
+    };
+    let status = empty_status(&root.to_string_lossy());
+    apply_intent(
+      Intent::StageHunk {
+        hunk_id: payload.hunks[1].id.clone(),
+      },
+      root,
+      &status,
+      &mut state,
+    )
+    .await
+    .unwrap();
+
+    let working = diff_payload(scm_file_diff(&repo, "many.txt", false).unwrap(), false, None);
+    assert_eq!(working.hunks.len(), 1);
+    assert!(working.patch.contains("+line three"));
+    assert!(!working.patch.contains("thirty-eight"));
+    let staged = diff_payload(scm_file_diff(&repo, "many.txt", true).unwrap(), true, None);
+    assert_eq!(staged.hunks.len(), 1);
+    assert!(staged.patch.contains("+line thirty-eight"));
+    assert_ne!(working.content_hash, staged.content_hash);
+  }
+
+  #[tokio::test]
+  async fn a_merge_file_carries_its_conflict_markers() {
+    let (directory, _) = init_repo();
+    let root = directory.path();
+    let git = |args: &[&str]| {
+      let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .unwrap();
+      output.status.success()
+    };
+    let base = git2::Repository::open(root)
+      .unwrap()
+      .head()
+      .unwrap()
+      .shorthand()
+      .unwrap()
+      .to_string();
+    assert!(git(&["checkout", "-q", "-b", "other"]));
+    std::fs::write(root.join("README.md"), "other\n").unwrap();
+    assert!(git(&["commit", "-qam", "other"]));
+    assert!(git(&["checkout", "-q", &base]));
+    std::fs::write(root.join("README.md"), "mine\n").unwrap();
+    assert!(git(&["commit", "-qam", "mine"]));
+    assert!(!git(&["merge", "other"]), "the merge must conflict");
+
+    let status = empty_status(&root.to_string_lossy());
+    let mut state = SessionState::default();
+    let open = |group_kind| Intent::OpenScmDiff {
+      path: "README.md".into(),
+      staged: false,
+      group_kind: Some(group_kind),
+    };
+    let ApplyOutput::Diff(merge) = apply_intent(open(ResourceGroupKind::Merge), root, &status, &mut state)
+      .await
+      .unwrap()
+    else {
+      panic!("expected a diff");
+    };
+    let text = merge.merge_text.expect("a merge file carries its working text");
+    assert!(text.contains("<<<<<<<") && text.contains("mine") && text.contains("other"));
+
+    let ApplyOutput::Diff(working) = apply_intent(open(ResourceGroupKind::WorkingTree), root, &status, &mut state)
+      .await
+      .unwrap()
+    else {
+      panic!("expected a diff");
+    };
+    assert!(working.merge_text.is_none());
+  }
+
+  #[tokio::test]
   async fn stage_non_empty_is_status_paths() {
     let (directory, _) = init_repo();
     let root = directory.path();
@@ -1279,17 +1362,13 @@ mod tests {
   fn dummy_diff() -> DiffPayload {
     DiffPayload {
       path: "a.rs".into(),
-      original: String::new(),
-      modified: String::new(),
+      patch: String::new(),
+      merge_text: None,
+      old_image: String::new(),
+      new_image: String::new(),
       language: None,
       file_type: "text".into(),
       hunks: vec![],
-      presence: DiffPresence {
-        old_exists: true,
-        new_exists: true,
-      },
-      editable: true,
-      enable_line_selection: true,
       staged: false,
       content_hash: String::new(),
     }

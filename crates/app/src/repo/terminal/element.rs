@@ -1,11 +1,16 @@
+use std::sync::Arc;
+
 use deathpush_core::config::settings::{CursorInactiveStyle, CursorStyle, MONO_FONT_STACK};
 use deathpush_core::terminal::pane::{
   KeyInput, KeyMods, MouseAction, MouseButton as TermMouse, MouseInput, PaneCommand,
 };
-use deathpush_core::terminal::snapshot::{PaneSnapshot, Rgb, SnapshotCell};
+use deathpush_core::terminal::snapshot::{
+  ImageLayer, PaneSnapshot, PointerShape, Rgb, SearchSpan, SnapshotCell, SnapshotRow,
+};
 use deathpush_core::theme::Rgba;
 use gpui_kit::*;
 
+use super::images::{ImageTextures, paint_layer, prepare_images};
 use super::pane_view::PaneView;
 use crate::config::AppConfig;
 use crate::theme::{ActivePalette, hsla};
@@ -28,6 +33,8 @@ pub struct TerminalPaint {
   pub cursor_width: f32,
   pub saturation: f32,
   pub selection: Rgba,
+  pub search_match: Rgba,
+  pub search_match_active: Rgba,
   pub cursor: Rgba,
   pub background: Rgba,
 }
@@ -60,6 +67,8 @@ pub fn paint_from_app(cx: &App) -> TerminalPaint {
     cursor_width: settings.cursor_width as f32,
     saturation: settings.color_saturation,
     selection: palette.selection,
+    search_match: palette.search_match,
+    search_match_active: palette.search_match_active,
     cursor: palette.terminal_cursor,
     background: palette.terminal_background,
   }
@@ -140,6 +149,7 @@ pub struct PaintCache {
   rows: Vec<CachedRow>,
   #[cfg(test)]
   shape_calls: usize,
+  textures: ImageTextures,
 }
 
 #[cfg(test)]
@@ -149,9 +159,14 @@ impl PaintCache {
   }
 }
 
+impl PaintCache {
+  pub(crate) fn textures(&mut self) -> &mut ImageTextures {
+    &mut self.textures
+  }
+}
+
 #[derive(Clone, PartialEq)]
 struct PaintCacheKey {
-  seq: u64,
   family: SharedString,
   font_size: f32,
   letter_spacing: f32,
@@ -162,9 +177,13 @@ struct PaintCacheKey {
   cell_h: f32,
   cols: u16,
   rows: u16,
+  foreground: Rgb,
+  background: Rgb,
 }
 
+/// Shaped runs of one snapshot row, valid while `source` is still the row on screen.
 struct CachedRow {
+  source: Arc<SnapshotRow>,
   runs: Vec<CachedRun>,
 }
 
@@ -271,7 +290,41 @@ impl Element for TerminalElement {
       .unwrap_or_else(|| hsla(saturate(settings.background, sat)));
     window.paint_quad(fill(bounds, bg));
     if let Some(snap) = snapshot.as_deref() {
+      window.set_cursor_style(pointer_cursor(snap.pointer), &prepaint.hitbox);
+      let images = self.view.update(cx, |this, _| {
+        let (draws, evicted) = prepare_images(
+          &snap.images,
+          (snap.cell_width, snap.cell_height),
+          prepaint.origin,
+          prepaint.cell,
+          this.paint_cache().textures(),
+        );
+        for texture in evicted {
+          let _ = window.drop_image(texture);
+        }
+        draws
+      });
+      paint_layer(&images, ImageLayer::BelowBackground, bounds, window);
       paint_cells(snap, &settings, prepaint.origin, prepaint.cell, window, cx);
+      paint_layer(&images, ImageLayer::BelowText, bounds, window);
+      if let Some(search) = snap.search.as_ref() {
+        paint_search(
+          &search.matches,
+          settings.search_match,
+          snap,
+          prepaint.origin,
+          prepaint.cell,
+          window,
+        );
+        paint_search(
+          &search.current_match,
+          settings.search_match_active,
+          snap,
+          prepaint.origin,
+          prepaint.cell,
+          window,
+        );
+      }
       paint_selection(
         self.view.read(cx).selection_range(),
         snap,
@@ -291,6 +344,7 @@ impl Element for TerminalElement {
           cx,
         );
       });
+      paint_layer(&images, ImageLayer::AboveText, bounds, window);
       paint_cursor(
         snap,
         &settings,
@@ -354,7 +408,7 @@ impl Element for TerminalElement {
     });
     window.on_mouse_event({
       let view = view.clone();
-      move |event: &ScrollWheelEvent, phase, window, cx| {
+      move |event: &ScrollEvent, phase, window, cx| {
         if phase == DispatchPhase::Bubble && hitbox.should_handle_scroll(window) {
           on_scroll(&view, event, origin, cell, cols, rows, cx);
         }
@@ -404,12 +458,68 @@ fn paint_cells(
         continue;
       };
       let (_, bg) = effective_colors(cell_data, snap);
-      if bg == default_bg && !cell_data.inverse && cell_data.bg.is_none() {
+      // A cell on the default background adds nothing over the pane fill, and skipping it keeps
+      // images drawn below cell backgrounds visible.
+      if bg == default_bg {
         continue;
       }
       let pos = point(origin.x + cell.0 * usize::from(x), origin.y + cell.1 * usize::from(y));
       window.paint_quad(fill(Bounds::new(pos, size(cell.0, cell.1)), paint_rgb(bg, sat)));
     }
+  }
+}
+
+/// Fill the runs of search matches that are on screen.
+fn paint_search(
+  spans: &[SearchSpan],
+  color: Rgba,
+  snap: &PaneSnapshot,
+  origin: Point<Pixels>,
+  cell: (Pixels, Pixels),
+  window: &mut Window,
+) {
+  let fill_color = hsla(color);
+  for span in spans {
+    if span.y >= snap.rows || span.x0 > span.x1 {
+      continue;
+    }
+    let x1 = span.x1.min(snap.cols.saturating_sub(1));
+    if span.x0 > x1 {
+      continue;
+    }
+    let pos = point(
+      origin.x + cell.0 * usize::from(span.x0),
+      origin.y + cell.1 * usize::from(span.y),
+    );
+    let width = cell.0 * usize::from(x1 - span.x0 + 1);
+    window.paint_quad(fill(Bounds::new(pos, size(width, cell.1)), fill_color));
+  }
+}
+
+/// The pointer the terminal asked for with OSC 22, as the closest platform cursor.
+pub(crate) fn pointer_cursor(shape: PointerShape) -> gpui_kit::CursorStyle {
+  use gpui_kit::CursorStyle as Cursor;
+  match shape {
+    PointerShape::Text => Cursor::IBeam,
+    PointerShape::VerticalText => Cursor::IBeamCursorForVerticalLayout,
+    PointerShape::Default | PointerShape::Help | PointerShape::Progress | PointerShape::Wait => Cursor::Arrow,
+    PointerShape::ZoomIn | PointerShape::ZoomOut => Cursor::Arrow,
+    PointerShape::ContextMenu => Cursor::ContextualMenu,
+    PointerShape::Pointer => Cursor::PointingHand,
+    PointerShape::Cell | PointerShape::Crosshair => Cursor::Crosshair,
+    PointerShape::Alias => Cursor::DragLink,
+    PointerShape::Copy => Cursor::DragCopy,
+    PointerShape::Move | PointerShape::AllScroll | PointerShape::Grab => Cursor::OpenHand,
+    PointerShape::Grabbing => Cursor::ClosedHand,
+    PointerShape::NoDrop | PointerShape::NotAllowed => Cursor::OperationNotAllowed,
+    PointerShape::ColResize | PointerShape::EwResize => Cursor::ResizeLeftRight,
+    PointerShape::RowResize | PointerShape::NsResize => Cursor::ResizeUpDown,
+    PointerShape::NResize => Cursor::ResizeUp,
+    PointerShape::SResize => Cursor::ResizeDown,
+    PointerShape::EResize => Cursor::ResizeRight,
+    PointerShape::WResize => Cursor::ResizeLeft,
+    PointerShape::NeResize | PointerShape::SwResize | PointerShape::NeswResize => Cursor::ResizeUpLeftDownRight,
+    PointerShape::NwResize | PointerShape::SeResize | PointerShape::NwseResize => Cursor::ResizeUpRightDownLeft,
   }
 }
 
@@ -473,7 +583,6 @@ fn paint_rows(
 
 fn cache_key(snap: &PaneSnapshot, settings: &TerminalPaint, cell: (Pixels, Pixels)) -> PaintCacheKey {
   PaintCacheKey {
-    seq: snap.seq,
     family: settings.family.clone(),
     font_size: settings.font_size,
     letter_spacing: settings.letter_spacing,
@@ -484,9 +593,12 @@ fn cache_key(snap: &PaneSnapshot, settings: &TerminalPaint, cell: (Pixels, Pixel
     cell_h: cell.1.as_f32(),
     cols: snap.cols,
     rows: snap.rows,
+    foreground: snap.foreground,
+    background: snap.background,
   }
 }
 
+/// Shapes only the rows that are not the rows shaped last time; clean rows share their `Arc`.
 fn rebuild_cache(
   cache: &mut PaintCache,
   snap: &PaneSnapshot,
@@ -495,60 +607,77 @@ fn rebuild_cache(
   window: &Window,
 ) {
   let key = cache_key(snap, settings, cell);
-  if cache.key.as_ref() == Some(&key) {
-    return;
+  if cache.key.as_ref() != Some(&key) {
+    cache.rows.clear();
   }
-  let spaced = settings.letter_spacing != 0.0;
-  let font_size = px(settings.font_size);
-  let mut rows = Vec::with_capacity(usize::from(snap.rows));
-  for y in 0..snap.rows {
-    let mut runs = Vec::new();
-    for run in row_runs(snap, y, settings) {
-      let empty = run.cells.iter().all(String::is_empty);
-      let (line, cell_lines) = if empty {
-        (None, Vec::new())
-      } else if spaced {
-        let cell_lines = run
-          .cells
-          .iter()
-          .map(|text| {
-            if text.is_empty() {
-              None
-            } else {
-              Some(shape_cached(
-                cache,
-                window,
-                text.clone().into(),
-                font_size,
-                run.style,
-                settings,
-              ))
-            }
-          })
-          .collect();
-        (None, cell_lines)
-      } else {
-        let text = run.cells.concat();
-        if text.is_empty() {
-          (None, Vec::new())
-        } else {
-          (
-            Some(shape_cached(cache, window, text.into(), font_size, run.style, settings)),
-            Vec::new(),
-          )
-        }
-      };
-      runs.push(CachedRun {
-        start_x: run.start_x,
-        cells: run.cells,
-        line,
-        cell_lines,
-      });
+  let mut previous = std::mem::take(&mut cache.rows).into_iter();
+  let mut rows = Vec::with_capacity(snap.lines.len());
+  for line in &snap.lines {
+    match previous.next() {
+      Some(cached) if Arc::ptr_eq(&cached.source, line) => rows.push(cached),
+      _ => rows.push(shape_row(cache, snap, line, settings, window)),
     }
-    rows.push(CachedRow { runs });
   }
   cache.key = Some(key);
   cache.rows = rows;
+}
+
+fn shape_row(
+  cache: &mut PaintCache,
+  snap: &PaneSnapshot,
+  line: &Arc<SnapshotRow>,
+  settings: &TerminalPaint,
+  window: &Window,
+) -> CachedRow {
+  let spaced = settings.letter_spacing != 0.0;
+  let font_size = px(settings.font_size);
+  let mut runs = Vec::new();
+  for run in row_runs(line, snap, settings) {
+    let empty = run.cells.iter().all(String::is_empty);
+    let (shaped, cell_lines) = if empty {
+      (None, Vec::new())
+    } else if spaced {
+      let cell_lines = run
+        .cells
+        .iter()
+        .map(|text| {
+          if text.is_empty() {
+            None
+          } else {
+            Some(shape_cached(
+              cache,
+              window,
+              text.clone().into(),
+              font_size,
+              run.style,
+              settings,
+            ))
+          }
+        })
+        .collect();
+      (None, cell_lines)
+    } else {
+      let text = run.cells.concat();
+      if text.is_empty() {
+        (None, Vec::new())
+      } else {
+        (
+          Some(shape_cached(cache, window, text.into(), font_size, run.style, settings)),
+          Vec::new(),
+        )
+      }
+    };
+    runs.push(CachedRun {
+      start_x: run.start_x,
+      cells: run.cells,
+      line: shaped,
+      cell_lines,
+    });
+  }
+  CachedRow {
+    source: Arc::clone(line),
+    runs,
+  }
 }
 
 fn shape_cached(
@@ -602,11 +731,12 @@ fn paint_cached_run(
   let _ = line.paint(pos, cell_h, TextAlign::Left, None, window, cx);
 }
 
-fn row_runs(snap: &PaneSnapshot, y: u16, settings: &TerminalPaint) -> Vec<RowRun> {
+fn row_runs(line: &SnapshotRow, snap: &PaneSnapshot, settings: &TerminalPaint) -> Vec<RowRun> {
   let mut runs = Vec::new();
   let mut current: Option<RowRun> = None;
-  for x in 0..snap.cols {
-    let cell = snap.cell(x, y).cloned().unwrap_or_default();
+  for (x, cell) in line.cells.iter().enumerate() {
+    let x = x as u16;
+    let cell = cell.clone();
     let style = run_style(&cell, snap, settings);
     match current {
       Some(ref mut run) if run.style == style => run.cells.push(cell.text),
@@ -848,6 +978,14 @@ enum KeyRoute {
   Send,
 }
 
+/// Modifier keys on their own are not input for the shell: they must not drop the selection.
+fn is_modifier_key(key: &str) -> bool {
+  matches!(
+    key,
+    "shift" | "control" | "alt" | "platform" | "function" | "capslock" | "cmd" | "ctrl" | "option" | "super" | "fn"
+  )
+}
+
 fn classify_key(keystroke: &Keystroke) -> KeyRoute {
   let mods = &keystroke.modifiers;
   let key = keystroke.key.as_str();
@@ -930,7 +1068,8 @@ pub(crate) fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mu
     KeyRoute::Ignore => {}
     KeyRoute::Paste => {
       if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-        view.update(cx, |this, _| {
+        view.update(cx, |this, cx| {
+          this.note_input(cx);
           this.send(PaneCommand::Paste(text));
         });
       }
@@ -938,10 +1077,11 @@ pub(crate) fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mu
     }
     KeyRoute::CopyOrSend => {
       let copied = view.update(cx, |this, cx| this.copy_selection(cx).is_some());
-      view.update(cx, |this, _| {
+      view.update(cx, |this, cx| {
         if copied {
           this.note_copy_consumed(event.keystroke.key.clone());
         } else {
+          this.note_input(cx);
           this.note_sent_key(event.keystroke.key.clone(), mods_from(&event.keystroke.modifiers));
         }
       });
@@ -954,7 +1094,10 @@ pub(crate) fn on_key_down(view: &Entity<PaneView>, event: &KeyDownEvent, cx: &mu
       if key_uses_ime(&event.keystroke) {
         return;
       }
-      view.update(cx, |this, _| {
+      view.update(cx, |this, cx| {
+        if !is_modifier_key(&event.keystroke.key) {
+          this.note_input(cx);
+        }
         this.note_sent_key(event.keystroke.key.clone(), mods_from(&event.keystroke.modifiers));
       });
       send_key(view, &event.keystroke, true, cx);
@@ -1168,7 +1311,7 @@ fn wheel_command(gpui_lines: isize, tracking: bool) -> Option<WheelCommand> {
 
 fn on_scroll(
   view: &Entity<PaneView>,
-  event: &ScrollWheelEvent,
+  event: &ScrollEvent,
   origin: Point<Pixels>,
   cell: (Pixels, Pixels),
   cols: u16,
@@ -1405,6 +1548,26 @@ mod tests {
       classify_key(&keystroke("enter", None, Modifiers::default())),
       KeyRoute::Send
     );
+  }
+
+  #[test]
+  fn osc_22_shapes_map_to_the_closest_platform_cursor() {
+    use gpui_kit::CursorStyle as Cursor;
+    assert_eq!(pointer_cursor(PointerShape::Text), Cursor::IBeam);
+    assert_eq!(pointer_cursor(PointerShape::Default), Cursor::Arrow);
+    assert_eq!(pointer_cursor(PointerShape::Pointer), Cursor::PointingHand);
+    assert_eq!(pointer_cursor(PointerShape::Crosshair), Cursor::Crosshair);
+    assert_eq!(pointer_cursor(PointerShape::Cell), Cursor::Crosshair);
+    assert_eq!(pointer_cursor(PointerShape::Grab), Cursor::OpenHand);
+    assert_eq!(pointer_cursor(PointerShape::Grabbing), Cursor::ClosedHand);
+    assert_eq!(pointer_cursor(PointerShape::NotAllowed), Cursor::OperationNotAllowed);
+    assert_eq!(pointer_cursor(PointerShape::ColResize), Cursor::ResizeLeftRight);
+    assert_eq!(pointer_cursor(PointerShape::NsResize), Cursor::ResizeUpDown);
+    assert_eq!(pointer_cursor(PointerShape::NeswResize), Cursor::ResizeUpLeftDownRight);
+    assert_eq!(pointer_cursor(PointerShape::NwseResize), Cursor::ResizeUpRightDownLeft);
+    assert_eq!(pointer_cursor(PointerShape::Alias), Cursor::DragLink);
+    assert_eq!(pointer_cursor(PointerShape::Copy), Cursor::DragCopy);
+    assert_eq!(pointer_cursor(PointerShape::ContextMenu), Cursor::ContextualMenu);
   }
 
   #[gpui_kit::test]

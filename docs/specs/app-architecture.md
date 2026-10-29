@@ -25,7 +25,7 @@ The repository has no JavaScript toolchain outside `website/`. The app version h
 
 ## Core crate
 
-`deathpush-core` owns everything that does not need a window: git reads through git2, git writes through the git CLI, the session registry and intent policy, the repository runtime with its status coordinator and file watcher, the file index for Quick Open, the PTY layer, terminal state, diff rows, settings and layout files, theme parsing, shell environment resolution, and the CLI launcher installer.
+`deathpush-core` owns everything that does not need a window: git reads through git2, git writes through the git CLI, the session registry and intent policy, the repository runtime with its status coordinator and file watcher, the file index for Quick Open, the PTY layer, terminal state, diff patches, settings and layout files, theme parsing, shell environment resolution, and the CLI launcher installer.
 
 `Core` is one struct created in `main`. It owns a tokio runtime, the repository runtime registry, the session registry, the terminal registry, and the settings store. Sessions are keyed by a core-defined `SessionId`, one per window. The app maps window handles to session ids, so core never sees gpui.
 
@@ -52,11 +52,11 @@ Every former emit becomes a `CoreEvent` on an async channel per session:
 
 ### Terminal module
 
-A pane is a PTY from `portable-pty` plus a `libghostty-vt` terminal on a dedicated thread, because those types are not `Send`. Key and mouse events are encoded on that thread with the `libghostty-vt` encoders and written to the PTY. Each VT update publishes a snapshot of styled cells, cursor, selection, and viewport for the renderer. Foreground-process polling names the pane on Unix. Windows has no process discovery, so the pane name stays the shell name. Scrollback size, cursor, and font settings come from the settings store.
+A pane is a PTY from `portable-pty` plus a `libghostty-vt` terminal on a dedicated thread, because those types are not `Send`. Key and mouse events are encoded on that thread with the `libghostty-vt` encoders and written to the PTY. Pastes go through the terminal's paste encoder, which replaces control bytes with spaces and brackets the text when the program asks for bracketed paste. Each VT update publishes a snapshot of styled cells, cursor, pointer shape, and viewport for the renderer. The snapshot holds one shared row per viewport line: only the rows libghostty reports dirty are rebuilt, and clean rows are the same `Arc` as in the previous snapshot, so the element reshapes only the rows that changed. The pointer shape a program sets with OSC 22 rides on the snapshot and becomes the pane's mouse cursor. The find widget's search runs on the pane thread through the `libghostty-vt` search module over scrollback and screen; the snapshot carries the match count, the selected match's position, and the viewport runs to highlight, and stepping to a match scrolls the viewport to it. An OSC 52 clipboard read waits on the pane thread, as the program does, until the app answers per the Clipboard Read setting; a denial, no answer within 30 seconds, or closing the pane answers with an empty clipboard. While a program holds synchronized output (mode 2026), the pane publishes the frame from when the hold began and nothing newer until the program releases it, the user scrolls, or one second passes. Foreground-process polling names the pane on Unix. Windows has no process discovery, so the pane name stays the shell name. Scrollback size, cursor, and font settings come from the settings store.
 
-### Diff rows module
+### Diff patch
 
-`diff_view` turns the `scm_file_diff` payload plus the diff settings into rows for the inline and the side-by-side layouts: old and new line numbers, change kind, word-level change ranges per the Inline Changes setting, hunk separators per the Hunk Separators setting, and the alignment of both columns. The app element only paints rows. Because the module is pure, its tests run without a window.
+`scm_file_diff` and `commit_file_diff` read one git2 diff and return the file's unified patch (`Patch::to_buf`, so `\ No newline at end of file` markers survive) beside the hunk list that `git apply` patches are built from. `DiffPayload` carries the patch, one target per hunk (id plus old and new ranges), the language, and the image sides as data URIs. A file in Merge Changes also carries its working text with the conflict markers. The patch is parsed in the app by gpui-kit's `Diff` component; core never builds rows.
 
 ## App crate
 
@@ -84,7 +84,7 @@ Widgets come from gpui-component: buttons, inputs, the commit textarea, tree, vi
 
 ### Custom elements
 
-`DiffElement` paints rows from `diff_view`. It shapes only visible rows, caches tree-sitter highlight spans per content hash, paints line backgrounds and word ranges, both gutters, diff indicators, hunk separators with stage, unstage, and discard hitboxes, and the side-by-side divider. Text selection and copy work across rows. Image diffs use `img()`.
+`DiffPanel` installs a payload's parsed files when the payload's content hash changes and maps the Diff Viewer settings onto the viewer. Inline, whole-file add or delete, and merge files use gpui-kit's `Diff` and `DiffState`, which own scrolling, text and line selection, copy, syntax highlighting with the active theme, merge-conflict choices, and next and previous change. Side by side uses the app's `SplitDiff` (`repo/diff/split.rs`, rows from `split_document.rs`), because gpui-kit's split mode lays both sides inside one horizontal scroll sized by the longest line. `SplitDiff` parses the patch with git2, gives each side half the viewport with its own horizontal scroll handle and scrollbar inside one shared virtual list, and owns its own selection, copy, highlighting, inline changes, and change navigation; gutter line selection is shared with `DiffState`. The panel adds the path header with its history, layout, and change-navigation buttons, hunk buttons as per-hunk rows, and its own rendering of image, binary, and large files. Image diffs use `img()`.
 
 `TerminalElement` paints a pane snapshot: cells with colors and styles, the cursor per settings, the selection overlay, and hovered hyperlinks. Focus and key events go to the pane thread. The mouse handles selection, right-click word select, Option-click, copy on select, and scrollback. Resize derives columns and rows from the measured cell size.
 
@@ -127,7 +127,7 @@ flowchart LR
 - A view handler calls `RepoModel::dispatch(intent)`. The model awaits `core.session_intent` in `cx.spawn`, applies the outcome, and notifies. Generation and revision guards, the two cursor pairs, and stale-outcome drops keep the semantics of the former session client.
 - A `SessionBridge` task per window drains the core event channel on the foreground executor and forwards each event to its model.
 - `TerminalUpdated` marks the pane dirty and notifies once per batch. The element reads the latest snapshot when it paints.
-- Settings and theme changes propagate through `cx.observe`. Diff rows recompute on the settings that affect them.
+- Settings and theme changes propagate through `cx.observe`. The diff viewer re-applies the settings that affect it, and the editor font reaches it through the theme's monospace font.
 
 ## Errors
 
@@ -154,12 +154,12 @@ A packaged app checks for updates 2 s after the welcome screen appears. Debug bu
 
 ## CI
 
-`ci.yml` runs fmt, clippy with warnings denied, and tests on macOS, Ubuntu, and Windows, with a Zig 0.16 setup step and the X11, Wayland, and fontconfig development packages on Ubuntu. Tests run headless through gpui's `test-support`. `publish.yml` builds per OS and architecture on a tag, runs cargo-packager, signs, notarizes, generates the manifest, and uploads. The website workflow is unchanged.
+`ci.yml` runs fmt, clippy with warnings denied, and tests on macOS, Ubuntu, and Windows, with a Zig 0.17 setup step and the X11, Wayland, and fontconfig development packages on Ubuntu. Tests run headless through gpui's `test-support`. `publish.yml` builds per OS and architecture on a tag, runs cargo-packager, signs, notarizes, generates the manifest, and uploads. The website workflow is unchanged.
 
 ## Tests
 
-- Core tests cover git ops, the storm and shell-env performance tests, pane snapshots by feeding bytes to the VT and asserting cells, `diff_view` rows for both layouts and each diff setting, settings round-trips, and parsing of every bundled theme.
-- The app uses `#[gpui::test]` for models applying outcomes and events, layout persistence, the keymap table per OS, menu enabled states, and `DiffElement` hit-testing.
+- Core tests cover git ops, the storm and shell-env performance tests, pane snapshots by feeding bytes to the VT and asserting cells, the unified patch and hunk targets of `scm_file_diff`, settings round-trips, and parsing of every bundled theme.
+- The app uses `#[gpui::test]` for models applying outcomes and events, layout persistence, the keymap table per OS, menu enabled states, and the diff panel installing a payload and following the layout setting, hunk anchors and intents, and merge-file parsing.
 - Before a release, the surface specs are walked by hand on macOS, Linux, and Windows.
 
 ## Surface contracts
@@ -168,7 +168,7 @@ These contracts differ from the earlier Tauri app:
 
 - [SCM Changes](scm-changes.md): the working-tree diff is read-only. Editing happens in the Explorer file viewer. The merge view offers per-conflict accept choices instead of free-form editing.
 - Distribution: rpm packages are not built.
-- Diff rows render unwrapped. Word Wrap applies to the [file viewer](explorer.md), not the diff. A long line scrolls sideways inside its own text column: line-number gutters and indicators stay pinned, and both sides of a side-by-side diff keep half the panel and share one horizontal offset. A wheel or trackpad event over the diff body scrolls one axis only: one gesture lock covers the whole body, and an event that still carries both axes keeps the larger one, so sideways drift during a vertical scroll never scrolls horizontally.
+- Word Wrap applies to the [file viewer](explorer.md) and the diff. Unwrapped, each side of a side-by-side diff scrolls sideways on its own within half the panel. Scrolling follows gpui-kit's behavior without an app-level axis lock. Switching between side by side and inline keeps gutter line selections and the side-by-side scroll position, but not a character selection or the inline scroll position.
 - The terminal Sound bell is a visual flash (same as Visual and Both). There is no platform beep.
 - gpui-component's command palette owns Escape in [Quick Open](quick-open.md) and the [theme picker](theme-picker.md): the first Escape clears a non-empty query; Escape on an empty query closes.
 - Windows has no foreground-process discovery. Pane names stay the shell name; closing a window does not ask about a running process.

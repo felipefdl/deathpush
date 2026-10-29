@@ -30,15 +30,15 @@ flowchart LR
 
 **File-history chip.** When the list is filtered to one file: history icon, the file's base name, and a close button (tooltip `Show full history`).
 
-**Commit list.** One row per commit: author avatar, subject (first line), relative time, short SHA, a merge badge for merge commits, author name. The selected row is highlighted. `Load More` at the bottom.
+**Commit list.** One row per commit: author avatar, subject (first line), relative time, short SHA, a merge badge for merge commits, author name. Every row fills the list's width, so selection and dividers span it; a long subject is truncated and the relative time keeps its space. The selected row is highlighted. `Load More` at the bottom.
 
 **Detail, empty.** A history icon and `Select a commit to view details`.
 
-**Detail header.** Subject, short SHA in the accent color, a middot, author, a middot, relative time, then copy buttons (full SHA, message, email). The commit body follows when present. Merge commits list their parents.
+**Detail header.** Subject, short SHA in the link color, a middot, author, a middot, relative time, then copy buttons (full SHA, message, email). The commit body follows when present. Merge commits list their parents.
 
 **Changed files.** `Changed Files ({n})` (rendered uppercase) with a list/tree toggle. Each row: file icon, path, status letter badge. Renames show `{oldPath} -> {path}`.
 
-**Diff.** A path header, then a side-by-side or inline text diff, or an image comparison for images. The layout follows the Diff Layout setting.
+**Diff.** A path header, then a side-by-side or inline text diff, or an image comparison for images. The layout and presentation follow the Diff Viewer settings, as in [SCM Changes](scm-changes.md); commit diffs are read-only and have no hunk buttons.
 
 ## Controls
 

@@ -153,7 +153,7 @@ impl ExplorerView {
     window: &mut Window,
     cx: &mut Context<Self>,
   ) {
-    let extend = event.modifiers.secondary();
+    let extend = event.modifiers.secondary(cx);
     let range = event.modifiers.shift;
     self.model.update(cx, |model, cx| model.select(path, extend, range, cx));
     let creating = self

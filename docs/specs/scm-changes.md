@@ -51,7 +51,7 @@ Selecting a file switches the main panel to the diff, docks the terminal, and lo
 
 **Groups.** One resizable group per non-empty (after filtering) status group, then Stashes when any exist, then Nested Repositories when any exist.
 
-**Main panel diff.** Empty: watermark and `Select a file to view changes`, or `Diffs need a Git repository` when the open folder has no repository. With a selection: a path header, then a text diff, an image comparison, a merge-conflict editor, or a binary or large-file message.
+**Main panel diff.** Empty: watermark and `Select a file to view changes`, or `Diffs need a Git repository` when the open folder has no repository. With a selection: a path header, then a text diff, an image comparison, a merge-conflict view, or a binary or large-file message.
 
 ## Controls
 
@@ -86,6 +86,8 @@ Selecting a file switches the main panel to the diff, docks the terminal, and lo
 | Nested repository row | name and branch | Open that repository in a new window | none |
 | Empty Open Repository | `Open Repository` | System folder picker | none |
 | Empty Initialize Repository | `Initialize Repository` | Run `git init` in the open folder, then reload the shell as a repository | none |
+| Diff header previous change | tooltip `Previous Change` (text diffs only) | Scroll to the previous changed group | Shift+F7 |
+| Diff header next change | tooltip `Next Change` (text diffs only) | Scroll to the next changed group, wrapping at the end | F7 |
 | Diff header history | tooltip `Show File History` | Open History filtered to this file | none |
 | Diff header layout | tooltip `Switch to side by side` / `Switch to inline` | Toggle the Diff Layout setting | Cmd/Ctrl+Shift+P |
 | Diff Open in External Editor | `Open in External Editor` | Open the file in the system editor | none |
@@ -196,7 +198,9 @@ Main diff: the path header, then the diff in side-by-side or inline layout per s
 
 **Diff empty.** No selection: watermark and `Select a file to view changes`. Without a repository: `Diffs need a Git repository`.
 
-**Diff kinds.** Text: read-only. Editing happens in the Explorer file viewer. Image: side-by-side images, decoded once per selection through the same pipeline as the file viewer, so png, jpeg, gif, webp, bmp, ico, tiff, and svg all render and anything over 4096 px is downscaled. Binary or large: message plus `Open in External Editor`. Merge conflict: per-conflict accept choices.
+**Diff kinds.** Text: read-only. Editing happens in the Explorer file viewer. Image: side-by-side images, decoded once per selection through the same pipeline as the file viewer, so png, jpeg, gif, webp, bmp, ico, tiff, and svg all render and anything over 4096 px is downscaled. Binary or large: message plus `Open in External Editor`. Merge conflict: the working file with each conflict as a block headed `Current change`, optionally `Common ancestor`, and `Incoming change`, with `Accept Current`, `Accept Incoming`, and `Accept Both` on the current block. A resolved conflict collapses to its choice plus `Undo`. Resolving the last conflict of the file writes the resolved text to the working file and reloads the view; until then choices live only in the view. The file stays in Merge Changes until it is staged.
+
+**Image labels.** Each image of the comparison sits under a small muted caption, `Original` and `Modified`; a side with no image (an added or deleted file) shows an empty block under its caption.
 
 **Error.** Failures show the app toast.
 
@@ -235,11 +239,17 @@ Disabled: Pull, Push, Sync, Merge, Rebase when there is no branch; network items
 
 **File context menu.** `Open File` opens in the system editor. `Show File History` switches to History filtered to that path. `Reveal in Finder` shows the file in the file manager. `Move to Trash` confirms, then trashes.
 
-**Diff header.** The history icon opens History for the path. The layout icon toggles side by side and inline.
+**Diff header.** The path with its suffix, then icons: previous change and next change (text diffs only), history (working-tree and staged diffs), and layout. Previous and next change scroll the diff by changed group and wrap past the last and first. History opens History for the path. The layout icon toggles side by side and inline; it is hidden for a whole-file add or delete, which always shows inline.
 
-**Hunks.** The working-tree diff can stage, unstage, or discard a single hunk. Discarding a hunk asks for confirmation. The Inline Hunk Actions setting shows or hides the per-hunk buttons.
+**Diff presentation.** The text diff is a patch viewer: Git's unified patch for the file with three lines of context, so unchanged lines outside the hunks are not shown. Each hunk is introduced by a separator per the Hunk Separators setting. Added and removed lines are marked per Diff Indicators, tinted per Background Highlighting, and changed words or characters inside paired lines are emphasized per Inline Changes. Line numbers follow Line Numbers. Syntax highlighting uses the active theme. Code is set in the Editor font family and size; the diff's row height follows the font size. Word Wrap wraps long lines. Unwrapped, a long line scrolls sideways. Side by side, each side takes half of the panel and scrolls sideways on its own, so a long line on one side never pushes the other side off screen; both sides scroll vertically together and their rows stay aligned. Dragging selects text; Cmd/Ctrl+C copies it. A drag that starts in the line-number gutter selects whole lines.
 
-**Escape.** Outside a text field: clears the diff selection and the Explorer selection. Open menus close first.
+**Hunks.** The working-tree and staged diffs can stage, unstage, or discard a single hunk; commit diffs and merge files cannot. With Inline Hunk Actions on, each hunk gets a button row under its first line (on the old side in side-by-side, so the buttons sit at the left edge, or the new side for a hunk with no old lines): `Stage Hunk` and `Discard Hunk` in the working-tree diff, `Unstage Hunk` in the staged diff, leading the row, followed by the hunk's `@@` range unless the Metadata separator already shows it. Discarding a hunk asks for confirmation. After a hunk is applied the diff reloads, so the hunk leaves it.
+
+**Whole-file add or delete.** A diff whose hunks all have an empty old side (new or untracked file) or an empty new side (deleted file) shows inline whatever the Diff Layout setting, because a side-by-side column would be empty and push the text off screen. The saved setting is unchanged and applies again to the next file.
+
+**External changes.** When the selected file changes on disk, its diff reloads; a merge file picks up the new conflicts. Resolving conflicts still writes only over the text they were read from, so a file edited between reload and click is refused.
+
+**Escape.** Outside a text field: with text or lines selected in a focused diff, clears that selection and nothing else; otherwise clears the diff selection and the Explorer selection. Open menus close first.
 
 ## Keyboard
 
@@ -250,7 +260,10 @@ Disabled: Pull, Push, Sync, Merge, Rebase when there is no branch; network items
 | Cmd/Ctrl+Enter | Commit field focused | Commit |
 | Escape | Overflow open | Close (leave the branch list first) |
 | Escape | Commit dropdown open | Close |
-| Escape | No menu, not in a field | Clear the diff selection |
+| Escape | No menu, not in a field, text or lines selected in the diff | Clear that selection only |
+| Escape | No menu, not in a field, nothing selected in the diff | Clear the diff and Explorer selection |
+| F7 / Shift+F7 | Diff focused | Next / previous change |
+| Cmd/Ctrl+C | Diff focused, text selected | Copy the selection |
 | Cmd/Ctrl+Shift+P | Anywhere | Toggle the diff layout |
 | Enter | Overflow branch list | Merge or rebase onto the first match |
 

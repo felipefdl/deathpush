@@ -12,7 +12,7 @@ use super::markdown::{DocumentPaths, MarkdownPreview, is_markdown};
 use super::pdf::{PdfPane, PdfRequest, to_render_image};
 use super::states::{self, ImageLoad, ViewerKind, classify};
 use crate::config::AppConfig;
-use crate::repo::diff::highlight::grammar_name;
+use crate::repo::diff::grammar::grammar_name;
 use crate::repo::image_load::prepare_path;
 use crate::repo::layout_model::LayoutModel;
 use crate::repo::model::{RepoEvent, RepoModel};

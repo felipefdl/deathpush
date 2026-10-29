@@ -15,6 +15,9 @@ use crate::session::SessionId;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
+/// The terminfo entry shells run as. The pane VT reports the same name to XTGETTCAP.
+pub const TERM_NAME: &str = "xterm-256color";
+
 pub type TerminalState = Mutex<HashMap<u64, PtySession>>;
 
 pub struct PtySession {
@@ -71,7 +74,7 @@ impl PtySession {
         cmd.env(key, value);
       }
     }
-    cmd.env("TERM", "xterm-256color");
+    cmd.env("TERM", TERM_NAME);
     cmd.cwd(cwd);
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| Error::Other(e.to_string()))?;

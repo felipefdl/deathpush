@@ -1,7 +1,7 @@
 # Settings
 
 Status: Current product
-Date: 2026-09-02
+Date: 2026-10-23
 
 ## Purpose
 
@@ -21,9 +21,9 @@ Each row is a label on the left and its control on the right. Section and subsec
 
 **Appearance.** Theme, tree, sidebar, UI font, zoom, terminal on start.
 
-**Editor.** File viewer and diff editor font and wrap.
+**Editor.** Font size, font family, and word wrap apply to the file viewer and the diff viewer. Line height and tab size apply to the file viewer.
 
-**Diff Viewer.** Diff rendering options.
+**Diff Viewer.** Diff rendering options. Settings saved before Smart Words and Words merged, or Compact Line Info and Line Info merged, load as Words and Line Info.
 
 **Git.** Blame toggle and identity fields.
 
@@ -47,7 +47,7 @@ Each row is a label on the left and its control on the right. Section and subsec
 | Zoom | `Zoom` | Select of percentages (1.2 ^ level, level -5 to 9) | 100% |
 | Always Open Terminal on Start | `Always Open Terminal on Start` | Toggle | off |
 | Editor Font Size | `Font Size` | Number 8 to 32 | 13 |
-| Editor Font Family | `Font Family` | Text | `MesloLGS Nerd Font Mono`, then Menlo, Monaco, Courier New, monospace |
+| Editor Font Family | `Font Family` | Text | bundled `MesloLGSDZ Nerd Font Mono` |
 | Line Height | `Line Height` | Number 10 to 60 | 20 |
 | Tab Size | `Tab Size` | Number 1 to 8 | 4 |
 | Word Wrap | `Word Wrap` | Select: Off / On | Off |
@@ -55,9 +55,9 @@ Each row is a label on the left and its control on the right. Section and subsec
 | Inline Hunk Actions | `Inline Hunk Actions` | Toggle | off |
 | Line Numbers | `Line Numbers` | Toggle | on |
 | Diff Indicators | `Diff Indicators` | Select: None / Bars / Classic (+/−) | None |
-| Inline Changes | `Inline Changes` | Select: Smart Words / Words / Characters / None | Smart Words |
+| Inline Changes | `Inline Changes` | Select: Words / Characters / None | Words |
 | Background Highlighting | `Background Highlighting` | Toggle | on |
-| Hunk Separators | `Hunk Separators` | Select: Compact Line Info / Line Info / Metadata / Simple | Simple |
+| Hunk Separators | `Hunk Separators` | Select: Line Info / Metadata / Simple | Simple |
 | Git Blame | `Git Blame` | Toggle | on |
 | User Name | `User Name` | Text, saved 500 ms after typing stops | from Git config |
 | User Email | `User Email` | Text, saved 500 ms after typing stops | from Git config |
@@ -79,8 +79,11 @@ Each row is a label on the left and its control on the right. Section and subsec
 | Color Saturation | `Color Saturation` | Number 0.5 to 2, step 0.01 | 1.42 |
 | Shell Path | `Shell Path` | Preset select plus an optional custom path | `Default ($SHELL)` |
 | Bell Style | `Bell Style` | Select: Off / Sound / Visual / Both | Off |
+| Clipboard Read | `Clipboard Read` | Select: Ask / Allow / Deny | Ask |
 
 Reset confirmation: system dialog, warning style, title `Reset to Defaults`, message `Reset all settings to defaults? This cannot be undone.`, buttons `Reset` and `Cancel`.
+
+Clipboard Read decides what a program in a terminal gets when it asks to read the clipboard (OSC 52): `Ask` shows a system dialog, warning style, title `Clipboard Access`, message `"{name}" wants to read your clipboard.` (the pane's process name), buttons `Allow` and `Deny`; `Allow` hands the clipboard text over without asking; `Deny` answers with an empty clipboard without asking. Stored as `clipboardRead` in the terminal settings with the values `ask`, `allow`, `deny`. See [terminal](terminal.md).
 
 ## Copy
 

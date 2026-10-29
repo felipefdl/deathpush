@@ -131,7 +131,7 @@ Tree: type icons and chevrons per settings; ignored entries dimmed; the selected
 
 Context menus: at the pointer, at least 180 wide, on the sidebar background with a subtle border, rounded corners, and a blur behind them (translucent on macOS and Windows). Items 26 tall, 13px, with a 14px icon. Hover uses the selection colors. Disabled items at 40% opacity.
 
-File viewer header: 35 tall with a bottom border; breadcrumbs 12px with an ellipsis. Body: the editor background; font, size, line height, and tab size from the Editor settings; line numbers per the Diff Viewer Line Numbers setting; wrap per Word Wrap. Empty state: the app mark at 80px and 7% opacity above the prompt at 40% opacity. Binary, large, and undisplayable messages at 70% opacity with a 32px warning, binary, or image icon at 40%. Images and PDF pages fit within the panel. Markdown preview: 16 horizontal and 8 vertical padding, its own scrollbar, links open in the browser.
+File viewer header: 35 tall with a bottom border; breadcrumbs 12px with an ellipsis. Body: the editor background; font, size, line height, and tab size from the Editor settings (tabs align to tab stops of that width); line numbers per the Diff Viewer Line Numbers setting; wrap per Word Wrap. Empty state: the app mark at 80px and 7% opacity above the prompt at 40% opacity. Binary, large, and undisplayable messages at 70% opacity with a 32px warning, binary, or image icon at 40%. Images and PDF pages fit within the panel. Markdown preview: 16 horizontal and 8 vertical padding, its own scrollbar, links open in the browser.
 
 Empty sidebar: centered muted text and a primary `Open Repository` button with a folder icon.
 

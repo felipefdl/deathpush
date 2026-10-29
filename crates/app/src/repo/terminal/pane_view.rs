@@ -8,22 +8,33 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use deathpush_core::terminal::pane::{KeyInput, KeyMods, MouseButton as TermMouse, PaneCommand, PaneHandle};
-use deathpush_core::terminal::snapshot::{PaneSnapshot, Rgb};
+use deathpush_core::terminal::snapshot::{PaneSnapshot, Rgb, SearchSnapshot};
 use deathpush_core::theme::{Rgba, UiPalette};
 use futures::StreamExt;
 use futures::channel::mpsc::{TryRecvError, UnboundedReceiver, unbounded};
+use gpui_kit::component::button::*;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::{Icon, Sizable};
+use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use super::bell::bell_flashes;
 use super::element::{
   PaintCache, TerminalElement, clamp_sel_anchor, clamp_selection, on_key_down, on_key_up, paint_from_app, saturate,
 };
+use crate::actions::{CloseTerminalFind, FindInTerminal};
 use crate::config::AppConfig;
+use crate::keymap::CONTEXT_TERMINAL_FIND;
 use crate::theme::{ActivePalette, hsla};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaneEvent {
   Focused(u64),
+}
+
+#[cfg(test)]
+pub(crate) fn deny_clipboard() -> deathpush_core::terminal::pane::ClipboardReadHandler {
+  Box::new(|request| request.deny())
 }
 
 impl EventEmitter<PaneEvent> for PaneView {}
@@ -52,7 +63,7 @@ impl BlockedWake {
         thread::sleep(Duration::from_millis(1));
       }
     });
-    let handle = Arc::new(PaneHandle::spawn(20, 4, None, Box::new(|_| {}), wake).unwrap());
+    let handle = Arc::new(PaneHandle::spawn(20, 4, None, Box::new(|_| {}), wake, deny_clipboard()).unwrap());
     (handle, Self { entered, release })
   }
 
@@ -91,6 +102,14 @@ pub struct PaneView {
   focus_handle: FocusHandle,
   selection: Option<((u16, u16), (u16, u16))>,
   selection_anchor: Option<(u16, u16)>,
+  /// The viewport rows a finished selection covers, as they were when it was made, with the
+  /// viewport row of the first one. Later snapshots must still show equal rows under the
+  /// highlight or the selection is dropped. Rows libghostty did not touch are shared by `Arc`, so
+  /// the check is a pointer comparison for them and never builds text.
+  selection_rows: Option<(u16, Vec<Arc<deathpush_core::terminal::snapshot::SnapshotRow>>)>,
+  /// Absolute row (from the top of the scrollback) of the first viewport row that `selection`
+  /// and `selection_anchor` are expressed against.
+  viewport_top: usize,
   forwarded_button: Option<TermMouse>,
   cell: Option<(Pixels, Pixels)>,
   active: bool,
@@ -112,6 +131,15 @@ pub struct PaneView {
   flashing: bool,
   flash_task: Option<Task<()>>,
   vt_colors: Option<VtColors>,
+  find: Option<FindBar>,
+  find_query: String,
+  window_handle: Option<AnyWindowHandle>,
+}
+
+/// The find widget of a pane: the query field and its subscription.
+struct FindBar {
+  input: Entity<InputState>,
+  _events: Subscription,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -198,6 +226,8 @@ impl PaneView {
       focus_handle: cx.focus_handle(),
       selection: None,
       selection_anchor: None,
+      selection_rows: None,
+      viewport_top: 0,
       forwarded_button: None,
       cell: None,
       active: true,
@@ -219,6 +249,9 @@ impl PaneView {
       flashing: false,
       flash_task: None,
       vt_colors: None,
+      find: None,
+      find_query: String::new(),
+      window_handle: None,
     }
   }
 
@@ -303,7 +336,82 @@ impl PaneView {
   fn pull_snapshot(&mut self) {
     if let Some(handle) = self.handle.as_ref() {
       self.snapshot = handle.snapshot();
+      self.reconcile_selection();
     }
+  }
+
+  /// Keep the selection on the text it was made on while the viewport scrolls, and drop it once
+  /// that text is no longer under the highlight (scrolled out, evicted, rewritten, reflowed).
+  fn reconcile_selection(&mut self) {
+    let Some(snap) = self.snapshot.as_ref() else {
+      return;
+    };
+    let top = snap.scrollback_rows.saturating_sub(snap.viewport_offset);
+    let delta = top as i64 - self.viewport_top as i64;
+    self.viewport_top = top;
+    if self.selection.is_none() && self.selection_anchor.is_none() {
+      self.selection_rows = None;
+      return;
+    }
+    let rows = i64::from(snap.rows);
+    let shift = |cell: (u16, u16)| -> Option<(u16, u16)> {
+      let y = i64::from(cell.1) - delta;
+      (0..rows).contains(&y).then_some((cell.0, y as u16))
+    };
+    if delta != 0 {
+      self.selection = match self.selection {
+        Some((start, end)) => shift(start).zip(shift(end)),
+        None => None,
+      };
+      self.selection_anchor = self.selection_anchor.and_then(shift);
+      match (self.selection, self.selection_rows.as_mut()) {
+        (Some((start, end)), Some((first, _))) => *first = start.1.min(end.1),
+        _ => self.selection_rows = None,
+      }
+    }
+    if let Some((start, end)) = self.selection
+      && let Some((first, rows)) = self.selection_rows.as_ref()
+    {
+      let top_row = start.1.min(end.1);
+      let unchanged = *first == top_row
+        && rows.iter().enumerate().all(|(index, stored)| {
+          snap
+            .lines
+            .get(usize::from(top_row) + index)
+            .is_some_and(|row| Arc::ptr_eq(row, stored) || **row == **stored)
+        });
+      if !unchanged {
+        self.selection = None;
+        self.selection_rows = None;
+      }
+    }
+  }
+
+  /// The user is typing, pasting or pressing a key for the shell: drop the selection and show the
+  /// live screen again.
+  pub(crate) fn note_input(&mut self, cx: &mut Context<Self>) {
+    let had_selection = self.selection.take().is_some();
+    self.selection_rows = None;
+    if self.snapshot.as_ref().is_some_and(|snap| snap.viewport_offset > 0) {
+      self.send(PaneCommand::ScrollToBottom);
+    }
+    if had_selection {
+      cx.notify();
+    }
+  }
+
+  fn capture_selection_text(&mut self) {
+    self.selection_rows = match (self.snapshot.as_ref(), self.selection) {
+      (Some(snap), Some((start, end))) => {
+        let first = start.1.min(end.1);
+        let last = start.1.max(end.1);
+        let rows: Vec<_> = (first..=last)
+          .filter_map(|y| snap.lines.get(usize::from(y)).cloned())
+          .collect();
+        Some((first, rows))
+      }
+      _ => None,
+    };
   }
 
   fn maybe_flash(&mut self, cx: &mut Context<Self>) {
@@ -426,6 +534,7 @@ impl PaneView {
 
   pub(crate) fn begin_selection(&mut self, cell: (u16, u16), cx: &mut Context<Self>) {
     self.selection = None;
+    self.selection_rows = None;
     self.selection_anchor = Some(cell);
     cx.notify();
   }
@@ -440,6 +549,7 @@ impl PaneView {
   pub(crate) fn end_selection(&mut self, cell: (u16, u16), cx: &mut Context<Self>) {
     self.extend_selection(cell, cx);
     self.selection_anchor = None;
+    self.capture_selection_text();
     cx.notify();
   }
 
@@ -483,8 +593,181 @@ impl PaneView {
   pub(crate) fn select_word_at(&mut self, x: u16, y: u16, cx: &mut Context<Self>) {
     if let Some(range) = self.snapshot.as_ref().and_then(|snap| snap.word_at(x, y)) {
       self.selection = Some(range);
+      self.capture_selection_text();
       cx.notify();
     }
+  }
+
+  /// The window this pane last rendered in; clipboard prompts open there.
+  pub(crate) fn window_handle(&self) -> Option<AnyWindowHandle> {
+    self.window_handle
+  }
+
+  /// Open the find widget on the pane, or put the cursor back in its field with the query selected.
+  pub(crate) fn open_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    if let Some(bar) = self.find.as_ref() {
+      bar.input.update(cx, |state, cx| {
+        state.focus(window, cx);
+        state.select_all(window, cx);
+      });
+      return;
+    }
+    let query = self.find_query.clone();
+    let input = cx.new(|cx| {
+      let mut state = InputState::new(window, cx).placeholder("Find");
+      state.set_value(query.clone(), window, cx);
+      state
+    });
+    let events = cx.subscribe_in(
+      &input,
+      window,
+      |this, input, event: &InputEvent, _window, cx| match event {
+        InputEvent::Change => {
+          let query = input.read(cx).value().to_string();
+          this.set_find_query(query, cx);
+        }
+        InputEvent::PressEnter { shift, .. } => this.find_step(!*shift, cx),
+        _ => {}
+      },
+    );
+    self.find = Some(FindBar {
+      input: input.clone(),
+      _events: events,
+    });
+    if !query.is_empty() {
+      self.send(PaneCommand::SearchQuery(query));
+    }
+    input.update(cx, |state, cx| {
+      state.focus(window, cx);
+      state.select_all(window, cx);
+    });
+    cx.notify();
+  }
+
+  /// Close the find widget, drop the highlights, and give the pane its keyboard back.
+  pub(crate) fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    if self.find.take().is_none() {
+      return;
+    }
+    self.send(PaneCommand::SearchQuery(String::new()));
+    self.focus_handle.focus(window, cx);
+    cx.notify();
+  }
+
+  fn set_find_query(&mut self, query: String, cx: &mut Context<Self>) {
+    if query == self.find_query {
+      return;
+    }
+    self.send(PaneCommand::SearchQuery(query.clone()));
+    self.find_query = query;
+    cx.notify();
+  }
+
+  /// Toward newer output when `forward`, wrapping.
+  pub(crate) fn find_step(&mut self, forward: bool, _cx: &mut Context<Self>) {
+    if !self.find_query.is_empty() {
+      self.send(PaneCommand::SearchStep { forward });
+    }
+  }
+
+  fn render_find(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+    let bar = self.find.as_ref()?;
+    let palette = cx.global::<ActivePalette>().0;
+    let search = self.snapshot.as_ref().and_then(|snap| snap.search.as_ref());
+    let (label, no_results) = find_label(&self.find_query, search);
+    let label_color = if no_results {
+      palette.danger
+    } else {
+      palette.muted_foreground
+    };
+    // The mode depends on the measured terminal grid, never on the query/count text. Reusing the
+    // same InputState keeps focus, query and caret across layout changes.
+    let width = self
+      .grid
+      .zip(self.cell)
+      .map(|((cols, _, _, _), (cell_w, _))| cell_w * f32::from(cols));
+    let compact = width.is_some_and(|width| width < px(380.0));
+    let controls = div()
+      .flex()
+      .items_center()
+      .flex_shrink_0()
+      .child(
+        Button::new(("terminal-find-previous", self.id))
+          .ghost()
+          .xsmall()
+          .icon(
+            Icon::empty()
+              .path("icons/chevron-down.svg")
+              .rotate(Radians(std::f32::consts::PI)),
+          )
+          .tooltip("Previous Match (Shift+Enter)")
+          .on_click(cx.listener(|this, _, _, cx| this.find_step(false, cx))),
+      )
+      .child(
+        Button::new(("terminal-find-next", self.id))
+          .ghost()
+          .xsmall()
+          .icon(Icon::empty().path("icons/chevron-down.svg"))
+          .tooltip("Next Match (Enter)")
+          .on_click(cx.listener(|this, _, _, cx| this.find_step(true, cx))),
+      )
+      .child(
+        Button::new(("terminal-find-close", self.id))
+          .ghost()
+          .xsmall()
+          .icon(Icon::empty().path("icons/x.svg"))
+          .tooltip("Close (Escape)")
+          .on_click(cx.listener(|this, _, window, cx| this.close_find(window, cx))),
+      );
+    Some(
+      div()
+        .absolute()
+        .top(px(8.0))
+        .left(px(8.0))
+        .right(px(if compact { 8.0 } else { 20.0 }))
+        .flex()
+        .justify_end()
+        .child(
+          div()
+            .id(("terminal-find", self.id))
+            .key_context(CONTEXT_TERMINAL_FIND)
+            .occlude()
+            .flex()
+            .when(compact, |bar| bar.flex_col())
+            .items_center()
+            .gap_1()
+            .p_1()
+            .w(px(360.0))
+            .max_w_full()
+            .min_w_0()
+            .bg(hsla(palette.popover))
+            .text_color(hsla(palette.popover_foreground))
+            .border_1()
+            .border_color(hsla(palette.popover_border))
+            .rounded_md()
+            .shadow_md()
+            .text_size(px(12.0))
+            .on_action(cx.listener(|this, _: &CloseTerminalFind, window, cx| this.close_find(window, cx)))
+            .on_action(cx.listener(|this, _: &FindInTerminal, window, cx| this.open_find(window, cx)))
+            .child(
+              div()
+                .flex_1()
+                .min_w_0()
+                .when(compact, |field| field.w_full().flex_none())
+                .child(Input::new(&bar.input).appearance(false).h(px(24.0)).w_full()),
+            )
+            .child(
+              div()
+                .w(px(80.0))
+                .h(px(18.0))
+                .flex_shrink_0()
+                .when(compact, |count| count.w_full())
+                .text_color(hsla(label_color))
+                .child(label),
+            )
+            .child(controls),
+        ),
+    )
   }
 
   fn on_focus_lost(&mut self) {
@@ -651,8 +934,9 @@ impl EntityInputHandler for PaneView {
     cx.notify();
   }
 
-  fn paste(&mut self, item: ClipboardItem, _window: &mut Window, _cx: &mut Context<Self>) {
+  fn paste(&mut self, item: ClipboardItem, _window: &mut Window, cx: &mut Context<Self>) {
     if let Some(text) = item.text() {
+      self.note_input(cx);
       self.send(PaneCommand::Paste(text));
     }
   }
@@ -667,6 +951,7 @@ impl EntityInputHandler for PaneView {
     self.marked_text = None;
     self.marked_selection = 0..0;
     if !text.is_empty() {
+      self.note_input(cx);
       self.send(PaneCommand::Text(text.to_string()));
     }
     cx.notify();
@@ -741,9 +1026,11 @@ impl Render for PaneView {
         cx.emit(PaneEvent::Focused(this.id));
       }));
     }
+    self.window_handle = Some(window.window_handle());
     let view = cx.entity();
     let focus = self.focus_handle.clone();
-    div()
+    let find = self.render_find(cx);
+    let pane = div()
       .id(("terminal-pane", self.id))
       .role(Role::Terminal)
       .size_full()
@@ -753,6 +1040,7 @@ impl Render for PaneView {
       .track_focus(&self.focus_handle)
       .key_context("Terminal")
       .opacity(if self.active { 1.0 } else { 0.7 })
+      .on_action(cx.listener(|this, _: &FindInTerminal, window, cx| this.open_find(window, cx)))
       .on_key_down({
         let view = view.clone();
         move |event, _, cx| on_key_down(&view, event, cx)
@@ -769,7 +1057,27 @@ impl Render for PaneView {
           focus.focus(window, cx);
         }
       })
-      .child(TerminalElement { view, settings })
+      .child(TerminalElement { view, settings });
+    div()
+      .id(("terminal-pane-host", self.id))
+      .relative()
+      .size_full()
+      .child(pane)
+      .children(find)
+  }
+}
+
+/// What the find widget says about the search: the count text, and whether it is the no results
+/// state. Nothing until there is a query, and nothing until the first answer for it arrives.
+fn find_label(query: &str, search: Option<&SearchSnapshot>) -> (String, bool) {
+  match search {
+    _ if query.is_empty() => (String::new(), false),
+    None => (String::new(), false),
+    Some(search) if search.total == 0 => ("No results".to_string(), true),
+    Some(search) => match search.current {
+      Some(current) => (format!("{current} of {}", search.total), false),
+      None => (format!("{} found", search.total), false),
+    },
   }
 }
 
@@ -778,7 +1086,9 @@ mod tests {
   use super::*;
   use core::prelude::v1::test;
   use deathpush_core::terminal::pane::PtyWriter;
-  use deathpush_core::terminal::snapshot::{PaneSnapshot, Rgb, SnapshotCell};
+  use deathpush_core::terminal::snapshot::{
+    PaneSnapshot, PointerShape, Rgb, SearchSnapshot, SnapshotCell, SnapshotRow,
+  };
   use gpui_kit::TestAppContext;
 
   use crate::config::AppConfig;
@@ -819,13 +1129,18 @@ mod tests {
     }
   }
 
-  fn injected_snapshot(text: &str) -> Arc<PaneSnapshot> {
-    let cols = text.chars().count() as u16;
-    Arc::new(PaneSnapshot {
-      seq: 1,
-      cols,
-      rows: 1,
+  fn row_of(text: &str) -> Arc<SnapshotRow> {
+    Arc::new(SnapshotRow {
       cells: text.chars().map(text_cell).collect(),
+    })
+  }
+
+  fn snapshot_with_rows(seq: u64, cols: u16, lines: Vec<Arc<SnapshotRow>>) -> Arc<PaneSnapshot> {
+    Arc::new(PaneSnapshot {
+      seq,
+      cols,
+      rows: lines.len() as u16,
+      lines,
       cursor: None,
       background: Rgb(0, 0, 0),
       foreground: Rgb(255, 255, 255),
@@ -833,7 +1148,16 @@ mod tests {
       viewport_offset: 0,
       scrollback_rows: 0,
       bell: false,
+      pointer: PointerShape::default(),
+      search: None,
+      cell_width: 8,
+      cell_height: 16,
+      images: Arc::default(),
     })
+  }
+
+  fn injected_snapshot(text: &str) -> Arc<PaneSnapshot> {
+    snapshot_with_rows(1, text.chars().count() as u16, vec![row_of(text)])
   }
 
   #[test]
@@ -866,6 +1190,100 @@ mod tests {
       view.begin_selection((7, 4), cx);
       view.end_selection((7, 4), cx);
       assert!(view.selection.is_none(), "a click clears an existing selection");
+    });
+  }
+
+  fn scrolled_snapshot(rows: &[&str], viewport_offset: usize, scrollback_rows: usize) -> Arc<PaneSnapshot> {
+    let mut snapshot = (*snapshot_with_rows(1, 4, rows.iter().map(|text| row_of(text)).collect())).clone();
+    snapshot.viewport_offset = viewport_offset;
+    snapshot.scrollback_rows = scrollback_rows;
+    Arc::new(snapshot)
+  }
+
+  #[gpui_kit::test]
+  fn selection_stays_on_its_text_while_the_viewport_scrolls(cx: &mut TestAppContext) {
+    let pane = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+    pane.update(cx, |view, cx| {
+      view.snapshot = Some(scrolled_snapshot(&["aaaa", "bbbb", "cccc"], 0, 10));
+      view.reconcile_selection();
+      view.begin_selection((0, 1), cx);
+      view.end_selection((3, 1), cx);
+      assert_eq!(view.selection, Some(((0, 1), (3, 1))));
+
+      // Scrolling up one row moves "bbbb" down one row; the highlight follows it.
+      view.snapshot = Some(scrolled_snapshot(&["zzzz", "aaaa", "bbbb"], 1, 10));
+      view.reconcile_selection();
+      assert_eq!(view.selection, Some(((0, 2), (3, 2))));
+      let text = view.snapshot.as_ref().unwrap().selection_text((0, 2), (3, 2));
+      assert_eq!(text, "bbbb", "the highlight still covers the selected text");
+
+      // Once the selected row leaves the viewport the selection is gone, not left on other text.
+      view.snapshot = Some(scrolled_snapshot(&["yyyy", "zzzz", "aaaa"], 2, 10));
+      view.reconcile_selection();
+      assert!(view.selection.is_none());
+    });
+  }
+
+  #[gpui_kit::test]
+  fn selection_is_dropped_when_its_text_changes_but_kept_for_unrelated_rows(cx: &mut TestAppContext) {
+    let pane = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+    pane.update(cx, |view, cx| {
+      view.snapshot = Some(scrolled_snapshot(&["aaaa", "bbbb", "cccc"], 0, 10));
+      view.reconcile_selection();
+      view.begin_selection((0, 1), cx);
+      view.end_selection((3, 1), cx);
+
+      view.snapshot = Some(scrolled_snapshot(&["aaaa", "bbbb", "dddd"], 0, 10));
+      view.reconcile_selection();
+      assert_eq!(
+        view.selection,
+        Some(((0, 1), (3, 1))),
+        "output elsewhere keeps the selection"
+      );
+
+      // Scrollback is full: the content moved up one row but the scroll position did not change.
+      view.snapshot = Some(scrolled_snapshot(&["bbbb", "dddd", "eeee"], 0, 10));
+      view.reconcile_selection();
+      assert!(
+        view.selection.is_none(),
+        "text no longer under the highlight is not left selected"
+      );
+    });
+  }
+
+  #[gpui_kit::test]
+  fn typing_drops_the_selection(cx: &mut TestAppContext) {
+    let pane = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+    pane.update(cx, |view, cx| {
+      view.snapshot = Some(scrolled_snapshot(&["aaaa", "bbbb"], 3, 10));
+      view.reconcile_selection();
+      view.begin_selection((0, 0), cx);
+      view.end_selection((3, 0), cx);
+      assert!(view.selection.is_some());
+      view.note_input(cx);
+      assert!(view.selection.is_none());
+      assert!(view.selection_rows.is_none());
+    });
+  }
+
+  #[gpui_kit::test]
+  fn selection_is_dropped_when_eviction_moves_its_text_without_moving_the_scroll_position(cx: &mut TestAppContext) {
+    let pane = cx.new(|cx| PaneView::new_unthreaded(1, cx));
+    pane.update(cx, |view, cx| {
+      // Scrollback is at its cap (5000 rows) and the viewport is scrolled back a little.
+      view.snapshot = Some(scrolled_snapshot(&["r0r0", "r1r1", "r2r2", "r3r3"], 2, 5000));
+      view.reconcile_selection();
+      view.begin_selection((1, 1), cx);
+      view.end_selection((2, 2), cx);
+      assert_eq!(view.selection, Some(((1, 1), (2, 2))));
+
+      // A new line arrives: the oldest row is evicted, every row moves up one, but the scrollback
+      // size and the offset are unchanged, so the position bookkeeping cannot see it. The text
+      // under the highlight differs, so the selection must go instead of copying other text.
+      view.snapshot = Some(scrolled_snapshot(&["r1r1", "r2r2", "r3r3", "r4r4"], 2, 5000));
+      view.reconcile_selection();
+      assert!(view.selection.is_none());
+      assert!(view.selection_rows.is_none());
     });
   }
 
@@ -917,6 +1335,243 @@ mod tests {
       })
       .unwrap();
     assert_eq!(second, first, "unchanged snapshot must not reshape");
+  }
+
+  #[gpui_kit::test]
+  fn only_the_rows_that_changed_are_reshaped(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+      AppConfig::update(cx, |config| {
+        config.settings.terminal.letter_spacing = 1.0;
+        config.settings.terminal.cursor_blink = false;
+      });
+    });
+    let kept = row_of("ab");
+    let window = cx.add_window(move |_, cx| PaneHost {
+      pane: cx.new(|cx| PaneView::new_unthreaded(1, cx)),
+    });
+    let paint = |cx: &mut TestAppContext, snapshot: Arc<PaneSnapshot>| {
+      window
+        .update(cx, |host, window, cx| {
+          host.pane.update(cx, |view, cx| {
+            view.set_snapshot(snapshot);
+            view.set_active(true, cx);
+            view.focus(window, cx);
+          });
+          window.refresh();
+        })
+        .unwrap();
+      AnyWindowHandle::from(window)
+        .update(cx, |_, window, cx| {
+          let _ = window.draw(cx);
+        })
+        .unwrap();
+      window
+        .update(cx, |host, _, cx| {
+          host.pane.update(cx, |view, _| view.paint_cache().shape_calls())
+        })
+        .unwrap()
+    };
+    let first = paint(cx, snapshot_with_rows(1, 2, vec![kept.clone(), row_of("cd")]));
+    assert_eq!(first, 4, "two rows of two cells");
+    let second = paint(cx, snapshot_with_rows(2, 2, vec![kept, row_of("ce")]));
+    assert_eq!(second - first, 2, "only the row that changed is shaped again");
+  }
+
+  fn snapshot_with_image(seq: u64, generation: u64) -> Arc<PaneSnapshot> {
+    use deathpush_core::terminal::snapshot::{ImageLayer, ImagePixels, SnapshotImage};
+    let mut snapshot = (*snapshot_with_rows(seq, 4, vec![row_of("ab")])).clone();
+    snapshot.images = Arc::new(vec![SnapshotImage {
+      pixels: Arc::new(ImagePixels {
+        id: 1,
+        generation,
+        width: 1,
+        height: 1,
+        rgba: vec![255, 0, 0, 255],
+      }),
+      layer: ImageLayer::BelowText,
+      z: -1,
+      col: 0,
+      row: 0,
+      grid_cols: 1,
+      grid_rows: 1,
+      offset_x: 0,
+      offset_y: 0,
+      width: 8,
+      height: 16,
+      source_x: 0,
+      source_y: 0,
+      source_width: 1,
+      source_height: 1,
+    }]);
+    Arc::new(snapshot)
+  }
+
+  #[gpui_kit::test]
+  fn an_image_keeps_its_texture_across_paints_until_its_generation_changes(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let window = cx.add_window(move |_, cx| PaneHost {
+      pane: cx.new(|cx| PaneView::new_unthreaded(1, cx)),
+    });
+    // Paints the snapshot and reports (textures kept, textures ever uploaded).
+    let paint = |cx: &mut TestAppContext, snapshot: Arc<PaneSnapshot>| {
+      window
+        .update(cx, |host, window, cx| {
+          host.pane.update(cx, |view, _| view.set_snapshot(snapshot));
+          window.refresh();
+        })
+        .unwrap();
+      AnyWindowHandle::from(window)
+        .update(cx, |_, window, cx| {
+          let _ = window.draw(cx);
+        })
+        .unwrap();
+      window
+        .update(cx, |host, _, cx| {
+          host.pane.update(cx, |view, _| {
+            let textures = view.paint_cache().textures();
+            (textures.len(), textures.uploads())
+          })
+        })
+        .unwrap()
+    };
+    assert_eq!(paint(cx, snapshot_with_image(1, 10)), (1, 1));
+    assert_eq!(
+      paint(cx, snapshot_with_image(2, 10)),
+      (1, 1),
+      "an unchanged generation uploaded again"
+    );
+    assert_eq!(
+      paint(cx, snapshot_with_image(3, 11)),
+      (1, 2),
+      "a new generation kept the old texture"
+    );
+    assert_eq!(
+      paint(cx, snapshot_with_rows(4, 4, vec![row_of("ab")])),
+      (0, 2),
+      "a deleted image stayed cached"
+    );
+  }
+
+  #[test]
+  fn find_label_follows_the_search() {
+    let found = |total, current| SearchSnapshot {
+      total,
+      current,
+      ..SearchSnapshot::default()
+    };
+    assert_eq!(find_label("", Some(&found(3, Some(1)))), (String::new(), false));
+    assert_eq!(find_label("a", None), (String::new(), false));
+    assert_eq!(find_label("a", Some(&found(0, None))), ("No results".to_string(), true));
+    assert_eq!(find_label("a", Some(&found(3, Some(2)))), ("2 of 3".to_string(), false));
+    assert_eq!(find_label("a", Some(&found(3, None))), ("3 found".to_string(), false));
+  }
+
+  #[gpui_kit::test]
+  fn find_widget_searches_steps_and_closes(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+      let bindings = crate::keymap::bindings(cx);
+      cx.bind_keys(bindings);
+    });
+    // The test scheduler only accepts wakes from the test thread, so the view pulls by hand.
+    let (_, wake_rx) = unbounded();
+    let handle = Arc::new(PaneHandle::spawn(20, 3, None, Box::new(|_| {}), Box::new(|| {}), deny_clipboard()).unwrap());
+    handle.push_bytes(b"hello one\r\nfiller\r\nhello two\r\nfiller\r\nfiller");
+    wait_snapshot(&handle, |snap| snap.row_text(0) == "hello two");
+    let window = cx.add_window({
+      let handle = Arc::clone(&handle);
+      move |_, cx| PaneHost {
+        pane: cx.new(|cx| PaneView::new(1, handle, wake_rx, cx)),
+      }
+    });
+    let draw = |cx: &mut TestAppContext| {
+      AnyWindowHandle::from(window)
+        .update(cx, |_, window, cx| {
+          let _ = window.draw(cx);
+        })
+        .unwrap();
+    };
+    let view_state = |cx: &mut TestAppContext| {
+      window
+        .update(cx, |host, _, cx| {
+          let view = host.pane.read(cx);
+          (
+            view.find.is_some(),
+            view.snapshot.as_ref().and_then(|snap| snap.search.clone()),
+          )
+        })
+        .unwrap()
+    };
+    // Pulls snapshots into the view until `ready` holds for its search.
+    let settle = |cx: &mut TestAppContext, ready: &dyn Fn(Option<&SearchSnapshot>) -> bool| {
+      let deadline = std::time::Instant::now() + Duration::from_secs(2);
+      loop {
+        cx.run_until_parked();
+        window
+          .update(cx, |host, _, cx| host.pane.update(cx, |view, _| view.pull_snapshot()))
+          .unwrap();
+        let (_, search) = view_state(cx);
+        if ready(search.as_ref()) {
+          return search;
+        }
+        assert!(std::time::Instant::now() < deadline, "the find widget never caught up");
+        std::thread::sleep(Duration::from_millis(10));
+      }
+    };
+    window
+      .update(cx, |host, window, cx| {
+        host.pane.update(cx, |view, cx| {
+          view.set_active(true, cx);
+          view.focus(window, cx);
+        });
+        window.refresh();
+      })
+      .unwrap();
+    draw(cx);
+    assert!(!view_state(cx).0, "no find widget until asked");
+
+    let find_chord = if cfg!(target_os = "macos") { "cmd-f" } else { "ctrl-f" };
+    cx.simulate_keystrokes(window.into(), find_chord);
+    cx.run_until_parked();
+    draw(cx);
+    assert!(view_state(cx).0, "the find chord opens the widget");
+    cx.simulate_keystrokes(window.into(), "h e l l o");
+    let search = settle(cx, &|search| search.is_some_and(|search| search.total == 2)).unwrap();
+    assert_eq!(search.current, Some(2), "the newest match is current");
+    assert_eq!(find_label("hello", Some(&search)).0, "2 of 2");
+
+    cx.simulate_keystrokes(window.into(), "enter");
+    let search = settle(cx, &|search| search.is_some_and(|search| search.current == Some(1))).unwrap();
+    assert_eq!(find_label("hello", Some(&search)).0, "1 of 2");
+    cx.simulate_keystrokes(window.into(), "shift-enter");
+    settle(cx, &|search| search.is_some_and(|search| search.current == Some(2)));
+
+    cx.simulate_keystrokes(window.into(), "escape");
+    settle(cx, &|search| search.is_none());
+    draw(cx);
+    let (open, _) = view_state(cx);
+    assert!(!open, "escape closes the widget");
+    window
+      .update(cx, |host, window, cx| {
+        assert!(
+          host.pane.read(cx).focus_handle().is_focused(window),
+          "closing the widget returns focus to the pane"
+        );
+      })
+      .unwrap();
+    drop(handle);
   }
 
   #[gpui_kit::test]
@@ -1133,7 +1788,7 @@ mod tests {
     let collected = Arc::new(std::sync::Mutex::new(Vec::new()));
     let writer_buf = Arc::clone(&collected);
     let writer: PtyWriter = Box::new(move |bytes| writer_buf.lock().unwrap().extend(bytes));
-    let handle = Arc::new(PaneHandle::spawn(20, 4, None, writer, Box::new(|| {})).unwrap());
+    let handle = Arc::new(PaneHandle::spawn(20, 4, None, writer, Box::new(|| {}), deny_clipboard()).unwrap());
     let (_, rx) = unbounded();
     let window = cx.add_window({
       let handle = Arc::clone(&handle);
@@ -1176,12 +1831,13 @@ mod tests {
       gpui_kit::init(cx);
       AppConfig::init_at(config_dir.path().to_path_buf(), cx);
       crate::theme::init(cx);
-      cx.bind_keys(crate::keymap::bindings());
+      let bindings = crate::keymap::bindings(cx);
+      cx.bind_keys(bindings);
     });
     let collected = Arc::new(std::sync::Mutex::new(Vec::new()));
     let writer_buf = Arc::clone(&collected);
     let writer: PtyWriter = Box::new(move |bytes| writer_buf.lock().unwrap().extend(bytes));
-    let handle = Arc::new(PaneHandle::spawn(20, 4, None, writer, Box::new(|| {})).unwrap());
+    let handle = Arc::new(PaneHandle::spawn(20, 4, None, writer, Box::new(|| {}), deny_clipboard()).unwrap());
     let (_, rx) = unbounded();
     let clear_fired = std::rc::Rc::new(std::cell::Cell::new(false));
     let window = cx.add_window({
@@ -1242,7 +1898,7 @@ mod tests {
       AppConfig::init_at(config_dir.path().to_path_buf(), cx);
       crate::theme::init(cx);
     });
-    let handle = Arc::new(PaneHandle::spawn(20, 4, None, Box::new(|_| {}), Box::new(|| {})).unwrap());
+    let handle = Arc::new(PaneHandle::spawn(20, 4, None, Box::new(|_| {}), Box::new(|| {}), deny_clipboard()).unwrap());
     let first_bg = cx.update(|cx| {
       super::super::model::TerminalModel::queue_theme_colors(&handle, cx);
       palette_rgb(cx.global::<ActivePalette>().0.terminal_background)

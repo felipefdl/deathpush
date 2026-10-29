@@ -8,6 +8,7 @@ pub mod layout_model;
 pub mod main_panel;
 pub mod model;
 pub mod output_log;
+#[cfg(test)]
 mod resize;
 pub mod settings;
 pub mod sidebar;

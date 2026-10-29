@@ -16,6 +16,13 @@ pub async fn get_file_blame(repo_root: &Path, path: &str) -> Result<FileBlame> {
 
   if !output.status.success() {
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    // An untracked or newly added file has no committed lines, so there is nothing to blame.
+    if stderr.contains("no such path") {
+      return Ok(FileBlame {
+        path: path.to_string(),
+        line_groups: Vec::new(),
+      });
+    }
     return Err(Error::GitCli(stderr));
   }
 
@@ -311,5 +318,28 @@ aaa1234567890 3 3
     assert_eq!(groups[2].commit_id, "aaa1234567890");
     assert_eq!(groups[2].start_line, 3);
     assert_eq!(groups[2].end_line, 3);
+  }
+
+  #[tokio::test]
+  async fn untracked_file_has_no_blame() {
+    let directory = tempfile::TempDir::new().unwrap();
+    let git = |args: &[&str]| {
+      let status = std::process::Command::new("git")
+        .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+        .args(args)
+        .current_dir(directory.path())
+        .status()
+        .unwrap();
+      assert!(status.success());
+    };
+    git(&["init", "-q"]);
+    std::fs::write(directory.path().join("tracked.txt"), "one\n").unwrap();
+    git(&["add", "tracked.txt"]);
+    git(&["commit", "-q", "-m", "first"]);
+    std::fs::write(directory.path().join("new.txt"), "fresh\n").unwrap();
+
+    let blame = get_file_blame(directory.path(), "new.txt").await.unwrap();
+    assert_eq!(blame.path, "new.txt");
+    assert!(blame.line_groups.is_empty());
   }
 }

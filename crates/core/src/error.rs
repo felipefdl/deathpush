@@ -17,6 +17,9 @@ pub enum Error {
   #[error("No repository open")]
   NoRepository,
 
+  #[error("{path} changed on disk since it was opened; nothing was written")]
+  FileChanged { path: String },
+
   #[error("{0}")]
   Other(String),
 }

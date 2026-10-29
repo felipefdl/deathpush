@@ -47,6 +47,8 @@ pub fn blob_to_data_uri(blob: &[u8], path: &str) -> String {
 
 pub struct ScmFileDiff {
   pub content: DiffContent,
+  /// Unified Git patch of the file for the diff viewer. Empty for images and binary files.
+  pub patch: String,
   pub hunks: Vec<DiffHunk>,
 }
 
@@ -194,6 +196,7 @@ fn file_diff_from_git_diff(
         original_language: None,
         file_type: "image".to_string(),
       },
+      patch: String::new(),
       hunks: Vec::new(),
     });
   }
@@ -207,6 +210,7 @@ fn file_diff_from_git_diff(
         original_language: None,
         file_type: "binary".to_string(),
       },
+      patch: String::new(),
       hunks: Vec::new(),
     });
   }
@@ -218,8 +222,10 @@ fn file_diff_from_git_diff(
     .and_then(|bytes| String::from_utf8(bytes).ok())
     .unwrap_or_default();
   let mut hunks = collect_diff_hunks(diff)?;
+  let mut patch = patch_text(diff)?;
   if hunks.is_empty() && original.is_empty() && !modified.is_empty() {
     hunks = all_add_hunks(&modified);
+    patch = add_patch_text(&content_path, &hunks);
   }
 
   Ok(ScmFileDiff {
@@ -230,8 +236,35 @@ fn file_diff_from_git_diff(
       original_language: detect_language(path),
       file_type: "text".to_string(),
     },
+    patch,
     hunks,
   })
+}
+
+/// The unified Git patch of every delta in `diff`, as git2 prints it.
+fn patch_text(diff: &git2::Diff<'_>) -> Result<String> {
+  let mut text = String::new();
+  for index in 0..diff.deltas().len() {
+    if let Some(mut patch) = git2::Patch::from_diff(diff, index)? {
+      text.push_str(&String::from_utf8_lossy(&patch.to_buf()?));
+    }
+  }
+  Ok(text)
+}
+
+/// A new-file patch for `path` built from add-only hunks.
+fn add_patch_text(path: &str, hunks: &[DiffHunk]) -> String {
+  let mut text = format!("diff --git a/{path} b/{path}\nnew file mode 100644\n--- /dev/null\n+++ b/{path}\n");
+  for hunk in hunks {
+    text.push_str(&hunk.header);
+    text.push('\n');
+    for line in &hunk.lines {
+      text.push('+');
+      text.push_str(&line.content);
+      text.push('\n');
+    }
+  }
+  text
 }
 
 struct HunkWalk {
@@ -687,6 +720,15 @@ mod tests {
     (directory, git_repo)
   }
 
+  fn git_cli_stage(root: &Path, path: &str) {
+    let status = std::process::Command::new("git")
+      .args(["add", "--", path])
+      .current_dir(root)
+      .status()
+      .unwrap();
+    assert!(status.success());
+  }
+
   fn git_cli_diff(root: &Path, path: &str, staged: bool) -> String {
     let mut command = std::process::Command::new("git");
     command.arg("diff");
@@ -714,10 +756,47 @@ mod tests {
   }
 
   #[test]
+  fn patch_is_the_git_unified_diff() {
+    let (directory, repo) = init_repo();
+    std::fs::write(directory.path().join("README.md"), "hello world\n").unwrap();
+    let diff = scm_file_diff(&repo, "README.md", false).unwrap();
+    let cli = git_cli_diff(directory.path(), "README.md", false);
+    let strip_index = |text: &str| -> Vec<String> {
+      text
+        .lines()
+        .filter(|line| !line.starts_with("index "))
+        .map(str::to_string)
+        .collect()
+    };
+    assert_eq!(strip_index(&diff.patch), strip_index(&cli));
+  }
+
+  #[test]
+  fn staged_patch_reads_the_index_side() {
+    let (directory, repo) = init_repo();
+    std::fs::write(directory.path().join("README.md"), "hello world\n").unwrap();
+    git_cli_stage(directory.path(), "README.md");
+    assert!(scm_file_diff(&repo, "README.md", false).unwrap().patch.is_empty());
+    let staged = scm_file_diff(&repo, "README.md", true).unwrap();
+    assert!(staged.patch.contains("+hello world"));
+    assert!(staged.patch.contains("-hello"));
+  }
+
+  #[test]
+  fn no_newline_marker_stays_in_the_patch() {
+    let (directory, repo) = init_repo();
+    std::fs::write(directory.path().join("README.md"), "hello").unwrap();
+    let diff = scm_file_diff(&repo, "README.md", false).unwrap();
+    assert!(diff.patch.contains("\\ No newline at end of file"));
+  }
+
+  #[test]
   fn untracked_is_all_add_hunk() {
     let (directory, repo) = init_repo();
     std::fs::write(directory.path().join("new.txt"), "fresh\n").unwrap();
     let diff = scm_file_diff(&repo, "new.txt", false).unwrap();
+    assert!(diff.patch.contains("+++ b/new.txt"));
+    assert!(diff.patch.contains("+fresh"));
     assert_eq!(diff.content.original, "");
     assert_eq!(diff.content.modified, "fresh\n");
     assert!(!diff.hunks.is_empty());
@@ -768,6 +847,7 @@ mod tests {
     let diff = scm_file_diff(&repo, "photo.png", false).unwrap();
     assert_eq!(diff.content.file_type, "image");
     assert!(diff.hunks.is_empty());
+    assert!(diff.patch.is_empty());
     assert!(diff.content.modified.starts_with("data:image/png;base64,"));
   }
 
@@ -778,6 +858,7 @@ mod tests {
     let diff = scm_file_diff(&repo, "data.bin", false).unwrap();
     assert_eq!(diff.content.file_type, "binary");
     assert!(diff.hunks.is_empty());
+    assert!(diff.patch.is_empty());
   }
 
   fn commit_path(repo: &GitRepository, path: &str, content: &str, message: &str) -> String {
@@ -804,6 +885,7 @@ mod tests {
     assert!(!diff.hunks.is_empty());
     assert_eq!(diff.content.original, "hello\n");
     assert_eq!(diff.content.modified, "hello world\n");
+    assert!(diff.patch.contains("+hello world"));
     assert!(
       diff
         .hunks

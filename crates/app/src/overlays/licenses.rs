@@ -32,7 +32,7 @@ const METADATA: &str = include_str!(concat!(env!("OUT_DIR"), "/licenses.json"));
 pub fn license_groups() -> Vec<(&'static str, Vec<LicenseRow>)> {
   let assets = vec![
     LicenseRow {
-      name: "MesloLGS Nerd Font Mono".into(),
+      name: "MesloLGSDZ Nerd Font Mono".into(),
       license: "Apache-2.0".into(),
       url: Some("https://github.com/ryanoasis/nerd-fonts".into()),
     },

@@ -35,6 +35,10 @@ pub struct UiPalette {
   pub popover_foreground: Rgba,
   pub popover_border: Rgba,
   pub selection: Rgba,
+  /// Find matches (Zed `search.match_background`).
+  pub search_match: Rgba,
+  /// The selected find match (Zed `search.active_match_background`).
+  pub search_match_active: Rgba,
   pub link: Rgba,
   pub link_hover: Rgba,
   pub danger: Rgba,
@@ -156,6 +160,7 @@ impl UiPalette {
       .pick(&["version_control.deleted", "deleted"])
       .unwrap_or(Rgba::rgb(200, 116, 112));
     let terminal_foreground = style.pick(&["terminal.foreground", "text"]).unwrap_or(foreground);
+    let warning = style.pick(&["warning"]).unwrap_or(Rgba::rgb(204, 167, 0));
     Self {
       kind: spec.kind,
       background,
@@ -202,10 +207,16 @@ impl UiPalette {
         .selection()
         .or_else(|| style.pick(&["element.selected"]))
         .unwrap_or(primary.with_alpha(90)),
+      search_match: style
+        .pick(&["search.match_background"])
+        .unwrap_or(warning.with_alpha(90)),
+      search_match_active: style
+        .pick(&["search.active_match_background"])
+        .unwrap_or(warning.with_alpha(170)),
       link: style.pick(&["text.accent"]).unwrap_or(primary),
       link_hover: style.pick(&["link_text.hover", "text.accent"]).unwrap_or(primary_hover),
       danger: style.pick(&["error"]).unwrap_or(Rgba::rgb(241, 76, 76)),
-      warning: style.pick(&["warning"]).unwrap_or(Rgba::rgb(204, 167, 0)),
+      warning,
       success: style
         .pick(&["success", "created", "terminal.ansi.green"])
         .unwrap_or(Rgba::rgb(137, 209, 133)),

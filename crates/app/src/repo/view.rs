@@ -107,9 +107,9 @@ impl RepoView {
     cx.observe(&explorer_model, |_, _, cx| cx.notify()).detach();
     let explorer = cx.new(|cx| ExplorerView::new(explorer_model.clone(), model.clone(), layout.clone(), window, cx));
     let changes = cx.new(|cx| ChangesView::new(model.clone(), layout.clone(), window, cx));
-    let diff = cx.new(|cx| DiffPanel::new(model.clone(), layout.clone(), cx));
+    let diff = cx.new(|cx| DiffPanel::new(model.clone(), layout.clone(), window, cx));
     let file = cx.new(|cx| FileViewer::new(model.clone(), layout.clone(), window, cx));
-    let history_diff = cx.new(|cx| DiffPanel::new(model.clone(), layout.clone(), cx));
+    let history_diff = cx.new(|cx| DiffPanel::new(model.clone(), layout.clone(), window, cx));
     let history = cx.new(|cx| HistoryView::new(model.clone(), layout.clone(), history_diff, cx));
     let settings = cx.new(|cx| SettingsView::new(model.clone(), layout.clone(), core.clone(), window, cx));
     cx.observe(&settings, |_, _, cx| cx.notify()).detach();
@@ -215,6 +215,18 @@ impl RepoView {
     self.focus_handle.focus(window, cx);
   }
 
+  /// Switches the sidebar tab. The hidden tab unmounts the element that held focus, and a window with no
+  /// focus resolves no Repository key context, so the shortcuts would stop firing; the repository takes focus.
+  fn show_sidebar(&mut self, view: SidebarView, window: &mut Window, cx: &mut Context<Self>) {
+    let held_by_sidebar = self.changes.read(cx).owns_focus(window, cx) || self.explorer.read(cx).owns_focus(window, cx);
+    self
+      .layout
+      .update(cx, |layout, cx| layout.select_sidebar_view(view, cx));
+    if held_by_sidebar {
+      self.focus(window, cx);
+    }
+  }
+
   fn toggle_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
     let opener = self.settings_opener(window, cx);
     let next = self.layout.update(cx, |layout, cx| {
@@ -309,17 +321,18 @@ impl RepoView {
         let layout_entity = self.layout.clone();
         v_resizable("main-area")
           .with_state(&self.main_state)
-          .with_handle_appearance(super::resize::divider(self.main_state.clone(), move |state, _, cx| {
+          .on_resize(move |state, _, cx| {
             if let Some(height) = state.read(cx).sizes().get(1).copied() {
               layout_entity.update(cx, |layout, cx| layout.set_terminal_height(f32::from(height), cx));
             }
-          }))
+          })
           .child(resizable_panel().child(main_panel))
           .child(
             resizable_panel()
               .size(px(layout.terminal_height))
               .size_range(px(100.0)..px(600.0))
               .flex_none()
+              .fixed()
               .child(terminal),
           )
           .into_any_element()
@@ -331,14 +344,15 @@ impl RepoView {
       .size(px(layout.sidebar_width))
       .size_range(px(200.0)..px(600.0))
       .flex_none()
+      .fixed()
       .child(sidebar);
     let mut group = h_resizable("shell-body")
       .with_state(&self.body_state)
-      .with_handle_appearance(super::resize::divider(self.body_state.clone(), move |state, _, cx| {
+      .on_resize(move |state, _, cx| {
         if let Some(width) = state.read(cx).sizes().get(sidebar_index).copied() {
           layout_entity.update(cx, |layout, cx| layout.set_sidebar_width(f32::from(width), cx));
         }
-      }));
+      });
     group = if sidebar_right {
       group.child(resizable_panel().child(main_area)).child(sidebar_panel)
     } else {
@@ -365,15 +379,11 @@ impl Render for RepoView {
       .flex()
       .flex_col()
       .bg(hsla(palette.background))
-      .on_action(cx.listener(|this, _: &ShowChanges, _, cx| {
-        this
-          .layout
-          .update(cx, |layout, cx| layout.select_sidebar_view(SidebarView::Scm, cx));
+      .on_action(cx.listener(|this, _: &ShowChanges, window, cx| {
+        this.show_sidebar(SidebarView::Scm, window, cx);
       }))
-      .on_action(cx.listener(|this, _: &ShowExplorer, _, cx| {
-        this
-          .layout
-          .update(cx, |layout, cx| layout.select_sidebar_view(SidebarView::Explorer, cx));
+      .on_action(cx.listener(|this, _: &ShowExplorer, window, cx| {
+        this.show_sidebar(SidebarView::Explorer, window, cx);
       }))
       .on_action(cx.listener(|this, _: &ShowHistory, _, cx| {
         if !this.has_repository(cx) {
@@ -1132,6 +1142,58 @@ mod tests {
       })
       .unwrap();
     cx.run_until_parked();
+
+    crate::test_core::park_and_shutdown(cx, &core);
+  }
+
+  #[gpui_kit::test]
+  fn window_resize_keeps_the_sidebar_width_and_terminal_height(cx: &mut TestAppContext) {
+    let config_dir = tempfile::TempDir::new().unwrap();
+    let resource_dir = tempfile::TempDir::new().unwrap();
+    cx.update(|cx| {
+      gpui_kit::init(cx);
+      AppConfig::init_at(config_dir.path().to_path_buf(), cx);
+      crate::theme::init(cx);
+    });
+    let core = Core::new(resource_dir.path().to_path_buf()).unwrap();
+    let (session, _events) = core.open_session();
+    let layout_dir = config_dir.path().to_path_buf();
+    let root = layout_dir.to_string_lossy().into_owned();
+    let (view, cx) = cx.add_window_view({
+      let core = core.clone();
+      let snapshot = snapshot(&root);
+      let root = root.clone();
+      move |window, cx| {
+        let model = cx.new(|_| RepoModel::new(core.clone(), session, snapshot));
+        let layout = cx.new(|_| LayoutModel::load_from(layout_dir, &root, true));
+        let output = cx.new(|_| OutputLog::default());
+        RepoView::new(model, layout, output, window, cx)
+      }
+    });
+    let sizes = |cx: &mut gpui_kit::VisualTestContext| {
+      cx.update(|window, cx| window.draw(cx).clear(cx));
+      view.read_with(cx, |view, cx| {
+        let layout = view.layout.read(cx).layout();
+        assert!(layout.terminal_visible, "the terminal must show for this test");
+        (
+          view.body_state.read(cx).sizes().first().copied(),
+          view.main_state.read(cx).sizes().get(1).copied(),
+          px(layout.sidebar_width),
+          px(layout.terminal_height),
+        )
+      })
+    };
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    let (sidebar, terminal, stored_sidebar, stored_terminal) = sizes(cx);
+    assert_eq!(sidebar, Some(stored_sidebar));
+    assert_eq!(terminal, Some(stored_terminal));
+    for (width, height) in [(1800.0, 1100.0), (900.0, 600.0)] {
+      cx.simulate_resize(size(px(width), px(height)));
+      cx.run_until_parked();
+      let (sidebar, terminal, _, _) = sizes(cx);
+      assert_eq!(sidebar, Some(stored_sidebar), "sidebar at {width}x{height}");
+      assert_eq!(terminal, Some(stored_terminal), "terminal at {width}x{height}");
+    }
 
     crate::test_core::park_and_shutdown(cx, &core);
   }

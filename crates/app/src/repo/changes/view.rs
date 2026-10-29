@@ -155,7 +155,19 @@ impl ChangesView {
       || self.filter.read(cx).focus_handle(cx).is_focused(window)
   }
 
+  /// Sends the message still waiting on its input debounce, so a commit started right after typing
+  /// sees the text in the box.
+  fn flush_commit_message(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    if self.commit_generation == 0 {
+      return;
+    }
+    self.commit_generation = 0;
+    let message = self.commit.read(cx).value().to_string();
+    self.send(Intent::SetCommitMessage { message }, window, cx);
+  }
+
   pub fn commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    self.flush_commit_message(window, cx);
     self.send(Intent::Commit { confirmed: false }, window, cx);
   }
 
@@ -256,7 +268,7 @@ impl ChangesView {
       self.select_range(group_id, index, cx);
       return;
     }
-    if modifiers.secondary() {
+    if modifiers.secondary(cx) {
       let key = (row.group_kind, row.path.clone());
       if !self.selected.remove(&key) {
         self.selected.insert(key);
@@ -671,9 +683,11 @@ impl Render for ChangesView {
         this.send(Intent::SetAmend { enabled: true }, window, cx);
       }))
       .on_action(cx.listener(|this, _: &CommitAndPush, window, cx| {
+        this.flush_commit_message(window, cx);
         this.send(Intent::CommitAndPush { confirmed: false }, window, cx);
       }))
       .on_action(cx.listener(|this, _: &CommitAndSync, window, cx| {
+        this.flush_commit_message(window, cx);
         this.send(Intent::CommitAndSync { confirmed: false }, window, cx);
       }))
       .on_action(cx.listener(|this, _: &RefreshStatus, window, cx| {

@@ -1,9 +1,8 @@
+pub mod grammar;
 pub mod header;
-pub mod highlight;
 pub mod panel;
-pub mod rows;
-pub mod selection;
+mod split;
+mod split_document;
 pub mod states;
-mod wheel;
 
 pub use panel::{DiffMode, DiffPanel};

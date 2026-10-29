@@ -102,7 +102,7 @@ pub fn render_header(entry: &CommitEntry, view: WeakEntity<HistoryView>, palette
           div()
             .flex_shrink_0()
             .text_size(px(12.0))
-            .text_color(hsla(palette.accent))
+            .text_color(hsla(palette.link))
             .child(entry.short_id.clone()),
         )
         .child(middot(palette))
